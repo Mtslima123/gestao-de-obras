@@ -1698,6 +1698,39 @@ const ConfirmModal2 = ({ title, msg1, msg2, onConfirm, onCancel }) => {
 };
 
 // ===========================================================
+// Hook de sincronização das bases com Supabase (CRUD + tempo real)
+const useBaseSupabase = (tipo) => {
+  const [items,   setItems]   = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    window.sb.from('estimativas_base').select('id, dados').eq('tipo', tipo).order('id')
+      .then(({ data }) => {
+        setItems((data || []).map(r => ({ ...r.dados, id: r.id })));
+        setLoading(false);
+      });
+
+    const channel = window.sb.channel('base_' + tipo)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'estimativas_base', filter: `tipo=eq.${tipo}` }, payload => {
+        if (payload.eventType === 'INSERT')
+          setItems(s => [...s, { ...payload.new.dados, id: payload.new.id }]);
+        else if (payload.eventType === 'UPDATE')
+          setItems(s => s.map(i => i.id === payload.new.id ? { ...payload.new.dados, id: payload.new.id } : i));
+        else if (payload.eventType === 'DELETE')
+          setItems(s => s.filter(i => i.id !== payload.old.id));
+      }).subscribe();
+
+    return () => window.sb.removeChannel(channel);
+  }, [tipo]);
+
+  const inserir  = (dados) => window.sb.from('estimativas_base').insert({ tipo, dados });
+  const atualizar = (id, dados) => window.sb.from('estimativas_base').update({ dados }).eq('id', id);
+  const excluir  = (id) => window.sb.from('estimativas_base').delete().eq('id', id);
+
+  return { items, loading, inserir, atualizar, excluir };
+};
+
+// ===========================================================
 // Hook de drag-and-drop para modais
 const useDrag = (defaultW, defaultH) => {
   const nodeRef = React.useRef(null);
@@ -2209,7 +2242,7 @@ const BaseObras = ({ items, setItems }) => {
 
 // ---------- BASE PROJETOS ----------
 const BaseProjetos = () => {
-  const [items,    setItems]   = React.useState(ESTIM_PROPOSTAS_PROJ.map(p=>({...p})));
+  const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('proposta');
   const [showForm, setShowForm]= React.useState(false);
   const [editItem, setEditItem]= React.useState(null);
   const [delConf,  setDelConf] = React.useState(null);
@@ -2221,7 +2254,7 @@ const BaseProjetos = () => {
   const [form, setForm] = React.useState(emptyForm);
   const updF = (k,v) => setForm(s=>({...s,[k]:v}));
 
-  const startEdit = (item) => { setForm({...item}); setEditItem(item); setShowForm(true); };
+  const startEdit = (item) => { const { id, ...rest } = item; setForm({...emptyForm, ...rest}); setEditItem(item); setShowForm(true); };
 
   const esps  = [...new Set(items.map(i=>i.esp))].sort();
   const obras = [...new Set(items.map(i=>i.obra).filter(Boolean))].sort();
@@ -2234,17 +2267,13 @@ const BaseProjetos = () => {
     return matchS && matchE && matchO;
   });
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.esp.trim()) return;
-    if (editItem) {
-      setItems(s => s.map(i => i.id === editItem.id ? {...i, ...form} : i));
-      setEditItem(null);
-    } else {
-      setItems(s=>[...s,{...form,id:Date.now()}]);
-    }
+    if (editItem) { await atualizar(editItem.id, form); setEditItem(null); }
+    else { await inserir(form); }
     setForm(emptyForm); setShowForm(false);
   };
-  const excluir = (id) => { setItems(s=>s.filter(i=>i.id!==id)); setDelConf(null); };
+  const excluir = async (id) => { await excluirDb(id); setDelConf(null); };
 
   return (
     <div className="card">
@@ -2326,7 +2355,7 @@ const BaseProjetos = () => {
 // ---------- BASE ELEVADORES ----------
 const BaseElevadores = () => {
   const inccAtual = 1259.652;
-  const [items,      setItems]      = React.useState(ESTIM_ELEVADORES_REF.map((e,i)=>({...e,id:i+1})));
+  const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('elevador');
   const [showForm,   setShowForm]   = React.useState(false);
   const [editItem,   setEditItem]   = React.useState(null);
   const [delConf,    setDelConf]    = React.useState(null);
@@ -2345,19 +2374,15 @@ const BaseElevadores = () => {
   const [form, setForm] = React.useState(emptyForm);
   const updF = (k,v) => setForm(s=>({...s,[k]:v}));
 
-  const startEdit = (item) => { setForm({...item}); setEditItem(item); setShowForm(true); };
+  const startEdit = (item) => { const { id, ...rest } = item; setForm({...emptyForm, ...rest}); setEditItem(item); setShowForm(true); };
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.obra.trim()) return;
-    if (editItem) {
-      setItems(s => s.map(i => i.id === editItem.id ? {...i, ...form} : i));
-      setEditItem(null);
-    } else {
-      setItems(s=>[...s,{...form,id:Date.now()}]);
-    }
+    if (editItem) { await atualizar(editItem.id, form); setEditItem(null); }
+    else { await inserir(form); }
     setForm(emptyForm); setShowForm(false);
   };
-  const excluir = (id) => { setItems(s=>s.filter(i=>i.id!==id)); setDelConf(null); };
+  const excluir = async (id) => { await excluirDb(id); setDelConf(null); };
 
   return (
     <div className="card">
@@ -2441,7 +2466,7 @@ const BaseElevadores = () => {
 // ---------- BASE FUNDAÇÃO ----------
 const BaseFundacao = () => {
   const inccAtual = 1259.652;
-  const [items,      setItems]      = React.useState(ESTIM_FUNDACAO_REF.map((f,i)=>({...f,id:i+1})));
+  const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('fundacao');
   const [showForm,   setShowForm]   = React.useState(false);
   const [editItem,   setEditItem]   = React.useState(null);
   const [delConf,    setDelConf]    = React.useState(null);
@@ -2460,19 +2485,15 @@ const BaseFundacao = () => {
   const [form, setForm] = React.useState(emptyForm);
   const updF = (k,v) => setForm(s=>({...s,[k]:v}));
 
-  const startEdit = (item) => { setForm({...item}); setEditItem(item); setShowForm(true); };
+  const startEdit = (item) => { const { id, ...rest } = item; setForm({...emptyForm, ...rest}); setEditItem(item); setShowForm(true); };
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.obra.trim()) return;
-    if (editItem) {
-      setItems(s => s.map(i => i.id === editItem.id ? {...i, ...form} : i));
-      setEditItem(null);
-    } else {
-      setItems(s=>[...s,{...form,id:Date.now()}]);
-    }
+    if (editItem) { await atualizar(editItem.id, form); setEditItem(null); }
+    else { await inserir(form); }
     setForm(emptyForm); setShowForm(false);
   };
-  const excluir = (id) => { setItems(s=>s.filter(i=>i.id!==id)); setDelConf(null); };
+  const excluir = async (id) => { await excluirDb(id); setDelConf(null); };
 
   return (
     <div className="card">
@@ -2556,33 +2577,29 @@ const BaseFundacao = () => {
 
 // ---------- BASE IMPLANTAÇÃO ----------
 const BaseImplantacao = () => {
-  const [items,   setItems]   = React.useState(ESTIM_IMPLANTACAO_BASE.map(i=>({...i})));
+  const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('implantacao');
   const [showForm,setShowForm]= React.useState(false);
   const [editItem,setEditItem]= React.useState(null);
   const [delConf, setDelConf] = React.useState(null);
   const [search,  setSearch]  = React.useState('');
 
   const filtered = items.filter(i =>
-    !search || i.item.toLowerCase().includes(search.toLowerCase()) || i.obs.toLowerCase().includes(search.toLowerCase())
+    !search || (i.item||'').toLowerCase().includes(search.toLowerCase()) || (i.obs||'').toLowerCase().includes(search.toLowerCase())
   );
 
   const emptyForm = { obs:'', item:'', qtd:0, unid:'M2', precoRS:0, precoIncc:0 };
   const [form, setForm] = React.useState(emptyForm);
   const updF = (k,v) => setForm(s=>({...s,[k]:v}));
 
-  const startEdit = (item) => { setForm({...item}); setEditItem(item); setShowForm(true); };
+  const startEdit = (item) => { const { id, ...rest } = item; setForm({...emptyForm, ...rest}); setEditItem(item); setShowForm(true); };
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.item.trim()) return;
-    if (editItem) {
-      setItems(s => s.map(i => i.id === editItem.id ? {...i, ...form} : i));
-      setEditItem(null);
-    } else {
-      setItems(s=>[...s,{...form,id:Date.now()}]);
-    }
+    if (editItem) { await atualizar(editItem.id, form); setEditItem(null); }
+    else { await inserir(form); }
     setForm(emptyForm); setShowForm(false);
   };
-  const excluir = (id) => { setItems(s=>s.filter(i=>i.id!==id)); setDelConf(null); };
+  const excluir = async (id) => { await excluirDb(id); setDelConf(null); };
 
   return (
     <div className="card">
