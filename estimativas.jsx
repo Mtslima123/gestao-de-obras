@@ -193,7 +193,12 @@ const EstimativasScreen = () => {
   };
 
   const handleSalvar = async (novoItem) => {
-    await window.sb.from('estimativas_base').insert({ tipo: 'estimativa', dados: novoItem });
+    const { error } = await window.sb.from('estimativas_base').insert({ tipo: 'estimativa', dados: novoItem });
+    if (error) {
+      console.error('Erro ao salvar estimativa:', error);
+      alert('Erro ao salvar: ' + error.message);
+      return;
+    }
     setEditingEstim(null);
     setSubtab('salvas');
   };
