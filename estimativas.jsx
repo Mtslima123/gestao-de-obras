@@ -159,10 +159,23 @@ const calcItemsTotal = (items, fator) =>
 const EstimativasScreen = () => {
   const [subtab, setSubtab] = React.useState('nova');
   const [editingEstim, setEditingEstim] = React.useState(null);
-  const [savedItems, setSavedItems] = React.useState(ESTIM_SALVAS_INIT);
+  const [savedItems, setSavedItems] = React.useState([]);
   const [saveTrigger, setSaveTrigger] = React.useState(0);
   const [clearTrigger, setClearTrigger] = React.useState(0);
   const [refObras, setRefObras] = React.useState(ESTIM_PROJETOS_REF.map(p => ({ ...p })));
+
+  React.useEffect(() => {
+    window.sb.from('estimativas_base').select('id, dados').eq('tipo', 'estimativa').order('id', { ascending: false })
+      .then(({ data }) => setSavedItems((data || []).map(r => ({ ...r.dados, _dbId: r.id }))));
+
+    const ch = window.sb.channel('estim_salvas')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'estimativas_base', filter: 'tipo=eq.estimativa' }, p => {
+        if (p.eventType === 'INSERT') setSavedItems(s => [{ ...p.new.dados, _dbId: p.new.id }, ...s]);
+        else if (p.eventType === 'UPDATE') setSavedItems(s => s.map(e => e._dbId === p.new.id ? { ...p.new.dados, _dbId: p.new.id } : e));
+        else if (p.eventType === 'DELETE') setSavedItems(s => s.filter(e => e._dbId !== p.old.id));
+      }).subscribe();
+    return () => window.sb.removeChannel(ch);
+  }, []);
   const fixedHeaderRef = React.useRef(null);
   const [spacerH, setSpacerH] = React.useState(170);
   React.useLayoutEffect(() => {
@@ -179,8 +192,8 @@ const EstimativasScreen = () => {
     setSubtab('nova');
   };
 
-  const handleSalvar = (novoItem) => {
-    setSavedItems(s => [novoItem, ...s]);
+  const handleSalvar = async (novoItem) => {
+    await window.sb.from('estimativas_base').insert({ tipo: 'estimativa', dados: novoItem });
     setEditingEstim(null);
     setSubtab('salvas');
   };
@@ -226,7 +239,7 @@ const EstimativasScreen = () => {
       <div style={{ height: spacerH }} />
 
       {subtab === 'nova' && <EstimativaAtual key={editingEstim ? editingEstim.id : '__nova__'} initialData={editingEstim} onSalvar={handleSalvar} saveTrigger={saveTrigger} clearTrigger={clearTrigger} refObras={refObras} />}
-      {subtab === 'salvas' && <EstimativasSalvas items={savedItems} setItems={setSavedItems} onEditar={handleEditar} />}
+      {subtab === 'salvas' && <EstimativasSalvas items={savedItems} onEditar={handleEditar} />}
       <div style={{ display: subtab === 'base' ? '' : 'none' }}><BaseDados refObras={refObras} setRefObras={setRefObras} /></div>
     </>
   );
@@ -1849,43 +1862,51 @@ const statusBadge = (s) => {
   return <span className={'badge '+(map[s]||'neutral')}><span className="dot"></span>{label[s]||s}</span>;
 };
 
-const EstimativasSalvas = ({ onEditar, items, setItems }) => {
+const EstimativasSalvas = ({ onEditar, items }) => {
   const today = new Date().toLocaleDateString('pt-BR');
   const [filter,   setFilter]   = React.useState('todas');
   const [search,   setSearch]   = React.useState('');
-  const [delConf,  setDelConf]  = React.useState(null); // item a excluir
-  const [revConf,  setRevConf]  = React.useState(null); // item a revisar
+  const [delConf,  setDelConf]  = React.useState(null);
+  const [revConf,  setRevConf]  = React.useState(null);
 
   const filtered = items.filter(e => {
     const matchFilter = filter==='todas' || e.status===filter;
-    const matchSearch = !search || e.nome.toLowerCase().includes(search.toLowerCase()) || e.id.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search || e.nome.toLowerCase().includes(search.toLowerCase()) || (e.id||'').toString().toLowerCase().includes(search.toLowerCase());
     return matchFilter && matchSearch;
   });
 
-  const changeStatus = (id, status) => setItems(s => s.map(e => e.id===id ? {...e, status} : e));
+  const changeStatus = async (id, status) => {
+    const item = items.find(e => e.id === id);
+    if (!item) return;
+    const { _dbId, ...dados } = item;
+    await window.sb.from('estimativas_base').update({ dados: { ...dados, status } }).eq('id', _dbId);
+  };
 
-  const excluir = (id) => {
-    setItems(s => s.filter(e => e.id!==id && e.parentId!==id));
+  const excluir = async (id) => {
+    const toDelete = items.filter(e => e.id === id || e.parentId === id);
+    for (const e of toDelete) {
+      await window.sb.from('estimativas_base').delete().eq('id', e._dbId);
+    }
     setDelConf(null);
   };
 
-  const criarRevisao = (item) => {
+  const criarRevisao = async (item) => {
     const irmãos = items.filter(e => e.parentId===item.parentId || e.id===item.parentId || e.parentId===item.id || e.id===item.id);
     const maxRev  = irmãos.reduce((max, e) => {
       const n = parseInt((e.rev||'REV-00').replace('REV-',''));
       return n>max ? n : max;
     }, 0);
     const novoRev = 'REV-' + String(maxRev+1).padStart(2,'0');
-    const novoId  = 'EST-' + String(Date.now()).slice(-4);
-    setItems(s => [...s, {
-      ...item,
-      id: novoId,
+    const { _dbId, ...dados } = item;
+    await window.sb.from('estimativas_base').insert({ tipo: 'estimativa', dados: {
+      ...dados,
+      id: 'EST-' + String(Date.now()).slice(-4),
       nome: item.nome.replace(/ — REV-\d+$/,'') + ' — ' + novoRev,
       rev: novoRev,
       parentId: item.parentId || item.id,
       status: 'rascunho',
       data: today,
-    }]);
+    }});
   };
 
   const counts = { todas: items.length, aprovada: items.filter(e=>e.status==='aprovada').length, rascunho: items.filter(e=>e.status==='rascunho').length, arquivada: items.filter(e=>e.status==='arquivada').length };
