@@ -8,10 +8,24 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 const AppInner = () => {
   const [authed, setAuthed] = React.useState(false);
+  const [user,   setUser]   = React.useState(null);
   const [view, setView] = React.useState('dashboard');
   const [selectedObra, setSelectedObra] = React.useState(null);
   const [modal, setModal] = React.useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+  React.useEffect(() => {
+    window.sb.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) { setAuthed(true); setUser(session.user); }
+    });
+    const { data: { subscription } } = window.sb.auth.onAuthStateChange((_, session) => {
+      setAuthed(!!session);
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = () => window.sb.auth.signOut();
 
   // apply theme + density + accent to root
   React.useEffect(() => {
@@ -62,12 +76,14 @@ const AppInner = () => {
 
   return (
     <>
-      {!authed && <LoginScreen onLogin={() => setAuthed(true)} />}
+      {!authed && <LoginScreen onLogin={() => {}} />}
       {authed && (
     <div className="app" data-screen-label={screenLabels[view] || view}>
       <Sidebar
         currentView={view === 'obra-detail' ? 'obras' : view}
         onNavigate={handleNavigate}
+        user={user}
+        onLogout={handleLogout}
       />
       <div className="main">
         <Topbar

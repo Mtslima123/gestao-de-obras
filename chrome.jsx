@@ -1,5 +1,5 @@
 // Sidebar + Topbar — shared app chrome
-const Sidebar = ({ currentView, onNavigate }) => {
+const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
   const [expanded, setExpanded] = React.useState(false);
   const collapsed = !expanded;
   const navItems = [
@@ -72,16 +72,15 @@ const Sidebar = ({ currentView, onNavigate }) => {
       </nav>
 
       <div className="sidebar-user">
-        <div className="avatar av-5 lg">RT</div>
+        <div className="avatar av-5 lg">{user?.email?.[0]?.toUpperCase() ?? '?'}</div>
         {!collapsed && (
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="user-name">Responsável 01</div>
-            <div className="user-role">Diretoria Técnica</div>
+            <div className="user-name" style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.email ?? '—'}</div>
           </div>
         )}
         {!collapsed && (
-          <button className="icon-btn" title="Configurações">
-            <Icon name="cog" size={16} />
+          <button className="icon-btn" title="Sair" onClick={onLogout}>
+            <Icon name="log-out" size={16} />
           </button>
         )}
       </div>
