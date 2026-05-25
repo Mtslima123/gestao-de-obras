@@ -1744,8 +1744,10 @@ const useBaseSupabase = (tipo) => {
   const inserir  = (dados) => window.sb.from('estimativas_base').insert({ tipo, dados });
   const atualizar = (id, dados) => window.sb.from('estimativas_base').update({ dados }).eq('id', id);
   const excluir  = (id) => window.sb.from('estimativas_base').delete().eq('id', id);
+  const refresh  = () => window.sb.from('estimativas_base').select('id, dados').eq('tipo', tipo).order('id')
+    .then(({ data }) => setItems((data || []).map(r => ({ ...r.dados, id: r.id }))));
 
-  return { items, loading, inserir, atualizar, excluir };
+  return { items, loading, inserir, atualizar, excluir, refresh };
 };
 
 // ===========================================================
@@ -2340,7 +2342,7 @@ const exportarBase = (tipo, items) => {
 // ===========================================================
 // MODAL DE IMPORTAÇÃO
 // ===========================================================
-const ImportModal = ({ tipo, onImportar, onCancel }) => {
+const ImportModal = ({ tipo, onImportar, onCancel, onSuccess }) => {
   const [drag,       setDrag]       = React.useState(false);
   const [preview,    setPreview]    = React.useState(null);
   const [importando, setImportando] = React.useState(false);
@@ -2388,8 +2390,7 @@ const ImportModal = ({ tipo, onImportar, onCancel }) => {
     const { error } = await window.sb.from('estimativas_base').insert(rows);
     setImportando(false);
     if (error) { setResultado({ erro: error.message }); return; }
-    setResultado({ ok: preview.valid.length });
-    setPreview(null);
+    onSuccess?.();
   };
 
   const dropZone = {
@@ -2547,7 +2548,7 @@ const BaseProjetos = () => {
           values={form} onChange={updF} onSave={salvar} onCancel={() => { setShowForm(false); setEditItem(null); }} />
       )}
       {delConf && <ConfirmModal2 title="Excluir proposta?" msg1={`Excluir proposta de "${delConf.esp}"?`} msg2="Ação irreversível." onConfirm={()=>excluir(delConf.id)} onCancel={()=>setDelConf(null)} />}
-      {showImport && <ImportModal tipo="proposta" onImportar={inserir} onCancel={() => setShowImport(false)} />}
+      {showImport && <ImportModal tipo="proposta" onImportar={inserir} onCancel={() => setShowImport(false)} onSuccess={() => { setShowImport(false); refresh(); }} />}
 
       <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--border)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase', marginRight:4 }}>Projetos</span>
@@ -2658,7 +2659,7 @@ const BaseElevadores = () => {
           values={form} onChange={updF} onSave={salvar} onCancel={() => { setShowForm(false); setEditItem(null); }} />
       )}
       {delConf && <ConfirmModal2 title="Excluir elevador?" msg1={`Excluir registro de "${delConf.obra}"?`} msg2="Ação irreversível." onConfirm={()=>excluir(delConf.id)} onCancel={()=>setDelConf(null)} />}
-      {showImport && <ImportModal tipo="elevador" onImportar={inserir} onCancel={() => setShowImport(false)} />}
+      {showImport && <ImportModal tipo="elevador" onImportar={inserir} onCancel={() => setShowImport(false)} onSuccess={() => { setShowImport(false); refresh(); }} />}
 
       <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--border)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase', marginRight:4 }}>Elevadores</span>
@@ -2773,7 +2774,7 @@ const BaseFundacao = () => {
           values={form} onChange={updF} onSave={salvar} onCancel={() => { setShowForm(false); setEditItem(null); }} />
       )}
       {delConf && <ConfirmModal2 title="Excluir fundação?" msg1={`Excluir registro de "${delConf.obra}"?`} msg2="Ação irreversível." onConfirm={()=>excluir(delConf.id)} onCancel={()=>setDelConf(null)} />}
-      {showImport && <ImportModal tipo="fundacao" onImportar={inserir} onCancel={() => setShowImport(false)} />}
+      {showImport && <ImportModal tipo="fundacao" onImportar={inserir} onCancel={() => setShowImport(false)} onSuccess={() => { setShowImport(false); refresh(); }} />}
 
       <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--border)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase', marginRight:4 }}>Fundação</span>
@@ -2882,7 +2883,7 @@ const BaseImplantacao = () => {
           values={form} onChange={updF} onSave={salvar} onCancel={() => { setShowForm(false); setEditItem(null); }} />
       )}
       {delConf && <ConfirmModal2 title="Excluir item?" msg1={`Excluir "${delConf.item}"?`} msg2="Ação irreversível." onConfirm={()=>excluir(delConf.id)} onCancel={()=>setDelConf(null)} />}
-      {showImport && <ImportModal tipo="implantacao" onImportar={inserir} onCancel={() => setShowImport(false)} />}
+      {showImport && <ImportModal tipo="implantacao" onImportar={inserir} onCancel={() => setShowImport(false)} onSuccess={() => { setShowImport(false); refresh(); }} />}
 
       <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--border)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase', marginRight:4 }}>Implantação</span>
