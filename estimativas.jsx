@@ -157,7 +157,8 @@ const calcItemsTotal = (items, fator) =>
 // MAIN ESTIMATIVAS SCREEN
 // ===========================================================
 const EstimativasScreen = () => {
-  const [subtab, setSubtab] = React.useState('nova');
+  const [subtab, setSubtab] = React.useState(() => sessionStorage.getItem('estim_subtab') || 'nova');
+  React.useEffect(() => { sessionStorage.setItem('estim_subtab', subtab); }, [subtab]);
   const [editingEstim, setEditingEstim] = React.useState(null);
   const [savedItems, setSavedItems] = React.useState([]);
   const [saveTrigger, setSaveTrigger] = React.useState(0);
@@ -2032,7 +2033,8 @@ const EstimativasSalvas = ({ onEditar, items }) => {
 // SUB: BASE DE DADOS — obras / projetos / elevadores / fundação
 // ===========================================================
 const BaseDados = ({ refObras, setRefObras }) => {
-  const [section, setSection] = React.useState('obras');
+  const [section, setSection] = React.useState(() => sessionStorage.getItem('base_section') || 'obras');
+  React.useEffect(() => { sessionStorage.setItem('base_section', section); }, [section]);
   const sections = [
     { id:'obras',        label:'Obras de referência', icon:'building' },
     { id:'projetos',     label:'Propostas de projeto', icon:'file' },
@@ -2386,10 +2388,22 @@ const ImportModal = ({ tipo, onImportar, onCancel, onSuccess }) => {
     reader.readAsArrayBuffer(file);
   };
 
+  const removeFromPreview = (isValid, idx) => {
+    setPreview(p => ({
+      ...p,
+      valid:   isValid  ? p.valid.filter((_,i) => i !== idx)  : p.valid,
+      invalid: !isValid ? p.invalid.filter((_,i) => i !== idx) : p.invalid,
+    }));
+  };
+
   const handleImportar = async () => {
-    if (!preview?.valid?.length) return;
+    const total = (preview?.valid?.length || 0) + (preview?.invalid?.length || 0);
+    if (!total) return;
     setImportando(true);
-    const rows = preview.valid.map(dados => ({ tipo, dados }));
+    const rows = [
+      ...(preview.valid.map(dados => ({ tipo, dados }))),
+      ...(preview.invalid.map(e => ({ tipo, dados: { ...e.item, _status: 'incompleto' } }))),
+    ];
     const { error } = await window.sb.from('estimativas_base').insert(rows);
     setImportando(false);
     if (error) { setResultado({ erro: error.message }); return; }
@@ -2438,8 +2452,8 @@ const ImportModal = ({ tipo, onImportar, onCancel, onSuccess }) => {
             <div>
               <div style={{ marginBottom:12, display:'flex', gap:8, alignItems:'center' }}>
                 <span className="badge success">{preview.valid.length} válidos</span>
-                {preview.invalid.length > 0 && <span className="badge warning">{preview.invalid.length} com erro</span>}
-                <span style={{ fontSize:11.5, color:'var(--text-muted)' }}>· Campos obrigatórios em vermelho</span>
+                {preview.invalid.length > 0 && <span className="badge warning">{preview.invalid.length} incompletos</span>}
+                <span style={{ fontSize:11.5, color:'var(--text-muted)' }}>· Campos obrigatórios em vermelho · Incompletos serão importados com status "Incompleto"</span>
               </div>
               <div style={{ overflowX:'auto', maxHeight:380, overflowY:'auto' }}>
                 <table className="tbl">
@@ -2447,7 +2461,7 @@ const ImportModal = ({ tipo, onImportar, onCancel, onSuccess }) => {
                     <tr>
                       <th style={{ width:36 }}>#</th>
                       {cfg.colunas.map(c => <th key={c.key}>{c.label}{c.obrigatorio ? ' *' : ''}</th>)}
-                      <th style={{ width:60 }}></th>
+                      <th style={{ width:90 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2455,18 +2469,32 @@ const ImportModal = ({ tipo, onImportar, onCancel, onSuccess }) => {
                       <tr key={i}>
                         <td className="mono text-muted" style={{ fontSize:11 }}>{i+1}</td>
                         {cfg.colunas.map(c => <td key={c.key} style={{ fontSize:12 }}>{item[c.key] !== '' && item[c.key] != null ? item[c.key] : '—'}</td>)}
-                        <td><span className="badge success">OK</span></td>
+                        <td>
+                          <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                            <span className="badge success">OK</span>
+                            <button className="icon-btn" style={{ width:22,height:22,color:'#e53e3e' }} title="Remover linha" onClick={() => removeFromPreview(true, i)}>
+                              <Icon name="trash" size={11} />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                     {preview.invalid.map((e, i) => (
-                      <tr key={'err'+i} style={{ background:'#fff5f5' }}>
+                      <tr key={'err'+i} style={{ background:'#fffbeb' }}>
                         <td className="mono text-muted" style={{ fontSize:11 }}>{e.linha}</td>
                         {cfg.colunas.map(c => (
                           <td key={c.key} style={{ fontSize:12, color: cfg.colunas.find(col=>col.key===c.key)?.obrigatorio && !e.item[c.key] ? '#e53e3e' : undefined }}>
                             {e.item[c.key] !== '' && e.item[c.key] != null ? e.item[c.key] : '—'}
                           </td>
                         ))}
-                        <td><span className="badge warning">Erro</span></td>
+                        <td>
+                          <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                            <span className="badge warning" style={{ whiteSpace:'nowrap' }}>Incompleto</span>
+                            <button className="icon-btn" style={{ width:22,height:22,color:'#e53e3e' }} title="Remover linha" onClick={() => removeFromPreview(false, i)}>
+                              <Icon name="trash" size={11} />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2485,9 +2513,15 @@ const ImportModal = ({ tipo, onImportar, onCancel, onSuccess }) => {
               <button className="btn btn-ghost btn-sm" onClick={()=>setPreview(null)}>Trocar arquivo</button>
             )}
             <button className="btn btn-ghost" onClick={onCancel}>{resultado ? 'Fechar' : 'Cancelar'}</button>
-            {preview?.valid?.length > 0 && !resultado && (
+            {((preview?.valid?.length || 0) + (preview?.invalid?.length || 0)) > 0 && !resultado && (
               <button className="btn btn-primary" onClick={handleImportar} disabled={importando}>
-                {importando ? <span className="login-spinner" /> : <><Icon name="upload" size={13} />Importar {preview.valid.length} {preview.valid.length === 1 ? 'item' : 'itens'}</>}
+                {importando ? <span className="login-spinner" /> : (
+                  <>
+                    <Icon name="upload" size={13} />
+                    Importar {(preview.valid.length + preview.invalid.length)} {(preview.valid.length + preview.invalid.length) === 1 ? 'item' : 'itens'}
+                    {preview.invalid.length > 0 && <span style={{ fontSize:10, opacity:0.8, marginLeft:4 }}>({preview.invalid.length} incompleto{preview.invalid.length > 1 ? 's' : ''})</span>}
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -2585,7 +2619,7 @@ const BaseProjetos = () => {
           <tbody>
             {filtered.length === 0 && <tr><td colSpan={10} style={{ textAlign:'center', padding:20, color:'var(--text-muted)' }}>Nenhum registro encontrado.</td></tr>}
             {filtered.map(p => (
-              <tr key={p.id}>
+              <tr key={p.id} style={p._status==='incompleto'?{background:'#fffbeb'}:{}}>
                 <td className="strong" style={{ fontSize:12 }}>{p.esp}</td>
                 <td style={{ fontSize:12 }}>{p.projetista||'—'}</td>
                 <td style={{ fontSize:12, color:'var(--brand)' }}>{p.obra||'—'}</td>
@@ -2596,7 +2630,8 @@ const BaseProjetos = () => {
                 <td className="right mono num" style={{ fontSize:11 }}>{(p.rs_m2 && p.inccBase) ? (p.rs_m2 / p.inccBase).toFixed(6) : '—'}</td>
                 <td className="text-muted" style={{ fontSize:11, whiteSpace:'nowrap' }}>{p.mes||'—'}</td>
                 <td className="center">
-                  <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
+                  <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center' }}>
+                    {p._status==='incompleto' && <span className="badge warning" style={{ fontSize:10 }}>Incompleto</span>}
                     <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(p)}><Icon name="edit" size={12} /></button>
                     <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(p)}><Icon name="trash" size={12} /></button>
                   </div>
@@ -2699,7 +2734,7 @@ const BaseElevadores = () => {
               const valParada    = (e.valor && e.paradas && e.qt) ? e.valor / (e.paradas * e.qt) : null;
               const valParadaIncc= (valParada && e.incc) ? valParada / e.incc : null;
               return (
-                <tr key={e.id}>
+                <tr key={e.id} style={e._status==='incompleto'?{background:'#fffbeb'}:{}}>
                   <td className="strong">{e.obra}</td>
                   <td>{e.marca ? <span className="badge neutral">{e.marca}</span> : '—'}</td>
                   <td className="center mono num">{e.paradas ?? '—'}</td>
@@ -2710,7 +2745,8 @@ const BaseElevadores = () => {
                   <td className="right mono num text-muted">{e.incc ? fmtNumES(e.incc,3) : '—'}</td>
                   <td className="right mono num">{valParadaIncc ? fmtNumES(valParadaIncc,2) : '—'}</td>
                   <td className="center">
-                    <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
+                    <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center' }}>
+                      {e._status==='incompleto' && <span className="badge warning" style={{ fontSize:10 }}>Incompleto</span>}
                       <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(e)}><Icon name="edit" size={12} /></button>
                       <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(e)}><Icon name="trash" size={12} /></button>
                     </div>
@@ -2815,7 +2851,7 @@ const BaseFundacao = () => {
               const custoIncc = (f.custo && f.inccBase) ? f.custo / f.inccBase : 0;
               const coef      = (custoIncc && f.area && f.pavtos) ? custoIncc / (f.area * f.pavtos) : 0;
               return (
-                <tr key={f.id}>
+                <tr key={f.id} style={f._status==='incompleto'?{background:'#fffbeb'}:{}}>
                   <td className="strong">{f.obra}</td>
                   <td style={{ color:'var(--brand)', fontSize:12 }}>{f.fund}</td>
                   <td className="right mono num">{fmtNumES(f.area,2)}</td>
@@ -2826,7 +2862,8 @@ const BaseFundacao = () => {
                   <td className="right mono num"><span className="badge info">{coef.toFixed(3)}</span></td>
                   <td className="center mono" style={{ fontSize:12, color:'var(--text-muted)' }}>{f.mes || '—'}</td>
                   <td className="center">
-                    <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
+                    <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center' }}>
+                      {f._status==='incompleto' && <span className="badge warning" style={{ fontSize:10 }}>Incompleto</span>}
                       <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(f)}><Icon name="edit" size={12} /></button>
                       <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(f)}><Icon name="trash" size={12} /></button>
                     </div>
@@ -2913,7 +2950,7 @@ const BaseImplantacao = () => {
           <tbody>
             {filtered.length === 0 && <tr><td colSpan={8} style={{ textAlign:'center', padding:20, color:'var(--text-muted)' }}>Nenhum item encontrado.</td></tr>}
             {filtered.map(i => (
-              <tr key={i.id}>
+              <tr key={i.id} style={i._status==='incompleto'?{background:'#fffbeb'}:{}}>
                 <td className="text-muted" style={{ fontSize:11 }}>{i.obs}</td>
                 <td className="strong" style={{ fontSize:12 }}>{i.item}</td>
                 <td className="right mono num">{fmtNumES(i.qtd,2)}</td>
@@ -2922,7 +2959,8 @@ const BaseImplantacao = () => {
                 <td className="right mono num">{fmtNumES(i.precoIncc,4)}</td>
                 <td className="right mono num strong">{fmtNumES(i.qtd * i.precoIncc, 2)}</td>
                 <td className="center">
-                  <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
+                  <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center' }}>
+                    {i._status==='incompleto' && <span className="badge warning" style={{ fontSize:10 }}>Incompleto</span>}
                     <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(i)}><Icon name="edit" size={12} /></button>
                     <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(i)}><Icon name="trash" size={12} /></button>
                   </div>

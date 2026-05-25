@@ -9,7 +9,10 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 const AppInner = () => {
   const [authed, setAuthed] = React.useState(false);
   const [user,   setUser]   = React.useState(null);
-  const [view, setView] = React.useState('dashboard');
+  const [view, setView] = React.useState(() => {
+    const saved = sessionStorage.getItem('nav_view');
+    return (saved && saved !== 'obra-detail') ? saved : 'dashboard';
+  });
   const [selectedObra, setSelectedObra] = React.useState(null);
   const [modal, setModal] = React.useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
@@ -25,6 +28,17 @@ const AppInner = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Restaura obra-detail após reload
+  React.useEffect(() => {
+    if (sessionStorage.getItem('nav_view') === 'obra-detail') {
+      try {
+        const obra = JSON.parse(sessionStorage.getItem('nav_obra') || 'null');
+        if (obra) { setSelectedObra(obra); setView('obra-detail'); }
+        else setView('obras');
+      } catch { setView('obras'); }
+    }
+  }, []);
+
   const handleLogout = () => window.sb.auth.signOut();
 
   // apply theme + density + accent to root
@@ -35,11 +49,14 @@ const AppInner = () => {
   }, [tweaks.theme, tweaks.density, tweaks.accent]);
 
   const handleNavigate = (v) => {
+    sessionStorage.setItem('nav_view', v);
     setSelectedObra(null);
     setView(v);
   };
 
   const handleOpenObra = (obra) => {
+    sessionStorage.setItem('nav_view', 'obra-detail');
+    try { sessionStorage.setItem('nav_obra', JSON.stringify(obra)); } catch {}
     setSelectedObra(obra);
     setView('obra-detail');
   };
