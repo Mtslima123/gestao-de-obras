@@ -2374,10 +2374,11 @@ const ImportModal = ({ tipo, onImportar, onCancel, onSuccess }) => {
           const item = {};
           let ok = true;
           cfg.colunas.forEach(col => {
-            const ci = headers.indexOf(col.label);
-            const v  = ci >= 0 ? row[ci] : '';
-            item[col.key] = col.tipo === 'numero' ? (parseFloat(v) || 0) : String(v || '').trim();
-            if (col.obrigatorio && !item[col.key]) ok = false;
+            const ci    = headers.indexOf(col.label);
+            const v     = ci >= 0 ? row[ci] : '';
+            const rawV  = String(v ?? '').trim();
+            item[col.key] = col.tipo === 'numero' ? (parseFloat(v) || 0) : rawV;
+            if (!rawV) ok = false;
           });
           if (ok) valid.push(item);
           else    invalid.push({ linha: idx + 2, item });
