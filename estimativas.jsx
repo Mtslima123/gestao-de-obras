@@ -1743,7 +1743,10 @@ const useBaseSupabase = (tipo) => {
 
   const inserir  = (dados) => window.sb.from('estimativas_base').insert({ tipo, dados });
   const atualizar = (id, dados) => window.sb.from('estimativas_base').update({ dados }).eq('id', id);
-  const excluir  = (id) => window.sb.from('estimativas_base').delete().eq('id', id);
+  const excluir  = async (id) => {
+    const { error } = await window.sb.from('estimativas_base').delete().eq('id', id);
+    if (!error) setItems(s => s.filter(i => i.id !== id));
+  };
   const refresh  = () => window.sb.from('estimativas_base').select('id, dados').eq('tipo', tipo).order('id')
     .then(({ data }) => setItems((data || []).map(r => ({ ...r.dados, id: r.id }))));
 
