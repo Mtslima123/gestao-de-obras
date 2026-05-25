@@ -2266,13 +2266,241 @@ const BaseObras = ({ items, setItems }) => {
   );
 };
 
+// ===========================================================
+// CONFIG DE COLUNAS POR BASE (usada em Import/Export)
+// ===========================================================
+const BASE_CONFIGS = {
+  proposta: {
+    nome: 'Propostas de Projeto', arquivo: 'propostas-projeto',
+    colunas: [
+      { key:'esp',        label:'Especialidade',       tipo:'texto',  obrigatorio:true  },
+      { key:'projetista', label:'Projetista',           tipo:'texto',  obrigatorio:false },
+      { key:'obra',       label:'Obra',                 tipo:'texto',  obrigatorio:false },
+      { key:'proposta',   label:'Proposta (R$)',        tipo:'numero', obrigatorio:false },
+      { key:'rs_m2',      label:'R$/m²',                tipo:'numero', obrigatorio:false },
+      { key:'inccBase',   label:'INCC Base',            tipo:'numero', obrigatorio:false },
+      { key:'incc_m2',    label:'INCC/m²',              tipo:'numero', obrigatorio:false },
+      { key:'mes',        label:'Mês/Ano',              tipo:'texto',  obrigatorio:false },
+    ],
+    exemplo: { esp:'Projeto de Arquitetura', projetista:'João Silva', obra:'Edifício Alpha', proposta:300000, rs_m2:15.5, inccBase:1259.65, incc_m2:0.012, mes:'2024-01' },
+  },
+  elevador: {
+    nome: 'Elevadores', arquivo: 'elevadores',
+    colunas: [
+      { key:'obra',    label:'Obra',                tipo:'texto',  obrigatorio:true  },
+      { key:'marca',   label:'Marca',               tipo:'texto',  obrigatorio:false },
+      { key:'paradas', label:'Nº Paradas',          tipo:'numero', obrigatorio:false },
+      { key:'qt',      label:'Qt. Elevadores',      tipo:'numero', obrigatorio:false },
+      { key:'valor',   label:'Valor Fechado (R$)',  tipo:'numero', obrigatorio:false },
+      { key:'mes',     label:'Mês',                 tipo:'texto',  obrigatorio:false },
+      { key:'incc',    label:'INCC Base',           tipo:'numero', obrigatorio:false },
+    ],
+    exemplo: { obra:'Edifício Alpha', marca:'OTIS', paradas:12, qt:2, valor:480000, mes:'2024-01', incc:1259.65 },
+  },
+  fundacao: {
+    nome: 'Fundações', arquivo: 'fundacoes',
+    colunas: [
+      { key:'fund',    label:'Tipo de Fundação',   tipo:'texto',  obrigatorio:true  },
+      { key:'obra',    label:'Obra',                tipo:'texto',  obrigatorio:false },
+      { key:'area',    label:'Área Terreno (m²)',   tipo:'numero', obrigatorio:false },
+      { key:'pavtos',  label:'Qt. Pavimentos',      tipo:'numero', obrigatorio:false },
+      { key:'custo',   label:'Custo (R$)',          tipo:'numero', obrigatorio:false },
+      { key:'inccBase',label:'INCC Base',           tipo:'numero', obrigatorio:false },
+      { key:'mes',     label:'Mês',                 tipo:'texto',  obrigatorio:false },
+    ],
+    exemplo: { fund:'Estaca Hélice', obra:'Edifício Alpha', area:1200, pavtos:15, custo:850000, inccBase:1259.65, mes:'2024-01' },
+  },
+  implantacao: {
+    nome: 'Implantação', arquivo: 'implantacao',
+    colunas: [
+      { key:'item',      label:'Item',                 tipo:'texto',  obrigatorio:true  },
+      { key:'obs',       label:'Observação / Fórmula', tipo:'texto',  obrigatorio:false },
+      { key:'qtd',       label:'Qtd.',                 tipo:'numero', obrigatorio:false },
+      { key:'unid',      label:'Unidade',              tipo:'texto',  obrigatorio:false },
+      { key:'precoRS',   label:'Preço Unit. (R$)',     tipo:'numero', obrigatorio:false },
+      { key:'precoIncc', label:'Preço Unit. (INCC)',   tipo:'numero', obrigatorio:false },
+    ],
+    exemplo: { item:'Barracão de Obra', obs:'ÁREA DO TERRENO', qtd:300, unid:'M2', precoRS:907.69, precoIncc:0.84 },
+  },
+};
+
+const exportarBase = (tipo, items) => {
+  const cfg = BASE_CONFIGS[tipo];
+  const headers = cfg.colunas.map(c => c.label);
+  const linhas = items.length > 0
+    ? items.map(item => cfg.colunas.map(c => item[c.key] ?? ''))
+    : [cfg.colunas.map(c => cfg.exemplo[c.key] ?? '')];
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...linhas]);
+  ws['!cols'] = headers.map(() => ({ wch: 22 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, cfg.nome);
+  XLSX.writeFile(wb, `${cfg.arquivo}.xlsx`);
+};
+
+// ===========================================================
+// MODAL DE IMPORTAÇÃO
+// ===========================================================
+const ImportModal = ({ tipo, onImportar, onCancel }) => {
+  const [drag,       setDrag]       = React.useState(false);
+  const [preview,    setPreview]    = React.useState(null);
+  const [importando, setImportando] = React.useState(false);
+  const [resultado,  setResultado]  = React.useState(null);
+  const inputRef = React.useRef(null);
+  const cfg = BASE_CONFIGS[tipo];
+
+  const processFile = (file) => {
+    setPreview(null); setResultado(null);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb  = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        const ws  = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (!raw.length) { setPreview({ erroHeader: 'Planilha vazia.' }); return; }
+        const headers = raw[0].map(h => String(h).trim());
+        const obrigatorios = cfg.colunas.filter(c => c.obrigatorio).map(c => c.label);
+        const faltando = obrigatorios.filter(l => !headers.includes(l));
+        if (faltando.length) { setPreview({ erroHeader: `Colunas obrigatórias ausentes: ${faltando.join(', ')}` }); return; }
+        const valid = [], invalid = [];
+        raw.slice(1).forEach((row, idx) => {
+          if (row.every(c => c === '' || c == null)) return;
+          const item = {};
+          let ok = true;
+          cfg.colunas.forEach(col => {
+            const ci = headers.indexOf(col.label);
+            const v  = ci >= 0 ? row[ci] : '';
+            item[col.key] = col.tipo === 'numero' ? (parseFloat(v) || 0) : String(v || '').trim();
+            if (col.obrigatorio && !item[col.key]) ok = false;
+          });
+          if (ok) valid.push(item);
+          else    invalid.push({ linha: idx + 2, item });
+        });
+        setPreview({ valid, invalid, erroHeader: null });
+      } catch(err) { setPreview({ erroHeader: 'Erro ao ler arquivo: ' + err.message }); }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleImportar = async () => {
+    if (!preview?.valid?.length) return;
+    setImportando(true);
+    const rows = preview.valid.map(dados => ({ tipo, dados }));
+    const { error } = await window.sb.from('estimativas_base').insert(rows);
+    setImportando(false);
+    if (error) { setResultado({ erro: error.message }); return; }
+    setResultado({ ok: preview.valid.length });
+    setPreview(null);
+  };
+
+  const dropZone = {
+    border: `2px dashed ${drag ? 'var(--brand)' : 'var(--border)'}`,
+    borderRadius: 'var(--r-lg)', padding: 40, textAlign: 'center', cursor: 'pointer',
+    background: drag ? 'var(--brand-50,#e8f0fb)' : 'var(--bg-app)', transition: 'all 0.15s',
+  };
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1100, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ background:'var(--surface)', borderRadius:'var(--r-lg)', width:'calc(100% - 32px)', maxWidth:720, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)', border:'1px solid var(--border)' }}>
+
+        <div style={{ padding:'13px 18px', background:'#013466', color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <span style={{ fontSize:14, fontWeight:700 }}>Importar — {cfg.nome}</span>
+          <button onClick={onCancel} style={{ background:'none', border:'none', color:'rgba(255,255,255,0.7)', cursor:'pointer', fontSize:20, lineHeight:1 }}>×</button>
+        </div>
+
+        <div style={{ flex:1, overflowY:'auto', padding:20 }}>
+          {resultado ? (
+            resultado.erro
+              ? <div style={{ padding:16, background:'#fff5f5', borderRadius:'var(--r-lg)', border:'1px solid #fed7d7', color:'#c53030', fontSize:13 }}><strong>Erro:</strong> {resultado.erro}</div>
+              : <div style={{ padding:16, background:'#f0fff4', borderRadius:'var(--r-lg)', border:'1px solid #9ae6b4', color:'#276749', fontSize:13, textAlign:'center' }}>
+                  <Icon name="check" size={20} style={{ marginBottom:8, display:'block', margin:'0 auto 8px' }} />
+                  <strong>{resultado.ok} {resultado.ok === 1 ? 'item importado' : 'itens importados'} com sucesso!</strong>
+                </div>
+          ) : !preview ? (
+            <div style={dropZone}
+              onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)}
+              onDrop={e=>{e.preventDefault();setDrag(false);const f=e.dataTransfer.files[0];if(f)processFile(f);}}
+              onClick={()=>inputRef.current.click()}
+            >
+              <input ref={inputRef} type="file" accept=".xlsx" style={{ display:'none' }} onChange={e=>{if(e.target.files[0])processFile(e.target.files[0]);e.target.value='';}} />
+              <Icon name="upload" size={28} style={{ color:'var(--text-muted)', display:'block', margin:'0 auto 12px' }} />
+              <div style={{ fontSize:14, fontWeight:600 }}>Arraste um arquivo .xlsx aqui</div>
+              <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:6 }}>ou clique para selecionar</div>
+            </div>
+          ) : preview.erroHeader ? (
+            <div style={{ padding:16, background:'#fff5f5', borderRadius:'var(--r-lg)', border:'1px solid #fed7d7', color:'#c53030', fontSize:13 }}>
+              <strong>Erro:</strong> {preview.erroHeader}
+            </div>
+          ) : (
+            <div>
+              <div style={{ marginBottom:12, display:'flex', gap:8, alignItems:'center' }}>
+                <span className="badge success">{preview.valid.length} válidos</span>
+                {preview.invalid.length > 0 && <span className="badge warning">{preview.invalid.length} com erro</span>}
+                <span style={{ fontSize:11.5, color:'var(--text-muted)' }}>· Campos obrigatórios em vermelho</span>
+              </div>
+              <div style={{ overflowX:'auto', maxHeight:380, overflowY:'auto' }}>
+                <table className="tbl">
+                  <thead style={{ position:'sticky', top:0, background:'var(--surface)', zIndex:1 }}>
+                    <tr>
+                      <th style={{ width:36 }}>#</th>
+                      {cfg.colunas.map(c => <th key={c.key}>{c.label}{c.obrigatorio ? ' *' : ''}</th>)}
+                      <th style={{ width:60 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.valid.map((item, i) => (
+                      <tr key={i}>
+                        <td className="mono text-muted" style={{ fontSize:11 }}>{i+1}</td>
+                        {cfg.colunas.map(c => <td key={c.key} style={{ fontSize:12 }}>{item[c.key] !== '' && item[c.key] != null ? item[c.key] : '—'}</td>)}
+                        <td><span className="badge success">OK</span></td>
+                      </tr>
+                    ))}
+                    {preview.invalid.map((e, i) => (
+                      <tr key={'err'+i} style={{ background:'#fff5f5' }}>
+                        <td className="mono text-muted" style={{ fontSize:11 }}>{e.linha}</td>
+                        {cfg.colunas.map(c => (
+                          <td key={c.key} style={{ fontSize:12, color: cfg.colunas.find(col=>col.key===c.key)?.obrigatorio && !e.item[c.key] ? '#e53e3e' : undefined }}>
+                            {e.item[c.key] !== '' && e.item[c.key] != null ? e.item[c.key] : '—'}
+                          </td>
+                        ))}
+                        <td><span className="badge warning">Erro</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding:'12px 18px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+          <button className="btn btn-ghost btn-sm" onClick={()=>exportarBase(tipo,[])} style={{ fontSize:12 }}>
+            <Icon name="download" size={12} />Baixar modelo
+          </button>
+          <div style={{ display:'flex', gap:8 }}>
+            {preview && !preview.erroHeader && !resultado && (
+              <button className="btn btn-ghost btn-sm" onClick={()=>setPreview(null)}>Trocar arquivo</button>
+            )}
+            <button className="btn btn-ghost" onClick={onCancel}>{resultado ? 'Fechar' : 'Cancelar'}</button>
+            {preview?.valid?.length > 0 && !resultado && (
+              <button className="btn btn-primary" onClick={handleImportar} disabled={importando}>
+                {importando ? <span className="login-spinner" /> : <><Icon name="upload" size={13} />Importar {preview.valid.length} {preview.valid.length === 1 ? 'item' : 'itens'}</>}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ---------- BASE PROJETOS ----------
 const BaseProjetos = () => {
   const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('proposta');
-  const [showForm, setShowForm]= React.useState(false);
-  const [editItem, setEditItem]= React.useState(null);
-  const [delConf,  setDelConf] = React.useState(null);
-  const [search,   setSearch]  = React.useState('');
+  const [showForm,   setShowForm]   = React.useState(false);
+  const [showImport, setShowImport] = React.useState(false);
+  const [editItem,   setEditItem]   = React.useState(null);
+  const [delConf,    setDelConf]    = React.useState(null);
+  const [search,     setSearch]     = React.useState('');
   const [filterEsp,setFilterEsp]= React.useState('');
   const [filterObra,setFilterObra]= React.useState('');
 
@@ -2319,6 +2547,7 @@ const BaseProjetos = () => {
           values={form} onChange={updF} onSave={salvar} onCancel={() => { setShowForm(false); setEditItem(null); }} />
       )}
       {delConf && <ConfirmModal2 title="Excluir proposta?" msg1={`Excluir proposta de "${delConf.esp}"?`} msg2="Ação irreversível." onConfirm={()=>excluir(delConf.id)} onCancel={()=>setDelConf(null)} />}
+      {showImport && <ImportModal tipo="proposta" onImportar={inserir} onCancel={() => setShowImport(false)} />}
 
       <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--border)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase', marginRight:4 }}>Projetos</span>
@@ -2332,6 +2561,8 @@ const BaseProjetos = () => {
           {obras.map(o=><option key={o} value={o}>{o}</option>)}
         </select>
         <div className="card-actions">
+          <button className="btn btn-sm btn-ghost" onClick={() => exportarBase('proposta', items)}><Icon name="download" size={12} />Exportar</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
           <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Nova Proposta</button>
         </div>
       </div>
@@ -2383,6 +2614,7 @@ const BaseElevadores = () => {
   const inccAtual = 1259.652;
   const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('elevador');
   const [showForm,   setShowForm]   = React.useState(false);
+  const [showImport, setShowImport] = React.useState(false);
   const [editItem,   setEditItem]   = React.useState(null);
   const [delConf,    setDelConf]    = React.useState(null);
   const [filterObra, setFilterObra] = React.useState('');
@@ -2426,6 +2658,7 @@ const BaseElevadores = () => {
           values={form} onChange={updF} onSave={salvar} onCancel={() => { setShowForm(false); setEditItem(null); }} />
       )}
       {delConf && <ConfirmModal2 title="Excluir elevador?" msg1={`Excluir registro de "${delConf.obra}"?`} msg2="Ação irreversível." onConfirm={()=>excluir(delConf.id)} onCancel={()=>setDelConf(null)} />}
+      {showImport && <ImportModal tipo="elevador" onImportar={inserir} onCancel={() => setShowImport(false)} />}
 
       <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--border)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase', marginRight:4 }}>Elevadores</span>
@@ -2439,6 +2672,8 @@ const BaseElevadores = () => {
         </select>
         <span style={{ marginLeft:'auto', fontSize:11.5, color:'var(--text-muted)' }}>{filtered.length} registros</span>
         <div className="card-actions" style={{ marginLeft:0 }}>
+          <button className="btn btn-sm btn-ghost" onClick={() => exportarBase('elevador', items)}><Icon name="download" size={12} />Exportar</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
           <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Novo Elevador</button>
         </div>
       </div>
@@ -2494,6 +2729,7 @@ const BaseFundacao = () => {
   const inccAtual = 1259.652;
   const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('fundacao');
   const [showForm,   setShowForm]   = React.useState(false);
+  const [showImport, setShowImport] = React.useState(false);
   const [editItem,   setEditItem]   = React.useState(null);
   const [delConf,    setDelConf]    = React.useState(null);
   const [filterObra, setFilterObra] = React.useState('');
@@ -2537,6 +2773,7 @@ const BaseFundacao = () => {
           values={form} onChange={updF} onSave={salvar} onCancel={() => { setShowForm(false); setEditItem(null); }} />
       )}
       {delConf && <ConfirmModal2 title="Excluir fundação?" msg1={`Excluir registro de "${delConf.obra}"?`} msg2="Ação irreversível." onConfirm={()=>excluir(delConf.id)} onCancel={()=>setDelConf(null)} />}
+      {showImport && <ImportModal tipo="fundacao" onImportar={inserir} onCancel={() => setShowImport(false)} />}
 
       <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--border)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase', marginRight:4 }}>Fundação</span>
@@ -2550,6 +2787,8 @@ const BaseFundacao = () => {
         </select>
         <span style={{ marginLeft:'auto', fontSize:11.5, color:'var(--text-muted)' }}>{filtered.length} registros</span>
         <div className="card-actions" style={{ marginLeft:0 }}>
+          <button className="btn btn-sm btn-ghost" onClick={() => exportarBase('fundacao', items)}><Icon name="download" size={12} />Exportar</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
           <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Nova Fundação</button>
         </div>
       </div>
@@ -2604,9 +2843,10 @@ const BaseFundacao = () => {
 // ---------- BASE IMPLANTAÇÃO ----------
 const BaseImplantacao = () => {
   const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('implantacao');
-  const [showForm,setShowForm]= React.useState(false);
-  const [editItem,setEditItem]= React.useState(null);
-  const [delConf, setDelConf] = React.useState(null);
+  const [showForm,   setShowForm]   = React.useState(false);
+  const [showImport, setShowImport] = React.useState(false);
+  const [editItem,   setEditItem]   = React.useState(null);
+  const [delConf,    setDelConf]    = React.useState(null);
   const [search,  setSearch]  = React.useState('');
 
   const filtered = items.filter(i =>
@@ -2642,12 +2882,15 @@ const BaseImplantacao = () => {
           values={form} onChange={updF} onSave={salvar} onCancel={() => { setShowForm(false); setEditItem(null); }} />
       )}
       {delConf && <ConfirmModal2 title="Excluir item?" msg1={`Excluir "${delConf.item}"?`} msg2="Ação irreversível." onConfirm={()=>excluir(delConf.id)} onCancel={()=>setDelConf(null)} />}
+      {showImport && <ImportModal tipo="implantacao" onImportar={inserir} onCancel={() => setShowImport(false)} />}
 
       <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--border)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase', marginRight:4 }}>Implantação</span>
         <input className="input input-search" placeholder="Buscar item ou observação…" value={search} onChange={e=>setSearch(e.target.value)} style={{ flex:1, minWidth:200 }} />
         <span style={{ fontSize:11.5, color:'var(--text-muted)' }}>{filtered.length} itens</span>
         <div className="card-actions" style={{ marginLeft:0 }}>
+          <button className="btn btn-sm btn-ghost" onClick={() => exportarBase('implantacao', items)}><Icon name="download" size={12} />Exportar</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
           <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Novo Item</button>
         </div>
       </div>
