@@ -20,18 +20,35 @@ const AppInner = () => {
   const [obras, setObras] = React.useState(() => [...window.AppData.obras]);
   const [cronogramaObraId, setCronogramaObraId] = React.useState(null);
 
-  const handleObraCreate = (nova) => {
+  // Carrega obras do Supabase ao autenticar; mantém mock como fallback se a tabela estiver vazia
+  React.useEffect(() => {
+    if (!authed) return;
+    window.sb.from('obras').select('*').then(({ data, error }) => {
+      if (!error && data && data.length > 0) {
+        window.AppData.obras = data;
+        setObras(data);
+      }
+    });
+  }, [authed]);
+
+  const handleObraCreate = async (nova) => {
+    const { error } = await window.sb.from('obras').insert([{ ...nova, user_id: user?.id }]);
+    if (error) { console.warn('Supabase insert error:', error); }
     const novas = [...obras, nova];
     window.AppData.obras = novas;
     setObras(novas);
   };
-  const handleObraUpdate = (updated) => {
+  const handleObraUpdate = async (updated) => {
+    const { error } = await window.sb.from('obras').update(updated).eq('id', updated.id);
+    if (error) { console.warn('Supabase update error:', error); }
     const novas = obras.map(o => o.id === updated.id ? updated : o);
     window.AppData.obras = novas;
     setObras(novas);
     if (selectedObra?.id === updated.id) setSelectedObra(updated);
   };
-  const handleObraDelete = (id) => {
+  const handleObraDelete = async (id) => {
+    const { error } = await window.sb.from('obras').delete().eq('id', id);
+    if (error) { console.warn('Supabase delete error:', error); }
     const novas = obras.filter(o => o.id !== id);
     window.AppData.obras = novas;
     setObras(novas);

@@ -36,9 +36,9 @@ const Gantt = ({ etapas }) => {
 };
 
 // ----- Visão Geral tab -----
-const VisaoGeral = () => {
+const VisaoGeral = ({ obra }) => {
   const D = window.AppData;
-  const o = D.obraAtual;
+  const o = obra || D.obraAtual;
   return (
     <div className="stack">
       <div className="grid-cols-3-2">
@@ -683,7 +683,7 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
         ))}
       </div>
 
-      {tab === 'visao' && <VisaoGeral />}
+      {tab === 'visao' && <VisaoGeral obra={o} />}
       {tab === 'cronograma' && (
         <div className="card">
           <div className="card-header">
