@@ -17,6 +17,26 @@ const AppInner = () => {
   const [modal, setModal] = React.useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
+  const [obras, setObras] = React.useState(() => [...window.AppData.obras]);
+
+  const handleObraCreate = (nova) => {
+    const novas = [...obras, nova];
+    window.AppData.obras = novas;
+    setObras(novas);
+  };
+  const handleObraUpdate = (updated) => {
+    const novas = obras.map(o => o.id === updated.id ? updated : o);
+    window.AppData.obras = novas;
+    setObras(novas);
+    if (selectedObra?.id === updated.id) setSelectedObra(updated);
+  };
+  const handleObraDelete = (id) => {
+    const novas = obras.filter(o => o.id !== id);
+    window.AppData.obras = novas;
+    setObras(novas);
+    if (selectedObra?.id === id) { setSelectedObra(null); setView('obras'); sessionStorage.setItem('nav_view', 'obras'); }
+  };
+
   React.useEffect(() => {
     window.sb.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) { setAuthed(true); setUser(session.user); }
@@ -105,17 +125,19 @@ const AppInner = () => {
       <div className="main">
         <Topbar
           breadcrumb={buildBreadcrumb()}
-          onNovaObra={view === 'dashboard' || view === 'obras' ? () => setModal('nova-obra') : null}
+          onNovaObra={view === 'dashboard' ? () => setModal('nova-obra') : null}
         />
         <div className="content">
           {view === 'dashboard' && <Dashboard onOpenObra={handleOpenObra} onAcao={(a) => setModal(a)} />}
-          {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} layout={tweaks.obrasLayout} />}
+          {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} layout={tweaks.obrasLayout} obras={obras} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} />}
           {view === 'obra-detail' && (
             <ObraDetail
               obra={selectedObra}
               onBack={() => handleNavigate('obras')}
               onNovaMedicao={() => setModal('nova-medicao')}
               onSolicitarCompra={(insumo) => setModal({ type: 'compra', insumo })}
+              onObraUpdate={handleObraUpdate}
+              onObraDelete={handleObraDelete}
             />
           )}
           {view === 'orcamentos' && <OrcamentosScreen onNovoOrcamento={() => setModal('novo-orcamento')} />}

@@ -1,14 +1,14 @@
 // Obras — lista completa com variação de layout (cards x tabela)
-const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
+const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraUpdate, onObraDelete }) => {
   const D = window.AppData;
   const { brl } = D;
   const [filter,         setFilter]        = React.useState('todos');
   const [search,         setSearch]        = React.useState('');
   const [internalLayout, setInternalLayout] = React.useState(layout);
   const [showNovaObra,   setShowNovaObra]  = React.useState(false);
-  const [deleteObra,     setDeleteObra]    = React.useState(null);  // obra a excluir
-  const [deleteStep,     setDeleteStep]    = React.useState(1);     // 1 ou 2
-  const [obras,          setObras]         = React.useState(() => [...D.obras]);
+  const [showEditObra,   setShowEditObra]  = React.useState(null);
+  const [deleteObra,     setDeleteObra]    = React.useState(null);
+  const [deleteStep,     setDeleteStep]    = React.useState(1);
 
   React.useEffect(() => { setInternalLayout(layout); }, [layout]);
 
@@ -19,9 +19,7 @@ const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
   const handleDeleteConfirm = () => {
     if (!deleteObra) return;
     if (deleteStep === 1) { setDeleteStep(2); return; }
-    const newObras = obras.filter(o => o.id !== deleteObra.id);
-    D.obras = newObras;
-    setObras(newObras);
+    onObraDelete(deleteObra.id);
     setDeleteObra(null);
     setDeleteStep(1);
   };
@@ -117,7 +115,17 @@ const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
                     <td><RiskBadge risk={o.risco} /></td>
                     <td className="text-sm text-soft">{o.etapaAtual}</td>
                     <td className="mono text-sm text-soft">{o.previsto.split('-').reverse().join('/')}</td>
-                    <td onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center' }}>
+                    <td onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <button
+                        className="obras-row-actions btn btn-ghost"
+                        style={{ width: 28, height: 28, padding: 0 }}
+                        title={`Editar ${o.nome}`}
+                        onClick={() => setShowEditObra(o)}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                      </button>
                       <button
                         className="obras-row-actions btn btn-ghost"
                         style={{ width: 28, height: 28, padding: 0, color: 'var(--danger)' }}
@@ -137,7 +145,20 @@ const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
         </div>
       )}
 
-      {showNovaObra && <NovaObraModal onClose={() => setShowNovaObra(false)} />}
+      {showNovaObra && (
+        <ObraFormModal
+          obra={null}
+          onClose={() => setShowNovaObra(false)}
+          onSave={(nova) => { onObraCreate(nova); setShowNovaObra(false); }}
+        />
+      )}
+      {showEditObra && (
+        <ObraFormModal
+          obra={showEditObra}
+          onClose={() => setShowEditObra(null)}
+          onSave={(updated) => { onObraUpdate(updated); setShowEditObra(null); }}
+        />
+      )}
 
       {deleteObra && (
         <Modal

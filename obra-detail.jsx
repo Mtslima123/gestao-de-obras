@@ -495,8 +495,10 @@ const Fotos = () => (
 );
 
 // ----- Main ObraDetail -----
-const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra }) => {
+const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpdate, onObraDelete }) => {
   const [tab, setTab] = React.useState('visao');
+  const [showEdit,   setShowEdit]   = React.useState(false);
+  const [deleteStep, setDeleteStep] = React.useState(0);
   const D = window.AppData;
   const o = obra || D.obraAtual;
   const margem = ((o.orcamento - o.gasto) / o.orcamento * 100).toFixed(1);
@@ -521,6 +523,22 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra }) => {
             <RiskBadge risk={o.risco} />
           </div>
         </div>
+        {onObraUpdate && onObraDelete && (
+          <div className="page-actions">
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(true)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+              Editar
+            </button>
+            <button className="btn btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setDeleteStep(1)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+              Excluir
+            </button>
+          </div>
+        )}
       </div>
 
       {/* HERO */}
@@ -604,6 +622,52 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra }) => {
       {tab === 'fornecedores' && <Fornecedores />}
       {tab === 'equipe' && <Equipe />}
       {tab === 'fotos' && <Fotos />}
+
+      {showEdit && (
+        <ObraFormModal
+          obra={o}
+          onClose={() => setShowEdit(false)}
+          onSave={(updated) => { onObraUpdate(updated); setShowEdit(false); }}
+        />
+      )}
+
+      {deleteStep > 0 && (
+        <Modal
+          title={deleteStep === 1 ? 'Excluir obra' : 'Confirmação final'}
+          onClose={() => setDeleteStep(0)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setDeleteStep(0)}>Cancelar</button>
+              <button
+                className="btn"
+                style={{ background: 'var(--danger)', color: 'white', fontWeight: 600 }}
+                onClick={() => {
+                  if (deleteStep === 1) { setDeleteStep(2); return; }
+                  onObraDelete(o.id);
+                }}
+              >
+                {deleteStep === 1 ? 'Sim, excluir' : 'Confirmar exclusão'}
+              </button>
+            </>
+          }
+        >
+          {deleteStep === 1 ? (
+            <p style={{ fontSize: 14 }}>
+              Tem certeza que deseja excluir a obra <strong>{o.nome}</strong> ({o.id})?
+            </p>
+          ) : (
+            <div>
+              <p style={{ fontSize: 14, marginBottom: 10 }}>
+                Esta ação é <strong style={{ color: 'var(--danger)' }}>irreversível</strong>. Todos os dados da obra serão removidos.
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                Obra: <strong>{o.nome}</strong>
+              </p>
+              <p style={{ fontSize: 14, marginTop: 12, fontWeight: 600 }}>Deseja realmente continuar?</p>
+            </div>
+          )}
+        </Modal>
+      )}
     </>
   );
 };

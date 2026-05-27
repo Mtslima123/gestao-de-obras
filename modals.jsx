@@ -190,6 +190,124 @@ const NovaObraModal = ({ onClose }) => {
   );
 };
 
+// ----- ObraFormModal (criar ou editar obra) -----
+const ObraFormModal = ({ obra = null, onClose, onSave }) => {
+  const toast = useToast();
+  const isEdit = obra !== null;
+  const [form, setForm] = React.useState({
+    nome:         obra?.nome        || '',
+    sigla:        obra?.id          || '',
+    responsavel:  obra?.responsavel || '',
+    endereco:     obra?.endereco    || '',
+    dataPrevista: obra?.previsto    || '',
+    // Campos futuros: cliente, tipo, area, orcamento, bdi, risco, observacoes
+  });
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSave = () => {
+    if (!form.nome.trim()) return;
+    let result;
+    if (isEdit) {
+      result = {
+        ...obra,
+        nome:        form.nome,
+        id:          form.sigla.trim() || obra.id,
+        responsavel: form.responsavel,
+        endereco:    form.endereco,
+        previsto:    form.dataPrevista || obra.previsto,
+      };
+    } else {
+      result = {
+        id:               form.sigla.trim() || `OB-${String(Date.now()).slice(-3)}`,
+        nome:             form.nome,
+        tipo:             'Incorporação Vertical',
+        cliente:          '',
+        endereco:         form.endereco,
+        area:             0,
+        orcamento:        0,
+        gasto:            0,
+        avancoFisico:     0,
+        avancoFinanceiro: 0,
+        inicio:           new Date().toISOString().slice(0, 10),
+        previsto:         form.dataPrevista || new Date().toISOString().slice(0, 10),
+        status:           'em_andamento',
+        risco:            'baixo',
+        etapaAtual:       'Em planejamento',
+        responsavel:      form.responsavel,
+        equipe:           0,
+        alertas:          0,
+        contrato:         '',
+      };
+    }
+    onSave(result);
+    toast(isEdit ? 'Obra atualizada com sucesso' : 'Obra criada com sucesso', { tone: 'success', icon: 'check' });
+  };
+
+  return (
+    <Modal
+      title={isEdit ? 'Editar obra' : 'Nova obra'}
+      subtitle={isEdit ? `Editando: ${obra.nome}` : 'Cadastro de nova obra'}
+      onClose={onClose}
+      footer={
+        <>
+          <div className="spacer"></div>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={!form.nome.trim()}>
+            <Icon name="check" size={14} />{isEdit ? 'Salvar alterações' : 'Criar obra'}
+          </button>
+        </>
+      }
+    >
+      <div className="form-grid">
+        <div className="field full">
+          <label>Nome da obra <span className="req">*</span></label>
+          <input
+            placeholder="Ex.: Residencial Aurora"
+            value={form.nome}
+            onChange={e => set('nome', e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div className="field">
+          <label>Sigla / Código</label>
+          <input
+            placeholder="Ex.: OB-008"
+            value={form.sigla}
+            onChange={e => set('sigla', e.target.value)}
+            maxLength={12}
+          />
+        </div>
+        <div className="field">
+          <label>Responsável</label>
+          <input
+            placeholder="Nome do responsável"
+            value={form.responsavel}
+            onChange={e => set('responsavel', e.target.value)}
+          />
+        </div>
+        <div className="field full">
+          <label>Endereço</label>
+          <input
+            placeholder="Endereço completo"
+            value={form.endereco}
+            onChange={e => set('endereco', e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Data do cliente (entrega)</label>
+          <input
+            type="date"
+            value={form.dataPrevista}
+            onChange={e => set('dataPrevista', e.target.value)}
+          />
+        </div>
+        {/* Campos futuros: cliente, tipo, área, orçamento, BDI, risco, observações */}
+      </div>
+    </Modal>
+  );
+};
+
 // ----- Nova Medição modal -----
 const NovaMedicaoModal = ({ onClose }) => {
   const toast = useToast();
@@ -385,4 +503,4 @@ const NotifPanel = ({ onClose }) => {
   );
 };
 
-Object.assign(window, { Modal, ToastProvider, useToast, NovaObraModal, NovaMedicaoModal, SolicitarCompraModal, NotifPanel });
+Object.assign(window, { Modal, ToastProvider, useToast, NovaObraModal, ObraFormModal, NovaMedicaoModal, SolicitarCompraModal, NotifPanel });
