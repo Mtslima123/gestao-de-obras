@@ -152,20 +152,22 @@ window.AppData = (function () {
 
   const obraAtual = obras[0];
 
-  // Cronograma com dependências
-  const cronograma = [
-    { id: 'E1',  etapa: 'Serviços preliminares',  inicio: 0,  dur: 2,  status: 'done',     avanco: 100, dep: [],           milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Carlos Melo',   customCols: {}, custo: 2340000  },
-    { id: 'E2',  etapa: 'Fundação',                inicio: 2,  dur: 4,  status: 'done',     avanco: 100, dep: ['E1'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Ana Souza',    customCols: {}, custo: 7980000  },
-    { id: 'E3',  etapa: 'Supra-estrutura',         inicio: 5,  dur: 9,  status: 'done',     avanco: 100, dep: ['E2'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Ricardo Lima',  customCols: {}, custo: 18420000 },
-    { id: 'E4',  etapa: 'Alvenaria',               inicio: 8,  dur: 7,  status: 'late',     avanco: 78,  dep: ['E3'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Fernanda Cruz', customCols: {}, custo: 6180000  },
-    { id: 'E5',  etapa: 'Instalações elétricas',   inicio: 11, dur: 8,  status: 'late',     avanco: 54,  dep: ['E4'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Paulo Rocha',   customCols: {}, custo: 4860000  },
-    { id: 'E6',  etapa: 'Instalações hidráulicas', inicio: 12, dur: 7,  status: 'late',     avanco: 48,  dep: ['E4'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Mariana Dias',  customCols: {}, custo: 3920000  },
-    { id: 'E7',  etapa: 'Esquadrias',              inicio: 14, dur: 4,  status: 'upcoming', avanco: 18,  dep: ['E4'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {}, custo: 4280000  },
-    { id: 'E8',  etapa: 'Revestimentos',           inicio: 15, dur: 6,  status: 'upcoming', avanco: 5,   dep: ['E5','E6'], milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {}, custo: 8420000  },
-    { id: 'E9',  etapa: 'Pintura',                 inicio: 19, dur: 4,  status: 'upcoming', avanco: 0,   dep: ['E8'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {}, custo: 2680000  },
-    { id: 'E10', etapa: 'Paisagismo',              inicio: 22, dur: 3,  status: 'upcoming', avanco: 0,   dep: [],           milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {}, custo: 800000   },
-    { id: 'E11', etapa: 'Entrega final',           inicio: 24, dur: 2,  status: 'upcoming', avanco: 0,   dep: ['E9','E10'], milestone: true,  nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Carlos Melo',   customCols: {}, custo: 620000   },
-  ];
+  // Cronograma por obra — cada chave é um obraId
+  const cronograma = {
+    'OB-001': [
+      { id: 'E1',  etapa: 'Serviços preliminares',  inicio: 0,  dur: 2,  status: 'done',     avanco: 100, dep: [],           milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Carlos Melo',   customCols: {}, custo: 2340000  },
+      { id: 'E2',  etapa: 'Fundação',                inicio: 2,  dur: 4,  status: 'done',     avanco: 100, dep: ['E1'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Ana Souza',    customCols: {}, custo: 7980000  },
+      { id: 'E3',  etapa: 'Supra-estrutura',         inicio: 5,  dur: 9,  status: 'done',     avanco: 100, dep: ['E2'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Ricardo Lima',  customCols: {}, custo: 18420000 },
+      { id: 'E4',  etapa: 'Alvenaria',               inicio: 8,  dur: 7,  status: 'late',     avanco: 78,  dep: ['E3'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Fernanda Cruz', customCols: {}, custo: 6180000  },
+      { id: 'E5',  etapa: 'Instalações elétricas',   inicio: 11, dur: 8,  status: 'late',     avanco: 54,  dep: ['E4'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Paulo Rocha',   customCols: {}, custo: 4860000  },
+      { id: 'E6',  etapa: 'Instalações hidráulicas', inicio: 12, dur: 7,  status: 'late',     avanco: 48,  dep: ['E4'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Mariana Dias',  customCols: {}, custo: 3920000  },
+      { id: 'E7',  etapa: 'Esquadrias',              inicio: 14, dur: 4,  status: 'upcoming', avanco: 18,  dep: ['E4'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {}, custo: 4280000  },
+      { id: 'E8',  etapa: 'Revestimentos',           inicio: 15, dur: 6,  status: 'upcoming', avanco: 5,   dep: ['E5','E6'], milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {}, custo: 8420000  },
+      { id: 'E9',  etapa: 'Pintura',                 inicio: 19, dur: 4,  status: 'upcoming', avanco: 0,   dep: ['E8'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {}, custo: 2680000  },
+      { id: 'E10', etapa: 'Paisagismo',              inicio: 22, dur: 3,  status: 'upcoming', avanco: 0,   dep: [],           milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {}, custo: 800000   },
+      { id: 'E11', etapa: 'Entrega final',           inicio: 24, dur: 2,  status: 'upcoming', avanco: 0,   dep: ['E9','E10'], milestone: true,  nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Carlos Melo',   customCols: {}, custo: 620000   },
+    ],
+  };
 
   const medicoes = [
     { num: '12', periodo: '01/04 — 30/04', medido: 4860000, acumulado: 51230000, contratual: 4720000, status: 'aprovada', data: '02/05/2026' },

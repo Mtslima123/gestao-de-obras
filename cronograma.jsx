@@ -1521,13 +1521,13 @@ const CurvaFisicaView = ({ obra }) => (
 );
 
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
-const CronogramaFull = () => {
+const CronogramaFull = ({ initialObraId }) => {
   const D    = window.AppData;
   const toast = useToast();
 
-  const [obraSel,    setObraSel]    = React.useState('OB-001');
+  const [obraSel,    setObraSel]    = React.useState(initialObraId || 'OB-001');
   const [view,       setView]       = React.useState('gantt');
-  const [etapas,     setEtapas]     = React.useState(() => migrateEtapas(D.cronograma));
+  const [etapas,     setEtapas]     = React.useState(() => migrateEtapas(D.cronograma[initialObraId || 'OB-001'] || []));
   const [customCols, setCustomCols] = React.useState(() => D.cronogramaCustomCols || []);
 
   // Histórico de undo/redo unificado (Lista + Gantt)
@@ -1535,6 +1535,14 @@ const CronogramaFull = () => {
   const hidxRef = React.useRef(0);
   const undoRef = React.useRef(null);
   const redoRef = React.useRef(null);
+
+  // Recarrega etapas e reseta histórico ao trocar de obra
+  React.useEffect(() => {
+    const data = migrateEtapas(D.cronograma[obraSel] || []);
+    setEtapas(data);
+    histRef.current = [data.map(e => ({ ...e }))];
+    hidxRef.current = 0;
+  }, [obraSel]);
 
   const obra       = D.obras.find(o => o.id === obraSel) || D.obras[0];
   const concluidas = etapas.filter(e => e.status === 'done').length;
@@ -1557,7 +1565,7 @@ const CronogramaFull = () => {
     histRef.current = h;
     hidxRef.current = h.length - 1;
     setEtapas(clean);
-    D.cronograma = clean;
+    D.cronograma[obraSel] = clean;
     if (!opts.silent) {
       const cfls = gmConflicts(clean);
       if (cfls.length > 0) {
@@ -1573,7 +1581,7 @@ const CronogramaFull = () => {
     hidxRef.current--;
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
     setEtapas(snap);
-    D.cronograma = snap;
+    D.cronograma[obraSel] = snap;
     toast('Ação desfeita', { tone: 'neutral', icon: 'check' });
   };
 
@@ -1582,7 +1590,7 @@ const CronogramaFull = () => {
     hidxRef.current++;
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
     setEtapas(snap);
-    D.cronograma = snap;
+    D.cronograma[obraSel] = snap;
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
   };
 

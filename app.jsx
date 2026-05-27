@@ -18,6 +18,7 @@ const AppInner = () => {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
   const [obras, setObras] = React.useState(() => [...window.AppData.obras]);
+  const [cronogramaObraId, setCronogramaObraId] = React.useState(null);
 
   const handleObraCreate = (nova) => {
     const novas = [...obras, nova];
@@ -81,6 +82,11 @@ const AppInner = () => {
     setView('obra-detail');
   };
 
+  const handleOpenCronograma = (obraId) => {
+    setCronogramaObraId(obraId);
+    handleNavigate('cronograma');
+  };
+
   const screenLabels = {
     'dashboard': '01 Dashboard',
     'obras': '02 Obras — Lista',
@@ -138,6 +144,7 @@ const AppInner = () => {
               onSolicitarCompra={(insumo) => setModal({ type: 'compra', insumo })}
               onObraUpdate={handleObraUpdate}
               onObraDelete={handleObraDelete}
+              onOpenCronograma={handleOpenCronograma}
             />
           )}
           {view === 'orcamentos' && <OrcamentosScreen onNovoOrcamento={() => setModal('novo-orcamento')} />}
@@ -147,7 +154,7 @@ const AppInner = () => {
           {view === 'resumo' && <ResumoObrasScreen />}
           {view === 'medicaobanco' && <MedicaoBancoScreen />}
           {view === 'incc' && <INCCScreen />}
-          {view === 'cronograma' && <CronogramaFull />}
+          {view === 'cronograma' && <CronogramaFull initialObraId={cronogramaObraId} />}
           {view === 'contratos' && <ContratosScreen />}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'controle' && view !== 'resumo' && view !== 'incc' &&

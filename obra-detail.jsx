@@ -585,7 +585,7 @@ const HeroImage = ({ obra, onObraUpdate }) => {
 };
 
 // ----- Main ObraDetail -----
-const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpdate, onObraDelete }) => {
+const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpdate, onObraDelete, onOpenCronograma }) => {
   const [tab, setTab] = React.useState('visao');
   const [showEdit,   setShowEdit]   = React.useState(false);
   const [deleteStep, setDeleteStep] = React.useState(0);
@@ -596,9 +596,6 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
   const tabs = [
     { id: 'visao', label: 'Visão geral' },
     { id: 'cronograma', label: 'Cronograma', count: 10 },
-    { id: 'medicoes', label: 'Medições', count: 12 },
-    { id: 'insumos', label: 'Insumos', count: 6 },
-    { id: 'fornecedores', label: 'Fornecedores', count: 6 },
     { id: 'equipe', label: 'Equipe', count: o.equipe },
     { id: 'fotos', label: 'Fotos', count: 84 },
   ];
@@ -692,22 +689,21 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
           <div className="card-header">
             <div>
               <div className="card-title">Cronograma físico</div>
-              <div className="card-subtitle">10 etapas · 26 meses · marco atual: alvenaria em 78%</div>
+              <div className="card-subtitle">{(D.cronograma[o.id] || []).length} etapas · 28 meses</div>
             </div>
             <div className="card-actions">
               <button className="chip active">Gantt</button>
               <button className="chip">Lista</button>
-              <button className="btn btn-sm btn-primary"><Icon name="plus" size={13} />Nova etapa</button>
+              <button className="btn btn-sm btn-primary" onClick={() => onOpenCronograma && onOpenCronograma(o.id)}>
+                <Icon name="arrow-right" size={13} />Ir para Cronograma
+              </button>
             </div>
           </div>
           <div className="card-body" style={{ padding: '4px 0 0' }}>
-            <Gantt etapas={D.cronograma} />
+            <Gantt etapas={D.cronograma[o.id] || []} />
           </div>
         </div>
       )}
-      {tab === 'medicoes' && <Medicoes onNovaMedicao={onNovaMedicao} />}
-      {tab === 'insumos' && <Insumos onSolicitarCompra={onSolicitarCompra} />}
-      {tab === 'fornecedores' && <Fornecedores />}
       {tab === 'equipe' && <Equipe />}
       {tab === 'fotos' && <Fotos />}
 
