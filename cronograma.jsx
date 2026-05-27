@@ -270,7 +270,7 @@ function computeGroupValues(etapas) {
 }
 
 // ─── GanttInterativo ─────────────────────────────────────────────────────────
-const GanttInterativo = ({ etapas, onCommit, undo, redo }) => {
+const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas }) => {
   const [selected,    setSel]      = React.useState(new Set());
   const [editMode,    setEdit]     = React.useState(true);
   const [lockDone,    setLock]     = React.useState(true);
@@ -292,6 +292,12 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo }) => {
     const cfls = gmConflicts(etapas);
     return new Set(cfls.flatMap(c => [c.pred, c.succ]));
   }, [etapas]);
+
+  // Mapa de etapas da linha de base por ID
+  const blMap = React.useMemo(() => {
+    if (!baselineEtapas) return {};
+    return Object.fromEntries(baselineEtapas.map(e => [e.id, e]));
+  }, [baselineEtapas]);
 
   // Limpa seleção de IDs que não existem mais
   React.useEffect(() => {
@@ -594,6 +600,19 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo }) => {
                     width: Math.min(today, GM_TOTAL) * GM_MONTH_W,
                     background: 'rgba(0,0,0,0.011)', pointerEvents: 'none',
                   }} />
+
+                  {/* Barra de linha de base — fina, atrás da barra atual */}
+                  {blMap[e.id] && !e.milestone && (
+                    <div style={{
+                      position: 'absolute',
+                      left: blMap[e.id].inicio * GM_MONTH_W + 3,
+                      width: Math.max(blMap[e.id].dur * GM_MONTH_W - 6, 10),
+                      top: '50%', transform: 'translateY(-50%)',
+                      height: 6, borderRadius: 3,
+                      background: 'rgba(107,120,144,0.45)',
+                      zIndex: 0, pointerEvents: 'none',
+                    }} />
+                  )}
 
                   {/* Barra ou Marco */}
                   {!e.milestone ? (
@@ -1520,15 +1539,112 @@ const CurvaFisicaView = ({ obra }) => (
   </div>
 );
 
+// ─── Helpers de Linha de Base ────────────────────────────────────────────────
+function carregarBaselines(obraId) {
+  try { return JSON.parse(localStorage.getItem(`cronograma_baselines_${obraId}`)) || []; }
+  catch { return []; }
+}
+function salvarBaselines(obraId, bls) {
+  localStorage.setItem(`cronograma_baselines_${obraId}`, JSON.stringify(bls));
+}
+
+// ─── Modal: Criar Linha de Base ──────────────────────────────────────────────
+const CriarLinhaModal = ({ totalExistentes, totalEtapas, onClose, onCreate }) => {
+  const [nome, setNome] = React.useState(`Linha de Base ${totalExistentes + 1}`);
+  return (
+    <Modal title="Criar Linha de Base" onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" disabled={!nome.trim()}
+            onClick={() => { if (nome.trim()) { onCreate(nome.trim()); onClose(); } }}
+          >
+            <Icon name="check" size={14} />Criar
+          </button>
+        </>
+      }
+    >
+      <div className="stack" style={{ gap: 12 }}>
+        <div>
+          <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)', display: 'block', marginBottom: 6 }}>
+            Nome da linha de base
+          </label>
+          <input className="input" value={nome} autoFocus
+            onChange={e => setNome(e.target.value)}
+            placeholder="Ex: Planejamento Inicial"
+            style={{ width: '100%' }}
+          />
+        </div>
+        <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>
+          O estado atual do cronograma ({totalEtapas} etapas) será salvo nesta linha de base e poderá ser comparado com versões futuras.
+        </p>
+      </div>
+    </Modal>
+  );
+};
+
+// ─── Modal: Gerenciar Linhas de Base ─────────────────────────────────────────
+const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDuplicar, onExcluir, onClose }) => (
+  <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="lg" onClose={onClose}
+    footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
+  >
+    {baselines.length === 0
+      ? <p style={{ fontSize: 13.5, color: 'var(--text-muted)', padding: '24px 0', textAlign: 'center' }}>
+          Nenhuma linha de base cadastrada. Clique em "Criar Linha de Base" para começar.
+        </p>
+      : (
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Criada em</th>
+              <th className="right">Etapas</th>
+              <th style={{ textAlign: 'center' }}>Visível</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {baselines.map(b => (
+              <tr key={b.id}>
+                <td className="strong">{b.nome}</td>
+                <td className="mono text-muted">{b.criadaEm}</td>
+                <td className="right num">{b.etapas.length}</td>
+                <td style={{ textAlign: 'center' }}>
+                  <input type="radio" name="bl-visivel"
+                    checked={blVisivelId === b.id}
+                    onChange={() => onSelect(blVisivelId === b.id ? null : b.id)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </td>
+                <td>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => onDuplicar(b.id)}>Duplicar</button>
+                    <button className="btn btn-sm" style={{ color: 'var(--danger)' }}
+                      onClick={() => onExcluir(b.id)}>Excluir</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )
+    }
+  </Modal>
+);
+
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
 const CronogramaFull = ({ initialObraId }) => {
   const D    = window.AppData;
   const toast = useToast();
 
-  const [obraSel,    setObraSel]    = React.useState(initialObraId || 'OB-001');
-  const [view,       setView]       = React.useState('gantt');
-  const [etapas,     setEtapas]     = React.useState(() => migrateEtapas(D.cronograma[initialObraId || 'OB-001'] || []));
-  const [customCols, setCustomCols] = React.useState(() => D.cronogramaCustomCols || []);
+  const [obraSel,      setObraSel]      = React.useState(initialObraId || 'OB-001');
+  const [view,         setView]         = React.useState('gantt');
+  const [etapas,       setEtapas]       = React.useState(() => migrateEtapas(D.cronograma[initialObraId || 'OB-001'] || []));
+  const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
+  const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(initialObraId || 'OB-001'));
+  const [blVisivelId,  setBlVisivelId]  = React.useState(null);
+  const [showCriar,    setShowCriar]    = React.useState(false);
+  const [showGerenciar, setShowGerenciar] = React.useState(false);
 
   // Histórico de undo/redo unificado (Lista + Gantt)
   const histRef = React.useRef([etapas.map(e => ({ ...e }))]);
@@ -1536,13 +1652,50 @@ const CronogramaFull = ({ initialObraId }) => {
   const undoRef = React.useRef(null);
   const redoRef = React.useRef(null);
 
-  // Recarrega etapas e reseta histórico ao trocar de obra
+  // Recarrega etapas, histórico e baselines ao trocar de obra
   React.useEffect(() => {
     const data = migrateEtapas(D.cronograma[obraSel] || []);
     setEtapas(data);
     histRef.current = [data.map(e => ({ ...e }))];
     hidxRef.current = 0;
+    setBaselines(carregarBaselines(obraSel));
+    setBlVisivelId(null);
   }, [obraSel]);
+
+  // Handlers de linha de base
+  const criarLinha = (nome) => {
+    const nova = {
+      id: 'BL-' + Date.now(),
+      nome,
+      criadaEm: new Date().toISOString().slice(0, 10),
+      etapas: etapas.map(e => ({ ...e })),
+    };
+    const novas = [...baselines, nova];
+    setBaselines(novas);
+    salvarBaselines(obraSel, novas);
+    toast(`Linha de base "${nome}" criada`, { tone: 'success', icon: 'check' });
+  };
+
+  const excluirLinha = (id) => {
+    const novas = baselines.filter(b => b.id !== id);
+    setBaselines(novas);
+    salvarBaselines(obraSel, novas);
+    if (blVisivelId === id) setBlVisivelId(null);
+    toast('Linha de base excluída', { tone: 'neutral', icon: 'check' });
+  };
+
+  const duplicarLinha = (id) => {
+    const orig = baselines.find(b => b.id === id);
+    if (!orig) return;
+    const copia = { ...orig, id: 'BL-' + Date.now(), nome: orig.nome + ' (cópia)', etapas: orig.etapas.map(e => ({ ...e })) };
+    const novas = [...baselines, copia];
+    setBaselines(novas);
+    salvarBaselines(obraSel, novas);
+    toast(`"${copia.nome}" criada`, { tone: 'success', icon: 'check' });
+  };
+
+  // Etapas da baseline visível (null = nenhuma)
+  const baselineEtapas = blVisivelId ? (baselines.find(b => b.id === blVisivelId)?.etapas || null) : null;
 
   const obra       = D.obras.find(o => o.id === obraSel) || D.obras[0];
   const concluidas = etapas.filter(e => e.status === 'done').length;
@@ -1628,6 +1781,25 @@ const CronogramaFull = ({ initialObraId }) => {
             <button className={view === 'lista'      ? 'active' : ''} onClick={() => setView('lista')}>Lista</button>
             <button className={view === 'calendario' ? 'active' : ''} onClick={() => setView('calendario')}>Calendário</button>
           </div>
+          {baselines.length > 0 && (
+            <select className="input" style={{ minWidth: 180 }}
+              value={blVisivelId || ''}
+              onChange={e => setBlVisivelId(e.target.value || null)}
+            >
+              <option value="">Sem linha de base</option>
+              {baselines.map(b => (
+                <option key={b.id} value={b.id}>{b.nome}</option>
+              ))}
+            </select>
+          )}
+          <button className="btn btn-ghost" onClick={() => setShowCriar(true)}>
+            <Icon name="bookmark" size={15} />Criar Linha de Base
+          </button>
+          {baselines.length > 0 && (
+            <button className="btn btn-ghost" onClick={() => setShowGerenciar(true)}>
+              <Icon name="layers" size={15} />Gerenciar
+            </button>
+          )}
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
         </div>
       </div>
@@ -1669,11 +1841,14 @@ const CronogramaFull = ({ initialObraId }) => {
                 <span className="legend-item"><span className="legend-swatch" style={{ background: '#3d7fc9' }}></span>Futura</span>
                 <span className="legend-item"><span className="legend-swatch" style={{ background: '#d97706' }}></span>Conflito</span>
                 <span className="legend-item"><span className="legend-swatch" style={{ width: 10, height: 10, background: 'var(--brand)', transform: 'rotate(45deg)', borderRadius: 0 }}></span>Marco</span>
+                {baselineEtapas && (
+                  <span className="legend-item"><span className="legend-swatch" style={{ background: 'rgba(107,120,144,0.55)', height: 4 }}></span>Linha de base</span>
+                )}
               </div>
             </div>
           </div>
           <div className="card-body" style={{ padding: 0 }}>
-            <GanttInterativo etapas={etapas} onCommit={commit} undo={undo} redo={redo} />
+            <GanttInterativo etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} />
           </div>
         </div>
       )}
@@ -1697,6 +1872,26 @@ const CronogramaFull = ({ initialObraId }) => {
             Em breve: visualize etapas e marcos em uma grade mensal interativa.
           </p>
         </div>
+      )}
+
+      {showCriar && (
+        <CriarLinhaModal
+          totalExistentes={baselines.length}
+          totalEtapas={etapas.length}
+          onClose={() => setShowCriar(false)}
+          onCreate={criarLinha}
+        />
+      )}
+
+      {showGerenciar && (
+        <GerenciarLinhasModal
+          baselines={baselines}
+          blVisivelId={blVisivelId}
+          onSelect={setBlVisivelId}
+          onDuplicar={duplicarLinha}
+          onExcluir={excluirLinha}
+          onClose={() => setShowGerenciar(false)}
+        />
       )}
     </>
   );

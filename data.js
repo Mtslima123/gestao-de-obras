@@ -313,7 +313,7 @@ window.AppData = (function () {
   }
 
   return {
-    obras, obraAtual, cronograma, cronogramaCustomCols: [],
+    obras, obraAtual, cronograma, cronogramaCustomCols: [], baselines: {},
     medicoes, insumos, fornecedores, equipe,
     avancoSerie, faturamentoSerie, distribuicaoStatus, alertas, eventos,
     orcamentoItens, orcamentosLista, contratos, notificacoes,
