@@ -465,42 +465,93 @@ const Equipe = () => {
 };
 
 // ----- Fotos tab -----
-const Fotos = () => (
-  <div className="card">
-    <div className="card-header">
-      <div>
-        <div className="card-title">Registro fotográfico</div>
-        <div className="card-subtitle">Última atualização: 18/05/2026 · 84 imagens</div>
-      </div>
-      <div className="card-actions">
-        <button className="chip">Pavimento <Icon name="chevron-down" size={12} className="caret" /></button>
-        <button className="chip">Maio · 2026 <Icon name="chevron-down" size={12} className="caret" /></button>
-        <button className="btn btn-sm btn-primary"><Icon name="plus" size={13} />Upload</button>
-      </div>
-    </div>
-    <div className="card-body">
-      <div className="gallery">
-        {[
-          'Pav. 8 — laje pronta','Fachada norte','Subsolo — instalações','Áreas comuns','Pav. 6 — alvenaria',
-          'Pav. 7 — concretagem','Fachada leste','Pilotis','Caixa d\'água','Pav. 8 — armação',
-          'Hall social','Garagem 02',
-        ].map((label, i) => (
-          <div className="photo" key={i}>
-            <div className="photo-label">{label}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  </div>
-);
-
-// ----- Hero Image com upload -----
-const HeroImage = ({ obra, onObraUpdate }) => {
+const Fotos = ({ obra }) => {
   const toast = useToast();
-  const [uploading, setUploading] = React.useState(false);
-  const inputRef = React.useRef();
+  const [fotos,       setFotos]       = React.useState([]);
+  const [loading,     setLoading]     = React.useState(true);
+  const [showUpload,  setShowUpload]  = React.useState(false);
+  const [editando,    setEditando]    = React.useState(null);
 
-  const compress = (file, maxW = 1200, quality = 0.82) => new Promise(resolve => {
+  const carregarFotos = async () => {
+    setLoading(true);
+    const { data, error } = await window.sb.from('fotos_obra')
+      .select('*').eq('obra_id', obra.id).order('created_at', { ascending: false });
+    if (!error && data) setFotos(data);
+    setLoading(false);
+  };
+
+  React.useEffect(() => { carregarFotos(); }, [obra.id]);
+
+  const salvarFoto = async (metadados, file) => {
+    const path = `obras/${obra.id}/fotos/${Date.now()}.jpg`;
+    const blob = await compressImagem(file, 1200, 0.82);
+    const { error: upErr } = await window.sb.storage.from('obras-images').upload(path, blob, { contentType: 'image/jpeg' });
+    if (upErr) { toast('Erro no upload: ' + upErr.message, { tone: 'danger' }); return; }
+    const { data: { publicUrl } } = window.sb.storage.from('obras-images').getPublicUrl(path);
+    const { error: dbErr } = await window.sb.from('fotos_obra').insert([{ obra_id: obra.id, url: publicUrl, storage_path: path, ...metadados }]);
+    if (dbErr) { toast('Erro ao salvar foto', { tone: 'danger' }); return; }
+    toast('Foto salva', { tone: 'success', icon: 'check' });
+    carregarFotos();
+  };
+
+  const atualizarFoto = async (id, metadados) => {
+    const { error } = await window.sb.from('fotos_obra').update(metadados).eq('id', id);
+    if (!error) { toast('Foto atualizada', { tone: 'success', icon: 'check' }); carregarFotos(); }
+  };
+
+  const excluirFoto = async (foto) => {
+    await window.sb.storage.from('obras-images').remove([foto.storage_path]);
+    await window.sb.from('fotos_obra').delete().eq('id', foto.id);
+    setFotos(f => f.filter(x => x.id !== foto.id));
+    toast('Foto excluída', { tone: 'neutral' });
+  };
+
+  return (
+    <>
+      <div className="page-header" style={{ marginBottom: 16 }}>
+        <div>
+          <div className="card-title">Registro fotográfico</div>
+          <div className="card-subtitle">{fotos.length} foto{fotos.length !== 1 ? 's' : ''} cadastrada{fotos.length !== 1 ? 's' : ''}</div>
+        </div>
+        <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
+          <Icon name="upload" size={15} />Upload
+        </button>
+      </div>
+      {loading
+        ? <div className="text-muted" style={{ padding: 48, textAlign: 'center' }}>Carregando…</div>
+        : fotos.length === 0
+          ? <div className="card" style={{ padding: '64px 24px', textAlign: 'center' }}>
+              <Icon name="image" size={40} style={{ color: 'var(--text-faint)' }} />
+              <div className="text-muted" style={{ marginTop: 12 }}>Nenhuma foto cadastrada.<br/>Clique em Upload para adicionar a primeira foto.</div>
+            </div>
+          : <div className="gallery">
+              {fotos.map(f => (
+                <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden' }}>
+                  <img src={f.url} alt={f.descricao || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '20px 10px 8px', color: '#fff', fontSize: 11.5 }}>
+                    {f.pavimento && <div style={{ fontWeight: 600 }}>{f.pavimento}</div>}
+                    {f.data && <div style={{ opacity: 0.75, fontSize: 11 }}>{f.data}</div>}
+                    {f.descricao && <div style={{ opacity: 0.65, marginTop: 2 }}>{f.descricao}</div>}
+                  </div>
+                  <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
+                    <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
+                      onClick={() => setEditando(f)}><Icon name="edit" size={13} /></button>
+                    <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
+                      onClick={() => excluirFoto(f)}><Icon name="trash" size={13} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+      }
+      {showUpload && <UploadFotoModal obra={obra} onSave={salvarFoto} onClose={() => setShowUpload(false)} />}
+      {editando && <EditFotoModal foto={editando} onSave={(m) => { atualizarFoto(editando.id, m); setEditando(null); }} onClose={() => setEditando(null)} />}
+    </>
+  );
+};
+
+// ----- Helper de compressão de imagens -----
+function compressImagem(file, maxW = 1200, quality = 0.82) {
+  return new Promise(resolve => {
     const reader = new FileReader();
     reader.onload = ev => {
       const img = new Image();
@@ -516,6 +567,110 @@ const HeroImage = ({ obra, onObraUpdate }) => {
     };
     reader.readAsDataURL(file);
   });
+}
+
+// ----- Modal: Upload de Foto -----
+const UploadFotoModal = ({ obra, onSave, onClose }) => {
+  const [file,    setFile]    = React.useState(null);
+  const [preview, setPreview] = React.useState(null);
+  const [saving,  setSaving]  = React.useState(false);
+  const [form,    setForm]    = React.useState({ data: new Date().toISOString().slice(0, 10), pavimento: '', descricao: '' });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const onFileChange = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+  };
+
+  const handleSave = async () => {
+    if (!file) return;
+    setSaving(true);
+    await onSave(form, file);
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <Modal title="Upload de Foto" onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={!file || saving}>
+          <Icon name="upload" size={14} />{saving ? 'Salvando…' : 'Salvar foto'}
+        </button>
+      </>}
+    >
+      <div className="stack">
+        {preview
+          ? <img src={preview} alt="preview" style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8 }} />
+          : <label style={{ display: 'block', border: '2px dashed var(--border)', borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
+              <Icon name="image" size={32} />
+              <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Clique para selecionar imagem</div>
+              <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={onFileChange} />
+            </label>
+        }
+        {preview && (
+          <label style={{ cursor: 'pointer', color: 'var(--brand)', fontSize: 13 }}>
+            Trocar imagem
+            <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={onFileChange} />
+          </label>
+        )}
+        <div className="form-grid">
+          <div className="field">
+            <label>Data</label>
+            <input type="date" value={form.data} onChange={e => set('data', e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Pavimento</label>
+            <input placeholder="Ex.: 3º Pavimento, Térreo" value={form.pavimento} onChange={e => set('pavimento', e.target.value)} />
+          </div>
+          <div className="field full">
+            <label>Descrição</label>
+            <input placeholder="Descreva o que aparece na foto" value={form.descricao} onChange={e => set('descricao', e.target.value)} />
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+// ----- Modal: Editar Foto -----
+const EditFotoModal = ({ foto, onSave, onClose }) => {
+  const [form, setForm] = React.useState({ data: foto.data || '', pavimento: foto.pavimento || '', descricao: foto.descricao || '' });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  return (
+    <Modal title="Editar informações da foto" onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => { onSave(form); onClose(); }}>
+          <Icon name="check" size={14} />Salvar
+        </button>
+      </>}
+    >
+      <div className="form-grid">
+        <div className="field">
+          <label>Data</label>
+          <input type="date" value={form.data} onChange={e => set('data', e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Pavimento</label>
+          <input placeholder="Ex.: 3º Pavimento, Térreo" value={form.pavimento} onChange={e => set('pavimento', e.target.value)} />
+        </div>
+        <div className="field full">
+          <label>Descrição</label>
+          <input placeholder="Descreva o que aparece na foto" value={form.descricao} onChange={e => set('descricao', e.target.value)} />
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+// ----- Hero Image com upload -----
+const HeroImage = ({ obra, onObraUpdate }) => {
+  const toast = useToast();
+  const [uploading, setUploading] = React.useState(false);
+  const inputRef = React.useRef();
 
   const handleFile = async (file) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
@@ -524,7 +679,7 @@ const HeroImage = ({ obra, onObraUpdate }) => {
       return;
     }
     setUploading(true);
-    const blob = await compress(file);
+    const blob = await compressImagem(file);
     let imageUrl;
 
     try {
@@ -705,7 +860,7 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
         </div>
       )}
       {tab === 'equipe' && <Equipe />}
-      {tab === 'fotos' && <Fotos />}
+      {tab === 'fotos' && <Fotos obra={o} />}
 
       {showEdit && (
         <ObraFormModal

@@ -270,11 +270,16 @@ function computeGroupValues(etapas) {
 }
 
 // ─── GanttInterativo ─────────────────────────────────────────────────────────
-const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas }) => {
+const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId }) => {
   const [selected,    setSel]      = React.useState(new Set());
-  const [editMode,    setEdit]     = React.useState(true);
-  const [lockDone,    setLock]     = React.useState(true);
-  const [replanAuto,  setReplan]   = React.useState(true);
+  const [editMode,    setEdit]     = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; });
+  const [lockDone,    setLock]     = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; });
+  const [replanAuto,  setReplan]   = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.replanAuto ?? true; });
+
+  const saveGanttCfg = (patch) => {
+    const curr = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}');
+    localStorage.setItem(`gantt_cfg_${obraId}`, JSON.stringify({ ...curr, ...patch }));
+  };
   const [tooltip,     setTip]      = React.useState(null);
   const [draft,       setDraft]    = React.useState(null);
 
@@ -430,7 +435,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas }) => {
         <button
           className={'btn ' + (editMode ? 'btn-primary' : 'btn-ghost')}
           style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5 }}
-          onClick={() => setEdit(v => !v)}
+          onClick={() => { const nv = !editMode; saveGanttCfg({ editMode: nv }); setEdit(nv); }}
         >
           <Icon name="edit" size={12} />{editMode ? 'Editando' : 'Somente leitura'}
         </button>
@@ -438,7 +443,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas }) => {
         <button
           className="btn btn-ghost"
           style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5, color: lockDone ? 'var(--success)' : 'var(--text-muted)' }}
-          onClick={() => setLock(v => !v)}
+          onClick={() => { const nv = !lockDone; saveGanttCfg({ lockDone: nv }); setLock(nv); }}
         >
           <Icon name="shield" size={12} />{lockDone ? 'Concluídas bloqueadas' : 'Concluídas livres'}
         </button>
@@ -446,7 +451,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas }) => {
         <button
           className="btn btn-ghost"
           style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5, color: replanAuto ? 'var(--brand)' : 'var(--text-muted)' }}
-          onClick={() => setReplan(v => !v)}
+          onClick={() => { const nv = !replanAuto; saveGanttCfg({ replanAuto: nv }); setReplan(nv); }}
           title="Quando ativo, arrastar uma barra move automaticamente todas as tarefas sucessoras"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -1548,6 +1553,21 @@ function salvarBaselines(obraId, bls) {
   localStorage.setItem(`cronograma_baselines_${obraId}`, JSON.stringify(bls));
 }
 
+async function salvarCronograma(obraId, etapas, customCols, baselines) {
+  await window.sb.from('cronogramas').upsert(
+    { obra_id: obraId, etapas, custom_cols: customCols, baselines, updated_at: new Date().toISOString() },
+    { onConflict: 'obra_id' }
+  );
+}
+
+async function carregarCronogramaDB(obraId) {
+  const { data, error } = await window.sb.from('cronogramas')
+    .select('etapas, custom_cols, baselines')
+    .eq('obra_id', obraId)
+    .single();
+  return error ? null : data;
+}
+
 // ─── Modal: Criar Linha de Base ──────────────────────────────────────────────
 const CriarLinhaModal = ({ totalExistentes, totalEtapas, onClose, onCreate }) => {
   const [nome, setNome] = React.useState(`Linha de Base ${totalExistentes + 1}`);
@@ -1649,17 +1669,40 @@ const CronogramaFull = ({ initialObraId }) => {
   // Histórico de undo/redo unificado (Lista + Gantt)
   const histRef = React.useRef([etapas.map(e => ({ ...e }))]);
   const hidxRef = React.useRef(0);
-  const undoRef = React.useRef(null);
-  const redoRef = React.useRef(null);
+  const undoRef    = React.useRef(null);
+  const redoRef    = React.useRef(null);
+  const saveTimerRef = React.useRef(null);
 
-  // Recarrega etapas, histórico e baselines ao trocar de obra
+  // Recarrega etapas, histórico e baselines ao trocar de obra (Supabase first, fallback para mock)
   React.useEffect(() => {
-    const data = migrateEtapas(D.cronograma[obraSel] || []);
-    setEtapas(data);
-    histRef.current = [data.map(e => ({ ...e }))];
-    hidxRef.current = 0;
-    setBaselines(carregarBaselines(obraSel));
-    setBlVisivelId(null);
+    let cancelled = false;
+    async function carregar() {
+      const db = await carregarCronogramaDB(obraSel);
+      if (cancelled) return;
+      if (db) {
+        const etapasDB = migrateEtapas(db.etapas || []);
+        setEtapas(etapasDB);
+        D.cronograma[obraSel] = etapasDB;
+        histRef.current = [etapasDB.map(e => ({ ...e }))];
+        hidxRef.current = 0;
+        if (db.custom_cols?.length) {
+          setCustomCols(db.custom_cols);
+          D.cronogramaCustomCols = db.custom_cols;
+        }
+        const bls = db.baselines?.length ? db.baselines : carregarBaselines(obraSel);
+        setBaselines(bls);
+        if (db.baselines?.length) salvarBaselines(obraSel, db.baselines);
+      } else {
+        const mock = migrateEtapas(D.cronograma[obraSel] || []);
+        setEtapas(mock);
+        histRef.current = [mock.map(e => ({ ...e }))];
+        hidxRef.current = 0;
+        setBaselines(carregarBaselines(obraSel));
+      }
+      setBlVisivelId(null);
+    }
+    carregar();
+    return () => { cancelled = true; };
   }, [obraSel]);
 
   // Handlers de linha de base
@@ -1673,6 +1716,7 @@ const CronogramaFull = ({ initialObraId }) => {
     const novas = [...baselines, nova];
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
+    salvarCronograma(obraSel, etapas, customCols, novas);
     toast(`Linha de base "${nome}" criada`, { tone: 'success', icon: 'check' });
   };
 
@@ -1680,6 +1724,7 @@ const CronogramaFull = ({ initialObraId }) => {
     const novas = baselines.filter(b => b.id !== id);
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
+    salvarCronograma(obraSel, etapas, customCols, novas);
     if (blVisivelId === id) setBlVisivelId(null);
     toast('Linha de base excluída', { tone: 'neutral', icon: 'check' });
   };
@@ -1691,7 +1736,14 @@ const CronogramaFull = ({ initialObraId }) => {
     const novas = [...baselines, copia];
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
+    salvarCronograma(obraSel, etapas, customCols, novas);
     toast(`"${copia.nome}" criada`, { tone: 'success', icon: 'check' });
+  };
+
+  const handleCustomColsChange = (novasCols) => {
+    setCustomCols(novasCols);
+    D.cronogramaCustomCols = novasCols;
+    salvarCronograma(obraSel, etapas, novasCols, baselines);
   };
 
   // Etapas da baseline visível (null = nenhuma)
@@ -1719,6 +1771,8 @@ const CronogramaFull = ({ initialObraId }) => {
     hidxRef.current = h.length - 1;
     setEtapas(clean);
     D.cronograma[obraSel] = clean;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => salvarCronograma(obraSel, clean, customCols, baselines), 800);
     if (!opts.silent) {
       const cfls = gmConflicts(clean);
       if (cfls.length > 0) {
@@ -1735,6 +1789,8 @@ const CronogramaFull = ({ initialObraId }) => {
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
     setEtapas(snap);
     D.cronograma[obraSel] = snap;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => salvarCronograma(obraSel, snap, customCols, baselines), 800);
     toast('Ação desfeita', { tone: 'neutral', icon: 'check' });
   };
 
@@ -1744,6 +1800,8 @@ const CronogramaFull = ({ initialObraId }) => {
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
     setEtapas(snap);
     D.cronograma[obraSel] = snap;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => salvarCronograma(obraSel, snap, customCols, baselines), 800);
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
   };
 
@@ -1848,7 +1906,7 @@ const CronogramaFull = ({ initialObraId }) => {
             </div>
           </div>
           <div className="card-body" style={{ padding: 0 }}>
-            <GanttInterativo etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} />
+            <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} />
           </div>
         </div>
       )}
@@ -1860,7 +1918,7 @@ const CronogramaFull = ({ initialObraId }) => {
           etapas={etapas}
           onCommit={commit}
           customCols={customCols}
-          onCustomColsChange={setCustomCols}
+          onCustomColsChange={handleCustomColsChange}
         />
       )}
 
