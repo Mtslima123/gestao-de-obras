@@ -88,7 +88,7 @@ const VisaoGeral = () => {
             <button className="btn btn-sm btn-subtle">Ver cronograma completo<Icon name="arrow-right" size={13} /></button>
           </div>
           <div className="card-body" style={{ padding: '4px 0 0' }}>
-            <Gantt etapas={D.cronograma} />
+            <Gantt etapas={D.cronograma[o.id] || []} />
           </div>
         </div>
 
