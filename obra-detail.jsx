@@ -464,10 +464,21 @@ const Equipe = () => {
   );
 };
 
-// ----- Lightbox de foto -----
+// ----- Lightbox de foto com zoom e pan -----
 const FotoLightbox = ({ fotos, idx, onNavigate, onClose }) => {
   const foto = fotos[idx];
+  const [scale,      setScale]     = React.useState(1);
+  const [translate,  setTranslate] = React.useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = React.useState(false);
+  const containerRef  = React.useRef(null);
+  const isDraggingRef = React.useRef(false);
+  const dragOriginRef = React.useRef({ x: 0, y: 0 });
+  const dragStartRef  = React.useRef({ x: 0, y: 0 });
 
+  // Reset zoom/pan ao trocar de foto
+  React.useEffect(() => { setScale(1); setTranslate({ x: 0, y: 0 }); }, [idx]);
+
+  // Teclado: setas e Escape
   React.useEffect(() => {
     const handler = (e) => {
       if (e.key === 'ArrowLeft'  && idx > 0)               onNavigate(idx - 1);
@@ -478,36 +489,134 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose }) => {
     return () => window.removeEventListener('keydown', handler);
   }, [idx, fotos.length]);
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.92)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-         onClick={onClose}>
-      <button className="icon-btn"
-        style={{ position: 'absolute', top: 16, right: 16, color: '#fff', background: 'rgba(255,255,255,0.15)', width: 40, height: 40 }}
-        onClick={onClose}><Icon name="x" size={20} /></button>
+  // Wheel para zoom — passive:false para permitir preventDefault
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.25 : -0.25;
+      setScale(s => Math.min(4, Math.max(0.5, +(s + delta).toFixed(2))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
+  const onDblClick = (e) => {
+    e.stopPropagation();
+    if (scale !== 1) { setScale(1); setTranslate({ x: 0, y: 0 }); }
+    else setScale(2);
+  };
+
+  const onMouseDown = (e) => {
+    if (scale <= 1) return;
+    e.preventDefault();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    dragOriginRef.current = { x: e.clientX, y: e.clientY };
+    dragStartRef.current  = { x: translate.x, y: translate.y };
+  };
+  const onMouseMove = (e) => {
+    if (!isDraggingRef.current) return;
+    setTranslate({
+      x: dragStartRef.current.x + (e.clientX - dragOriginRef.current.x),
+      y: dragStartRef.current.y + (e.clientY - dragOriginRef.current.y),
+    });
+  };
+  const onMouseUp = () => { isDraggingRef.current = false; setIsDragging(false); };
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.95)',
+               display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={() => { if (scale <= 1) onClose(); }}
+    >
+      {/* Botão fechar */}
+      <button className="icon-btn"
+        style={{ position: 'absolute', top: 16, right: 16, color: '#fff', background: 'rgba(255,255,255,0.15)', width: 40, height: 40, zIndex: 10 }}
+        onClick={e => { e.stopPropagation(); onClose(); }}>
+        <Icon name="x" size={20} />
+      </button>
+
+      {/* Navegar para foto anterior */}
       {idx > 0 && (
         <button className="icon-btn"
-          style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#fff', background: 'rgba(255,255,255,0.15)', width: 44, height: 44 }}
+          style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#fff', background: 'rgba(255,255,255,0.15)', width: 44, height: 44, zIndex: 10 }}
           onClick={e => { e.stopPropagation(); onNavigate(idx - 1); }}>
           <Icon name="chevron-left" size={24} />
         </button>
       )}
 
-      <img src={foto.url} alt={foto.descricao || ''}
-        style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8, userSelect: 'none' }}
-        onClick={e => e.stopPropagation()} />
+      {/* Container da imagem: isola overflow e captura eventos de mouse */}
+      <div
+        ref={containerRef}
+        style={{
+          width: '95vw', height: '95vh',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          overflow: 'hidden',
+          cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'zoom-in',
+          userSelect: 'none',
+        }}
+        onClick={e => e.stopPropagation()}
+        onDoubleClick={onDblClick}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+      >
+        <img
+          src={foto.url}
+          alt={foto.descricao || ''}
+          draggable={false}
+          style={{
+            maxWidth: '95vw',
+            maxHeight: '95vh',
+            objectFit: 'contain',
+            transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
+            transition: isDragging ? 'none' : 'transform 0.15s ease',
+            userSelect: 'none',
+            pointerEvents: 'none',
+          }}
+        />
+      </div>
 
+      {/* Navegar para foto seguinte */}
       {idx < fotos.length - 1 && (
         <button className="icon-btn"
-          style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#fff', background: 'rgba(255,255,255,0.15)', width: 44, height: 44 }}
+          style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#fff', background: 'rgba(255,255,255,0.15)', width: 44, height: 44, zIndex: 10 }}
           onClick={e => { e.stopPropagation(); onNavigate(idx + 1); }}>
           <Icon name="chevron-right" size={24} />
         </button>
       )}
 
-      <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
-                    color: '#fff', textAlign: 'center', fontSize: 13, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+      {/* Controles de zoom */}
+      <div style={{ position: 'absolute', bottom: 52, left: '50%', transform: 'translateX(-50%)',
+                    display: 'flex', gap: 6, alignItems: 'center', zIndex: 10 }}>
+        <button className="icon-btn"
+          style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', width: 36, height: 36 }}
+          onClick={e => { e.stopPropagation(); setScale(s => Math.max(0.5, +(s - 0.5).toFixed(2))); }}>
+          <Icon name="zoom-out" size={16} />
+        </button>
+        <span style={{ color: '#fff', fontSize: 12, minWidth: 40, textAlign: 'center', opacity: 0.85 }}>
+          {Math.round(scale * 100)}%
+        </span>
+        <button className="icon-btn"
+          style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', width: 36, height: 36 }}
+          onClick={e => { e.stopPropagation(); setScale(s => Math.min(4, +(s + 0.5).toFixed(2))); }}>
+          <Icon name="zoom-in" size={16} />
+        </button>
+        {scale !== 1 && (
+          <button className="icon-btn"
+            style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', width: 36, height: 36 }}
+            onClick={e => { e.stopPropagation(); setScale(1); setTranslate({ x: 0, y: 0 }); }}>
+            <Icon name="maximize" size={16} />
+          </button>
+        )}
+      </div>
+
+      {/* Metadados da foto */}
+      <div style={{ position: 'absolute', bottom: 14, left: '50%', transform: 'translateX(-50%)',
+                    color: '#fff', textAlign: 'center', fontSize: 13, pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: 10 }}>
         {foto.pavimento && <div style={{ fontWeight: 600 }}>{foto.pavimento}</div>}
         {foto.data      && <div style={{ opacity: 0.7 }}>{foto.data}</div>}
         {foto.descricao && <div style={{ opacity: 0.6, marginTop: 2 }}>{foto.descricao}</div>}
@@ -838,10 +947,10 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
   const margem = ((o.orcamento - o.gasto) / o.orcamento * 100).toFixed(1);
 
   const tabs = [
-    { id: 'visao', label: 'Visão geral' },
-    { id: 'cronograma', label: 'Cronograma', count: 10 },
-    { id: 'equipe', label: 'Equipe', count: o.equipe },
-    { id: 'fotos', label: 'Fotos', count: 84 },
+    { id: 'visao',      label: 'Visão geral' },
+    { id: 'cronograma', label: 'Cronograma'  },
+    { id: 'equipe',     label: 'Equipe'      },
+    { id: 'fotos',      label: 'Fotos'       },
   ];
 
   return (
@@ -922,7 +1031,6 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
         {tabs.map(t => (
           <button key={t.id} className={'tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
             {t.label}
-            {t.count != null && <span className="tab-count">{t.count}</span>}
           </button>
         ))}
       </div>

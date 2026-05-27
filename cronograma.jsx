@@ -106,6 +106,9 @@ function migrateEtapas(raw) {
   }));
 }
 
+const fmtBRL   = n => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const parseBRL  = s => { const n = parseFloat(String(s).replace(/R\$\s?/g, '').replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : Math.max(0, n); };
+
 function computeAllWBS(etapas) {
   const result = {}, counters = {};
   etapas.forEach(e => {
@@ -1085,11 +1088,15 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id da tarefa a excluir
   const [showPavimentos, setShowPavimentos] = React.useState(false);
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
+  const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
 
-  const wbsMap   = React.useMemo(() => computeAllWBS(etapas), [etapas]);
-  const succMap  = React.useMemo(() => computeSuccessors(etapas), [etapas]);
-  const visible  = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
-  const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
+  const wbsMap      = React.useMemo(() => computeAllWBS(etapas), [etapas]);
+  const succMap     = React.useMemo(() => computeSuccessors(etapas), [etapas]);
+  const visible     = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+  const groupVals   = React.useMemo(() => computeGroupValues(etapas), [etapas]);
+  const totalCusto  = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), [etapas]);
+  const totalReal   = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custoRealizado || 0), 0), [etapas]);
+  const totalSaldo  = totalCusto - totalReal;
 
   // Limpa seleção se o item selecionado for excluído
   React.useEffect(() => {
@@ -1161,6 +1168,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
       if (field === 'dep') {
         const depList = String(rawValue).split(',').map(s => s.trim()).filter(s => s && etapas.find(x => x.id === s));
         return { ...e, dep: depList };
+      }
+      if (field === 'custo' || field === 'custoRealizado') {
+        return { ...e, [field]: parseBRL(rawValue) };
       }
       if (field.startsWith('cc_')) {
         return { ...e, customCols: { ...(e.customCols || {}), [field]: rawValue } };
@@ -1280,7 +1290,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
       <div style={{ overflowX: 'auto' }}>
-        <table className="tbl" style={{ minWidth: 1180 }}>
+        <table className="tbl" style={{ minWidth: 1620 }}>
           <thead>
             <tr>
               <th style={{ width: 56, fontSize: 10.5 }}>WBS</th>
@@ -1290,6 +1300,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
               <th style={{ width: 112 }}>Término</th>
               <th style={{ width: 90 }}>Duração</th>
               <th style={{ width: 150 }}>Avanço</th>
+              <th style={{ width: 130, textAlign: 'right' }}>R$ Previsto</th>
+              <th style={{ width: 68,  textAlign: 'right', fontSize: 10.5 }}>Peso %</th>
+              <th style={{ width: 130, textAlign: 'right' }}>R$ Realizado</th>
+              <th style={{ width: 110, textAlign: 'right' }}>R$ Saldo</th>
               <th style={{ width: 130 }}>Responsável</th>
               <th style={{ width: 110 }}>Predecessoras</th>
               <th style={{ width: 110 }}>Sucessoras</th>
@@ -1428,6 +1442,63 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                     </div>
                   </td>
 
+                  {/* R$ Previsto */}
+                  <td className="num" style={{ textAlign: 'right' }} onClick={ev => ev.stopPropagation()}>
+                    {e.isGroup ? (
+                      <span className="text-muted mono" style={{ fontSize: 12 }}>{fmtBRL(gv?.custo || 0)}</span>
+                    ) : editingCusto === e.id + '_custo' ? (
+                      <input
+                        autoFocus type="number" min="0" defaultValue={e.custo || 0}
+                        style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
+                        onBlur={ev => { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); }}
+                        onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); } if (ev.key === 'Escape') setEditingCusto(null); }}
+                      />
+                    ) : (
+                      <span className="mono" style={{ fontSize: 12, cursor: 'text', display: 'block', textAlign: 'right' }}
+                        onClick={() => setEditingCusto(e.id + '_custo')}>
+                        {fmtBRL(e.custo || 0)}
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Peso % */}
+                  <td className="num text-muted mono" style={{ textAlign: 'right', fontSize: 12 }}>
+                    {!e.isGroup && totalCusto > 0 ? ((e.custo || 0) / totalCusto * 100).toFixed(1) + '%' : '—'}
+                  </td>
+
+                  {/* R$ Realizado */}
+                  <td className="num" style={{ textAlign: 'right' }} onClick={ev => ev.stopPropagation()}>
+                    {e.isGroup ? (
+                      <span className="text-muted mono" style={{ fontSize: 12 }}>
+                        {fmtBRL(etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0))}
+                      </span>
+                    ) : editingCusto === e.id + '_real' ? (
+                      <input
+                        autoFocus type="number" min="0" defaultValue={e.custoRealizado || 0}
+                        style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
+                        onBlur={ev => { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); }}
+                        onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); } if (ev.key === 'Escape') setEditingCusto(null); }}
+                      />
+                    ) : (
+                      <span className="mono" style={{ fontSize: 12, cursor: 'text', display: 'block', textAlign: 'right' }}
+                        onClick={() => setEditingCusto(e.id + '_real')}>
+                        {fmtBRL(e.custoRealizado || 0)}
+                      </span>
+                    )}
+                  </td>
+
+                  {/* R$ Saldo (computed) */}
+                  <td className="num mono" style={{ textAlign: 'right', fontSize: 12 }}>
+                    {(() => {
+                      const prev = e.isGroup ? (gv?.custo || 0) : (e.custo || 0);
+                      const real = e.isGroup
+                        ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+                        : (e.custoRealizado || 0);
+                      const saldo = prev - real;
+                      return <span style={{ color: saldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(saldo)}</span>;
+                    })()}
+                  </td>
+
                   {/* Responsável */}
                   <td onClick={ev => ev.stopPropagation()}>
                     <EditableCell
@@ -1478,12 +1549,24 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
             {/* Linha de adição rápida */}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={11 + customCols.length + 1} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+                <td colSpan={15 + customCols.length + 1} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
                   Nenhuma tarefa — clique em <strong>Adicionar tarefa</strong> para começar
                 </td>
               </tr>
             )}
           </tbody>
+          <tfoot>
+            <tr style={{ fontWeight: 600, borderTop: '2px solid var(--border)', background: 'var(--surface-raised)' }}>
+              <td colSpan={7} style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-soft)', padding: '8px 8px 8px 0' }}>Total</td>
+              <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>{fmtBRL(totalCusto)}</td>
+              <td className="num mono text-muted" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>100%</td>
+              <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>{fmtBRL(totalReal)}</td>
+              <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>
+                <span style={{ color: totalSaldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalSaldo)}</span>
+              </td>
+              <td colSpan={4 + customCols.length + 1}></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
 
@@ -1900,11 +1983,18 @@ const CronogramaFull = ({ initialObraId }) => {
           : (
             <>
               {/* KPIs */}
-              <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+              <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
                 <div className="kpi" style={{ padding: '14px 18px' }}>
                   <div className="kpi-label">Avanço físico</div>
                   <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{avancoTotal}<span className="unit">%</span></div>
                   <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">ponderado pelo custo de cada etapa</span></div>
+                </div>
+                <div className="kpi" style={{ padding: '14px 18px' }}>
+                  <div className="kpi-label">Custo previsto</div>
+                  <div className="kpi-value num" style={{ fontSize: 18, marginTop: 6 }}>
+                    {D.brl(etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), { compact: true })}
+                  </div>
+                  <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">soma das tarefas do cronograma</span></div>
                 </div>
                 <div className="kpi" style={{ padding: '14px 18px' }}>
                   <div className="kpi-label">Etapas concluídas</div>
