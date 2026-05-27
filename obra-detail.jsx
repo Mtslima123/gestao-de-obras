@@ -680,22 +680,16 @@ const HeroImage = ({ obra, onObraUpdate }) => {
     }
     setUploading(true);
     const blob = await compressImagem(file);
-    let imageUrl;
-
-    try {
-      const path = `obras/${obra.id}/capa.jpg`;
-      const { error } = await window.sb.storage.from('obras-images').upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
-      if (error) throw error;
-      const { data } = window.sb.storage.from('obras-images').getPublicUrl(path);
-      imageUrl = data.publicUrl;
-      toast('Imagem salva com sucesso', { tone: 'success', icon: 'check' });
-    } catch {
-      // Storage não configurado — mantém em memória (blob URL)
-      imageUrl = URL.createObjectURL(blob);
-      toast('Imagem salva localmente. Configure o Supabase Storage para persistir.', { tone: 'warning' });
+    const path = `obras/${obra.id}/capa.jpg`;
+    const { error } = await window.sb.storage.from('obras-images').upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+    if (error) {
+      toast('Erro no upload: ' + error.message, { tone: 'danger' });
+      setUploading(false);
+      return;
     }
-
-    onObraUpdate({ ...obra, imageUrl });
+    const { data } = window.sb.storage.from('obras-images').getPublicUrl(path);
+    onObraUpdate({ ...obra, imageUrl: data.publicUrl });
+    toast('Imagem salva com sucesso', { tone: 'success', icon: 'check' });
     setUploading(false);
   };
 
