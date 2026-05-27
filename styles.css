@@ -1849,3 +1849,32 @@ a:hover { color: var(--brand-600); }
   .login-brand { display: none; }
   .login-form-wrap { padding: 40px 24px; }
 }
+
+/* ─── Lista interativa (MS Project-like) ─────────────────────────── */
+.lista-row-selected td {
+  background: color-mix(in srgb, var(--brand) 8%, transparent) !important;
+}
+.lista-row-group td {
+  background: var(--surface-muted);
+  font-weight: 600;
+}
+.lista-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 3px;
+  margin-right: 2px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.lista-toggle:hover {
+  background: var(--border);
+  color: var(--text);
+}

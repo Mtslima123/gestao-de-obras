@@ -154,17 +154,17 @@ window.AppData = (function () {
 
   // Cronograma com dependências
   const cronograma = [
-    { id: 'E1', etapa: 'Serviços preliminares', inicio: 0,   dur: 2,  status: 'done',     avanco: 100, dep: [] },
-    { id: 'E2', etapa: 'Fundação',               inicio: 2,  dur: 4,  status: 'done',     avanco: 100, dep: ['E1'] },
-    { id: 'E3', etapa: 'Supra-estrutura',        inicio: 5,  dur: 9,  status: 'done',     avanco: 100, dep: ['E2'] },
-    { id: 'E4', etapa: 'Alvenaria',              inicio: 8,  dur: 7,  status: 'late',     avanco: 78,  dep: ['E3'] },
-    { id: 'E5', etapa: 'Instalações elétricas',  inicio: 11, dur: 8,  status: 'late',     avanco: 54,  dep: ['E4'] },
-    { id: 'E6', etapa: 'Instalações hidráulicas',inicio: 12, dur: 7,  status: 'late',     avanco: 48,  dep: ['E4'] },
-    { id: 'E7', etapa: 'Esquadrias',             inicio: 14, dur: 4,  status: 'upcoming', avanco: 18,  dep: ['E4'] },
-    { id: 'E8', etapa: 'Revestimentos',          inicio: 15, dur: 6,  status: 'upcoming', avanco: 5,   dep: ['E5','E6'] },
-    { id: 'E9', etapa: 'Pintura',                inicio: 19, dur: 4,  status: 'upcoming', avanco: 0,   dep: ['E8'] },
-    { id: 'E10', etapa: 'Paisagismo',            inicio: 22, dur: 3,  status: 'upcoming', avanco: 0,   dep: [] },
-    { id: 'E11', etapa: 'Entrega final',         inicio: 24, dur: 2,  status: 'upcoming', avanco: 0,   dep: ['E9','E10'], milestone: true },
+    { id: 'E1',  etapa: 'Serviços preliminares',  inicio: 0,  dur: 2,  status: 'done',     avanco: 100, dep: [],           milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Carlos Melo',   customCols: {} },
+    { id: 'E2',  etapa: 'Fundação',                inicio: 2,  dur: 4,  status: 'done',     avanco: 100, dep: ['E1'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Ana Souza',    customCols: {} },
+    { id: 'E3',  etapa: 'Supra-estrutura',         inicio: 5,  dur: 9,  status: 'done',     avanco: 100, dep: ['E2'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Ricardo Lima',  customCols: {} },
+    { id: 'E4',  etapa: 'Alvenaria',               inicio: 8,  dur: 7,  status: 'late',     avanco: 78,  dep: ['E3'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Fernanda Cruz', customCols: {} },
+    { id: 'E5',  etapa: 'Instalações elétricas',   inicio: 11, dur: 8,  status: 'late',     avanco: 54,  dep: ['E4'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Paulo Rocha',   customCols: {} },
+    { id: 'E6',  etapa: 'Instalações hidráulicas', inicio: 12, dur: 7,  status: 'late',     avanco: 48,  dep: ['E4'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Mariana Dias',  customCols: {} },
+    { id: 'E7',  etapa: 'Esquadrias',              inicio: 14, dur: 4,  status: 'upcoming', avanco: 18,  dep: ['E4'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {} },
+    { id: 'E8',  etapa: 'Revestimentos',           inicio: 15, dur: 6,  status: 'upcoming', avanco: 5,   dep: ['E5','E6'], milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {} },
+    { id: 'E9',  etapa: 'Pintura',                 inicio: 19, dur: 4,  status: 'upcoming', avanco: 0,   dep: ['E8'],       milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {} },
+    { id: 'E10', etapa: 'Paisagismo',              inicio: 22, dur: 3,  status: 'upcoming', avanco: 0,   dep: [],           milestone: false, nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: '',              customCols: {} },
+    { id: 'E11', etapa: 'Entrega final',           inicio: 24, dur: 2,  status: 'upcoming', avanco: 0,   dep: ['E9','E10'], milestone: true,  nivel: 0, parentId: null, isGroup: false, collapsed: false, responsavel: 'Carlos Melo',   customCols: {} },
   ];
 
   const medicoes = [
@@ -311,7 +311,8 @@ window.AppData = (function () {
   }
 
   return {
-    obras, obraAtual, cronograma, medicoes, insumos, fornecedores, equipe,
+    obras, obraAtual, cronograma, cronogramaCustomCols: [],
+    medicoes, insumos, fornecedores, equipe,
     avancoSerie, faturamentoSerie, distribuicaoStatus, alertas, eventos,
     orcamentoItens, orcamentosLista, contratos, notificacoes,
     brl,
