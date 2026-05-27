@@ -2,14 +2,31 @@
 const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
   const D = window.AppData;
   const { brl } = D;
-  const [filter, setFilter] = React.useState('todos');
-  const [search, setSearch] = React.useState('');
+  const [filter,         setFilter]        = React.useState('todos');
+  const [search,         setSearch]        = React.useState('');
   const [internalLayout, setInternalLayout] = React.useState(layout);
+  const [showNovaObra,   setShowNovaObra]  = React.useState(false);
+  const [deleteObra,     setDeleteObra]    = React.useState(null);  // obra a excluir
+  const [deleteStep,     setDeleteStep]    = React.useState(1);     // 1 ou 2
+  const [obras,          setObras]         = React.useState(() => [...D.obras]);
+
   React.useEffect(() => { setInternalLayout(layout); }, [layout]);
 
-  const filtered = D.obras
+  const filtered = obras
     .filter(o => filter === 'todos' ? true : filter === 'em_andamento' ? o.status === 'em_andamento' : o.status === filter)
     .filter(o => !search || (o.nome + o.cliente + o.id).toLowerCase().includes(search.toLowerCase()));
+
+  const handleDeleteConfirm = () => {
+    if (!deleteObra) return;
+    if (deleteStep === 1) { setDeleteStep(2); return; }
+    const newObras = obras.filter(o => o.id !== deleteObra.id);
+    D.obras = newObras;
+    setObras(newObras);
+    setDeleteObra(null);
+    setDeleteStep(1);
+  };
+
+  const handleDeleteCancel = () => { setDeleteObra(null); setDeleteStep(1); };
 
   return (
     <>
@@ -17,7 +34,7 @@ const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
         <div>
           <h1 className="page-title">Obras</h1>
           <div className="page-subtitle">
-            {D.obras.length} obras cadastradas · {brl(D.obras.filter(o => o.status === 'em_andamento').reduce((a, b) => a + b.orcamento, 0), { compact: true })} em valor contratado
+            {obras.length} obras cadastradas · {brl(obras.filter(o => o.status === 'em_andamento').reduce((a, b) => a + b.orcamento, 0), { compact: true })} em valor contratado
           </div>
         </div>
         <div className="page-actions">
@@ -31,6 +48,9 @@ const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
           </div>
           <button className="btn btn-ghost"><Icon name="filter" size={15} />Filtros</button>
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
+          <button className="btn btn-primary" onClick={() => setShowNovaObra(true)}>
+            <Icon name="plus" size={15} /> Nova Obra
+          </button>
         </div>
       </div>
 
@@ -38,9 +58,9 @@ const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
         <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
           <div className="filters" style={{ flex: 1 }}>
             {[
-              { id: 'todos', label: 'Todas', count: D.obras.length },
-              { id: 'em_andamento', label: 'Em execução', count: D.obras.filter(o => o.status === 'em_andamento').length },
-              { id: 'concluida', label: 'Concluídas', count: D.obras.filter(o => o.status === 'concluida').length },
+              { id: 'todos', label: 'Todas', count: obras.length },
+              { id: 'em_andamento', label: 'Em execução', count: obras.filter(o => o.status === 'em_andamento').length },
+              { id: 'concluida', label: 'Concluídas', count: obras.filter(o => o.status === 'concluida').length },
             ].map(f => (
               <button key={f.id} className={'chip' + (filter === f.id ? ' active' : '')} onClick={() => setFilter(f.id)}>
                 {f.label} <span style={{ color: 'var(--text-faint)' }}>·</span> {f.count}
@@ -73,11 +93,12 @@ const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
                   <th>Risco</th>
                   <th>Etapa atual</th>
                   <th>Entrega</th>
+                  <th style={{ width: 40 }}></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((o) => (
-                  <tr key={o.id} onClick={() => onOpenObra(o)}>
+                  <tr key={o.id} onClick={() => onOpenObra(o)} style={{ cursor: 'pointer' }}>
                     <td>
                       <div className="strong" style={{ marginBottom: 2 }}>{o.nome}</div>
                       <div className="text-xs text-muted mono">{o.id} · {o.tipo}</div>
@@ -96,12 +117,61 @@ const ObrasList = ({ onOpenObra, layout = 'tabela' }) => {
                     <td><RiskBadge risk={o.risco} /></td>
                     <td className="text-sm text-soft">{o.etapaAtual}</td>
                     <td className="mono text-sm text-soft">{o.previsto.split('-').reverse().join('/')}</td>
+                    <td onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center' }}>
+                      <button
+                        className="obras-row-actions btn btn-ghost"
+                        style={{ width: 28, height: 28, padding: 0, color: 'var(--danger)' }}
+                        title={`Excluir ${o.nome}`}
+                        onClick={() => { setDeleteObra(o); setDeleteStep(1); }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                        </svg>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+
+      {showNovaObra && <NovaObraModal onClose={() => setShowNovaObra(false)} />}
+
+      {deleteObra && (
+        <Modal
+          title={deleteStep === 1 ? 'Excluir obra' : 'Confirmação final'}
+          onClose={handleDeleteCancel}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={handleDeleteCancel}>Cancelar</button>
+              <button
+                className="btn"
+                style={{ background: 'var(--danger)', color: 'white', fontWeight: 600 }}
+                onClick={handleDeleteConfirm}
+              >
+                {deleteStep === 1 ? 'Sim, excluir' : 'Confirmar exclusão'}
+              </button>
+            </>
+          }
+        >
+          {deleteStep === 1 ? (
+            <p style={{ fontSize: 14 }}>
+              Tem certeza que deseja excluir a obra <strong>{deleteObra.nome}</strong> ({deleteObra.id})?
+            </p>
+          ) : (
+            <div>
+              <p style={{ fontSize: 14, marginBottom: 10 }}>
+                Esta ação é <strong style={{ color: 'var(--danger)' }}>irreversível</strong>. Todos os dados da obra serão removidos.
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                Obra: <strong>{deleteObra.nome}</strong> · Orçamento: <strong>{brl(deleteObra.orcamento, { compact: true })}</strong>
+              </p>
+              <p style={{ fontSize: 14, marginTop: 12, fontWeight: 600 }}>Deseja realmente continuar?</p>
+            </div>
+          )}
+        </Modal>
       )}
 
       {internalLayout === 'cards' && (

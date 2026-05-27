@@ -101,7 +101,7 @@ function migrateEtapas(raw) {
   return (raw || []).map(e => ({
     nivel: 0, parentId: null, isGroup: false,
     collapsed: false, responsavel: '', customCols: {},
-    milestone: false,
+    milestone: false, custo: 0,
     ...e,
   }));
 }
@@ -158,7 +158,7 @@ function createTask(afterId, etapas, customCols) {
     inicio: after ? after.inicio + after.dur : 0,
     dur: 1, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
-    customCols: emptyCustomCols(customCols),
+    customCols: emptyCustomCols(customCols), custo: 0,
   };
   return [...etapas.slice(0, idx + 1), novo, ...etapas.slice(idx + 1)];
 }
@@ -182,7 +182,7 @@ function createSubtask(parentId, etapas, customCols) {
     isGroup: false, collapsed: false,
     inicio: parent.inicio, dur: 1, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
-    customCols: emptyCustomCols(customCols),
+    customCols: emptyCustomCols(customCols), custo: 0,
   };
   return [...etapas.slice(0, insertIdx + 1), novo, ...etapas.slice(insertIdx + 1)];
 }
@@ -198,7 +198,7 @@ function createGroup(afterId, etapas, customCols) {
     inicio: after ? after.inicio : 0,
     dur: 1, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
-    customCols: emptyCustomCols(customCols),
+    customCols: emptyCustomCols(customCols), custo: 0,
   };
   return [...etapas.slice(0, idx + 1), novo, ...etapas.slice(idx + 1)];
 }
@@ -219,13 +219,64 @@ function deleteTask(id, etapas) {
     .map(e => ({ ...e, dep: (e.dep || []).filter(d => !toRemove.has(d)) }));
 }
 
+// Propaga delta de arrastar para todas as tarefas sucessoras (BFS)
+// endDeltaMap: { [id]: deltaMeses } — quanto o FIM de cada barra moveu
+// Modifica apenas os SUCESSORES (não as barras seed, que já estão corretas)
+function propagateDrag(etapas, endDeltaMap) {
+  const succs = computeSuccessors(etapas);
+  const queue = Object.keys(endDeltaMap);
+  const visited = new Set(queue);
+  const deltasBySucc = {};
+
+  while (queue.length) {
+    const id = queue.shift();
+    for (const sid of (succs[id] || [])) {
+      if (!visited.has(sid)) {
+        deltasBySucc[sid] = endDeltaMap[id];
+        visited.add(sid);
+        queue.push(sid);
+      }
+    }
+  }
+
+  if (!Object.keys(deltasBySucc).length) return etapas;
+  return etapas.map(e =>
+    deltasBySucc[e.id] !== undefined
+      ? { ...e, inicio: Math.max(0, e.inicio + deltasBySucc[e.id]) }
+      : e
+  );
+}
+
+// Computa valores consolidados para linhas de grupo (somando filhos diretos)
+function computeGroupValues(etapas) {
+  const result = {};
+  etapas.filter(e => e.isGroup).forEach(g => {
+    const children = etapas.filter(e => e.parentId === g.id);
+    if (!children.length) return;
+    const totalCusto = children.reduce((s, c) => s + (c.custo || 0), 0);
+    const avanco = totalCusto > 0
+      ? children.reduce((s, c) => s + (c.avanco || 0) * (c.custo || 0), 0) / totalCusto
+      : children.reduce((s, c) => s + (c.avanco || 0), 0) / children.length;
+    const inicio = Math.min(...children.map(c => c.inicio));
+    const fim    = Math.max(...children.map(c => c.inicio + c.dur));
+    result[g.id] = {
+      avanco:  Math.round(avanco),
+      inicio,
+      dur:     Math.max(1, fim - inicio),
+      custo:   totalCusto,
+    };
+  });
+  return result;
+}
+
 // ─── GanttInterativo ─────────────────────────────────────────────────────────
 const GanttInterativo = ({ etapas, onCommit, undo, redo }) => {
-  const [selected,    setSel]  = React.useState(new Set());
-  const [editMode,    setEdit] = React.useState(true);
-  const [lockDone,    setLock] = React.useState(true);
-  const [tooltip,     setTip]  = React.useState(null);
-  const [draft,       setDraft]= React.useState(null);
+  const [selected,    setSel]      = React.useState(new Set());
+  const [editMode,    setEdit]     = React.useState(true);
+  const [lockDone,    setLock]     = React.useState(true);
+  const [replanAuto,  setReplan]   = React.useState(true);
+  const [tooltip,     setTip]      = React.useState(null);
+  const [draft,       setDraft]    = React.useState(null);
 
   const cRef      = React.useRef(null);
   const etapasRef = React.useRef(etapas);  // ref para event handlers (evita closures stale)
@@ -315,6 +366,21 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo }) => {
       const novas = etapasRef.current.map(et => ({
         ...et, ...(movedIds.has(et.id) && cur[et.id] ? cur[et.id] : {}),
       }));
+
+      // Replanejamento automático: cascata para sucessoras
+      if (replanAuto && type !== 'resizeLeft') {
+        const endDeltaMap = {};
+        movedIds.forEach(mid => {
+          if (!cur[mid] || !orig[mid]) return;
+          const d = (cur[mid].inicio + cur[mid].dur) - (orig[mid].inicio + orig[mid].dur);
+          if (d !== 0) endDeltaMap[mid] = d;
+        });
+        if (Object.keys(endDeltaMap).length) {
+          onCommit(propagateDrag(novas, endDeltaMap));
+          return;
+        }
+      }
+
       onCommit(novas);
     };
 
@@ -369,6 +435,18 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo }) => {
           onClick={() => setLock(v => !v)}
         >
           <Icon name="shield" size={12} />{lockDone ? 'Concluídas bloqueadas' : 'Concluídas livres'}
+        </button>
+
+        <button
+          className="btn btn-ghost"
+          style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5, color: replanAuto ? 'var(--brand)' : 'var(--text-muted)' }}
+          onClick={() => setReplan(v => !v)}
+          title="Quando ativo, arrastar uma barra move automaticamente todas as tarefas sucessoras"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+          </svg>
+          {replanAuto ? 'Replan. automático' : 'Replan. manual'}
         </button>
 
         <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
@@ -820,20 +898,202 @@ const AddColModal = ({ onClose, onAdd }) => {
   );
 };
 
+// ─── PavimentosModal ─────────────────────────────────────────────────────────
+const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
+  const [step,          setStep]          = React.useState(1);
+  const [floors,        setFloors]        = React.useState(['Térreo', 'Pavimento 1', 'Pavimento 2']);
+  const [selectedTasks, setSelectedTasks] = React.useState([]);
+
+  const validFloors = floors.filter(f => f.trim());
+
+  const handleConfirm = () => {
+    if (!validFloors.length || !selectedTasks.length) return;
+    let novas = etapas.map(e => ({ ...e }));
+
+    selectedTasks.forEach(taskId => {
+      // Converter tarefa em grupo se ainda não for
+      novas = novas.map(e => e.id === taskId ? { ...e, isGroup: true } : e);
+      const task = novas.find(e => e.id === taskId);
+      if (!task) return;
+
+      // Encontra índice do último descendente para inserir subtarefas após ele
+      let insertIdx = novas.findIndex(e => e.id === taskId);
+      for (let i = insertIdx + 1; i < novas.length; i++) {
+        let cur = novas[i], isDesc = false;
+        while (cur && cur.parentId) {
+          if (cur.parentId === taskId) { isDesc = true; break; }
+          cur = novas.find(x => x.id === cur.parentId);
+        }
+        if (isDesc) insertIdx = i; else break;
+      }
+
+      // Cria subtarefas para cada pavimento
+      const subDur = Math.max(1, Math.round(task.dur / validFloors.length));
+      const toInsert = validFloors.map((nome, fi) => {
+        const allSoFar = [...novas, ...validFloors.slice(0, fi).map((_, j) => ({ id: `_tmp${j}` }))];
+        return {
+          id:         nextEtapaId([...novas, ...validFloors.slice(0, fi).map((_, j) => ({ id: `E${9000 + j}` }))]),
+          etapa:      nome,
+          nivel:      (task.nivel || 0) + 1,
+          parentId:   taskId,
+          isGroup:    false, collapsed: false,
+          inicio:     task.inicio + fi * subDur,
+          dur:        subDur,
+          avanco:     0, status: 'upcoming',
+          dep:        [], milestone: false, responsavel: '',
+          customCols: emptyCustomCols(customCols),
+          custo:      0,
+        };
+      });
+
+      // Gera IDs únicos sequencialmente
+      const uniqueSubs = [];
+      for (const sub of toInsert) {
+        uniqueSubs.push({ ...sub, id: nextEtapaId([...novas, ...uniqueSubs]) });
+      }
+
+      novas = [
+        ...novas.slice(0, insertIdx + 1),
+        ...uniqueSubs,
+        ...novas.slice(insertIdx + 1),
+      ];
+    });
+
+    onCommit(novas);
+    onClose();
+  };
+
+  return (
+    <Modal
+      title="Inserção automática de pavimentos"
+      subtitle={step === 1 ? 'Passo 1 de 2 — Definir pavimentos' : 'Passo 2 de 2 — Selecionar tarefas'}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={step === 1 ? onClose : () => setStep(1)}>
+            {step === 1 ? 'Cancelar' : 'Voltar'}
+          </button>
+          {step === 1 ? (
+            <button className="btn btn-primary" disabled={!validFloors.length} onClick={() => setStep(2)}>
+              Próximo →
+            </button>
+          ) : (
+            <button className="btn btn-primary" disabled={!selectedTasks.length} onClick={handleConfirm}>
+              Criar {validFloors.length} pavimento{validFloors.length !== 1 ? 's' : ''} em {selectedTasks.length} tarefa{selectedTasks.length !== 1 ? 's' : ''}
+            </button>
+          )}
+        </>
+      }
+    >
+      {step === 1 && (
+        <div>
+          <p style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
+            Informe os nomes dos pavimentos. Eles serão criados como subtarefas das tarefas que você selecionar.
+          </p>
+          {floors.map((f, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <span style={{ width: 20, textAlign: 'right', fontSize: 12, color: 'var(--text-faint)', flexShrink: 0 }}>{i + 1}.</span>
+              <input
+                className="input"
+                value={f}
+                autoFocus={i === 0}
+                onChange={ev => setFloors(fl => fl.map((x, j) => j === i ? ev.target.value : x))}
+                placeholder={`Ex.: Pavimento ${i + 1}`}
+                style={{ flex: 1 }}
+                onKeyDown={ev => { if (ev.key === 'Enter') setFloors(fl => [...fl, '']); }}
+              />
+              {floors.length > 1 && (
+                <button
+                  className="btn btn-ghost"
+                  style={{ width: 30, height: 30, padding: 0, fontSize: 16, lineHeight: 1 }}
+                  onClick={() => setFloors(fl => fl.filter((_, j) => j !== i))}
+                >×</button>
+              )}
+            </div>
+          ))}
+          <button className="btn btn-ghost" style={{ fontSize: 12, marginTop: 4, gap: 5 }} onClick={() => setFloors(fl => [...fl, ''])}>
+            <Icon name="plus" size={12} /> Adicionar pavimento
+          </button>
+        </div>
+      )}
+
+      {step === 2 && (
+        <div>
+          <p style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+            Selecione as tarefas que receberão os pavimentos como subtarefas.
+            Serão criados: <strong>{validFloors.join(', ')}</strong>.
+          </p>
+          <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+            {etapas.map(e => (
+              <label key={e.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 14px', cursor: 'pointer',
+                borderBottom: '1px solid var(--border)',
+                background: selectedTasks.includes(e.id) ? 'var(--brand-tint)' : 'transparent',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={selectedTasks.includes(e.id)}
+                  onChange={ev => {
+                    if (ev.target.checked) setSelectedTasks(ts => [...ts, e.id]);
+                    else setSelectedTasks(ts => ts.filter(id => id !== e.id));
+                  }}
+                />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 32 }}>{e.id}</span>
+                <span style={{ paddingLeft: (e.nivel || 0) * 16, fontSize: 13, fontWeight: e.isGroup ? 600 : 400 }}>
+                  {e.etapa}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+};
+
 // ─── ListaInterativa ──────────────────────────────────────────────────────────
 const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) => {
   const toast = useToast();
-  const [selectedId,  setSelectedId]  = React.useState(null);
-  const [showAddCol,  setShowAddCol]  = React.useState(false);
+  const [selectedId,     setSelectedId]     = React.useState(null);
+  const [showAddCol,     setShowAddCol]     = React.useState(false);
+  const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id da tarefa a excluir
+  const [showPavimentos, setShowPavimentos] = React.useState(false);
+  const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
 
-  const wbsMap  = React.useMemo(() => computeAllWBS(etapas), [etapas]);
-  const succMap = React.useMemo(() => computeSuccessors(etapas), [etapas]);
-  const visible = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+  const wbsMap   = React.useMemo(() => computeAllWBS(etapas), [etapas]);
+  const succMap  = React.useMemo(() => computeSuccessors(etapas), [etapas]);
+  const visible  = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+  const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
 
   // Limpa seleção se o item selecionado for excluído
   React.useEffect(() => {
     if (selectedId && !etapas.find(e => e.id === selectedId)) setSelectedId(null);
+    setMultiSel(ms => ms.filter(id => etapas.find(e => e.id === id)));
   }, [etapas, selectedId]);
+
+  // Atalho Ctrl+F2 — cria vínculos em cadeia entre tarefas de multiSel (na ordem de clique)
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (e.ctrlKey && e.key === 'F2') {
+        e.preventDefault();
+        if (multiSel.length < 2) { toast('Selecione ao menos 2 tarefas com Ctrl+clique', { tone: 'warning', icon: 'alert-triangle' }); return; }
+        const novas = etapas.map(et => ({ ...et }));
+        for (let i = 1; i < multiSel.length; i++) {
+          const succ = novas.find(et => et.id === multiSel[i]);
+          if (succ && !(succ.dep || []).includes(multiSel[i - 1])) {
+            succ.dep = [...(succ.dep || []), multiSel[i - 1]];
+          }
+        }
+        onCommit(novas);
+        setMultiSel([]);
+        toast(`${multiSel.length - 1} vínculo(s) criado(s)`, { tone: 'success', icon: 'check' });
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [multiSel, etapas]);
 
   // ── Atualização de campo ────────────────────────────────────────────────────
   const handleCellSave = (id, field, rawValue) => {
@@ -896,12 +1156,19 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
   const handleAddTask    = () => onCommit(createTask(selectedId, etapas, customCols), { silent: true });
   const handleAddSubtask = () => { if (!selectedId) return; onCommit(createSubtask(selectedId, etapas, customCols), { silent: true }); };
   const handleAddGroup   = () => onCommit(createGroup(selectedId, etapas, customCols), { silent: true });
-  const handleDelete     = () => {
+
+  const handleDelete = () => {
     if (!selectedId) return;
-    const novas = deleteTask(selectedId, etapas);
+    setDeleteConfirm(selectedId);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteConfirm) return;
+    const novas = deleteTask(deleteConfirm, etapas);
     const count = etapas.length - novas.length;
     onCommit(novas, { silent: true });
     setSelectedId(null);
+    setDeleteConfirm(null);
     toast(`${count} tarefa${count > 1 ? 's removidas' : ' removida'}`, { tone: 'neutral', icon: 'check' });
   };
 
@@ -946,6 +1213,14 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
           Grupo
         </button>
 
+        <button className="btn btn-ghost" style={btnStyle} onClick={() => setShowPavimentos(true)}
+          title="Inserir pavimentos automaticamente como subtarefas">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/>
+          </svg>
+          Pavimentos
+        </button>
+
         <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
 
         <button
@@ -962,7 +1237,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
 
         <div style={{ flex: 1 }} />
 
-        {selectedId && (
+        {multiSel.length > 0 && (
+          <span style={{ fontSize: 11.5, color: 'var(--brand)', fontWeight: 600, padding: '3px 10px', background: 'var(--brand-tint)', borderRadius: 20 }}>
+            {multiSel.length} selecionadas · Ctrl+F2 para vincular
+          </span>
+        )}
+
+        {selectedId && !multiSel.length && (
           <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
             {selectedId} selecionado
           </span>
@@ -1003,15 +1284,32 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
           </thead>
           <tbody>
             {visible.map((e) => {
-              const isSelected  = selectedId === e.id;
-              const indent      = (e.nivel || 0) * 20;
-              const hasChildren = etapas.some(x => x.parentId === e.id);
+              const isSelected   = selectedId === e.id;
+              const indent       = (e.nivel || 0) * 20;
+              const hasChildren  = etapas.some(x => x.parentId === e.id);
+              const gv           = e.isGroup ? groupVals[e.id] : null;
+              const multiIdx     = multiSel.indexOf(e.id); // -1 se não está na multi-seleção
+              const isMultiSel   = multiIdx >= 0;
+
+              // Início e término efetivos (grupo usa groupVals)
+              const eInicio = gv ? gv.inicio : e.inicio;
+              const eDur    = gv ? gv.dur    : e.dur;
+              const eAvanco = gv ? gv.avanco : e.avanco;
 
               return (
                 <tr
                   key={e.id}
                   className={isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : ''}
-                  onClick={() => setSelectedId(id => id === e.id ? null : e.id)}
+                  onClick={(ev) => {
+                    if (ev.ctrlKey || ev.metaKey) {
+                      // Ctrl+click: adiciona/remove da seleção ordenada
+                      ev.preventDefault();
+                      setMultiSel(ms => ms.includes(e.id) ? ms.filter(id => id !== e.id) : [...ms, e.id]);
+                    } else {
+                      setSelectedId(id => id === e.id ? null : e.id);
+                      setMultiSel([]);
+                    }
+                  }}
                   style={{ cursor: 'pointer' }}
                 >
                   {/* WBS */}
@@ -1042,6 +1340,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                         onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
                         style={{ fontWeight: e.isGroup ? 600 : 400 }}
                       />
+                      {isMultiSel && (
+                        <span className="multi-sel-badge">{multiIdx + 1}</span>
+                      )}
                     </div>
                   </td>
 
@@ -1049,7 +1350,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                   <td className="mono text-sm" onClick={ev => ev.stopPropagation()}>
                     <EditableCell
                       type="date"
-                      value={offsetToISO(e.inicio)}
+                      value={offsetToISO(eInicio)}
                       onSave={v => handleCellSave(e.id, 'inicio', v)}
                       readOnly={e.isGroup}
                     />
@@ -1059,7 +1360,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                   <td className="mono text-sm" onClick={ev => ev.stopPropagation()}>
                     <EditableCell
                       type="date"
-                      value={offsetToISO(e.inicio + e.dur)}
+                      value={offsetToISO(eInicio + eDur)}
                       onSave={v => handleCellSave(e.id, 'fim', v)}
                       readOnly={e.isGroup}
                     />
@@ -1068,7 +1369,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                   {/* Duração em dias (aprox) */}
                   <td className="mono num" onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
-                      <span className="text-muted">—</span>
+                      <span className="text-muted mono" style={{ fontSize: 12 }}>{eDur * 30}d</span>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                         <EditableCell
@@ -1087,13 +1388,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <div style={{ flex: 1, minWidth: 50 }}>
                         <div className={'progress' + (e.status === 'done' ? ' success' : e.status === 'late' ? ' danger' : '')}>
-                          <span style={{ width: e.avanco + '%' }}></span>
+                          <span style={{ width: eAvanco + '%' }}></span>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <EditableCell
                           type="number"
-                          value={String(e.avanco)}
+                          value={String(eAvanco)}
                           onSave={v => handleCellSave(e.id, 'avanco', v)}
                           readOnly={e.isGroup}
                           style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 28 }}
@@ -1163,6 +1464,47 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
       </div>
 
       {showAddCol && <AddColModal onClose={() => setShowAddCol(false)} onAdd={handleAddCol} />}
+
+      {/* Modal de confirmação de exclusão */}
+      {deleteConfirm && (() => {
+        const et = etapas.find(e => e.id === deleteConfirm);
+        const childCount = deleteTask(deleteConfirm, etapas).length < etapas.length
+          ? etapas.length - deleteTask(deleteConfirm, etapas).length - 1
+          : 0;
+        return (
+          <Modal
+            title="Excluir tarefa"
+            onClose={() => setDeleteConfirm(null)}
+            footer={
+              <>
+                <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)}>Cancelar</button>
+                <button className="btn" style={{ background: 'var(--danger)', color: 'white' }} onClick={confirmDelete}>
+                  Excluir{childCount > 0 ? ` (+ ${childCount} subtarefa${childCount > 1 ? 's' : ''})` : ''}
+                </button>
+              </>
+            }
+          >
+            <p style={{ fontSize: 14, marginBottom: 4 }}>
+              Tem certeza que deseja excluir <strong>{et ? et.etapa : deleteConfirm}</strong>?
+            </p>
+            {childCount > 0 && (
+              <p style={{ fontSize: 13, color: 'var(--danger)', marginTop: 8 }}>
+                Esta tarefa possui {childCount} subtarefa{childCount > 1 ? 's' : ''} que também serão removida{childCount > 1 ? 's' : ''}.
+              </p>
+            )}
+          </Modal>
+        );
+      })()}
+
+      {/* Modal de inserção de pavimentos */}
+      {showPavimentos && (
+        <PavimentosModal
+          etapas={etapas}
+          customCols={customCols}
+          onCommit={onCommit}
+          onClose={() => setShowPavimentos(false)}
+        />
+      )}
     </div>
   );
 };
@@ -1197,6 +1539,15 @@ const CronogramaFull = () => {
   const obra       = D.obras.find(o => o.id === obraSel) || D.obras[0];
   const concluidas = etapas.filter(e => e.status === 'done').length;
   const atrasadas  = etapas.filter(e => e.status === 'late').length;
+
+  // Avanço ponderado pelo custo de cada etapa (folhas, não grupos)
+  const avancoTotal = React.useMemo(() => {
+    const folhas    = etapas.filter(e => !e.isGroup);
+    if (!folhas.length) return 0;
+    const totalCusto = folhas.reduce((s, e) => s + (e.custo || 0), 0);
+    if (!totalCusto) return Math.round(folhas.reduce((s, e) => s + e.avanco, 0) / folhas.length);
+    return Math.round(folhas.reduce((s, e) => s + e.avanco * (e.custo || 0), 0) / totalCusto);
+  }, [etapas]);
 
   // ── Commit (fonte única de verdade) ────────────────────────────────────────
   const commit = (novas, opts = {}) => {
@@ -1277,8 +1628,8 @@ const CronogramaFull = () => {
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Avanço físico</div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{obra.avancoFisico}<span className="unit">%</span></div>
-          <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">vs planejado 65%</span></div>
+          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{avancoTotal}<span className="unit">%</span></div>
+          <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">ponderado pelo custo de cada etapa</span></div>
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Etapas concluídas</div>

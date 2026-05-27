@@ -1878,3 +1878,29 @@ a:hover { color: var(--brand-600); }
   background: var(--border);
   color: var(--text);
 }
+
+/* Badge numérico de ordem na multi-seleção (Ctrl+clique) */
+.multi-sel-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 9px;
+  background: var(--brand);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 4px;
+  margin-left: 5px;
+  flex-shrink: 0;
+}
+
+/* Ícone de excluir obra — visível apenas ao passar o mouse na linha */
+.obras-row-actions {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+tr:hover .obras-row-actions {
+  opacity: 1;
+}
