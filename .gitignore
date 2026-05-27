@@ -3,3 +3,7 @@ login-options/
 uploads/
 .claude/
 CLAUDE.md
+node_modules/
+dist/
+.env
+.env.local
