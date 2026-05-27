@@ -464,13 +464,69 @@ const Equipe = () => {
   );
 };
 
+// ----- Lightbox de foto -----
+const FotoLightbox = ({ fotos, idx, onNavigate, onClose }) => {
+  const foto = fotos[idx];
+
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'ArrowLeft'  && idx > 0)               onNavigate(idx - 1);
+      if (e.key === 'ArrowRight' && idx < fotos.length - 1) onNavigate(idx + 1);
+      if (e.key === 'Escape')                               onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [idx, fotos.length]);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.92)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+         onClick={onClose}>
+      <button className="icon-btn"
+        style={{ position: 'absolute', top: 16, right: 16, color: '#fff', background: 'rgba(255,255,255,0.15)', width: 40, height: 40 }}
+        onClick={onClose}><Icon name="x" size={20} /></button>
+
+      {idx > 0 && (
+        <button className="icon-btn"
+          style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#fff', background: 'rgba(255,255,255,0.15)', width: 44, height: 44 }}
+          onClick={e => { e.stopPropagation(); onNavigate(idx - 1); }}>
+          <Icon name="chevron-left" size={24} />
+        </button>
+      )}
+
+      <img src={foto.url} alt={foto.descricao || ''}
+        style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8, userSelect: 'none' }}
+        onClick={e => e.stopPropagation()} />
+
+      {idx < fotos.length - 1 && (
+        <button className="icon-btn"
+          style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#fff', background: 'rgba(255,255,255,0.15)', width: 44, height: 44 }}
+          onClick={e => { e.stopPropagation(); onNavigate(idx + 1); }}>
+          <Icon name="chevron-right" size={24} />
+        </button>
+      )}
+
+      <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
+                    color: '#fff', textAlign: 'center', fontSize: 13, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+        {foto.pavimento && <div style={{ fontWeight: 600 }}>{foto.pavimento}</div>}
+        {foto.data      && <div style={{ opacity: 0.7 }}>{foto.data}</div>}
+        {foto.descricao && <div style={{ opacity: 0.6, marginTop: 2 }}>{foto.descricao}</div>}
+        <div style={{ opacity: 0.4, marginTop: 4, fontSize: 11.5 }}>{idx + 1} / {fotos.length}</div>
+      </div>
+    </div>
+  );
+};
+
 // ----- Fotos tab -----
 const Fotos = ({ obra }) => {
   const toast = useToast();
-  const [fotos,       setFotos]       = React.useState([]);
-  const [loading,     setLoading]     = React.useState(true);
-  const [showUpload,  setShowUpload]  = React.useState(false);
-  const [editando,    setEditando]    = React.useState(null);
+  const [fotos,        setFotos]        = React.useState([]);
+  const [loading,      setLoading]      = React.useState(true);
+  const [showUpload,   setShowUpload]   = React.useState(false);
+  const [editando,     setEditando]     = React.useState(null);
+  const [filtroData,   setFiltroData]   = React.useState('');
+  const [filtroMes,    setFiltroMes]    = React.useState('');
+  const [lightboxIdx,  setLightboxIdx]  = React.useState(null);
 
   const carregarFotos = async () => {
     setLoading(true);
@@ -506,6 +562,12 @@ const Fotos = ({ obra }) => {
     toast('Foto excluída', { tone: 'neutral' });
   };
 
+  const fotosFiltradas = fotos.filter(f => {
+    if (filtroData && f.data !== filtroData) return false;
+    if (filtroMes  && !(f.data || '').startsWith(filtroMes)) return false;
+    return true;
+  });
+
   return (
     <>
       <div className="page-header" style={{ marginBottom: 16 }}>
@@ -517,6 +579,30 @@ const Fotos = ({ obra }) => {
           <Icon name="upload" size={15} />Upload
         </button>
       </div>
+
+      {!loading && fotos.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div className="field" style={{ margin: 0 }}>
+            <label style={{ fontSize: 12, marginBottom: 4, display: 'block' }}>Data</label>
+            <input type="date" value={filtroData}
+              onChange={e => { setFiltroData(e.target.value); setFiltroMes(''); }}
+              style={{ height: 34, fontSize: 13 }} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label style={{ fontSize: 12, marginBottom: 4, display: 'block' }}>Mês</label>
+            <input type="month" value={filtroMes}
+              onChange={e => { setFiltroMes(e.target.value); setFiltroData(''); }}
+              style={{ height: 34, fontSize: 13 }} />
+          </div>
+          {(filtroData || filtroMes) && (
+            <button className="btn btn-ghost" style={{ height: 34 }}
+              onClick={() => { setFiltroData(''); setFiltroMes(''); }}>
+              <Icon name="x" size={13} />Limpar
+            </button>
+          )}
+        </div>
+      )}
+
       {loading
         ? <div className="text-muted" style={{ padding: 48, textAlign: 'center' }}>Carregando…</div>
         : fotos.length === 0
@@ -524,27 +610,36 @@ const Fotos = ({ obra }) => {
               <Icon name="image" size={40} style={{ color: 'var(--text-faint)' }} />
               <div className="text-muted" style={{ marginTop: 12 }}>Nenhuma foto cadastrada.<br/>Clique em Upload para adicionar a primeira foto.</div>
             </div>
-          : <div className="gallery">
-              {fotos.map(f => (
-                <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden' }}>
-                  <img src={f.url} alt={f.descricao || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '20px 10px 8px', color: '#fff', fontSize: 11.5 }}>
-                    {f.pavimento && <div style={{ fontWeight: 600 }}>{f.pavimento}</div>}
-                    {f.data && <div style={{ opacity: 0.75, fontSize: 11 }}>{f.data}</div>}
-                    {f.descricao && <div style={{ opacity: 0.65, marginTop: 2 }}>{f.descricao}</div>}
+          : fotosFiltradas.length === 0
+            ? <div className="card" style={{ padding: '48px 24px', textAlign: 'center' }}>
+                <Icon name="search" size={32} style={{ color: 'var(--text-faint)' }} />
+                <div className="text-muted" style={{ marginTop: 12 }}>Nenhuma foto encontrada para o filtro selecionado.</div>
+              </div>
+            : <div className="gallery">
+                {fotosFiltradas.map((f, i) => (
+                  <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}
+                       onClick={() => setLightboxIdx(i)}>
+                    <img src={f.url} alt={f.descricao || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '20px 10px 8px', color: '#fff', fontSize: 11.5 }}>
+                      {f.pavimento && <div style={{ fontWeight: 600 }}>{f.pavimento}</div>}
+                      {f.data && <div style={{ opacity: 0.75, fontSize: 11 }}>{f.data}</div>}
+                      {f.descricao && <div style={{ opacity: 0.65, marginTop: 2 }}>{f.descricao}</div>}
+                    </div>
+                    <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
+                      <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
+                        onClick={e => { e.stopPropagation(); setEditando(f); }}><Icon name="edit" size={13} /></button>
+                      <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
+                        onClick={e => { e.stopPropagation(); excluirFoto(f); }}><Icon name="trash" size={13} /></button>
+                    </div>
                   </div>
-                  <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
-                    <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
-                      onClick={() => setEditando(f)}><Icon name="edit" size={13} /></button>
-                    <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
-                      onClick={() => excluirFoto(f)}><Icon name="trash" size={13} /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
       }
       {showUpload && <UploadFotoModal obra={obra} onSave={salvarFoto} onClose={() => setShowUpload(false)} />}
       {editando && <EditFotoModal foto={editando} onSave={(m) => { atualizarFoto(editando.id, m); setEditando(null); }} onClose={() => setEditando(null)} />}
+      {lightboxIdx !== null && (
+        <FotoLightbox fotos={fotosFiltradas} idx={lightboxIdx} onNavigate={setLightboxIdx} onClose={() => setLightboxIdx(null)} />
+      )}
     </>
   );
 };
