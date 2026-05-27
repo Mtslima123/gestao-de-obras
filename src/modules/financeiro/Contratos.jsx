@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { Modal } from '../../components/Modals';
+import { StatusBadge } from '../../components/StatusBadge';
 
 // Contratos — lista + detalhe com aditivos
 const { brl: brlCT } = AppData;

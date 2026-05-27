@@ -2,22 +2,11 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { Modal } from '../../components/Modals';
+import { StatusBadge } from '../../components/StatusBadge';
 
 // Orçamentos — lista + detalhe com composição
 const { brl: brlOR } = AppData;
 
-const StatusBadge = ({ status }) => {
-  const map = {
-    aprovado:  { cls: 'success', label: 'Aprovado' },
-    pendente:  { cls: 'warning', label: 'Em aprovação' },
-    rascunho:  { cls: 'neutral', label: 'Rascunho' },
-    rejeitado: { cls: 'danger',  label: 'Rejeitado' },
-    vigente:   { cls: 'success', label: 'Vigente' },
-    encerrado: { cls: 'neutral', label: 'Encerrado' },
-  };
-  const s = map[status] || map.rascunho;
-  return <span className={'badge ' + s.cls}><span className="dot"></span>{s.label}</span>;
-};
 
 const OrcamentoLista = ({ onOpen, onNovo }) => {
   const D = AppData;
@@ -300,4 +289,4 @@ const OrcamentosScreen = ({ onNovoOrcamento }) => {
   return <OrcamentoLista onOpen={setSelected} onNovo={onNovoOrcamento} />;
 };
 
-export { OrcamentosScreen, OrcamentoDetalhe, OrcamentoLista, StatusBadge };
+export { OrcamentosScreen, OrcamentoDetalhe, OrcamentoLista };

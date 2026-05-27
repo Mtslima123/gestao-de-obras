@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
+import { RiskBadge } from '../../components/RiskBadge';
 
 // Dashboard Executivo
 const { brl } = AppData;
@@ -178,15 +179,6 @@ const Donut = ({ data, size = 160 }) => {
 };
 
 // ----- Status badge for obra -----
-const RiskBadge = ({ risk }) => {
-  const map = {
-    baixo:  { cls: 'success', label: 'Baixo' },
-    medio:  { cls: 'warning', label: 'Médio' },
-    alto:   { cls: 'danger',  label: 'Alto' },
-  };
-  const r = map[risk] || map.baixo;
-  return <span className={'badge ' + r.cls}><span className="dot"></span>{r.label}</span>;
-};
 
 // ----- Dashboard main -----
 const Dashboard = ({ onOpenObra, onAcao }) => {
@@ -415,4 +407,4 @@ const Dashboard = ({ onOpenObra, onAcao }) => {
   );
 };
 
-export { Dashboard, RiskBadge };
+export { Dashboard };

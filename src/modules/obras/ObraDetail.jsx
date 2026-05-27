@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { Modal, ObraFormModal } from '../../components/Modals';
+import { RiskBadge } from '../../components/RiskBadge';
 
 // Obra Detail Page
 const { brl: brlD } = AppData;

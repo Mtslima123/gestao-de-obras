@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { Modal, ObraFormModal } from '../../components/Modals';
+import { RiskBadge } from '../../components/RiskBadge';
 
 // Obras — lista completa com variação de layout (cards x tabela)
 const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraUpdate, onObraDelete }) => {
