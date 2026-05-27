@@ -1657,14 +1657,21 @@ const CronogramaFull = ({ initialObraId }) => {
   const D    = window.AppData;
   const toast = useToast();
 
-  const [obraSel,      setObraSel]      = React.useState(initialObraId || 'OB-001');
+  // Escolhe a obra inicial sem usar OB-001 hardcoded
+  const defaultObraId = initialObraId
+    || D.obras.find(o => o.status === 'em_andamento')?.id
+    || D.obras[0]?.id
+    || null;
+
+  const [obraSel,      setObraSel]      = React.useState(defaultObraId);
   const [view,         setView]         = React.useState('gantt');
-  const [etapas,       setEtapas]       = React.useState(() => migrateEtapas(D.cronograma[initialObraId || 'OB-001'] || []));
+  const [etapas,       setEtapas]       = React.useState(() => migrateEtapas(D.cronograma[defaultObraId] || []));
   const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
-  const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(initialObraId || 'OB-001'));
+  const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(defaultObraId || ''));
   const [blVisivelId,  setBlVisivelId]  = React.useState(null);
   const [showCriar,    setShowCriar]    = React.useState(false);
   const [showGerenciar, setShowGerenciar] = React.useState(false);
+  const [loadingCron,  setLoadingCron]  = React.useState(true);
 
   // Histórico de undo/redo unificado (Lista + Gantt)
   const histRef = React.useRef([etapas.map(e => ({ ...e }))]);
@@ -1677,6 +1684,8 @@ const CronogramaFull = ({ initialObraId }) => {
   React.useEffect(() => {
     let cancelled = false;
     async function carregar() {
+      if (!obraSel) { setLoadingCron(false); return; }
+      setLoadingCron(true);
       const db = await carregarCronogramaDB(obraSel);
       if (cancelled) return;
       if (db) {
@@ -1700,6 +1709,7 @@ const CronogramaFull = ({ initialObraId }) => {
         setBaselines(carregarBaselines(obraSel));
       }
       setBlVisivelId(null);
+      setLoadingCron(false);
     }
     carregar();
     return () => { cancelled = true; };
@@ -1828,7 +1838,8 @@ const CronogramaFull = ({ initialObraId }) => {
           <div className="page-subtitle">Planejamento físico das obras · Gantt interativo com replanejamento direto</div>
         </div>
         <div className="page-actions">
-          <select className="input" value={obraSel} onChange={e => setObraSel(e.target.value)} style={{ minWidth: 200 }}>
+          <select className="input" value={obraSel || ''} onChange={e => setObraSel(e.target.value)} style={{ minWidth: 200 }}>
+            {!obraSel && <option value="">Selecione uma obra</option>}
             {D.obras.filter(o => o.status === 'em_andamento').map(o => (
               <option key={o.id} value={o.id}>{o.nome} ({o.id})</option>
             ))}
@@ -1862,75 +1873,104 @@ const CronogramaFull = ({ initialObraId }) => {
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">Avanço físico</div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{avancoTotal}<span className="unit">%</span></div>
-          <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">ponderado pelo custo de cada etapa</span></div>
-        </div>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">Etapas concluídas</div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{concluidas}<span className="unit">/ {etapas.length}</span></div>
-        </div>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">Etapas atrasadas</div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6, color: 'var(--danger)' }}>{atrasadas}</div>
-          <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">Caminho crítico afetado</span></div>
-        </div>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">Folga total</div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>11<span className="unit">dias</span></div>
-        </div>
-      </div>
-
-      {view === 'gantt' && (
-        <div className="card" style={{ marginTop: 'var(--gap)' }}>
-          <div className="card-header">
-            <div>
-              <div className="card-title">{obra.nome} · Gantt interativo</div>
-              <div className="card-subtitle">{etapas.length} etapas · {GM_TOTAL} meses · arraste as barras para replanejar</div>
-            </div>
-            <div className="card-actions">
-              <div className="legend">
-                <span className="legend-item"><span className="legend-swatch" style={{ background: '#1b8f5e' }}></span>Concluída</span>
-                <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Em execução</span>
-                <span className="legend-item"><span className="legend-swatch" style={{ background: '#c0281f' }}></span>Atrasada</span>
-                <span className="legend-item"><span className="legend-swatch" style={{ background: '#3d7fc9' }}></span>Futura</span>
-                <span className="legend-item"><span className="legend-swatch" style={{ background: '#d97706' }}></span>Conflito</span>
-                <span className="legend-item"><span className="legend-swatch" style={{ width: 10, height: 10, background: 'var(--brand)', transform: 'rotate(45deg)', borderRadius: 0 }}></span>Marco</span>
-                {baselineEtapas && (
-                  <span className="legend-item"><span className="legend-swatch" style={{ background: 'rgba(107,120,144,0.55)', height: 4 }}></span>Linha de base</span>
-                )}
+      {loadingCron
+        ? <div className="text-muted" style={{ padding: 64, textAlign: 'center' }}>Carregando…</div>
+        : !obraSel || etapas.length === 0
+          ? (
+            <div className="card" style={{ marginTop: 'var(--gap)', padding: '72px 24px', textAlign: 'center' }}>
+              <div style={{ width: 64, height: 64, borderRadius: 16, background: 'var(--brand-tint)', color: 'var(--brand)',
+                            display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
+                <Icon name="calendar" size={28} />
               </div>
+              <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Nenhum cronograma criado</h2>
+              <div className="text-muted" style={{ maxWidth: 400, margin: '0 auto 20px', fontSize: 13.5 }}>
+                Esta obra ainda não possui cronograma. Adicione a primeira etapa para começar o planejamento.
+              </div>
+              {obraSel && (
+                <button className="btn btn-primary" onClick={() => {
+                  commit([{ id: 'E' + Date.now(), etapa: 'Nova etapa', inicio: 0, dur: 4,
+                            status: 'planejada', pct: 0, custo: 0, tipo: 'tarefa' }]);
+                  setView('lista');
+                }}>
+                  <Icon name="plus" size={15} />Criar cronograma
+                </button>
+              )}
             </div>
-          </div>
-          <div className="card-body" style={{ padding: 0 }}>
-            <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} />
-          </div>
-        </div>
-      )}
+          )
+          : (
+            <>
+              {/* KPIs */}
+              <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+                <div className="kpi" style={{ padding: '14px 18px' }}>
+                  <div className="kpi-label">Avanço físico</div>
+                  <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{avancoTotal}<span className="unit">%</span></div>
+                  <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">ponderado pelo custo de cada etapa</span></div>
+                </div>
+                <div className="kpi" style={{ padding: '14px 18px' }}>
+                  <div className="kpi-label">Etapas concluídas</div>
+                  <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{concluidas}<span className="unit">/ {etapas.length}</span></div>
+                </div>
+                <div className="kpi" style={{ padding: '14px 18px' }}>
+                  <div className="kpi-label">Etapas atrasadas</div>
+                  <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6, color: 'var(--danger)' }}>{atrasadas}</div>
+                  <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">Caminho crítico afetado</span></div>
+                </div>
+                <div className="kpi" style={{ padding: '14px 18px' }}>
+                  <div className="kpi-label">Folga total</div>
+                  <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>11<span className="unit">dias</span></div>
+                </div>
+              </div>
 
-      {view === 'curva' && <CurvaFisicaView obra={obra} />}
+              {view === 'gantt' && (
+                <div className="card" style={{ marginTop: 'var(--gap)' }}>
+                  <div className="card-header">
+                    <div>
+                      <div className="card-title">{obra.nome} · Gantt interativo</div>
+                      <div className="card-subtitle">{etapas.length} etapas · {GM_TOTAL} meses · arraste as barras para replanejar</div>
+                    </div>
+                    <div className="card-actions">
+                      <div className="legend">
+                        <span className="legend-item"><span className="legend-swatch" style={{ background: '#1b8f5e' }}></span>Concluída</span>
+                        <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Em execução</span>
+                        <span className="legend-item"><span className="legend-swatch" style={{ background: '#c0281f' }}></span>Atrasada</span>
+                        <span className="legend-item"><span className="legend-swatch" style={{ background: '#3d7fc9' }}></span>Futura</span>
+                        <span className="legend-item"><span className="legend-swatch" style={{ background: '#d97706' }}></span>Conflito</span>
+                        <span className="legend-item"><span className="legend-swatch" style={{ width: 10, height: 10, background: 'var(--brand)', transform: 'rotate(45deg)', borderRadius: 0 }}></span>Marco</span>
+                        {baselineEtapas && (
+                          <span className="legend-item"><span className="legend-swatch" style={{ background: 'rgba(107,120,144,0.55)', height: 4 }}></span>Linha de base</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="card-body" style={{ padding: 0 }}>
+                    <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} />
+                  </div>
+                </div>
+              )}
 
-      {view === 'lista' && (
-        <ListaInterativa
-          etapas={etapas}
-          onCommit={commit}
-          customCols={customCols}
-          onCustomColsChange={handleCustomColsChange}
-        />
-      )}
+              {view === 'curva' && <CurvaFisicaView obra={obra} />}
 
-      {view === 'calendario' && (
-        <div className="card" style={{ marginTop: 'var(--gap)', padding: 40, textAlign: 'center' }}>
-          <Icon name="calendar" size={40} style={{ color: 'var(--text-faint)' }} />
-          <h3 style={{ marginTop: 12, fontSize: 16, color: 'var(--text-soft)' }}>Visualização em calendário</h3>
-          <p className="text-muted" style={{ maxWidth: 380, margin: '6px auto 0', fontSize: 13 }}>
-            Em breve: visualize etapas e marcos em uma grade mensal interativa.
-          </p>
-        </div>
-      )}
+              {view === 'lista' && (
+                <ListaInterativa
+                  etapas={etapas}
+                  onCommit={commit}
+                  customCols={customCols}
+                  onCustomColsChange={handleCustomColsChange}
+                />
+              )}
+
+              {view === 'calendario' && (
+                <div className="card" style={{ marginTop: 'var(--gap)', padding: 40, textAlign: 'center' }}>
+                  <Icon name="calendar" size={40} style={{ color: 'var(--text-faint)' }} />
+                  <h3 style={{ marginTop: 12, fontSize: 16, color: 'var(--text-soft)' }}>Visualização em calendário</h3>
+                  <p className="text-muted" style={{ maxWidth: 380, margin: '6px auto 0', fontSize: 13 }}>
+                    Em breve: visualize etapas e marcos em uma grade mensal interativa.
+                  </p>
+                </div>
+              )}
+            </>
+          )
+      }
 
       {showCriar && (
         <CriarLinhaModal
