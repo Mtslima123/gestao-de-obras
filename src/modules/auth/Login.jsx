@@ -30,7 +30,7 @@ const LoginScreen = ({ onLogin }) => {
         <div className="login-brand-bg"></div>
         <div className="login-brand-content" style={{ justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 0 }}>
           <img
-            src="assets/logo-soter-branco.png"
+            src="/assets/logo-soter-branco.png"
             alt="Soter"
             style={{ width: 'min(58%, 340px)', height: 'auto', display: 'block' }}
           />

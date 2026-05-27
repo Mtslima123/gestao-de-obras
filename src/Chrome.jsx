@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from './components/Icons';
+import { NotifPanel } from './components/Modals';
 
 // Sidebar + Topbar — shared app chrome
 const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
@@ -48,7 +49,7 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
       >
         <div className="sidebar-header">
         <div className="brand-logo">
-          <img src="assets/soter-icon.png" alt="Soter" style={{ width: 40, height: 40, objectFit: 'contain' }} />
+          <img src="/assets/soter-icon.png" alt="Soter" style={{ width: 40, height: 40, objectFit: 'contain' }} />
         </div>
         {!collapsed && (
           <div style={{ minWidth: 0, flex: 1 }}>
