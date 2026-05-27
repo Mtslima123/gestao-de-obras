@@ -1748,13 +1748,15 @@ const CronogramaFull = ({ initialObraId }) => {
 
   const [obraSel,      setObraSel]      = React.useState(defaultObraId);
   const [view,         setView]         = React.useState('gantt');
-  const [etapas,       setEtapas]       = React.useState(() => migrateEtapas(D.cronograma[defaultObraId] || []));
+  const [etapas,       setEtapas]       = React.useState([]);
   const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
   const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(defaultObraId || ''));
   const [blVisivelId,  setBlVisivelId]  = React.useState(null);
   const [showCriar,    setShowCriar]    = React.useState(false);
   const [showGerenciar, setShowGerenciar] = React.useState(false);
-  const [loadingCron,  setLoadingCron]  = React.useState(true);
+  const [loadedObraId, setLoadedObraId] = React.useState(null);
+  // isLoading derivado: true quando obraSel existe mas ainda não terminou de carregar seus dados
+  const isLoading = !!(obraSel && loadedObraId !== obraSel);
 
   // Histórico de undo/redo unificado (Lista + Gantt)
   const histRef = React.useRef([etapas.map(e => ({ ...e }))]);
@@ -1767,8 +1769,8 @@ const CronogramaFull = ({ initialObraId }) => {
   React.useEffect(() => {
     let cancelled = false;
     async function carregar() {
-      if (!obraSel) { setLoadingCron(false); return; }
-      setLoadingCron(true);
+      if (!obraSel) { setLoadedObraId(null); return; }
+      // isLoading já é true sincronamente quando obraSel muda — sem necessidade de setState extra
       const db = await carregarCronogramaDB(obraSel);
       if (cancelled) return;
       if (db) {
@@ -1792,7 +1794,7 @@ const CronogramaFull = ({ initialObraId }) => {
         setBaselines(carregarBaselines(obraSel));
       }
       setBlVisivelId(null);
-      setLoadingCron(false);
+      setLoadedObraId(obraSel); // marca carga concluída — isLoading vira false
     }
     carregar();
     return () => { cancelled = true; };
@@ -1956,7 +1958,7 @@ const CronogramaFull = ({ initialObraId }) => {
         </div>
       </div>
 
-      {loadingCron
+      {isLoading
         ? <div className="text-muted" style={{ padding: 64, textAlign: 'center' }}>Carregando…</div>
         : !obraSel || etapas.length === 0
           ? (
