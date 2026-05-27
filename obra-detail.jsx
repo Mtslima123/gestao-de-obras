@@ -494,6 +494,96 @@ const Fotos = () => (
   </div>
 );
 
+// ----- Hero Image com upload -----
+const HeroImage = ({ obra, onObraUpdate }) => {
+  const toast = useToast();
+  const [uploading, setUploading] = React.useState(false);
+  const inputRef = React.useRef();
+
+  const compress = (file, maxW = 1200, quality = 0.82) => new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxW / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(resolve, 'image/jpeg', quality);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const handleFile = async (file) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      toast('Formato não suportado. Use JPG, PNG ou WEBP.', { tone: 'error' });
+      return;
+    }
+    setUploading(true);
+    const blob = await compress(file);
+    let imageUrl;
+
+    try {
+      const path = `obras/${obra.id}/capa.jpg`;
+      const { error } = await window.sb.storage.from('obras-images').upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+      if (error) throw error;
+      const { data } = window.sb.storage.from('obras-images').getPublicUrl(path);
+      imageUrl = data.publicUrl;
+      toast('Imagem salva com sucesso', { tone: 'success', icon: 'check' });
+    } catch {
+      // Storage não configurado — mantém em memória (blob URL)
+      imageUrl = URL.createObjectURL(blob);
+      toast('Imagem salva localmente. Configure o Supabase Storage para persistir.', { tone: 'warning' });
+    }
+
+    onObraUpdate({ ...obra, imageUrl });
+    setUploading(false);
+  };
+
+  const src = obra.imageUrl;
+  const canUpload = !!onObraUpdate;
+
+  return (
+    <div
+      className={'hero-img' + (src ? ' has-img' : '') + (uploading ? ' hero-img-uploading' : '')}
+      onClick={() => canUpload && !uploading && inputRef.current?.click()}
+      style={{ cursor: canUpload ? 'pointer' : 'default' }}
+    >
+      {src && <img src={src} alt={obra.nome} />}
+      {!src && <span>1280 × 720</span>}
+      {canUpload && (
+        <>
+          <div className="hero-img-overlay">
+            {uploading ? (
+              <span>Processando…</span>
+            ) : (
+              <>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <span>{src ? 'Alterar imagem' : 'Adicionar imagem'}</span>
+              </>
+            )}
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            style={{ display: 'none' }}
+            onChange={e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; }}
+          />
+        </>
+      )}
+    </div>
+  );
+};
+
 // ----- Main ObraDetail -----
 const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpdate, onObraDelete }) => {
   const [tab, setTab] = React.useState('visao');
@@ -543,9 +633,7 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
 
       {/* HERO */}
       <div className="hero" style={{ marginBottom: 20 }}>
-        <div className="hero-img">
-          <span>1280 × 720</span>
-        </div>
+        <HeroImage obra={o} onObraUpdate={onObraUpdate} />
         <div className="hero-body">
           <div className="hero-meta">
             <span className="code">{o.id}</span>

@@ -3,7 +3,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "light",
   "density": "default",
   "accent": "#014386",
-  "obrasLayout": "tabela"
+  "obrasLayout": "cards"
 }/*EDITMODE-END*/;
 
 const AppInner = () => {

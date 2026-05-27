@@ -199,7 +199,20 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
         <div className="obra-card-grid">
           {filtered.map((o) => (
             <div key={o.id} className="obra-card" onClick={() => onOpenObra(o)}>
-              <div className="obra-card-head">
+              <div className="obra-card-img">
+                {o.imageUrl
+                  ? <img src={o.imageUrl} alt={o.nome} />
+                  : <div className="obra-card-img-ph">
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+                        <line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/>
+                      </svg>
+                      <span>SEM IMAGEM</span>
+                    </div>
+                }
+              </div>
+
+              <div className="obra-card-head" style={{ paddingTop: 6 }}>
                 <div style={{ flex: 1 }}>
                   <div className="obra-card-id">{o.id}</div>
                   <div className="obra-card-name">{o.nome}</div>
@@ -215,6 +228,12 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
                 <Icon name="users" size={12} />
                 <span>{o.cliente}</span>
               </div>
+              {o.responsavel && (
+                <div className="text-xs text-muted row" style={{ gap: 5 }}>
+                  <Icon name="user" size={12} />
+                  <span>{o.responsavel}</span>
+                </div>
+              )}
 
               <div>
                 <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>

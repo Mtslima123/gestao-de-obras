@@ -806,6 +806,16 @@ a:hover { color: var(--brand-600); }
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.05em;
+  overflow: hidden;
+}
+.hero-img.has-img { background: #000; }
+.hero-img.has-img > span { display: none; }
+.hero-img img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .hero-img::after {
   content: 'FOTO DA OBRA';
@@ -817,7 +827,30 @@ a:hover { color: var(--brand-600); }
   font-size: 10px;
   color: var(--brand);
   letter-spacing: 0.08em;
+  z-index: 1;
 }
+.hero-img.has-img::after { display: none; }
+.hero-img-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.46);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.18s;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  z-index: 2;
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+.hero-img:hover .hero-img-overlay { opacity: 1; }
+.hero-img-uploading .hero-img-overlay { opacity: 1; }
 .hero-body {
   padding: 22px 26px;
   display: flex;
@@ -1441,12 +1474,44 @@ a:hover { color: var(--brand-600); }
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   padding: 18px;
+  padding-top: 0;
   box-shadow: var(--shadow-xs);
   cursor: pointer;
   transition: all 0.16s;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: hidden;
+}
+.obra-card-img {
+  margin: 0 -18px;
+  height: 164px;
+  background:
+    repeating-linear-gradient(135deg, transparent 0, transparent 14px, rgba(1,67,134,0.055) 14px, rgba(1,67,134,0.055) 15px),
+    linear-gradient(135deg, var(--brand-50) 0%, var(--brand-100) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand);
+  flex-shrink: 0;
+}
+.obra-card-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.obra-card-img-ph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.35;
+  color: var(--brand);
+}
+.obra-card-img-ph span {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
 }
 .obra-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
 .obra-card .obra-card-head {
