@@ -2,7 +2,7 @@ import React from 'react';
 import { supabase } from './services/supabase';
 import { AppData } from './utils/data';
 import { Icon } from './components/Icons';
-import { ToastProvider, NovaObraModal, NovaMedicaoModal, SolicitarCompraModal } from './components/Modals';
+import { ToastProvider, NovaObraModal, NovaMedicaoModal, SolicitarCompraModal, NovoOrcamentoModal } from './components/Modals';
 import { Sidebar, Topbar } from './Chrome';
 import { LoginScreen } from './modules/auth/Login';
 import { Dashboard } from './modules/dashboard/Dashboard';
@@ -19,6 +19,36 @@ import { CronogramaFull } from './modules/cronograma/Cronograma';
 import { ContratosScreen } from './modules/financeiro/Contratos';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
+// Captura erros de render e exibe mensagem em vez de tela branca
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error('Render error:', error, info.componentStack); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, textAlign: 'center', fontFamily: 'system-ui' }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+          <h2 style={{ margin: '0 0 8px', fontSize: 18 }}>Erro ao carregar este módulo</h2>
+          <pre style={{ color: '#b91c1c', fontSize: 12, textAlign: 'left', maxWidth: 700,
+                        margin: '16px auto', whiteSpace: 'pre-wrap', background: '#fef2f2',
+                        padding: 16, borderRadius: 8, border: '1px solid #fecaca' }}>
+            {this.state.error.message}
+          </pre>
+          <button
+            onClick={() => this.setState({ error: null })}
+            style={{ padding: '8px 20px', background: 'var(--brand,#014386)', color: '#fff',
+                     border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}
+          >
+            Tentar novamente
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // Main App — Gestão de Obras
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "light",
@@ -28,8 +58,9 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 const AppInner = () => {
-  const [authed, setAuthed] = React.useState(false);
-  const [user,   setUser]   = React.useState(null);
+  const devMode = new URLSearchParams(window.location.search).get('devMode') === '1';
+  const [authed, setAuthed] = React.useState(() => devMode);
+  const [user,   setUser]   = React.useState(() => devMode ? { email: 'dev@local' } : null);
   const [view, setView] = React.useState(() => {
     const saved = sessionStorage.getItem('nav_view');
     return (saved && saved !== 'obra-detail') ? saved : 'dashboard';
@@ -77,6 +108,7 @@ const AppInner = () => {
   };
 
   React.useEffect(() => {
+    if (devMode) return; // em devMode ignora Supabase auth
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) { setAuthed(true); setUser(session.user); }
     });
@@ -172,6 +204,7 @@ const AppInner = () => {
           onNovaObra={view === 'dashboard' ? () => setModal('nova-obra') : null}
         />
         <div className="content">
+          <ErrorBoundary key={view}>
           {view === 'dashboard' && <Dashboard onOpenObra={handleOpenObra} onAcao={(a) => setModal(a)} />}
           {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} layout={tweaks.obrasLayout} obras={obras} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} />}
           {view === 'obra-detail' && (
@@ -199,13 +232,14 @@ const AppInner = () => {
            view !== 'cronograma' && view !== 'contratos' && view !== 'medicaobanco' && view !== 'efetivo' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
+          </ErrorBoundary>
         </div>
       </div>
 
       {/* Modals */}
       {modal === 'nova-obra' && <NovaObraModal onClose={() => setModal(null)} />}
       {modal === 'nova-medicao' && <NovaMedicaoModal onClose={() => setModal(null)} />}
-      {modal === 'novo-orcamento' && <NovaObraModal onClose={() => setModal(null)} />}
+      {modal === 'novo-orcamento' && <NovoOrcamentoModal onClose={() => setModal(null)} />}
       {modal && typeof modal === 'object' && modal.type === 'compra' && (
         <SolicitarCompraModal insumo={modal.insumo} onClose={() => setModal(null)} />
       )}

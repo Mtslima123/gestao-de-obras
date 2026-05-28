@@ -507,4 +507,79 @@ const NotifPanel = ({ onClose }) => {
   );
 };
 
-export { Modal, ToastProvider, useToast, NovaObraModal, ObraFormModal, NovaMedicaoModal, SolicitarCompraModal, NotifPanel };
+// ----- Novo Orçamento modal -----
+const NovoOrcamentoModal = ({ onClose }) => {
+  const toast = useToast();
+  const obras = AppData.obras || [];
+  const [form, setForm] = React.useState({
+    obra: obras[0]?.nome || '',
+    cliente: '',
+    versao: 'v1',
+    bdi: '26,0',
+    status: 'rascunho',
+  });
+  const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const onSave = () => {
+    if (!form.obra || !form.cliente) return;
+    toast('Orçamento criado com sucesso', { tone: 'success', icon: 'check' });
+    onClose();
+  };
+  return (
+    <Modal
+      title="Novo orçamento"
+      subtitle="Preencha os dados iniciais do orçamento"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" onClick={onSave}>
+            <Icon name="check" size={14} />Criar orçamento
+          </button>
+        </>
+      }
+    >
+      <div className="form-grid">
+        <div className="field">
+          <label>Obra <span className="req">*</span></label>
+          <select value={form.obra} onChange={e => upd('obra', e.target.value)}>
+            {obras.map(o => <option key={o.id} value={o.nome}>{o.nome}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label>Cliente <span className="req">*</span></label>
+          <input
+            placeholder="Nome do cliente"
+            value={form.cliente}
+            onChange={e => upd('cliente', e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Versão</label>
+          <input
+            placeholder="v1"
+            value={form.versao}
+            onChange={e => upd('versao', e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>BDI (%)</label>
+          <input
+            placeholder="0,0"
+            value={form.bdi}
+            onChange={e => upd('bdi', e.target.value)}
+          />
+        </div>
+        <div className="field full">
+          <label>Status inicial</label>
+          <select value={form.status} onChange={e => upd('status', e.target.value)}>
+            <option value="rascunho">Rascunho</option>
+            <option value="pendente">Pendente</option>
+            <option value="aprovado">Aprovado</option>
+          </select>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+export { Modal, ToastProvider, useToast, NovaObraModal, ObraFormModal, NovaMedicaoModal, SolicitarCompraModal, NotifPanel, NovoOrcamentoModal };

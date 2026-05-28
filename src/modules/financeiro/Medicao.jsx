@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
-import { useToast } from '../../components/Modals';
+import { Modal, useToast } from '../../components/Modals';
 
 // Medição Banco — boletins de medição para liberação de parcelas de financiamento bancário
 const { brl: brlMB } = AppData;

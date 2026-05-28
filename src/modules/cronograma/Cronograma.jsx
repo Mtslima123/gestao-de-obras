@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
+import { Modal, useToast } from '../../components/Modals';
 
 // cronograma.jsx — Gantt interativo com drag & drop, undo/redo, tooltips e validação de dependências
 

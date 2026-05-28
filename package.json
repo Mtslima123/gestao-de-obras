@@ -22,6 +22,7 @@
   "homepage": "https://github.com/Mtslima123/gestao-de-obras#readme",
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.2",
+    "playwright": "^1.60.0",
     "vite": "^8.0.14"
   },
   "dependencies": {
