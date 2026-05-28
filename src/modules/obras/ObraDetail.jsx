@@ -1072,8 +1072,8 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
                       {(D.cronograma[o.id] || []).map((e, i) => (
                         <tr key={i}>
                           <td style={tdS}>{e.etapa}</td>
-                          <td style={tdS}>Mês {e.inicio + 1}</td>
-                          <td style={tdS}>{e.dur} {e.dur === 1 ? 'mês' : 'meses'}</td>
+                          <td style={tdS}>Mês {Math.floor(e.inicio / 30) + 1}</td>
+                          <td style={tdS}>{e.dur}d</td>
                           <td style={tdS}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
                               <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2 }}>

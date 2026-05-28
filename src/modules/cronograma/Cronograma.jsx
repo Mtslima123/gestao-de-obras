@@ -10,7 +10,8 @@ import { Modal, useToast } from '../../components/Modals';
 const GM_START_YEAR  = 2024;
 const GM_START_MONTH = 2;    // março (0-indexed)
 const GM_TOTAL       = 28;   // meses na linha do tempo
-const GM_MONTH_W     = 64;   // px por mês
+const GM_MONTH_W     = 64;              // px por mês (mantido para compatibilidade do header)
+const GM_DAY_W       = GM_MONTH_W / 30; // px por dia ≈ 2.133
 const GM_LABEL_W     = 280;  // px da coluna de rótulos
 const GM_ROW_H       = 44;   // altura por linha
 const GM_HEADER_H    = 58;   // altura do cabeçalho
@@ -40,21 +41,24 @@ const GM_QUARTERS = (() => {
   return out;
 })();
 
+// Retorna posição atual em DIAS a partir do início do projeto
 const gmCalcToday = () => {
   const now = new Date();
-  return (now.getFullYear() - GM_START_YEAR) * 12
-       + (now.getMonth()    - GM_START_MONTH)
-       + (now.getDate() - 1) / 30;
+  return ((now.getFullYear() - GM_START_YEAR) * 12
+       + (now.getMonth() - GM_START_MONTH)) * 30
+       + (now.getDate() - 1);
 };
 
-const gmMonthLabel = (offset) => {
-  let mo = GM_START_MONTH + Math.floor(offset);
+// Converte offset em DIAS para rótulo "Mês/AA"
+const gmMonthLabel = (days) => {
+  const months = Math.floor(days / 30);
+  let mo = GM_START_MONTH + months;
   let y  = GM_START_YEAR;
   while (mo >= 12) { mo -= 12; y++; }
   return `${GM_MN[mo]}/${String(y).slice(2)}`;
 };
 
-// Retorna pares {pred, succ} onde o successor começa antes do predecessor terminar
+// Detecta violações de dependência considerando tipo (TI/TT/II/IT) e lag
 const gmConflicts = (etapas, overrides) => {
   const map = {};
   etapas.forEach(e => {
@@ -62,9 +66,18 @@ const gmConflicts = (etapas, overrides) => {
   });
   const out = [];
   Object.values(map).forEach(e => {
-    (e.dep || []).forEach(dId => {
+    (e.dep || []).forEach(depObj => {
+      const dId = typeof depObj === 'string' ? depObj : depObj.id;
+      const tipo = typeof depObj === 'string' ? 'TI' : (depObj.tipo || 'TI');
+      const lag  = typeof depObj === 'string' ? 0 : (depObj.lag || 0);
       const d = map[dId];
-      if (d && e.inicio < d.inicio + d.dur) out.push({ pred: dId, succ: e.id });
+      if (!d) return;
+      let conflict = false;
+      if (tipo === 'TI') conflict = e.inicio < d.inicio + d.dur + lag;
+      if (tipo === 'TT') conflict = (e.inicio + e.dur) < (d.inicio + d.dur + lag);
+      if (tipo === 'II') conflict = e.inicio < d.inicio + lag;
+      if (tipo === 'IT') conflict = (e.inicio + e.dur) < (d.inicio + lag);
+      if (conflict) out.push({ pred: dId, succ: e.id, tipo, lag });
     });
   });
   return out;
@@ -73,32 +86,29 @@ const gmConflicts = (etapas, overrides) => {
 // ─── Utilitários de data ─────────────────────────────────────────────────────
 const GM_REF = new Date(GM_START_YEAR, GM_START_MONTH, 1);
 
-function offsetToDate(months) {
+// Converte offset em DIAS para objeto Date
+function offsetToDate(days) {
   const d = new Date(GM_REF);
-  d.setMonth(d.getMonth() + Math.floor(months));
-  const frac = months - Math.floor(months);
-  if (frac > 0) d.setDate(d.getDate() + Math.round(frac * 30));
+  d.setDate(d.getDate() + Math.round(days));
   return d;
 }
 
-function offsetToISO(months) {
-  const d = offsetToDate(months);
-  // Usa data local sem conversão UTC para evitar off-by-one de timezone
+// Converte offset em DIAS para string ISO "YYYY-MM-DD"
+function offsetToISO(days) {
+  const d   = offsetToDate(days);
   const y   = d.getFullYear();
   const mo  = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${mo}-${day}`;
 }
 
+// Converte string ISO para offset em DIAS desde GM_REF
 function dateToOffset(iso) {
   if (!iso) return 0;
   const parts = iso.split('-');
   if (parts.length < 3) return 0;
-  const d     = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-  const years  = d.getFullYear() - GM_REF.getFullYear();
-  const months = d.getMonth()    - GM_REF.getMonth();
-  const days   = d.getDate()     - GM_REF.getDate();
-  return Math.max(0, years * 12 + months + days / 30);
+  const dt = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  return Math.max(0, Math.round((dt - GM_REF) / 86400000));
 }
 
 // ─── Funções puras de dados ──────────────────────────────────────────────────
@@ -108,11 +118,16 @@ function migrateEtapas(raw) {
     nivel: 0, parentId: null, isGroup: false,
     collapsed: false, responsavel: '', customCols: {},
     milestone: false, custo: 0,
+    restricaoTipo: 'asap', restricaoData: '',
     ...e,
+    // Migra dep de string[] para {id, tipo, lag}[]
+    dep: (e.dep || []).map(d =>
+      typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
+    ),
   }));
 }
 
-const fmtBRL   = n => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const fmtBRL   = n => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const parseBRL  = s => { const n = parseFloat(String(s).replace(/R\$\s?/g, '').replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : Math.max(0, n); };
 
 function computeAllWBS(etapas) {
@@ -130,7 +145,10 @@ function computeAllWBS(etapas) {
 function computeSuccessors(etapas) {
   const r = {};
   etapas.forEach(e => { r[e.id] = []; });
-  etapas.forEach(e => (e.dep || []).forEach(pid => { if (r[pid]) r[pid].push(e.id); }));
+  etapas.forEach(e => (e.dep || []).forEach(d => {
+    const pid = typeof d === 'string' ? d : d.id;
+    if (r[pid]) r[pid].push(e.id);
+  }));
   return r;
 }
 
@@ -149,7 +167,7 @@ function getVisibleEtapas(etapas) {
 
 function nextEtapaId(etapas) {
   const nums = etapas.map(e => parseInt(e.id.replace(/\D/g, '')) || 0);
-  return 'E' + (Math.max(0, ...nums) + 1);
+  return 'TSK-' + String(Math.max(0, ...nums) + 1).padStart(3, '0');
 }
 
 function emptyCustomCols(customCols) {
@@ -165,9 +183,10 @@ function createTask(afterId, etapas, customCols) {
     nivel: after ? after.nivel : 0, parentId: after ? after.parentId : null,
     isGroup: false, collapsed: false,
     inicio: after ? after.inicio + after.dur : 0,
-    dur: 1, avanco: 0, status: 'upcoming',
+    dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
+    restricaoTipo: 'asap', restricaoData: '',
   };
   return [...etapas.slice(0, idx + 1), novo, ...etapas.slice(idx + 1)];
 }
@@ -189,9 +208,10 @@ function createSubtask(parentId, etapas, customCols) {
     id: nextEtapaId(etapas), etapa: 'Nova subtarefa',
     nivel: (parent.nivel || 0) + 1, parentId,
     isGroup: false, collapsed: false,
-    inicio: parent.inicio, dur: 1, avanco: 0, status: 'upcoming',
+    inicio: parent.inicio, dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
+    restricaoTipo: 'asap', restricaoData: '',
   };
   return [...etapas.slice(0, insertIdx + 1), novo, ...etapas.slice(insertIdx + 1)];
 }
@@ -205,9 +225,10 @@ function createGroup(afterId, etapas, customCols) {
     nivel: after ? after.nivel : 0, parentId: after ? after.parentId : null,
     isGroup: true, collapsed: false,
     inicio: after ? after.inicio : 0,
-    dur: 1, avanco: 0, status: 'upcoming',
+    dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
+    restricaoTipo: 'asap', restricaoData: '',
   };
   return [...etapas.slice(0, idx + 1), novo, ...etapas.slice(idx + 1)];
 }
@@ -225,23 +246,39 @@ function deleteTask(id, etapas) {
   }
   return etapas
     .filter(e => !toRemove.has(e.id))
-    .map(e => ({ ...e, dep: (e.dep || []).filter(d => !toRemove.has(d)) }));
+    .map(e => ({ ...e, dep: (e.dep || []).filter(d => !toRemove.has(typeof d === 'string' ? d : d.id)) }));
 }
 
 // Propaga delta de arrastar para todas as tarefas sucessoras (BFS)
-// endDeltaMap: { [id]: deltaMeses } — quanto o FIM de cada barra moveu
-// Modifica apenas os SUCESSORES (não as barras seed, que já estão corretas)
-function propagateDrag(etapas, endDeltaMap) {
+// endDeltaMap: { [id]: deltaDias } — quanto o FIM de cada barra moveu
+// startDeltaMap: { [id]: deltaDias } — quanto o INÍCIO de cada barra moveu
+// Para TI/TT: propaga end_delta; para II/IT: propaga start_delta
+function propagateDrag(etapas, endDeltaMap, startDeltaMap = {}) {
   const succs = computeSuccessors(etapas);
-  const queue = Object.keys(endDeltaMap);
+  const queue = [...Object.keys(endDeltaMap), ...Object.keys(startDeltaMap)];
   const visited = new Set(queue);
   const deltasBySucc = {};
+
+  const getDepsOf = (id) => {
+    const e = etapas.find(et => et.id === id);
+    return (e?.dep || []).map(d => typeof d === 'string' ? { id: d, tipo: 'TI' } : d);
+  };
 
   while (queue.length) {
     const id = queue.shift();
     for (const sid of (succs[id] || [])) {
-      if (!visited.has(sid)) {
-        deltasBySucc[sid] = endDeltaMap[id];
+      if (visited.has(sid)) continue;
+      // Verifica o tipo da dependência que liga sid ao predecessor id
+      const deps = getDepsOf(sid);
+      const depOnId = deps.find(d => d.id === id);
+      const tipo = depOnId?.tipo || 'TI';
+      // TI/TT: propaga delta do fim do predecessor
+      // II/IT: propaga delta do início do predecessor
+      const delta = (tipo === 'II' || tipo === 'IT')
+        ? (startDeltaMap[id] ?? endDeltaMap[id] ?? 0)
+        : endDeltaMap[id] ?? 0;
+      if (delta !== 0) {
+        deltasBySucc[sid] = delta;
         visited.add(sid);
         queue.push(sid);
       }
@@ -254,6 +291,63 @@ function propagateDrag(etapas, endDeltaMap) {
       ? { ...e, inicio: Math.max(0, e.inicio + deltasBySucc[e.id]) }
       : e
   );
+}
+
+// Recalcula inicio/dur dos grupos com base nos filhos diretos (de baixo para cima)
+function updateParentBounds(etapas) {
+  let result = etapas.map(e => ({ ...e }));
+  const groups = result.filter(e => e.isGroup).reverse();
+  for (const g of groups) {
+    const children = result.filter(c => c.parentId === g.id);
+    if (!children.length) continue;
+    const inicio = Math.min(...children.map(c => c.inicio));
+    const fim    = Math.max(...children.map(c => c.inicio + c.dur));
+    result = result.map(e => e.id === g.id ? { ...e, inicio, dur: Math.max(1, fim - inicio) } : e);
+  }
+  return result;
+}
+
+// Converte dep[] para string exibível: "E1, E2TT+3d"
+function formatDepList(dep) {
+  return (dep || []).map(d => {
+    if (typeof d === 'string') return d;
+    const t = (d.tipo && d.tipo !== 'TI') ? d.tipo : '';
+    const l = d.lag ? ((d.lag > 0 ? '+' : '') + d.lag + 'd') : '';
+    return d.id + t + l;
+  }).join(', ');
+}
+
+// Converte string "E1, E2TT+3d" para dep[]
+function parseDep(raw, etapas) {
+  return String(raw).split(',').map(s => s.trim()).filter(Boolean).map(token => {
+    const m = token.match(/^([A-Za-z0-9\-]+)(TI|TT|II|IT)?([+-]\d+d?)?$/);
+    if (!m) return null;
+    const id   = m[1];
+    const tipo = m[2] || 'TI';
+    const lag  = m[3] ? parseInt(m[3]) : 0;
+    if (!etapas.find(x => x.id === id)) return null;
+    return { id, tipo, lag };
+  }).filter(Boolean);
+}
+
+// Verifica restrições e retorna lista de violações
+function verificarRestricoes(etapas) {
+  const violacoes = [];
+  etapas.forEach(e => {
+    if (!e.restricaoTipo || e.restricaoTipo === 'asap' || !e.restricaoData) return;
+    const d = dateToOffset(e.restricaoData);
+    const ini = e.inicio, fim = e.inicio + e.dur;
+    let violou = false;
+    let msg = '';
+    if (e.restricaoTipo === 'snet' && ini < d)  { violou = true; msg = `Não deve iniciar antes de ${e.restricaoData}`; }
+    if (e.restricaoTipo === 'snlt' && ini > d)  { violou = true; msg = `Não deve iniciar depois de ${e.restricaoData}`; }
+    if (e.restricaoTipo === 'fnet' && fim < d)  { violou = true; msg = `Não deve terminar antes de ${e.restricaoData}`; }
+    if (e.restricaoTipo === 'fnlt' && fim > d)  { violou = true; msg = `Não deve terminar depois de ${e.restricaoData}`; }
+    if (e.restricaoTipo === 'mso'  && ini !== d){ violou = true; msg = `Deve iniciar exatamente em ${e.restricaoData}`; }
+    if (e.restricaoTipo === 'mfo'  && fim !== d){ violou = true; msg = `Deve terminar exatamente em ${e.restricaoData}`; }
+    if (violou) violacoes.push({ etapa: e.etapa, msg });
+  });
+  return violacoes;
 }
 
 // Computa valores consolidados para linhas de grupo (somando filhos diretos)
@@ -280,6 +374,7 @@ function computeGroupValues(etapas) {
 
 // ─── GanttInterativo ─────────────────────────────────────────────────────────
 const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId }) => {
+  const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [editMode,    setEdit]     = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; });
   const [lockDone,    setLock]     = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; });
@@ -353,7 +448,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     let cur = null;
 
     const mv = (ev) => {
-      const delta = Math.round((ev.clientX - sx) / GM_MONTH_W);
+      // Snap a 1 dia
+      const delta = Math.round((ev.clientX - sx) / GM_DAY_W);
       if (delta !== 0) dragged.current = true;
       const nd = {};
       movedIds.forEach(mid => {
@@ -383,22 +479,32 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
         return d && o && (d.inicio !== o.inicio || d.dur !== o.dur);
       });
       if (!changed) return;
-      const novas = etapasRef.current.map(et => ({
+      let novas = etapasRef.current.map(et => ({
         ...et, ...(movedIds.has(et.id) && cur[et.id] ? cur[et.id] : {}),
       }));
 
       // Replanejamento automático: cascata para sucessoras
-      if (replanAuto && type !== 'resizeLeft') {
-        const endDeltaMap = {};
+      if (replanAuto) {
+        const endDeltaMap = {}, startDeltaMap = {};
         movedIds.forEach(mid => {
           if (!cur[mid] || !orig[mid]) return;
-          const d = (cur[mid].inicio + cur[mid].dur) - (orig[mid].inicio + orig[mid].dur);
-          if (d !== 0) endDeltaMap[mid] = d;
+          const sd = cur[mid].inicio - orig[mid].inicio;
+          const ed = (cur[mid].inicio + cur[mid].dur) - (orig[mid].inicio + orig[mid].dur);
+          if (sd !== 0) startDeltaMap[mid] = sd;
+          if (ed !== 0) endDeltaMap[mid] = ed;
         });
-        if (Object.keys(endDeltaMap).length) {
-          onCommit(propagateDrag(novas, endDeltaMap));
-          return;
+        if (Object.keys(endDeltaMap).length || Object.keys(startDeltaMap).length) {
+          novas = propagateDrag(novas, endDeltaMap, startDeltaMap);
         }
+      }
+
+      // Atualiza limites do grupo pai automaticamente
+      novas = updateParentBounds(novas);
+
+      // Verifica restrições e avisa (não bloqueia)
+      if (toast) {
+        const viol = verificarRestricoes(novas);
+        viol.forEach(v => toast(`⚠ Restrição: ${v.etapa} — ${v.msg}`, { tone: 'warning', icon: 'alert-triangle' }));
       }
 
       onCommit(novas);
@@ -611,7 +717,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                   {/* Sombreamento do passado */}
                   <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
-                    width: Math.min(today, GM_TOTAL) * GM_MONTH_W,
+                    width: Math.min(today, GM_TOTAL * 30) * GM_DAY_W,
                     background: 'rgba(0,0,0,0.011)', pointerEvents: 'none',
                   }} />
 
@@ -619,8 +725,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                   {blMap[e.id] && !e.milestone && (
                     <div style={{
                       position: 'absolute',
-                      left: blMap[e.id].inicio * GM_MONTH_W + 3,
-                      width: Math.max(blMap[e.id].dur * GM_MONTH_W - 6, 10),
+                      left: blMap[e.id].inicio * GM_DAY_W + 3,
+                      width: Math.max(blMap[e.id].dur * GM_DAY_W - 6, 10),
                       top: '50%', transform: 'translateY(-50%)',
                       height: 6, borderRadius: 3,
                       background: 'rgba(107,120,144,0.45)',
@@ -638,8 +744,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                       onMouseLeave={() => setTip(null)}
                       style={{
                         position: 'absolute',
-                        left: bar.inicio * GM_MONTH_W + 3,
-                        width: Math.max(bar.dur * GM_MONTH_W - 6, 10),
+                        left: bar.inicio * GM_DAY_W + 3,
+                        width: Math.max(bar.dur * GM_DAY_W - 6, 10),
                         top: '50%', transform: 'translateY(-50%)',
                         height: e.isGroup ? GM_BAR_H - 8 : GM_BAR_H,
                         background: e.isGroup ? 'rgba(1,67,134,0.65)' : bc, borderRadius: e.isGroup ? 4 : 7,
@@ -666,6 +772,13 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                       }}>
                         {e.avanco > 0 ? `${e.avanco}%` : ''}
                       </span>
+                      {/* Ícone de restrição */}
+                      {e.restricaoTipo && e.restricaoTipo !== 'asap' && (
+                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2.5"
+                          style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', flexShrink: 0 }}>
+                          <circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                      )}
                       {/* Handle resize esquerda */}
                       {editMode && !isLock && (
                         <div data-gb={e.id}
@@ -691,7 +804,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                       onMouseLeave={() => setTip(null)}
                       style={{
                         position: 'absolute',
-                        left: bar.inicio * GM_MONTH_W - 11,
+                        left: bar.inicio * GM_DAY_W - 11,
                         top: '50%', transform: 'translateY(-50%) rotate(45deg)',
                         width: 20, height: 20,
                         background: isConf ? '#d97706' : 'var(--brand)', borderRadius: 4,
@@ -710,7 +823,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
           {/* ── Linha HOJE ────────────────────────────────────────────────── */}
           <div style={{
             position: 'absolute',
-            left: GM_LABEL_W + Math.min(today, GM_TOTAL) * GM_MONTH_W,
+            left: GM_LABEL_W + Math.min(today, GM_TOTAL * 30) * GM_DAY_W,
             top: 0, bottom: 0, width: 0,
             borderLeft: '2px solid #e53935',
             zIndex: 10, pointerEvents: 'none',
@@ -725,7 +838,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
             </div>
           </div>
 
-          {/* ── SVG: setas de dependência ──────────────────────────────────── */}
+          {/* ── SVG: setas de dependência tipadas (TI/TT/II/IT) ──────────── */}
           <svg style={{
             position: 'absolute', top: GM_HEADER_H, left: GM_LABEL_W,
             width: tlW, height: etapas.length * GM_ROW_H,
@@ -740,27 +853,49 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
               </marker>
             </defs>
             {etapas.map((e, i) =>
-              (e.dep || []).map(dId => {
-                const dep = findEt(dId);
+              (e.dep || []).map(depObj => {
+                const dId  = typeof depObj === 'string' ? depObj : depObj.id;
+                const tipo = typeof depObj === 'string' ? 'TI' : (depObj.tipo || 'TI');
+                const lag  = typeof depObj === 'string' ? 0 : (depObj.lag || 0);
+                const dep  = findEt(dId);
                 if (!dep) return null;
                 const dBar = getBar(dep);
                 const eBar = getBar(e);
-                const fx   = (dBar.inicio + dBar.dur) * GM_MONTH_W;
-                const fy   = idxEt(dId) * GM_ROW_H + GM_ROW_H / 2;
-                const tx   = eBar.inicio * GM_MONTH_W + 4;
-                const ty   = i * GM_ROW_H + GM_ROW_H / 2;
-                const cpx  = fx + Math.max((tx - fx) * 0.5, 20);
                 const warn = conflictIds.has(e.id) || conflictIds.has(dId);
+
+                // Âncoras por tipo de vínculo
+                let fx, tx;
+                if (tipo === 'TI') { fx = (dBar.inicio + dBar.dur) * GM_DAY_W; tx = eBar.inicio * GM_DAY_W + 4; }
+                else if (tipo === 'TT') { fx = (dBar.inicio + dBar.dur) * GM_DAY_W; tx = (eBar.inicio + eBar.dur) * GM_DAY_W - 4; }
+                else if (tipo === 'II') { fx = dBar.inicio * GM_DAY_W; tx = eBar.inicio * GM_DAY_W + 4; }
+                else /* IT */           { fx = dBar.inicio * GM_DAY_W; tx = (eBar.inicio + eBar.dur) * GM_DAY_W - 4; }
+
+                const fy  = idxEt(dId) * GM_ROW_H + GM_ROW_H / 2;
+                const ty  = i * GM_ROW_H + GM_ROW_H / 2;
+                const cpx = fx + Math.max((tx - fx) * 0.5, 20);
+                const midX = (fx + tx) / 2 + 4;
+                const midY = (fy + ty) / 2;
+                const lagLabel = lag !== 0 ? (lag > 0 ? `+${lag}d` : `${lag}d`) : '';
+                const typeLabel = tipo !== 'TI' ? tipo : '';
+                const label = [typeLabel, lagLabel].filter(Boolean).join(' ');
+
                 return (
-                  <path
-                    key={`${e.id}-${dId}`}
-                    d={`M ${fx} ${fy} C ${cpx} ${fy} ${cpx} ${ty} ${tx} ${ty}`}
-                    fill="none"
-                    stroke={warn ? '#d97706' : 'var(--text-faint)'}
-                    strokeWidth={warn ? 1.8 : 1.2}
-                    strokeDasharray="4 3"
-                    markerEnd={warn ? 'url(#arr-warn)' : 'url(#arr-dep)'}
-                  />
+                  <g key={`${e.id}-${dId}`}>
+                    <path
+                      d={`M ${fx} ${fy} C ${cpx} ${fy} ${cpx} ${ty} ${tx} ${ty}`}
+                      fill="none"
+                      stroke={warn ? '#d97706' : 'var(--text-faint)'}
+                      strokeWidth={warn ? 1.8 : 1.2}
+                      strokeDasharray="4 3"
+                      markerEnd={warn ? 'url(#arr-warn)' : 'url(#arr-dep)'}
+                    />
+                    {label && (
+                      <text x={midX} y={midY - 3} fontSize={8.5} fill={warn ? '#d97706' : 'var(--text-faint)'}
+                        style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                        {label}
+                      </text>
+                    )}
+                  </g>
                 );
               })
             )}
@@ -783,7 +918,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
             {[
               ['Início',   gmMonthLabel(tooltip.etapa.inicio)],
               ['Término',  gmMonthLabel(tooltip.etapa.inicio + tooltip.etapa.dur)],
-              ['Duração',  `${tooltip.etapa.dur} ${tooltip.etapa.dur === 1 ? 'mês' : 'meses'}`],
+              ['Duração',  `${tooltip.etapa.dur}d`],
             ].map(([label, val]) => (
               <React.Fragment key={label}>
                 <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{label}</span>
@@ -886,12 +1021,15 @@ const EditableCell = ({ value, type = 'text', onSave, readOnly = false, style })
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
 const AddColModal = ({ onClose, onAdd }) => {
-  const [label, setLabel] = React.useState('');
-  const [type,  setType]  = React.useState('text');
+  const [label,   setLabel]   = React.useState('');
+  const [type,    setType]    = React.useState('text');
+  const [options, setOptions] = React.useState('');
 
   const doAdd = () => {
     if (!label.trim()) return;
-    onAdd({ id: 'cc_' + Date.now().toString(36), label: label.trim(), type });
+    const col = { id: 'cc_' + Date.now().toString(36), label: label.trim(), type };
+    if (type === 'list' && options.trim()) col.options = options.split(',').map(o => o.trim()).filter(Boolean);
+    onAdd(col);
     onClose();
   };
 
@@ -923,9 +1061,24 @@ const AddColModal = ({ onClose, onAdd }) => {
           <select className="input" value={type} onChange={e => setType(e.target.value)}>
             <option value="text">Texto</option>
             <option value="number">Número</option>
+            <option value="currency">Moeda (R$)</option>
+            <option value="percent">Percentual (%)</option>
             <option value="date">Data</option>
+            <option value="duration">Duração (dias)</option>
+            <option value="boolean">Sim / Não</option>
+            <option value="list">Lista suspensa</option>
           </select>
         </div>
+        {type === 'list' && (
+          <div className="field full">
+            <label>Opções (separadas por vírgula)</label>
+            <input
+              className="input" value={options}
+              onChange={e => setOptions(e.target.value)}
+              placeholder="Ex.: Baixo, Médio, Alto"
+            />
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -1095,6 +1248,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
   const [showPavimentos, setShowPavimentos] = React.useState(false);
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
+  const [busca,          setBusca]          = React.useState('');
+  const [filtroStatus,   setFiltroStatus]   = React.useState('');
+  const [filtroResp,     setFiltroResp]     = React.useState('');
 
   const wbsMap      = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   const succMap     = React.useMemo(() => computeSuccessors(etapas), [etapas]);
@@ -1103,6 +1259,16 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
   const totalCusto  = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), [etapas]);
   const totalReal   = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custoRealizado || 0), 0), [etapas]);
   const totalSaldo  = totalCusto - totalReal;
+
+  // Aplica filtros de busca sobre as linhas visíveis
+  const filtrada = React.useMemo(() =>
+    visible.filter(e =>
+      (!busca || e.etapa.toLowerCase().includes(busca.toLowerCase())) &&
+      (!filtroStatus || e.status === filtroStatus) &&
+      (!filtroResp || (e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase()))
+    ),
+    [visible, busca, filtroStatus, filtroResp]
+  );
 
   // Limpa seleção se o item selecionado for excluído
   React.useEffect(() => {
@@ -1119,8 +1285,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
         const novas = etapas.map(et => ({ ...et }));
         for (let i = 1; i < multiSel.length; i++) {
           const succ = novas.find(et => et.id === multiSel[i]);
-          if (succ && !(succ.dep || []).includes(multiSel[i - 1])) {
-            succ.dep = [...(succ.dep || []), multiSel[i - 1]];
+          const predId = multiSel[i - 1];
+          if (succ && !(succ.dep || []).some(d => (typeof d === 'string' ? d : d.id) === predId)) {
+            succ.dep = [...(succ.dep || []), { id: predId, tipo: 'TI', lag: 0 }];
           }
         }
         onCommit(novas);
@@ -1145,7 +1312,11 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
         ...e,
         id:       e.id === id ? newId : e.id,
         parentId: e.parentId === id ? newId : e.parentId,
-        dep:      (e.dep || []).map(d => d === id ? newId : d),
+        dep:      (e.dep || []).map(d =>
+          typeof d === 'string'
+            ? (d === id ? newId : d)
+            : (d.id === id ? { ...d, id: newId } : d)
+        ),
       }));
       if (selectedId === id) setSelectedId(newId);
       onCommit(novas, { silent: true });
@@ -1165,15 +1336,19 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
         return { ...e, dur: newDur };
       }
       if (field === 'duracaoDias') {
-        const days = Math.max(1, parseInt(rawValue) || 1);
-        return { ...e, dur: Math.max(1, Math.round(days / 30)) };
+        return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) };
       }
       if (field === 'avanco') {
         return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) };
       }
       if (field === 'dep') {
-        const depList = String(rawValue).split(',').map(s => s.trim()).filter(s => s && etapas.find(x => x.id === s));
-        return { ...e, dep: depList };
+        return { ...e, dep: parseDep(rawValue, etapas) };
+      }
+      if (field === 'restricaoTipo') {
+        return { ...e, restricaoTipo: rawValue };
+      }
+      if (field === 'restricaoData') {
+        return { ...e, restricaoData: rawValue };
       }
       if (field === 'custo' || field === 'custoRealizado') {
         return { ...e, [field]: parseBRL(rawValue) };
@@ -1294,9 +1469,47 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
         </span>
       </div>
 
+      {/* ── Barra de filtros ─────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', gap: 8, padding: '8px 16px', alignItems: 'center',
+        borderBottom: '1px solid var(--border)', flexWrap: 'wrap',
+        background: 'var(--bg-app)',
+      }}>
+        <input
+          className="input" style={{ height: 30, fontSize: 12, minWidth: 180, flex: 1 }}
+          placeholder="Buscar tarefa..."
+          value={busca} onChange={e => setBusca(e.target.value)}
+        />
+        <select
+          className="input" style={{ height: 30, fontSize: 12 }}
+          value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}
+        >
+          <option value="">Todos os status</option>
+          <option value="done">Concluída</option>
+          <option value="late">Atrasada</option>
+          <option value="upcoming">Futura</option>
+        </select>
+        <input
+          className="input" style={{ height: 30, fontSize: 12, minWidth: 130 }}
+          placeholder="Responsável..."
+          value={filtroResp} onChange={e => setFiltroResp(e.target.value)}
+        />
+        {(busca || filtroStatus || filtroResp) && (
+          <button className="btn btn-ghost" style={{ height: 30, fontSize: 12 }}
+            onClick={() => { setBusca(''); setFiltroStatus(''); setFiltroResp(''); }}>
+            Limpar filtros
+          </button>
+        )}
+        {(busca || filtroStatus || filtroResp) && (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            {filtrada.length} de {visible.length} exibidas
+          </span>
+        )}
+      </div>
+
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
       <div style={{ overflowX: 'auto' }}>
-        <table className="tbl" style={{ minWidth: 1620 }}>
+        <table className="tbl" style={{ minWidth: 1780 }}>
           <thead>
             <tr>
               <th style={{ width: 56, fontSize: 10.5 }}>WBS</th>
@@ -1305,15 +1518,16 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
               <th style={{ width: 112 }}>Início</th>
               <th style={{ width: 112 }}>Término</th>
               <th style={{ width: 90 }}>Duração</th>
-              <th style={{ width: 150 }}>Avanço</th>
-              <th style={{ width: 130, textAlign: 'right' }}>R$ Previsto</th>
+              <th style={{ width: 150 }}>% Concluída</th>
+              <th style={{ width: 130, textAlign: 'right' }}>Custo</th>
               <th style={{ width: 68,  textAlign: 'right', fontSize: 10.5 }}>Peso %</th>
-              <th style={{ width: 130, textAlign: 'right' }}>R$ Realizado</th>
-              <th style={{ width: 110, textAlign: 'right' }}>R$ Saldo</th>
+              <th style={{ width: 130, textAlign: 'right' }}>Custo Real</th>
+              <th style={{ width: 110, textAlign: 'right' }}>Saldo</th>
               <th style={{ width: 130 }}>Responsável</th>
-              <th style={{ width: 110 }}>Predecessoras</th>
+              <th style={{ width: 130 }}>Predecessoras</th>
               <th style={{ width: 110 }}>Sucessoras</th>
               <th style={{ width: 105 }}>Status</th>
+              <th style={{ width: 200 }}>Restrição</th>
               {customCols.map(col => (
                 <th key={col.id} style={{ minWidth: 110 }}>{col.label}</th>
               ))}
@@ -1327,7 +1541,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
             </tr>
           </thead>
           <tbody>
-            {visible.map((e) => {
+            {filtrada.map((e) => {
               const isSelected   = selectedId === e.id;
               const indent       = (e.nivel || 0) * 20;
               const hasChildren  = etapas.some(x => x.parentId === e.id);
@@ -1410,15 +1624,15 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                     />
                   </td>
 
-                  {/* Duração em dias (aprox) */}
+                  {/* Duração em dias */}
                   <td className="mono num" onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
-                      <span className="text-muted mono" style={{ fontSize: 12 }}>{eDur * 30}d</span>
+                      <span className="text-muted mono" style={{ fontSize: 12 }}>{eDur}d</span>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                         <EditableCell
                           type="number"
-                          value={String(e.dur * 30)}
+                          value={String(e.dur)}
                           onSave={v => handleCellSave(e.id, 'duracaoDias', v)}
                           style={{ minWidth: 32 }}
                         />
@@ -1513,10 +1727,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                     />
                   </td>
 
-                  {/* Predecessoras */}
+                  {/* Predecessoras — formato "E1, E2TT+3d" */}
                   <td className="mono text-sm" onClick={ev => ev.stopPropagation()}>
                     <EditableCell
-                      value={(e.dep || []).join(', ')}
+                      value={formatDepList(e.dep)}
                       onSave={v => handleCellSave(e.id, 'dep', v)}
                       readOnly={e.isGroup}
                     />
@@ -1535,16 +1749,98 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                     </span>
                   </td>
 
+                  {/* Restrição */}
+                  <td onClick={ev => ev.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                    {e.isGroup ? <span className="text-faint">—</span> : (
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <select
+                          className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
+                          value={e.restricaoTipo || 'asap'}
+                          onChange={ev => handleCellSave(e.id, 'restricaoTipo', ev.target.value)}
+                          onClick={ev => ev.stopPropagation()}
+                        >
+                          <option value="asap">O mais cedo possível</option>
+                          <option value="snet">Não iniciar antes de</option>
+                          <option value="snlt">Não iniciar depois de</option>
+                          <option value="fnet">Não terminar antes de</option>
+                          <option value="fnlt">Não terminar depois de</option>
+                          <option value="mso">Deve iniciar em</option>
+                          <option value="mfo">Deve terminar em</option>
+                        </select>
+                        {e.restricaoTipo && e.restricaoTipo !== 'asap' && (
+                          <input
+                            type="date" style={{ height: 26, fontSize: 11 }}
+                            value={e.restricaoData || ''}
+                            onChange={ev => handleCellSave(e.id, 'restricaoData', ev.target.value)}
+                            onClick={ev => ev.stopPropagation()}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </td>
+
                   {/* Colunas personalizadas */}
-                  {customCols.map(col => (
-                    <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                      <EditableCell
-                        type={col.type}
-                        value={(e.customCols || {})[col.id] || ''}
-                        onSave={v => handleCellSave(e.id, col.id, v)}
-                      />
-                    </td>
-                  ))}
+                  {customCols.map(col => {
+                    const cellVal = (e.customCols || {})[col.id] || '';
+                    if (col.type === 'boolean') return (
+                      <td key={col.id} onClick={ev => ev.stopPropagation()}>
+                        <select className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
+                          value={cellVal}
+                          onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
+                          <option value="">—</option>
+                          <option value="sim">Sim</option>
+                          <option value="não">Não</option>
+                        </select>
+                      </td>
+                    );
+                    if (col.type === 'list') return (
+                      <td key={col.id} onClick={ev => ev.stopPropagation()}>
+                        <select className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
+                          value={cellVal}
+                          onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
+                          <option value="">—</option>
+                          {(col.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      </td>
+                    );
+                    if (col.type === 'currency') return (
+                      <td key={col.id} onClick={ev => ev.stopPropagation()} className="num" style={{ textAlign: 'right' }}>
+                        <EditableCell
+                          type="number"
+                          value={cellVal}
+                          onSave={v => handleCellSave(e.id, col.id, v)}
+                          style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                        />
+                      </td>
+                    );
+                    if (col.type === 'percent') return (
+                      <td key={col.id} onClick={ev => ev.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <EditableCell type="number" value={cellVal}
+                            onSave={v => handleCellSave(e.id, col.id, v)} />
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
+                        </div>
+                      </td>
+                    );
+                    if (col.type === 'duration') return (
+                      <td key={col.id} onClick={ev => ev.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <EditableCell type="number" value={cellVal}
+                            onSave={v => handleCellSave(e.id, col.id, v)} />
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>d</span>
+                        </div>
+                      </td>
+                    );
+                    return (
+                      <td key={col.id} onClick={ev => ev.stopPropagation()}>
+                        <EditableCell
+                          type={col.type}
+                          value={cellVal}
+                          onSave={v => handleCellSave(e.id, col.id, v)}
+                        />
+                      </td>
+                    );
+                  })}
 
                   {/* Célula vazia da coluna "+" */}
                   <td></td>
@@ -1553,10 +1849,12 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
             })}
 
             {/* Linha de adição rápida */}
-            {visible.length === 0 && (
+            {filtrada.length === 0 && (
               <tr>
-                <td colSpan={15 + customCols.length + 1} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
-                  Nenhuma tarefa — clique em <strong>Adicionar tarefa</strong> para começar
+                <td colSpan={16 + customCols.length + 1} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+                  {visible.length === 0
+                    ? <>Nenhuma tarefa — clique em <strong>Adicionar tarefa</strong> para começar</>
+                    : 'Nenhuma tarefa corresponde aos filtros aplicados'}
                 </td>
               </tr>
             )}
@@ -1570,7 +1868,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
               <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>
                 <span style={{ color: totalSaldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalSaldo)}</span>
               </td>
-              <td colSpan={4 + customCols.length + 1}></td>
+              <td colSpan={5 + customCols.length + 1}></td>
             </tr>
           </tfoot>
         </table>
@@ -1979,8 +2277,11 @@ const CronogramaFull = ({ initialObraId }) => {
               </div>
               {obraSel && (
                 <button className="btn btn-primary" onClick={() => {
-                  commit([{ id: 'E' + Date.now(), etapa: 'Nova etapa', inicio: 0, dur: 4,
-                            status: 'planejada', pct: 0, custo: 0, tipo: 'tarefa' }]);
+                  commit([{ id: 'TSK-001', etapa: 'Nova etapa', inicio: 0, dur: 30,
+                            avanco: 0, status: 'upcoming', dep: [], milestone: false,
+                            nivel: 0, parentId: null, isGroup: false, collapsed: false,
+                            responsavel: '', customCols: {}, custo: 0,
+                            restricaoTipo: 'asap', restricaoData: '' }]);
                   setView('lista');
                 }}>
                   <Icon name="plus" size={15} />Criar cronograma
