@@ -92,7 +92,6 @@ const VisaoGeral = ({ obra }) => {
               <div className="card-title">Cronograma resumido</div>
               <div className="card-subtitle">10 etapas principais</div>
             </div>
-            <button className="btn btn-sm btn-subtle">Ver cronograma completo<Icon name="arrow-right" size={13} /></button>
           </div>
           <div className="card-body" style={{ padding: '4px 0 0' }}>
             <Gantt etapas={D.cronograma[o.id] || []} />
@@ -640,7 +639,6 @@ const Fotos = ({ obra }) => {
   const [loading,      setLoading]      = React.useState(true);
   const [showUpload,   setShowUpload]   = React.useState(false);
   const [editando,     setEditando]     = React.useState(null);
-  const [filtroData,   setFiltroData]   = React.useState('');
   const [filtroMes,    setFiltroMes]    = React.useState('');
   const [lightboxIdx,  setLightboxIdx]  = React.useState(null);
 
@@ -679,45 +677,36 @@ const Fotos = ({ obra }) => {
   };
 
   const fotosFiltradas = fotos.filter(f => {
-    if (filtroData && f.data !== filtroData) return false;
-    if (filtroMes  && !(f.data || '').startsWith(filtroMes)) return false;
+    if (filtroMes && !(f.data || '').startsWith(filtroMes)) return false;
     return true;
   });
 
   return (
     <>
-      <div className="page-header" style={{ marginBottom: 16 }}>
-        <div>
-          <div className="card-title">Registro fotográfico</div>
-          <div className="card-subtitle">{fotos.length} foto{fotos.length !== 1 ? 's' : ''} cadastrada{fotos.length !== 1 ? 's' : ''}</div>
-        </div>
-        <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
-          <Icon name="upload" size={15} />Upload
-        </button>
-      </div>
-
-      {!loading && fotos.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="field" style={{ margin: 0 }}>
-            <label style={{ fontSize: 12, marginBottom: 4, display: 'block' }}>Data</label>
-            <input type="date" value={filtroData}
-              onChange={e => { setFiltroData(e.target.value); setFiltroMes(''); }}
-              style={{ height: 34, fontSize: 13 }} />
-          </div>
-          <div className="field" style={{ margin: 0 }}>
-            <label style={{ fontSize: 12, marginBottom: 4, display: 'block' }}>Mês</label>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-2)',
+                       padding: '3px 10px', borderRadius: 20, fontWeight: 500 }}>
+          {fotos.length} foto{fotos.length !== 1 ? 's' : ''}
+        </span>
+        {!loading && fotos.length > 0 && (
+          <>
             <input type="month" value={filtroMes}
-              onChange={e => { setFiltroMes(e.target.value); setFiltroData(''); }}
-              style={{ height: 34, fontSize: 13 }} />
-          </div>
-          {(filtroData || filtroMes) && (
-            <button className="btn btn-ghost" style={{ height: 34 }}
-              onClick={() => { setFiltroData(''); setFiltroMes(''); }}>
-              <Icon name="x" size={13} />Limpar
-            </button>
-          )}
+              onChange={e => setFiltroMes(e.target.value)}
+              style={{ height: 32, fontSize: 13, borderRadius: 6 }} />
+            {filtroMes && (
+              <button className="btn btn-ghost" style={{ height: 32 }}
+                onClick={() => setFiltroMes('')}>
+                <Icon name="x" size={13} />Limpar
+              </button>
+            )}
+          </>
+        )}
+        <div style={{ marginLeft: 'auto' }}>
+          <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
+            <Icon name="upload" size={15} />Upload
+          </button>
         </div>
-      )}
+      </div>
 
       {loading
         ? <div className="text-muted" style={{ padding: 48, textAlign: 'center' }}>Carregando…</div>
@@ -947,6 +936,7 @@ const HeroImage = ({ obra, onObraUpdate }) => {
 // ----- Main ObraDetail -----
 const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpdate, onObraDelete, onOpenCronograma }) => {
   const [tab, setTab] = React.useState('visao');
+  const [cronoView, setCronoView] = React.useState('gantt');
   const [showEdit,   setShowEdit]   = React.useState(false);
   const [deleteStep, setDeleteStep] = React.useState(0);
   const D = AppData;
@@ -1051,15 +1041,56 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
               <div className="card-subtitle">{(D.cronograma[o.id] || []).length} etapas · 28 meses</div>
             </div>
             <div className="card-actions">
-              <button className="chip active">Gantt</button>
-              <button className="chip">Lista</button>
+              <button className={'chip' + (cronoView === 'gantt' ? ' active' : '')} onClick={() => setCronoView('gantt')}>Gantt</button>
+              <button className={'chip' + (cronoView === 'lista' ? ' active' : '')} onClick={() => setCronoView('lista')}>Lista</button>
               <button className="btn btn-sm btn-primary" onClick={() => onOpenCronograma && onOpenCronograma(o.id)}>
                 <Icon name="arrow-right" size={13} />Ir para Cronograma
               </button>
             </div>
           </div>
           <div className="card-body" style={{ padding: '4px 0 0' }}>
-            <Gantt etapas={D.cronograma[o.id] || []} />
+            {cronoView === 'gantt' && <Gantt etapas={D.cronograma[o.id] || []} />}
+            {cronoView === 'lista' && (() => {
+              const statusLabel = { done: 'Concluído', late: 'Atrasado', upcoming: 'Planejado' };
+              const thS = { padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600,
+                            color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' };
+              const tdS = { padding: '10px 12px', fontSize: 13, borderBottom: '1px solid var(--border-subtle)' };
+              return (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <th style={thS}>Etapa</th>
+                        <th style={thS}>Início</th>
+                        <th style={thS}>Duração</th>
+                        <th style={thS}>Avanço</th>
+                        <th style={thS}>Status</th>
+                        <th style={thS}>Responsável</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(D.cronograma[o.id] || []).map((e, i) => (
+                        <tr key={i}>
+                          <td style={tdS}>{e.etapa}</td>
+                          <td style={tdS}>Mês {e.inicio + 1}</td>
+                          <td style={tdS}>{e.dur} {e.dur === 1 ? 'mês' : 'meses'}</td>
+                          <td style={tdS}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
+                              <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2 }}>
+                                <div style={{ width: e.avanco + '%', height: '100%', background: 'var(--brand)', borderRadius: 2 }} />
+                              </div>
+                              <span style={{ minWidth: 32, textAlign: 'right' }}>{e.avanco}%</span>
+                            </div>
+                          </td>
+                          <td style={tdS}><span className={'badge badge-' + e.status}>{statusLabel[e.status] || e.status}</span></td>
+                          <td style={tdS}>{e.responsavel || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
