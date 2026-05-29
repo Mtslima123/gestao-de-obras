@@ -17,6 +17,7 @@ import { MedicaoBancoScreen } from './modules/financeiro/Medicao';
 import { INCCScreen } from './modules/financeiro/Incc';
 import { CronogramaFull } from './modules/cronograma/Cronograma';
 import { ContratosScreen } from './modules/financeiro/Contratos';
+import { IaScreen } from './modules/ia/IA';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
 // Captura erros de render e exibe mensagem em vez de tela branca
@@ -168,6 +169,7 @@ const AppInner = () => {
     'cronograma': '08 Cronograma',
     'contratos': '09 Contratos',
     'incc': '10 INCC',
+    'ia':   '11 Assistente IA',
   };
 
   const buildBreadcrumb = () => {
@@ -227,9 +229,10 @@ const AppInner = () => {
           {view === 'incc' && <INCCScreen />}
           {view === 'cronograma' && <CronogramaFull initialObraId={cronogramaObraId} />}
           {view === 'contratos' && <ContratosScreen />}
+          {view === 'ia' && <IaScreen obras={obras} user={user} />}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'controle' && view !== 'resumo' && view !== 'incc' &&
-           view !== 'cronograma' && view !== 'contratos' && view !== 'medicaobanco' && view !== 'efetivo' && (
+           view !== 'cronograma' && view !== 'contratos' && view !== 'medicaobanco' && view !== 'efetivo' && view !== 'ia' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </ErrorBoundary>

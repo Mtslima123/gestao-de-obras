@@ -1,6 +1,6 @@
 # PRD — Gestão de Obras
 
-**Versão:** 1.0.0 | **Última atualização:** 2026-05-24
+**Versão:** 1.1.0 | **Última atualização:** 2026-05-28
 
 ## Objetivo
 
@@ -23,13 +23,13 @@ Plataforma centralizada para gerenciamento completo de projetos de construção,
 Visão 360º de todas as obras: status, atrasos, alertas, progresso físico vs. planejado.
 
 ### Cronograma
-Planejamento temporal de fases, atividades e marcos. Visualização de caminho crítico e dependências.
+Planejamento temporal de fases, atividades e marcos. Visualização de caminho crítico e dependências (Gantt interativo).
 
 ### Contratos
 Registro, versionamento e status de contratos com fornecedores, mão-de-obra e terceirizados.
 
 ### Controle de Execução
-Acompanhamento diário de atividades, tarefas concluídas, desvios de cronograma.
+Acompanhamento diário de atividades, tarefas concluídas, desvios de cronograma, RDO e ocorrências.
 
 ### Recursos (Efetivo)
 Alocação de pessoal, equipamentos e materiais por obra e fase.
@@ -49,35 +49,49 @@ Projeção de custos finais, prazos e recursos necessários.
 ### Resumo & Relatórios
 Exportação de dashboards, KPIs e relatórios gerenciais.
 
+### Assistente IA ✨
+Análise inteligente de obras via Groq/Llama 3.3 (gratuito). Funcionalidades:
+- Geração de cronograma inicial com EAP e predecessoras
+- Geração de EAP (Estrutura Analítica do Projeto)
+- Diagnóstico de atrasos com estratégias de recuperação
+- Sugestões de replanejamento após imprevistos
+- Otimização de prazo via fast-tracking e crashing
+- Relatório executivo mensal automatizado
+
+> A IA sugere — o engenheiro decide. Nenhuma alteração é aplicada automaticamente ao banco.
+
 ## Roadmap
 
 ### V1 (MVP — Fase interna)
-- ✓ Arquitetura base (React JSX)
+- ✓ Arquitetura base (React JSX + Vite)
 - ✓ Componentes principais implementados
-- [ ] Autenticação robusta
-- [ ] Persistência de dados (backend)
-- [ ] Validação de integridade
-- [ ] Testes (aprendizado)
+- ✓ Supabase conectado (autenticação + banco de dados)
+- ✓ Módulo de IA com Groq/Llama 3.3 via Edge Functions
+- [ ] Autenticação robusta (papéis e permissões por obra)
+- [ ] Validação de integridade dos dados
+- [ ] Testes automatizados (aprendizado)
 
 ### V2 (Uso interno consolidado)
-- [ ] API backend
-- [ ] Banco de dados
-- [ ] Auditoria e permissões
+- [ ] Persistência completa no Supabase (todos os módulos)
+- [ ] Auditoria e permissões por usuário
 - [ ] Importação em massa (CSV)
-- [ ] Webhooks/integrações
+- [ ] Webhooks/integrações externas
+- [ ] IA com contexto persistente de obra (histórico de interações)
 
 ### V3 (Clientes externos)
 - [ ] Multi-tenant
-- [ ] Whitespace/branding customizável
+- [ ] Branding customizável por cliente
 - [ ] SLA e SLO públicos
 - [ ] Suporte ao cliente
 
 ## Decisões de design
 
-- **Stack**: React (JSX) vanilla, CSS puro, sem frameworks de UI.
-- **API externa**: Open-Meteo para contexto (sem chave necessária).
+- **Stack**: React (JSX) + Vite, CSS puro, sem frameworks de UI.
+- **Backend**: Supabase (autenticação, banco relacional, Edge Functions).
+- **IA**: Groq API (Llama 3.3 70B) via Supabase Edge Function — gratuito, sem exposição de chave no frontend.
+- **APIs externas**: Open-Meteo para dados climáticos (sem chave).
 - **Foco**: Legibilidade > Otimização. Código é material de aprendizado.
-- **Dados**: Atualmente mock. Backend virá depois.
+- **Dados**: Mock como fallback; Supabase como fonte primária quando autenticado.
 
 ## Métricas de sucesso
 
@@ -88,7 +102,7 @@ Exportação de dashboards, KPIs e relatórios gerenciais.
 
 ## Constraints
 
-- Sem npm/build system (vanilla)
-- Sem bibliotecas externas sem aprovação
+- Sem bibliotecas externas de UI sem aprovação (sem Material UI, Tailwind, etc.)
 - Código comentado em português
 - Foco em aprendizado e manutenibilidade
+- Chaves de API nunca expostas no frontend (sempre via Supabase Secrets)
