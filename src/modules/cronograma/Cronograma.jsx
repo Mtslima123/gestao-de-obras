@@ -429,7 +429,10 @@ function autoScheduleFromDeps(etapas) {
     const deps = e.dep || [];
     if (!deps.length) return;
 
-    let minStart = e.inicio;
+    // ASAP: calcula a data mais cedo possível a partir do zero, não da data atual.
+    // Isso garante que a tarefa seja puxada para perto do predecessor,
+    // mesmo que esteja posicionada mais tarde do que o necessário.
+    let minStart = 0;
     deps.forEach(d => {
       const pid  = typeof d === 'string' ? d : d.id;
       const tipo = typeof d === 'string' ? 'TI' : (d.tipo || 'TI');
@@ -445,7 +448,7 @@ function autoScheduleFromDeps(etapas) {
       if (req > minStart) minStart = req;
     });
 
-    if (minStart !== e.inicio) upd[id] = { ...e, inicio: Math.max(0, minStart) };
+    upd[id] = { ...e, inicio: Math.max(0, minStart) };
   });
 
   return etapas.map(e => upd[e.id] || e);
