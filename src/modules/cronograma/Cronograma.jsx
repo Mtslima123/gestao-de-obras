@@ -118,9 +118,10 @@ function migrateEtapas(raw) {
     nivel: 0, parentId: null, isGroup: false,
     collapsed: false, responsavel: '', customCols: {},
     milestone: false, custo: 0, participaCurva: true,
-    restricaoTipo: 'asap', restricaoData: '',
+    restricaoTipo: 'asap', restricaoData: '', exibirDist: false,
     ...e,
     participaCurva: e.participaCurva ?? true,
+    exibirDist: e.exibirDist ?? false,
     dep: (e.dep || []).map(d =>
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
     ),
@@ -1538,7 +1539,8 @@ const LISTA_COL_DEFS = {
   succ:      { label: 'Sucessoras',    defWidth: 110 },
   status:    { label: 'Status',        defWidth: 105 },
   restricao: { label: 'Restrição',     defWidth: 200 },
-  participa: { label: 'Curva',         defWidth: 54, align: 'center' },
+  participa:  { label: 'Curva',         defWidth: 54, align: 'center' },
+  exibirDist: { label: 'Exibir',        defWidth: 54, align: 'center' },
 };
 const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
@@ -2179,6 +2181,20 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     )}
                   </td>
                 ),
+                exibirDist: (
+                  <td key="exibirDist" onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center' }}>
+                    <input type="checkbox"
+                      checked={e.exibirDist === true}
+                      style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--brand)' }}
+                      onChange={ev => {
+                        const novas = etapas.map(t =>
+                          t.id === e.id ? { ...t, exibirDist: ev.target.checked } : t
+                        );
+                        onCommit(novas, { silent: true });
+                      }}
+                    />
+                  </td>
+                ),
               };
 
               return (
@@ -2498,44 +2514,14 @@ const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
 const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit }) => {
-  // Grupos de nível 0 para painel de filtros
-  const rootGroups = React.useMemo(
-    () => etapas.filter(e => e.isGroup && !e.parentId),
-    [etapas]
-  );
-  const [selGroups, setSelGroups] = React.useState(() => new Set(rootGroups.map(g => g.id)));
-  const [filterOpen, setFilterOpen] = React.useState(rootGroups.length > 0);
-
-  // Sincroniza selGroups quando rootGroups muda (nova obra, nova tarefa raiz)
-  React.useEffect(() => {
-    setSelGroups(new Set(rootGroups.map(g => g.id)));
-  }, [rootGroups.map(g => g.id).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Mapa taskId → rootGroupId (para filtragem)
-  const taskRootMap = React.useMemo(() => {
-    const map = {};
-    etapas.forEach(e => {
-      let cur = e;
-      while (cur.parentId) {
-        const parent = etapas.find(x => x.id === cur.parentId);
-        if (!parent) break;
-        cur = parent;
-      }
-      map[e.id] = cur.id;
-    });
-    return map;
-  }, [etapas]);
-
-  // Totais planejados filtrados por grupo selecionado
+  // Totais planejados — soma de todas as tarefas (sem filtro de grupo)
   const filteredPlanned = React.useMemo(() => {
-    const fp = {};
-    const allSelected = selGroups.size === 0 || selGroups.size === rootGroups.length;
-    Object.entries(monthlyDist).forEach(([taskId, dist]) => {
-      if (!allSelected && !selGroups.has(taskRootMap[taskId])) return;
-      Object.entries(dist).forEach(([k, v]) => { fp[k] = (fp[k] || 0) + v; });
+    const agg = {};
+    Object.values(monthlyDist).forEach(dist => {
+      Object.entries(dist).forEach(([k, v]) => { agg[k] = (agg[k] || 0) + v; });
     });
-    return fp;
-  }, [selGroups, monthlyDist, taskRootMap, rootGroups.length]);
+    return agg;
+  }, [monthlyDist]);
 
   const hasData = months.length > 0 && Object.values(filteredPlanned).some(v => v > 0);
 
@@ -2603,48 +2589,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
   };
   const tdSt = { padding: '8px 14px', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))', verticalAlign: 'middle' };
 
-  const allSel = selGroups.size === rootGroups.length;
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-
-      {/* ── Painel de filtros ──────────────────────────────────────────────── */}
-      {rootGroups.length > 0 && (
-        <div className="card">
-          <button
-            onClick={() => setFilterOpen(o => !o)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '10px 16px',
-              background: 'none', border: 'none', cursor: 'pointer', fontSize: 12,
-              fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
-              color: 'var(--text-soft)', textAlign: 'left' }}
-          >
-            <Icon name="layers" size={13} />
-            Grupos {filterOpen ? '▲' : '▼'}
-          </button>
-          {filterOpen && (
-            <div style={{ padding: '0 16px 14px', display: 'flex', flexWrap: 'wrap', gap: '6px 18px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}>
-                <input type="checkbox" checked={allSel}
-                  style={{ accentColor: 'var(--brand)', width: 13, height: 13 }}
-                  onChange={() => setSelGroups(allSel ? new Set() : new Set(rootGroups.map(g => g.id)))} />
-                Selecionar tudo
-              </label>
-              {rootGroups.map(g => (
-                <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={selGroups.has(g.id)}
-                    style={{ accentColor: 'var(--brand)', width: 13, height: 13 }}
-                    onChange={() => setSelGroups(s => {
-                      const n = new Set(s);
-                      n.has(g.id) ? n.delete(g.id) : n.add(g.id);
-                      return n;
-                    })} />
-                  {g.etapa}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ── Gráfico SVG ───────────────────────────────────────────────────── */}
       <div className="card">
@@ -2846,6 +2792,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
       {(() => {
         const groupVals2  = computeGroupValues(etapas);
         const visibleRows = getVisibleEtapas(etapas);
+        const distRows    = visibleRows.filter(e => e.exibirDist === true);
         const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
         const thBase = {
           fontSize: 10.5, fontWeight: 600, letterSpacing: '0.07em',
@@ -2906,7 +2853,16 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleRows.map((e, ri) => {
+                  {distRows.length === 0 && (
+                    <tr>
+                      <td colSpan={4 + months.length + 1}
+                          style={{ padding: '24px 0', textAlign: 'center',
+                                   color: 'var(--text-faint)', fontSize: 12 }}>
+                        Nenhuma tarefa marcada — ative a coluna "Exibir" na Lista.
+                      </td>
+                    </tr>
+                  )}
+                  {distRows.map((e, ri) => {
                     const gv       = groupVals2[e.id];
                     const taskDist = e.isGroup
                       ? getGroupMonthlyDist(e.id, etapas, monthlyDist)
