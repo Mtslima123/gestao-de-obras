@@ -702,22 +702,22 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
           <div style={{
             height: GM_HEADER_H, borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
             display: 'flex', alignItems: 'flex-end', padding: '0 18px 12px',
-            fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
-            color: 'var(--text-muted)', background: 'var(--surface-muted)',
+            fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em',
+            color: 'var(--text-soft)', background: 'var(--surface)',
             position: 'sticky', left: 0, zIndex: 5,
           }}>
             ETAPA
           </div>
 
           {/* ── Cabeçalho linha do tempo ──────────────────────────────────── */}
-          <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface-muted)' }}>
+          <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
             {/* Trimestres */}
             <div style={{ display: 'flex', height: 28, borderBottom: '1px solid var(--border)' }}>
               {GM_QUARTERS.map((q, qi) => (
                 <div key={qi} style={{
                   width: (q.end - q.start) * GM_MONTH_W,
-                  fontSize: 10.5, fontWeight: 700, color: 'var(--text-soft)',
-                  textTransform: 'uppercase', letterSpacing: '0.08em',
+                  fontSize: 10.5, fontWeight: 600, color: 'var(--text-soft)',
+                  textTransform: 'uppercase', letterSpacing: '0.07em',
                   padding: '7px 10px', borderRight: '1px solid var(--border)',
                   background: qi % 2 === 0 ? 'rgba(0,0,0,0.02)' : 'transparent',
                 }}>

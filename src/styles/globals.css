@@ -1950,7 +1950,11 @@ a:hover { color: var(--brand-600); }
 }
 .tbl-lista thead th {
   font-size: 10.5px;
+  font-weight: 600;
   letter-spacing: 0.07em;
+  color: var(--text-soft);
+  background: var(--surface);
+  border-bottom: 2px solid var(--border);
   padding: 9px 10px;
 }
 .tbl-lista tbody td {
