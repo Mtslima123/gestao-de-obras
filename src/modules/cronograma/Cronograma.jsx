@@ -2596,6 +2596,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     ? months.reduce((s, m) => s + (baselineDist[m.key] || 0), 0)
     : null;
 
+  // Mês selecionado para a coluna Produção
+  const [selMonKey, setSelMonKey] = React.useState(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+  });
+
   const hasData = months.length > 0 && Object.values(filteredPlanned).some(v => v > 0);
 
   if (!hasData) return (
@@ -2767,9 +2773,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         </div>
         <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
           {(() => {
-            const hasBL    = baselineDist != null;
-            const refBLTot = baselineTotal || total || 1;
-            const refRep   = total || 1;
+            const hasBL  = baselineDist != null;
+            const refBLT = baselineTotal || total || 1;
+            const refRep = total || 1;
 
             // Séries por mês
             let apBL = 0, apRep = 0, apRR = 0;
@@ -2781,30 +2787,26 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               const vRR  = m.key <= todayKey
                 ? (realizedTotals[m.key] || 0)
                 : (filteredPlanned[m.key] || 0);
-
-              apBL  += vBL;
-              apRep += vRep;
-              apRR  += vRR;
-
-              blM.push(vBL  / refBLTot * 100);
-              blA.push(apBL / refBLTot * 100);
+              apBL += vBL; apRep += vRep; apRR += vRR;
+              blM.push(vBL  / refBLT * 100);
+              blA.push(apBL / refBLT * 100);
               repM.push(vRep / refRep * 100);
               repA.push(apRep / refRep * 100);
               rrM.push(vRR  / refRep * 100);
               rrA.push(apRR / refRep * 100);
-              difBL.push(hasBL ? rrA[rrA.length - 1] - blA[blA.length - 1] : null);
-              difRep.push(rrA[rrA.length - 1] - repA[repA.length - 1]);
+              difBL.push(hasBL ? rrA[rrA.length-1] - blA[blA.length-1] : null);
+              difRep.push(rrA[rrA.length-1] - repA[repA.length-1]);
             });
 
-            const rrTotal = totalReal + months
-              .filter(m => m.key > todayKey)
-              .reduce((s, m) => s + (filteredPlanned[m.key] || 0), 0);
+            // Índice do mês selecionado para a coluna Produção
+            const rawIdx  = months.findIndex(m => m.key === selMonKey);
+            const selIdx  = rawIdx >= 0 ? rawIdx : months.length - 1;
+            const selLabel = months[selIdx]?.label || '';
 
             const fmt1 = v => v != null ? (v === 0 ? '—' : v.toFixed(2) + '%') : '—';
             const fmtD = v => v != null ? (v > 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
-            const pct  = (v, ref) => (v / (ref || 1) * 100).toFixed(2) + '%';
 
-            const ACT_W = 250, VAL_W = 120, PESO_W = 72, MON_W = 56;
+            const ACT_W = 250, PROD_W = 80, MON_W = 56;
 
             const thBase = {
               padding: '8px 10px', fontSize: 10.5, fontWeight: 700,
@@ -2814,8 +2816,6 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             };
             const thAct  = { ...thBase, textAlign: 'left', minWidth: ACT_W,
               position: 'sticky', left: 0, zIndex: 2 };
-            const thVal  = { ...thBase, textAlign: 'right', minWidth: VAL_W };
-            const thPeso = { ...thBase, textAlign: 'right', minWidth: PESO_W };
             const thMon  = { ...thBase, textAlign: 'right', minWidth: MON_W };
 
             const grpHdrBlue = {
@@ -2833,52 +2833,88 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               background: accum ? 'var(--surface-muted, #f9fafb)' : 'var(--surface)',
               fontWeight: accum ? 600 : 400, color: 'var(--text-soft)',
             });
-            const tdVal = {
-              padding: '7px 10px', fontSize: 11.5, textAlign: 'right',
-              borderBottom: bdr, fontVariantNumeric: 'tabular-nums',
-              whiteSpace: 'nowrap', color: 'var(--text)',
+            const tdBase = {
+              padding: '7px 10px', fontSize: 11, textAlign: 'right',
+              borderBottom: bdr, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
             };
-            const tdPeso = { ...tdVal, fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 };
             const tdMon  = (accum) => ({
-              ...tdVal, fontSize: 11,
+              ...tdBase,
               background: accum ? 'rgba(0,0,0,0.015)' : undefined,
               fontWeight: accum ? 600 : 400,
             });
+            const tdProd = (accum) => ({
+              ...tdBase,
+              minWidth: PROD_W,
+              fontWeight: accum ? 700 : 600,
+              borderLeft: '2px solid var(--border)',
+              background: accum ? 'rgba(1,67,134,0.06)' : 'rgba(1,67,134,0.03)',
+            });
 
-            // Chamada como função (não componente) para evitar re-mount a cada render
+            // Retorna células dos meses (sem coluna Produção)
             const monCells = (vals, fmt, color, accum) =>
               months.map((m, i) => {
                 const v   = vals[i];
                 const clr = color === 'desvio' && v != null
-                  ? (v >= 0 ? '#16a34a' : '#dc2626')
-                  : (color || 'var(--text)');
+                  ? (v >= 0 ? '#16a34a' : '#dc2626') : (color || 'var(--text)');
                 return (
                   <td key={m.key} style={{
                     ...tdMon(accum),
                     color: v == null || v === 0 ? 'var(--text-faint)' : clr,
                     background: m.key === todayKey
-                      ? 'rgba(1,67,134,0.06)'
-                      : (accum ? 'rgba(0,0,0,0.015)' : undefined),
+                      ? 'rgba(1,67,134,0.06)' : (accum ? 'rgba(0,0,0,0.015)' : undefined),
                   }}>
                     {fmt(v)}
                   </td>
                 );
               });
 
-            const totalCols = 3 + months.length;
+            // Célula da coluna Produção (valor do mês selecionado)
+            const prodCell = (vals, fmt, color, accum, fallback = null) => {
+              const v   = selIdx >= 0 ? (fallback !== null && vals[selIdx] == null ? fallback : vals[selIdx]) : null;
+              const clr = color === 'desvio' && v != null
+                ? (v >= 0 ? '#16a34a' : '#dc2626') : (color || 'var(--text)');
+              return (
+                <td style={{
+                  ...tdProd(accum),
+                  color: v == null || v === 0 ? 'var(--text-faint)' : clr,
+                }}>
+                  {fmt(v)}
+                </td>
+              );
+            };
+
+            const totalCols = 2 + months.length; // Atividades + Produção + meses
 
             return (
               <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
                 <thead>
                   <tr>
                     <th style={thAct}>Atividades</th>
-                    <th style={thVal}>Valores</th>
-                    <th style={thPeso}>Peso</th>
+                    <th style={{
+                      ...thBase, textAlign: 'center', minWidth: PROD_W,
+                      borderLeft: '2px solid var(--border)',
+                      background: 'rgba(1,67,134,0.07)',
+                      padding: '4px 8px',
+                    }}>
+                      <select
+                        value={selMonKey}
+                        onChange={e => setSelMonKey(e.target.value)}
+                        style={{
+                          fontSize: 11, fontWeight: 700, color: 'var(--brand)',
+                          border: 'none', background: 'transparent', cursor: 'pointer',
+                          width: '100%', textAlign: 'center',
+                        }}
+                      >
+                        {months.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                      </select>
+                      <div style={{ fontSize: 9, letterSpacing: '0.08em', color: 'var(--text-muted)',
+                        textTransform: 'uppercase', marginTop: 1 }}>Produção</div>
+                    </th>
                     {months.map(m => (
                       <th key={m.key} style={{
                         ...thMon,
-                        color: m.key === todayKey ? 'var(--brand)' : 'var(--text-soft)',
-                        fontWeight: m.key === todayKey ? 700 : 600,
+                        color: m.key === selMonKey ? 'var(--brand)' : 'var(--text-soft)',
+                        fontWeight: m.key === selMonKey ? 700 : 600,
                       }}>{m.label}</th>
                     ))}
                   </tr>
@@ -2892,14 +2928,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   </tr>
                   <tr>
                     <td style={tdAct(false)}>Mensal</td>
-                    <td style={tdVal}>{hasBL ? fmtBRL(baselineTotal) : '—'}</td>
-                    <td style={tdPeso}>100,00%</td>
+                    {prodCell(hasBL ? blM : months.map(() => null), fmt1, 'var(--brand)', false)}
                     {monCells(hasBL ? blM : months.map(() => null), fmt1, 'var(--brand)', false)}
                   </tr>
                   <tr>
                     <td style={tdAct(true)}>Acumulado</td>
-                    <td style={{ ...tdVal, background: 'rgba(0,0,0,0.015)' }}></td>
-                    <td style={{ ...tdPeso, background: 'rgba(0,0,0,0.015)' }}></td>
+                    {prodCell(hasBL ? blA : months.map(() => null), fmt1, 'var(--brand)', true)}
                     {monCells(hasBL ? blA : months.map(() => null), fmt1, 'var(--brand)', true)}
                   </tr>
 
@@ -2911,14 +2945,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   </tr>
                   <tr>
                     <td style={tdAct(false)}>Mensal</td>
-                    <td style={tdVal}>{fmtBRL(total)}</td>
-                    <td style={tdPeso}>{hasBL ? pct(total, refBLTot) : '100,00%'}</td>
+                    {prodCell(repM, fmt1, 'var(--text)', false)}
                     {monCells(repM, fmt1, 'var(--text)', false)}
                   </tr>
                   <tr>
                     <td style={tdAct(true)}>Acumulado</td>
-                    <td style={{ ...tdVal, background: 'rgba(0,0,0,0.015)' }}></td>
-                    <td style={{ ...tdPeso, background: 'rgba(0,0,0,0.015)' }}></td>
+                    {prodCell(repA, fmt1, 'var(--text)', true)}
                     {monCells(repA, fmt1, 'var(--text)', true)}
                   </tr>
 
@@ -2930,14 +2962,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   </tr>
                   <tr>
                     <td style={tdAct(false)}>Mensal</td>
-                    <td style={tdVal}>{fmtBRL(rrTotal)}</td>
-                    <td style={tdPeso}>{pct(rrTotal, hasBL ? refBLTot : refRep)}</td>
+                    {prodCell(rrM, fmt1, '#16a34a', false)}
                     {monCells(rrM, fmt1, '#16a34a', false)}
                   </tr>
                   <tr>
                     <td style={tdAct(true)}>Acumulado</td>
-                    <td style={{ ...tdVal, background: 'rgba(0,0,0,0.015)' }}></td>
-                    <td style={{ ...tdPeso, background: 'rgba(0,0,0,0.015)' }}></td>
+                    {prodCell(rrA, fmt1, '#16a34a', true)}
                     {monCells(rrA, fmt1, '#16a34a', true)}
                   </tr>
 
@@ -2950,15 +2980,13 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   {hasBL && (
                     <tr>
                       <td style={tdAct(false)}>Dif. em relação à Linha de Base — Acumulado</td>
-                      <td style={tdVal}></td>
-                      <td style={tdPeso}></td>
+                      {prodCell(difBL, fmtD, 'desvio', false)}
                       {monCells(difBL, fmtD, 'desvio', false)}
                     </tr>
                   )}
                   <tr>
                     <td style={tdAct(false)}>Dif. em relação ao Reprogramado — Acumulado</td>
-                    <td style={tdVal}></td>
-                    <td style={tdPeso}></td>
+                    {prodCell(difRep, fmtD, 'desvio', false)}
                     {monCells(difRep, fmtD, 'desvio', false)}
                   </tr>
                 </tbody>
