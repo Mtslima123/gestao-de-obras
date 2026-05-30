@@ -2565,7 +2565,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
 };
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
-const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit }) => {
+const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, onCommit }) => {
   // Totais planejados — soma de todas as tarefas (sem filtro de grupo)
   const filteredPlanned = React.useMemo(() => {
     const agg = {};
@@ -2574,6 +2574,24 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
     });
     return agg;
   }, [monthlyDist]);
+
+  // Linha de Base = primeiro baseline salvo (rev.01)
+  const blEtapas = baselines?.[0]?.etapas || null;
+  const blNome   = baselines?.[0]?.nome   || 'Linha de Base rev.01';
+
+  const baselineDist = React.useMemo(() => {
+    if (!blEtapas) return null;
+    const dist = computeMonthlyDist(blEtapas);
+    const agg = {};
+    Object.values(dist).forEach(d =>
+      Object.entries(d).forEach(([k, v]) => { agg[k] = (agg[k] || 0) + v; })
+    );
+    return agg;
+  }, [blEtapas]);
+
+  const baselineTotal = baselineDist
+    ? months.reduce((s, m) => s + (baselineDist[m.key] || 0), 0)
+    : null;
 
   const hasData = months.length > 0 && Object.values(filteredPlanned).some(v => v > 0);
 
@@ -2736,104 +2754,210 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
         </div>
       </div>
 
-      {/* ── Tabela resumo ─────────────────────────────────────────────────── */}
+      {/* ── Resumo Mensal ─────────────────────────────────────────────────── */}
       <div className="card">
         <div className="card-header">
           <div>
-            <div className="card-title">Resumo mensal</div>
-            <div className="card-subtitle">Planejado e realizado mês a mês — meses nas colunas</div>
+            <div className="card-title">Resumo Mensal</div>
+            <div className="card-subtitle">Linha de Base · Reprogramação · Real + Reprogramado · Desvios</div>
           </div>
         </div>
         <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
           {(() => {
-            // Pré-computa todas as séries por mês
-            let ap = 0, ar = 0;
-            const rows = { planM: [], planA: [], realM: [], realA: [], desvio: [] };
-            months.forEach(m => {
-              const v = filteredPlanned[m.key] || 0;
-              const r = m.key <= todayKey ? (realizedTotals[m.key] || 0) : null;
-              ap += v; if (r !== null) ar += r;
-              rows.planM.push(total > 0 ? v / total * 100 : 0);
-              rows.planA.push(total > 0 ? ap / total * 100 : 0);
-              rows.realM.push(r !== null ? (total > 0 ? r / total * 100 : 0) : null);
-              rows.realA.push(r !== null ? (total > 0 ? ar / total * 100 : 0) : null);
-              rows.desvio.push(r !== null ? (total > 0 ? (ar - ap) / total * 100 : 0) : null);
-            });
-            const labelW = 160;
-            const colW   = 62;
-            const thC = { ...thSt, textAlign: 'right', minWidth: colW, padding: '8px 8px' };
-            const thL = { ...thSt, textAlign: 'left',  minWidth: labelW, padding: '8px 14px',
-              position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface-muted)' };
-            const tdC = { ...tdSt, textAlign: 'right', fontSize: 11, padding: '7px 8px',
-              fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-            const tdL = { ...tdSt, fontSize: 11.5, fontWeight: 600, padding: '7px 14px',
-              position: 'sticky', left: 0, zIndex: 1, background: 'var(--surface)', whiteSpace: 'nowrap' };
-            const fmt1 = v => v !== null ? (v === 0 ? '—' : v.toFixed(2) + '%') : '—';
-            const fmtD = v => v !== null ? (v > 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
+            const hasBL    = baselineDist != null;
+            const refBLTot = baselineTotal || total || 1;
+            const refRep   = total || 1;
 
-            const SERIES = [
-              { key: 'planM',  label: 'Plan. Mensal (%)',    color: 'var(--text)',  fmt: fmt1 },
-              { key: 'planA',  label: 'Plan. Acumulado (%)', color: 'var(--brand)', fmt: fmt1, bold: true },
-              { key: 'realM',  label: 'Real. Mensal (%)',    color: '#16a34a',      fmt: fmt1 },
-              { key: 'realA',  label: 'Real. Acumulado (%)', color: '#16a34a',      fmt: fmt1, bold: true },
-              { key: 'desvio', label: 'Desvio Acum. (%)',    color: null,           fmt: fmtD },
-            ];
+            // Séries por mês
+            let apBL = 0, apRep = 0, apRR = 0;
+            const blM=[], blA=[], repM=[], repA=[], rrM=[], rrA=[], difBL=[], difRep=[];
+
+            months.forEach(m => {
+              const vBL  = hasBL ? (baselineDist[m.key] || 0) : 0;
+              const vRep = filteredPlanned[m.key] || 0;
+              const vRR  = m.key <= todayKey
+                ? (realizedTotals[m.key] || 0)
+                : (filteredPlanned[m.key] || 0);
+
+              apBL  += vBL;
+              apRep += vRep;
+              apRR  += vRR;
+
+              blM.push(vBL  / refBLTot * 100);
+              blA.push(apBL / refBLTot * 100);
+              repM.push(vRep / refRep * 100);
+              repA.push(apRep / refRep * 100);
+              rrM.push(vRR  / refRep * 100);
+              rrA.push(apRR / refRep * 100);
+              difBL.push(hasBL ? rrA[rrA.length - 1] - blA[blA.length - 1] : null);
+              difRep.push(rrA[rrA.length - 1] - repA[repA.length - 1]);
+            });
+
+            const rrTotal = totalReal + months
+              .filter(m => m.key > todayKey)
+              .reduce((s, m) => s + (filteredPlanned[m.key] || 0), 0);
+
+            const fmt1 = v => v != null ? (v === 0 ? '—' : v.toFixed(2) + '%') : '—';
+            const fmtD = v => v != null ? (v > 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
+            const pct  = (v, ref) => (v / (ref || 1) * 100).toFixed(2) + '%';
+
+            const ACT_W = 250, VAL_W = 120, PESO_W = 72, MON_W = 56;
+
+            const thBase = {
+              padding: '8px 10px', fontSize: 10.5, fontWeight: 700,
+              letterSpacing: '0.07em', textTransform: 'uppercase',
+              color: 'var(--text-soft)', borderBottom: '2px solid var(--border)',
+              whiteSpace: 'nowrap', background: 'var(--surface-muted)',
+            };
+            const thAct  = { ...thBase, textAlign: 'left', minWidth: ACT_W,
+              position: 'sticky', left: 0, zIndex: 2 };
+            const thVal  = { ...thBase, textAlign: 'right', minWidth: VAL_W };
+            const thPeso = { ...thBase, textAlign: 'right', minWidth: PESO_W };
+            const thMon  = { ...thBase, textAlign: 'right', minWidth: MON_W };
+
+            const grpHdrBlue = {
+              background: 'var(--brand)', color: '#fff',
+              fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em',
+              textTransform: 'uppercase', padding: '6px 14px',
+            };
+            const grpHdrGray = { ...grpHdrBlue, background: '#4b5563' };
+
+            const bdr = '1px solid var(--border-subtle, rgba(0,0,0,0.06))';
+            const tdAct = (accum) => ({
+              padding: '7px 14px 7px 28px', fontSize: 11.5,
+              borderBottom: bdr, whiteSpace: 'nowrap',
+              position: 'sticky', left: 0, zIndex: 1,
+              background: accum ? 'var(--surface-muted, #f9fafb)' : 'var(--surface)',
+              fontWeight: accum ? 600 : 400, color: 'var(--text-soft)',
+            });
+            const tdVal = {
+              padding: '7px 10px', fontSize: 11.5, textAlign: 'right',
+              borderBottom: bdr, fontVariantNumeric: 'tabular-nums',
+              whiteSpace: 'nowrap', color: 'var(--text)',
+            };
+            const tdPeso = { ...tdVal, fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 };
+            const tdMon  = (accum) => ({
+              ...tdVal, fontSize: 11,
+              background: accum ? 'rgba(0,0,0,0.015)' : undefined,
+              fontWeight: accum ? 600 : 400,
+            });
+
+            // Chamada como função (não componente) para evitar re-mount a cada render
+            const monCells = (vals, fmt, color, accum) =>
+              months.map((m, i) => {
+                const v   = vals[i];
+                const clr = color === 'desvio' && v != null
+                  ? (v >= 0 ? '#16a34a' : '#dc2626')
+                  : (color || 'var(--text)');
+                return (
+                  <td key={m.key} style={{
+                    ...tdMon(accum),
+                    color: v == null || v === 0 ? 'var(--text-faint)' : clr,
+                    background: m.key === todayKey
+                      ? 'rgba(1,67,134,0.06)'
+                      : (accum ? 'rgba(0,0,0,0.015)' : undefined),
+                  }}>
+                    {fmt(v)}
+                  </td>
+                );
+              });
+
+            const totalCols = 3 + months.length;
 
             return (
-              <table style={{ borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
+              <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
                 <thead>
                   <tr>
-                    <th style={thL}>Indicador</th>
+                    <th style={thAct}>Atividades</th>
+                    <th style={thVal}>Valores</th>
+                    <th style={thPeso}>Peso</th>
                     {months.map(m => (
                       <th key={m.key} style={{
-                        ...thC,
+                        ...thMon,
                         color: m.key === todayKey ? 'var(--brand)' : 'var(--text-soft)',
                         fontWeight: m.key === todayKey ? 700 : 600,
                       }}>{m.label}</th>
                     ))}
-                    <th style={{ ...thC, borderLeft: '2px solid var(--border)' }}>Total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {SERIES.map((s, si) => (
-                    <tr key={s.key} style={{ background: si % 2 === 0 ? undefined : 'rgba(0,0,0,0.02)' }}>
-                      <td style={{ ...tdL, color: s.color || 'var(--text)',
-                        borderTop: s.key === 'realM' ? '2px solid var(--border)' : undefined }}>
-                        {s.label}
-                      </td>
-                      {rows[s.key].map((v, i) => {
-                        const isDesvio = s.key === 'desvio';
-                        const clr = isDesvio && v !== null
-                          ? (v >= 0 ? '#16a34a' : '#dc2626')
-                          : (s.color || 'var(--text)');
-                        return (
-                          <td key={months[i].key} style={{
-                            ...tdC,
-                            color: v === null || v === 0 ? 'var(--text-faint)' : clr,
-                            fontWeight: s.bold ? 600 : 400,
-                            borderTop: s.key === 'realM' ? '2px solid var(--border)' : undefined,
-                            background: months[i].key === todayKey ? 'rgba(1,67,134,0.04)' : undefined,
-                          }}>
-                            {s.fmt(v)}
-                          </td>
-                        );
-                      })}
-                      <td style={{
-                        ...tdC, fontWeight: 600,
-                        borderLeft: '2px solid var(--border)',
-                        borderTop: s.key === 'realM' ? '2px solid var(--border)' : undefined,
-                        color: s.key === 'planM' || s.key === 'planA' ? 'var(--brand)'
-                             : s.key === 'realM' || s.key === 'realA' ? '#16a34a'
-                             : 'var(--text-muted)',
-                      }}>
-                        {s.key === 'planM'  ? '100%'
-                        : s.key === 'planA'  ? '100%'
-                        : s.key === 'realM'  ? (totalReal > 0 ? (totalReal / total * 100).toFixed(2) + '%' : '—')
-                        : s.key === 'realA'  ? (totalReal > 0 ? (totalReal / total * 100).toFixed(2) + '%' : '—')
-                        : '—'}
-                      </td>
+                  {/* ── Linha de Base ── */}
+                  <tr>
+                    <td colSpan={totalCols} style={grpHdrBlue}>
+                      {hasBL ? blNome : `${blNome} — nenhuma linha de base cadastrada`}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={tdAct(false)}>Mensal</td>
+                    <td style={tdVal}>{hasBL ? fmtBRL(baselineTotal) : '—'}</td>
+                    <td style={tdPeso}>100,00%</td>
+                    {monCells(hasBL ? blM : months.map(() => null), fmt1, 'var(--brand)', false)}
+                  </tr>
+                  <tr>
+                    <td style={tdAct(true)}>Acumulado</td>
+                    <td style={{ ...tdVal, background: 'rgba(0,0,0,0.015)' }}></td>
+                    <td style={{ ...tdPeso, background: 'rgba(0,0,0,0.015)' }}></td>
+                    {monCells(hasBL ? blA : months.map(() => null), fmt1, 'var(--brand)', true)}
+                  </tr>
+
+                  {/* ── Reprogramação ── */}
+                  <tr>
+                    <td colSpan={totalCols} style={{ ...grpHdrBlue, borderTop: '2px solid rgba(255,255,255,0.2)' }}>
+                      Reprogramação Mês Anterior
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={tdAct(false)}>Mensal</td>
+                    <td style={tdVal}>{fmtBRL(total)}</td>
+                    <td style={tdPeso}>{hasBL ? pct(total, refBLTot) : '100,00%'}</td>
+                    {monCells(repM, fmt1, 'var(--text)', false)}
+                  </tr>
+                  <tr>
+                    <td style={tdAct(true)}>Acumulado</td>
+                    <td style={{ ...tdVal, background: 'rgba(0,0,0,0.015)' }}></td>
+                    <td style={{ ...tdPeso, background: 'rgba(0,0,0,0.015)' }}></td>
+                    {monCells(repA, fmt1, 'var(--text)', true)}
+                  </tr>
+
+                  {/* ── Real + Reprogramado ── */}
+                  <tr>
+                    <td colSpan={totalCols} style={{ ...grpHdrBlue, borderTop: '2px solid rgba(255,255,255,0.2)' }}>
+                      Real + Reprogramado
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={tdAct(false)}>Mensal</td>
+                    <td style={tdVal}>{fmtBRL(rrTotal)}</td>
+                    <td style={tdPeso}>{pct(rrTotal, hasBL ? refBLTot : refRep)}</td>
+                    {monCells(rrM, fmt1, '#16a34a', false)}
+                  </tr>
+                  <tr>
+                    <td style={tdAct(true)}>Acumulado</td>
+                    <td style={{ ...tdVal, background: 'rgba(0,0,0,0.015)' }}></td>
+                    <td style={{ ...tdPeso, background: 'rgba(0,0,0,0.015)' }}></td>
+                    {monCells(rrA, fmt1, '#16a34a', true)}
+                  </tr>
+
+                  {/* ── Diferenças ── */}
+                  <tr>
+                    <td colSpan={totalCols} style={{ ...grpHdrGray, borderTop: '2px solid rgba(255,255,255,0.15)' }}>
+                      Diferenças
+                    </td>
+                  </tr>
+                  {hasBL && (
+                    <tr>
+                      <td style={tdAct(false)}>Dif. em relação à Linha de Base — Acumulado R01</td>
+                      <td style={tdVal}></td>
+                      <td style={tdPeso}></td>
+                      {monCells(difBL, fmtD, 'desvio', false)}
                     </tr>
-                  ))}
+                  )}
+                  <tr>
+                    <td style={tdAct(false)}>Dif. em relação ao Reprogramado — Acumulado R01</td>
+                    <td style={tdVal}></td>
+                    <td style={tdPeso}></td>
+                    {monCells(difRep, fmtD, 'desvio', false)}
+                  </tr>
                 </tbody>
               </table>
             );
@@ -3524,6 +3648,7 @@ const CronogramaFull = ({ initialObraId }) => {
                   months={months}
                   monthlyDist={monthlyDist}
                   realizedTotals={realizedTotals}
+                  baselines={baselines}
                   onCommit={commit}
                 />
               )}
