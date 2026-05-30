@@ -2814,9 +2814,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               color: 'var(--text-soft)', borderBottom: '2px solid var(--border)',
               whiteSpace: 'nowrap', background: 'var(--surface-muted)',
             };
-            const thAct  = { ...thBase, textAlign: 'left', width: ACT_W, maxWidth: ACT_W,
+            const thAct  = { ...thBase, textAlign: 'left', minWidth: ACT_W,
               padding: '6px 10px', position: 'sticky', left: 0, zIndex: 2 };
-            const thMon  = { ...thBase, textAlign: 'right', width: MON_W, minWidth: MON_W };
+            const thMon  = { ...thBase, textAlign: 'right', minWidth: MON_W };
 
             const grpHdrBlue = {
               background: 'var(--brand)', color: '#fff',
@@ -2829,8 +2829,6 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             const tdAct = (accum) => ({
               padding: '5px 8px 5px 14px', fontSize: 11,
               borderBottom: bdr, whiteSpace: 'nowrap',
-              overflow: 'hidden', textOverflow: 'ellipsis',
-              maxWidth: ACT_W, width: ACT_W,
               position: 'sticky', left: 0, zIndex: 1,
               background: accum ? 'var(--surface-muted, #f9fafb)' : 'var(--surface)',
               fontWeight: accum ? 600 : 400, color: 'var(--text-soft)',
@@ -2846,7 +2844,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             });
             const tdProd = (accum) => ({
               ...tdBase,
-              width: PROD_W,
+              minWidth: PROD_W,
               fontWeight: accum ? 700 : 600,
               borderLeft: '2px solid var(--border)',
               background: accum ? 'rgba(1,67,134,0.06)' : 'rgba(1,67,134,0.03)',
@@ -2888,12 +2886,13 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             const totalCols = 2 + months.length; // Atividades + Produção + meses
 
             return (
-              <table style={{ borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed', width: '100%' }}>
+              <table style={{ borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed',
+                minWidth: ACT_W + PROD_W + months.length * MON_W }}>
                 <thead>
                   <tr>
                     <th style={thAct}>Atividades</th>
                     <th style={{
-                      ...thBase, textAlign: 'center', width: PROD_W,
+                      ...thBase, textAlign: 'center', minWidth: PROD_W,
                       borderLeft: '2px solid var(--border)',
                       background: 'rgba(1,67,134,0.07)',
                       padding: '4px 2px',
