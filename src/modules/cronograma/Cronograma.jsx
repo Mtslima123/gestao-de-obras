@@ -2806,7 +2806,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             const fmt1 = v => v != null ? (v === 0 ? '—' : v.toFixed(2) + '%') : '—';
             const fmtD = v => v != null ? (v > 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
 
-            const ACT_W = 130, PROD_W = 66, MON_W = 38;
+            const ACT_W = 130, MON_W = 38, PROD_W = MON_W;
 
             const thBase = {
               padding: '6px 4px', fontSize: 10, fontWeight: 700,
@@ -2846,7 +2846,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             });
             const tdProd = (accum) => ({
               ...tdBase,
-              minWidth: PROD_W,
+              width: PROD_W,
               fontWeight: accum ? 700 : 600,
               borderLeft: '2px solid var(--border)',
               background: accum ? 'rgba(1,67,134,0.06)' : 'rgba(1,67,134,0.03)',
@@ -2893,18 +2893,18 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   <tr>
                     <th style={thAct}>Atividades</th>
                     <th style={{
-                      ...thBase, textAlign: 'center', minWidth: PROD_W,
+                      ...thBase, textAlign: 'center', width: PROD_W,
                       borderLeft: '2px solid var(--border)',
                       background: 'rgba(1,67,134,0.07)',
-                      padding: '4px 8px',
+                      padding: '4px 2px',
                     }}>
                       <select
                         value={selMonKey}
                         onChange={e => setSelMonKey(e.target.value)}
                         style={{
-                          fontSize: 11, fontWeight: 700, color: 'var(--brand)',
+                          fontSize: 10, fontWeight: 700, color: 'var(--brand)',
                           border: 'none', background: 'transparent', cursor: 'pointer',
-                          width: '100%', textAlign: 'center',
+                          width: '100%', textAlign: 'center', padding: 0,
                         }}
                       >
                         {months.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
