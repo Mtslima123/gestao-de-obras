@@ -532,6 +532,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
   const [editMode,    setEdit]     = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; });
   const [lockDone,    setLock]     = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; });
   const [replanAuto,  setReplan]   = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.replanAuto ?? true; });
+  const [labelWidth,  setLabelW]   = React.useState(() => { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; });
 
   const saveGanttCfg = (patch) => {
     const curr = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}');
@@ -570,6 +571,13 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     });
   }, [etapas]);
 
+  // Posiciona scroll próximo da data atual ao montar (key={obraSel} garante re-mount ao trocar obra)
+  React.useEffect(() => {
+    if (!cRef.current) return;
+    const todayPx = labelWidth + today * GM_DAY_W;
+    cRef.current.scrollLeft = Math.max(0, todayPx - cRef.current.clientWidth * 0.3);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Pan (arrastar para rolar) ──────────────────────────────────────────────
   const onContDown = (e) => {
     if (e.target.closest('[data-gb]')) return;
@@ -580,6 +588,20 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     document.addEventListener('mousemove', mv);
     document.addEventListener('mouseup', up);
   };
+
+  // ── Redimensionar coluna de rótulos ───────────────────────────────────────
+  const onDividerDown = React.useCallback((ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const sx = ev.clientX, sw = labelWidth;
+    const onMove = (e) => setLabelW(Math.max(150, Math.min(500, sw + (e.clientX - sx))));
+    const onUp   = (e) => {
+      localStorage.setItem(`gantt_lw_${obraId}`, String(Math.max(150, Math.min(500, sw + (e.clientX - sx)))));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [labelWidth, obraId]);
 
   // ── Drag de barra / resize ─────────────────────────────────────────────────
   const onBarDown = (e, id, type) => {
@@ -681,7 +703,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
   const getBar = (e) => draft && draft[e.id] ? { ...e, ...draft[e.id] } : e;
   const findEt = (id) => etapas.find(e => e.id === id);
   const idxEt  = (id) => etapas.findIndex(e => e.id === id);
-  const tlW    = GM_TOTAL * GM_MONTH_W;
+  const tlW    = dynTotal * GM_MONTH_W;
 
   const barColor = (e, isConf) =>
     isConf                    ? '#d97706'
@@ -697,6 +719,35 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     const novas = etapas.map(e => e.id === id ? { ...e, collapsed: !e.collapsed } : e);
     onCommit(novas, { silent: true });
   };
+
+  // Timeline dinâmica: cresce para cobrir todas as tarefas + 3 meses de folga
+  const dynTotal = React.useMemo(() => {
+    if (!etapas.length) return GM_TOTAL;
+    const maxDay = Math.max(...etapas.map(e => (e.inicio || 0) + Math.max(e.dur || 0, 1)));
+    return Math.max(Math.ceil(maxDay / 30) + 3, GM_TOTAL);
+  }, [etapas]);
+
+  const dynMonths = React.useMemo(() => {
+    const out = [];
+    let y = GM_START_YEAR, mo = GM_START_MONTH;
+    for (let i = 0; i < dynTotal; i++) {
+      out.push({ short: GM_MN[mo], year: y, isQ: mo % 3 === 0, idx: i });
+      if (++mo === 12) { mo = 0; y++; }
+    }
+    return out;
+  }, [dynTotal]);
+
+  const dynQuarters = React.useMemo(() => {
+    const out = [];
+    for (let q = 0; q * 3 < dynTotal; q++) {
+      const start = q * 3;
+      const end = Math.min(start + 3, dynTotal);
+      let mo = GM_START_MONTH + start, y = GM_START_YEAR;
+      while (mo >= 12) { mo -= 12; y++; }
+      out.push({ label: `T${(q % 4) + 1}/${y}`, start, end });
+    }
+    return out;
+  }, [dynTotal]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -776,8 +827,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
       >
         <div style={{
           display: 'grid',
-          gridTemplateColumns: `${GM_LABEL_W}px ${tlW}px`,
-          minWidth: GM_LABEL_W + tlW,
+          gridTemplateColumns: `${labelWidth}px ${tlW}px`,
+          minWidth: labelWidth + tlW,
           position: 'relative',
         }}>
 
@@ -787,16 +838,24 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
             display: 'flex', alignItems: 'flex-end', padding: '0 18px 12px',
             fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em',
             color: 'var(--text-soft)', background: 'var(--surface)',
-            position: 'sticky', left: 0, zIndex: 5,
+            position: 'sticky', left: 0, zIndex: 5, overflow: 'visible',
           }}>
             ETAPA
+            <div
+              onMouseDown={onDividerDown}
+              style={{
+                position: 'absolute', right: 0, top: 0, bottom: 0,
+                width: 5, cursor: 'col-resize', zIndex: 10,
+                background: 'transparent',
+              }}
+            />
           </div>
 
           {/* ── Cabeçalho linha do tempo ──────────────────────────────────── */}
           <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
             {/* Trimestres */}
             <div style={{ display: 'flex', height: 28, borderBottom: '1px solid var(--border)' }}>
-              {GM_QUARTERS.map((q, qi) => (
+              {dynQuarters.map((q, qi) => (
                 <div key={qi} style={{
                   width: (q.end - q.start) * GM_MONTH_W,
                   fontSize: 10.5, fontWeight: 600, color: 'var(--text-soft)',
@@ -810,7 +869,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
             </div>
             {/* Meses */}
             <div style={{ display: 'flex', height: 30 }}>
-              {GM_MONTHS.map((m, mi) => (
+              {dynMonths.map((m, mi) => (
                 <div key={mi} style={{
                   width: GM_MONTH_W, textAlign: 'center', padding: '8px 0', fontSize: 10,
                   borderRight: '1px solid var(--border)', fontFamily: 'var(--font-mono)',
@@ -877,7 +936,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                   borderBottom: '1px solid var(--border)', background: rowBg,
                 }}>
                   {/* Grade de meses */}
-                  {GM_MONTHS.map((m, mi) => (
+                  {dynMonths.map((m, mi) => (
                     <div key={mi} style={{
                       position: 'absolute', left: mi * GM_MONTH_W, top: 0, bottom: 0, width: 1,
                       background: 'var(--border)', opacity: m.isQ ? 0.8 : 0.35,
@@ -887,7 +946,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                   {/* Sombreamento do passado */}
                   <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
-                    width: Math.min(today, GM_TOTAL * 30) * GM_DAY_W,
+                    width: Math.min(today, dynTotal * 30) * GM_DAY_W,
                     background: 'rgba(0,0,0,0.011)', pointerEvents: 'none',
                   }} />
 
@@ -993,7 +1052,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
           {/* ── Linha HOJE ────────────────────────────────────────────────── */}
           <div style={{
             position: 'absolute',
-            left: GM_LABEL_W + Math.min(today, GM_TOTAL * 30) * GM_DAY_W,
+            left: labelWidth + Math.min(today, dynTotal * 30) * GM_DAY_W,
             top: 0, bottom: 0, width: 0,
             borderLeft: '2px solid #e53935',
             zIndex: 10, pointerEvents: 'none',
@@ -1010,8 +1069,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
 
           {/* ── SVG: setas de dependência tipadas (TI/TT/II/IT) ──────────── */}
           <svg style={{
-            position: 'absolute', top: GM_HEADER_H, left: GM_LABEL_W,
-            width: tlW, height: etapas.length * GM_ROW_H,
+            position: 'absolute', top: GM_HEADER_H, left: labelWidth,
+            width: tlW, height: visible.length * GM_ROW_H,
             pointerEvents: 'none', overflow: 'visible',
           }}>
             <defs>
