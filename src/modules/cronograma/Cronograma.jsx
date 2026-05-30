@@ -145,6 +145,81 @@ function computeAllWBS(etapas) {
   return result;
 }
 
+// Recalcula nivel (da cadeia parentId) e isGroup (tem filhos diretos) após mudança de hierarquia
+function recomputeHierarchy(arr) {
+  const map = new Map(arr.map(e => [e.id, e]));
+
+  function getNivel(id, visited = new Set()) {
+    if (visited.has(id)) return 0;
+    visited.add(id);
+    const t = map.get(id);
+    if (!t || !t.parentId) return 0;
+    return 1 + getNivel(t.parentId, visited);
+  }
+
+  const childCount = new Map();
+  arr.forEach(e => {
+    if (e.parentId) childCount.set(e.parentId, (childCount.get(e.parentId) || 0) + 1);
+  });
+
+  const rebuilt = arr.map(e => ({
+    ...e,
+    nivel: getNivel(e.id),
+    isGroup: (childCount.get(e.id) || 0) > 0,
+  }));
+
+  // Para tarefas resumo, recalcula avanco/inicio/dur a partir dos filhos diretos
+  return rebuilt.map(e => {
+    if (!e.isGroup) return e;
+    const filhos = rebuilt.filter(f => f.parentId === e.id);
+    if (filhos.length === 0) return e;
+    const avanco = Math.round(filhos.reduce((s, f) => s + (f.avanco || 0), 0) / filhos.length);
+    const inicio = Math.min(...filhos.map(f => f.inicio));
+    const fim    = Math.max(...filhos.map(f => f.inicio + (f.dur || 0)));
+    return { ...e, avanco, inicio, dur: Math.max(1, fim - inicio) };
+  });
+}
+
+// Recua as tarefas selecionadas — cada uma passa a ser filha da tarefa imediatamente acima
+function indentTasks(etapas, selectedIds) {
+  const selSet = new Set(selectedIds);
+
+  function isDescendant(id, targetId) {
+    let cur = etapas.find(e => e.id === id);
+    while (cur && cur.parentId) {
+      if (cur.parentId === targetId) return true;
+      cur = etapas.find(e => e.id === cur.parentId);
+    }
+    return false;
+  }
+
+  const novas = etapas.map((e, idx) => {
+    if (!selSet.has(e.id)) return e;
+    if (idx === 0) return e;
+    const above = etapas[idx - 1];
+    if (above.id === e.parentId) return e; // já é filho da tarefa acima
+    if (isDescendant(above.id, e.id)) return e; // evita ciclo
+    return { ...e, parentId: above.id };
+  });
+
+  return recomputeHierarchy(novas);
+}
+
+// Promove as tarefas selecionadas — remove um nível hierárquico (filho → irmão do pai)
+function outdentTasks(etapas, selectedIds) {
+  const selSet = new Set(selectedIds);
+  const map = new Map(etapas.map(e => [e.id, e]));
+
+  const novas = etapas.map(e => {
+    if (!selSet.has(e.id)) return e;
+    if (!e.parentId) return e; // já é raiz
+    const pai = map.get(e.parentId);
+    return { ...e, parentId: pai ? pai.parentId : null };
+  });
+
+  return recomputeHierarchy(novas);
+}
+
 function computeSuccessors(etapas) {
   const r = {};
   etapas.forEach(e => { r[e.id] = []; });
@@ -1580,6 +1655,32 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     setDeleteConfirm(selectedId);
   };
 
+  const handleIndent = () => {
+    if (!selectedId) return;
+    const novas = indentTasks(etapas, [selectedId]);
+    onCommit(novas);
+  };
+
+  const handleOutdent = () => {
+    if (!selectedId) return;
+    const novas = outdentTasks(etapas, [selectedId]);
+    onCommit(novas);
+  };
+
+  const canIndent  = !!selectedId && etapas.findIndex(e => e.id === selectedId) > 0;
+  const canOutdent = !!selectedId && (etapas.find(e => e.id === selectedId)?.nivel || 0) > 0;
+
+  // Atalhos Ctrl+Shift+→ / Ctrl+Shift+← para recuar/promover tarefa selecionada
+  React.useEffect(() => {
+    const h = (e) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); handleIndent(); }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'ArrowLeft')  { e.preventDefault(); handleOutdent(); }
+    };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [selectedId, etapas]);
+
   const confirmDelete = () => {
     if (!deleteConfirm) return;
     const novas = deleteTask(deleteConfirm, etapas);
@@ -1651,6 +1752,34 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
           </svg>
           Excluir
+        </button>
+
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+
+        <button
+          className="btn btn-ghost"
+          style={{ ...btnStyle, opacity: canIndent ? 1 : 0.4 }}
+          onClick={handleIndent}
+          title="Recuar tarefa — tornar subtarefa da linha acima (Ctrl+Shift+→)"
+          disabled={!canIndent}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+          Recuar
+        </button>
+
+        <button
+          className="btn btn-ghost"
+          style={{ ...btnStyle, opacity: canOutdent ? 1 : 0.4 }}
+          onClick={handleOutdent}
+          title="Promover tarefa — subir um nível hierárquico (Ctrl+Shift+←)"
+          disabled={!canOutdent}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Promover
         </button>
 
         <div style={{ flex: 1 }} />
@@ -2450,6 +2579,7 @@ const CronogramaFull = ({ initialObraId }) => {
   const [blVisivelId,  setBlVisivelId]  = React.useState(null);
   const [showCriar,    setShowCriar]    = React.useState(false);
   const [showGerenciar, setShowGerenciar] = React.useState(false);
+  const [outlineOpen,  setOutlineOpen]  = React.useState(false);
   const [loadedObraId, setLoadedObraId] = React.useState(null);
   // isLoading derivado: true quando obraSel existe mas ainda não terminou de carregar seus dados
   const isLoading = !!(obraSel && loadedObraId !== obraSel);
@@ -2457,9 +2587,10 @@ const CronogramaFull = ({ initialObraId }) => {
   // Histórico de undo/redo unificado (Lista + Gantt)
   const histRef = React.useRef([etapas.map(e => ({ ...e }))]);
   const hidxRef = React.useRef(0);
-  const undoRef    = React.useRef(null);
-  const redoRef    = React.useRef(null);
-  const saveTimerRef = React.useRef(null);
+  const undoRef        = React.useRef(null);
+  const redoRef        = React.useRef(null);
+  const applyOutlineRef = React.useRef(null);
+  const saveTimerRef   = React.useRef(null);
 
   // Recarrega etapas, histórico e baselines ao trocar de obra (Supabase first, fallback para mock)
   React.useEffect(() => {
@@ -2607,9 +2738,19 @@ const CronogramaFull = ({ initialObraId }) => {
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
   };
 
+  // Colapsa/expande toda a hierarquia até o nível N (0 = expandir tudo)
+  const applyOutlineLevel = (level) => {
+    const novas = etapas.map(e => {
+      if (!e.isGroup) return e;
+      return { ...e, collapsed: level > 0 && e.nivel >= level - 1 };
+    });
+    commit(novas, { silent: true });
+  };
+
   // Refs para evitar closures stale no listener de teclado
   undoRef.current = undo;
   redoRef.current = redo;
+  applyOutlineRef.current = applyOutlineLevel;
 
   // Atalho Ctrl+Z / Ctrl+Y global (funciona em qualquer aba do módulo)
   React.useEffect(() => {
@@ -2617,10 +2758,19 @@ const CronogramaFull = ({ initialObraId }) => {
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redoRef.current(); }
+      if (e.altKey && e.shiftKey && e.key === '*') { e.preventDefault(); applyOutlineRef.current(0); }
+      if (e.altKey && e.shiftKey && (e.key === '-' || e.key === '_')) { e.preventDefault(); applyOutlineRef.current(1); }
     };
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
   }, []);
+
+  React.useEffect(() => {
+    if (!outlineOpen) return;
+    const h = () => setOutlineOpen(false);
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [outlineOpen]);
 
   return (
     <>
@@ -2636,6 +2786,43 @@ const CronogramaFull = ({ initialObraId }) => {
               <option key={o.id} value={o.id}>{o.nome} ({o.id})</option>
             ))}
           </select>
+          {/* Estrutura de Tópicos — controle de nível da EAP */}
+          <div style={{ position: 'relative' }} onMouseDown={e => e.stopPropagation()}>
+            <button className="btn btn-ghost" onClick={() => setOutlineOpen(o => !o)} style={{ gap: 6 }}>
+              <Icon name="layers" size={15} />
+              Estrutura {outlineOpen ? '▲' : '▼'}
+            </button>
+            {outlineOpen && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 4px)', right: 0,
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 8, boxShadow: 'var(--shadow-md)',
+                minWidth: 170, zIndex: 200, padding: '4px 0',
+              }}>
+                {[
+                  { label: 'Expandir Tudo', level: 0 },
+                  { label: 'Recolher Tudo', level: 1 },
+                  null,
+                  ...[1,2,3,4,5,6,7,8,9].map(n => ({ label: `Nível ${n}`, level: n })),
+                ].map((item, i) =>
+                  item === null
+                    ? <div key={i} style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+                    : <button key={item.label}
+                        onClick={() => { applyOutlineLevel(item.level); setOutlineOpen(false); }}
+                        style={{
+                          display: 'block', width: '100%', textAlign: 'left',
+                          padding: '7px 14px', border: 'none', background: 'none',
+                          cursor: 'pointer', fontSize: 13, color: 'var(--text)',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-muted)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                      >
+                        {item.label}
+                      </button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="segmented">
             <button className={view === 'gantt' ? 'active' : ''} onClick={() => setView('gantt')}>Gantt</button>
             <button className={view === 'lista' ? 'active' : ''} onClick={() => setView('lista')}>Lista</button>
