@@ -1944,6 +1944,26 @@ a:hover { color: var(--brand-600); }
   color: var(--text);
 }
 
+/* Tabela da Lista Interativa — tipografia e linhas alternadas */
+.tbl-lista {
+  font-size: 13px;
+}
+.tbl-lista thead th {
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  padding: 9px 10px;
+}
+.tbl-lista tbody td {
+  padding: 0 10px;
+}
+.tbl-lista tbody tr:nth-child(even) td {
+  background: rgba(0, 0, 0, 0.012);
+}
+.tbl-lista tbody tr:nth-child(even).lista-row-selected td,
+.tbl-lista tbody tr:nth-child(odd).lista-row-selected td {
+  background: color-mix(in srgb, var(--brand) 8%, transparent) !important;
+}
+
 /* Badge numérico de ordem na multi-seleção (Ctrl+clique) */
 .multi-sel-badge {
   display: inline-flex;

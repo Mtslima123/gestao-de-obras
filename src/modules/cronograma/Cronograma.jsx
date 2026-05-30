@@ -114,17 +114,20 @@ function dateToOffset(iso) {
 // ─── Funções puras de dados ──────────────────────────────────────────────────
 
 function migrateEtapas(raw) {
-  return (raw || []).map(e => ({
+  const arr = (raw || []).map(e => ({
     nivel: 0, parentId: null, isGroup: false,
     collapsed: false, responsavel: '', customCols: {},
     milestone: false, custo: 0,
     restricaoTipo: 'asap', restricaoData: '',
     ...e,
-    // Migra dep de string[] para {id, tipo, lag}[]
     dep: (e.dep || []).map(d =>
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
     ),
   }));
+  // Atribui displayId permanente às tarefas que ainda não possuem
+  const maxDid = arr.reduce((m, e) => Math.max(m, e.displayId || 0), 0);
+  let nextDid = maxDid + 1;
+  return arr.map(e => e.displayId ? e : { ...e, displayId: nextDid++ });
 }
 
 const fmtBRL   = n => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -170,6 +173,10 @@ function nextEtapaId(etapas) {
   return 'TSK-' + String(Math.max(0, ...nums) + 1).padStart(3, '0');
 }
 
+function nextDisplayId(etapas) {
+  return etapas.reduce((m, e) => Math.max(m, e.displayId || 0), 0) + 1;
+}
+
 function emptyCustomCols(customCols) {
   return Object.fromEntries((customCols || []).map(c => [c.id, '']));
 }
@@ -179,7 +186,7 @@ function createTask(afterId, etapas, customCols) {
   const idx      = Math.max(0, afterIdx);
   const after    = etapas[idx] || etapas[etapas.length - 1];
   const novo = {
-    id: nextEtapaId(etapas), etapa: 'Nova tarefa',
+    id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Nova tarefa',
     nivel: after ? after.nivel : 0, parentId: after ? after.parentId : null,
     isGroup: false, collapsed: false,
     inicio: after ? after.inicio + after.dur : 0,
@@ -205,7 +212,7 @@ function createSubtask(parentId, etapas, customCols) {
     if (isDesc) insertIdx = i; else break;
   }
   const novo = {
-    id: nextEtapaId(etapas), etapa: 'Nova subtarefa',
+    id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Nova subtarefa',
     nivel: (parent.nivel || 0) + 1, parentId,
     isGroup: false, collapsed: false,
     inicio: parent.inicio, dur: 30, avanco: 0, status: 'upcoming',
@@ -221,7 +228,7 @@ function createGroup(afterId, etapas, customCols) {
   const idx      = Math.max(0, afterIdx);
   const after    = etapas[idx] || etapas[etapas.length - 1];
   const novo = {
-    id: nextEtapaId(etapas), etapa: 'Novo grupo',
+    id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Novo grupo',
     nivel: after ? after.nivel : 0, parentId: after ? after.parentId : null,
     isGroup: true, collapsed: false,
     inicio: after ? after.inicio : 0,
@@ -274,9 +281,10 @@ function propagateDrag(etapas, endDeltaMap, startDeltaMap = {}) {
       const tipo = depOnId?.tipo || 'TI';
       // TI/TT: propaga delta do fim do predecessor
       // II/IT: propaga delta do início do predecessor
+      const idDelta = endDeltaMap[id] ?? deltasBySucc[id] ?? 0;
       const delta = (tipo === 'II' || tipo === 'IT')
-        ? (startDeltaMap[id] ?? endDeltaMap[id] ?? 0)
-        : endDeltaMap[id] ?? 0;
+        ? (startDeltaMap[id] ?? idDelta)
+        : idDelta;
       if (delta !== 0) {
         deltasBySucc[sid] = delta;
         visited.add(sid);
@@ -690,7 +698,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                   }}
                 >
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', minWidth: 26, flexShrink: 0 }}>
-                    {e.id}
+                    {e.displayId ?? e.id}
                   </span>
                   <span style={{
                     flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -872,9 +880,30 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
 
                 const fy  = idxEt(dId) * GM_ROW_H + GM_ROW_H / 2;
                 const ty  = i * GM_ROW_H + GM_ROW_H / 2;
-                const cpx = fx + Math.max((tx - fx) * 0.5, 20);
-                const midX = (fx + tx) / 2 + 4;
                 const midY = (fy + ty) / 2;
+                const CONN_MARGIN = 12;
+
+                // Caminho ortogonal 90° por tipo de vínculo (estilo MS Project)
+                let pathD;
+                if (tipo === 'TI') {
+                  if (tx >= fx + CONN_MARGIN * 2) {
+                    const midX = (fx + tx) / 2;
+                    pathD = `M ${fx} ${fy} H ${midX} V ${ty} H ${tx}`;
+                  } else {
+                    pathD = `M ${fx} ${fy} H ${fx + CONN_MARGIN} V ${midY} H ${tx - CONN_MARGIN} V ${ty} H ${tx}`;
+                  }
+                } else if (tipo === 'TT') {
+                  const rightX = Math.max(fx, tx) + CONN_MARGIN;
+                  pathD = `M ${fx} ${fy} H ${rightX} V ${ty} H ${tx}`;
+                } else if (tipo === 'II') {
+                  const leftX = Math.min(fx, tx) - CONN_MARGIN;
+                  pathD = `M ${fx} ${fy} H ${leftX} V ${ty} H ${tx}`;
+                } else { // IT
+                  const leftX = Math.min(fx, tx) - CONN_MARGIN;
+                  pathD = `M ${fx} ${fy} H ${leftX} V ${ty} H ${tx}`;
+                }
+
+                const midX = (fx + tx) / 2 + 4;
                 const lagLabel = lag !== 0 ? (lag > 0 ? `+${lag}d` : `${lag}d`) : '';
                 const typeLabel = tipo !== 'TI' ? tipo : '';
                 const label = [typeLabel, lagLabel].filter(Boolean).join(' ');
@@ -882,11 +911,10 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                 return (
                   <g key={`${e.id}-${dId}`}>
                     <path
-                      d={`M ${fx} ${fy} C ${cpx} ${fy} ${cpx} ${ty} ${tx} ${ty}`}
+                      d={pathD}
                       fill="none"
                       stroke={warn ? '#d97706' : 'var(--text-faint)'}
                       strokeWidth={warn ? 1.8 : 1.2}
-                      strokeDasharray="4 3"
                       markerEnd={warn ? 'url(#arr-warn)' : 'url(#arr-dep)'}
                     />
                     {label && (
@@ -1135,7 +1163,8 @@ const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
       // Gera IDs únicos sequencialmente
       const uniqueSubs = [];
       for (const sub of toInsert) {
-        uniqueSubs.push({ ...sub, id: nextEtapaId([...novas, ...uniqueSubs]) });
+        const base = [...novas, ...uniqueSubs];
+        uniqueSubs.push({ ...sub, id: nextEtapaId(base), displayId: nextDisplayId(base) });
       }
 
       novas = [
@@ -1239,8 +1268,30 @@ const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
   );
 };
 
+// ─── Definições de colunas da Lista ──────────────────────────────────────────
+const LISTA_COL_DEFS = {
+  wbs:       { label: 'WBS',           defWidth: 56,  frozen: true  },
+  id:        { label: 'ID',            defWidth: 58,  frozen: true  },
+  etapa:     { label: 'Etapa / Tarefa',defWidth: 240, frozen: true  },
+  inicio:    { label: 'Início',        defWidth: 112 },
+  fim:       { label: 'Término',       defWidth: 112 },
+  duracao:   { label: 'Duração',       defWidth: 90  },
+  avanco:    { label: '% Concluída',   defWidth: 150 },
+  custo:     { label: 'Custo',         defWidth: 130, align: 'right' },
+  peso:      { label: 'Peso %',        defWidth: 68,  align: 'right' },
+  custoReal: { label: 'Custo Real',    defWidth: 130, align: 'right' },
+  saldo:     { label: 'Saldo',         defWidth: 110, align: 'right' },
+  resp:      { label: 'Responsável',   defWidth: 130 },
+  dep:       { label: 'Predecessoras', defWidth: 130 },
+  succ:      { label: 'Sucessoras',    defWidth: 110 },
+  status:    { label: 'Status',        defWidth: 105 },
+  restricao: { label: 'Restrição',     defWidth: 200 },
+};
+const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
+const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
+
 // ─── ListaInterativa ──────────────────────────────────────────────────────────
-const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) => {
+const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showAddCol,     setShowAddCol]     = React.useState(false);
@@ -1259,6 +1310,84 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
   const totalCusto  = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), [etapas]);
   const totalReal   = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custoRealizado || 0), 0), [etapas]);
   const totalSaldo  = totalCusto - totalReal;
+
+  // ── Gerenciamento de colunas ────────────────────────────────────────────────
+  const [colOrder, setColOrder] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(`ls_cols_${obraId}`) || 'null') || LISTA_DEFAULT_ORDER; }
+    catch { return LISTA_DEFAULT_ORDER; }
+  });
+  const [colWidths, setColWidths] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(`ls_widths_${obraId}`) || 'null') || {}; }
+    catch { return {}; }
+  });
+  const dragColRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (obraId) localStorage.setItem(`ls_cols_${obraId}`, JSON.stringify(colOrder));
+  }, [colOrder, obraId]);
+  React.useEffect(() => {
+    if (obraId) localStorage.setItem(`ls_widths_${obraId}`, JSON.stringify(colWidths));
+  }, [colWidths, obraId]);
+
+  const getColW = (colId) => colWidths[colId] ?? LISTA_COL_DEFS[colId]?.defWidth ?? 100;
+
+  const frozenLeft = React.useMemo(() => {
+    const out = {}; let acc = 0;
+    for (const cid of LISTA_FROZEN) { out[cid] = acc; acc += (colWidths[cid] ?? LISTA_COL_DEFS[cid]?.defWidth ?? 100); }
+    return out;
+  }, [colWidths]);
+
+  const startColResize = (ev, colId) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const startX = ev.clientX;
+    const startW = getColW(colId);
+    const onMove = (e2) => setColWidths(prev => ({ ...prev, [colId]: Math.max(50, startW + e2.clientX - startX) }));
+    const onUp   = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  const onColDragStart = (ev, colId) => { dragColRef.current = colId; ev.dataTransfer.effectAllowed = 'move'; };
+  const onColDragOver  = (ev) => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; };
+  const onColDrop      = (ev, targetColId) => {
+    ev.preventDefault();
+    const from = dragColRef.current;
+    if (!from || from === targetColId || LISTA_FROZEN.includes(from) || LISTA_FROZEN.includes(targetColId)) return;
+    setColOrder(prev => {
+      const next = [...prev];
+      const fi = next.indexOf(from), ti = next.indexOf(targetColId);
+      if (fi < 0 || ti < 0) return prev;
+      next.splice(fi, 1); next.splice(ti, 0, from);
+      return next;
+    });
+    dragColRef.current = null;
+  };
+
+  const renderTh = (colId) => {
+    const col = LISTA_COL_DEFS[colId];
+    if (!col) return null;
+    const isFrozen = col.frozen;
+    const w = getColW(colId);
+    return (
+      <th key={colId}
+        style={{
+          width: w, minWidth: w, position: 'relative',
+          ...(isFrozen ? { position: 'sticky', left: frozenLeft[colId], zIndex: 4 } : {}),
+          cursor: !isFrozen ? 'grab' : undefined,
+          userSelect: 'none',
+          ...(col.align === 'right' ? { textAlign: 'right' } : {}),
+        }}
+        draggable={!isFrozen}
+        onDragStart={!isFrozen ? (ev) => onColDragStart(ev, colId) : undefined}
+        onDragOver={!isFrozen ? onColDragOver : undefined}
+        onDrop={!isFrozen ? (ev) => onColDrop(ev, colId) : undefined}
+      >
+        {col.label}
+        <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 5 }}
+          draggable={false} onMouseDown={(ev) => startColResize(ev, colId)} />
+      </th>
+    );
+  };
 
   // Aplica filtros de busca sobre as linhas visíveis
   const filtrada = React.useMemo(() =>
@@ -1509,27 +1638,16 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
       <div style={{ overflowX: 'auto' }}>
-        <table className="tbl" style={{ minWidth: 1780 }}>
+        <table className="tbl tbl-lista" style={{ minWidth: 1780 }}>
           <thead>
             <tr>
-              <th style={{ width: 56, fontSize: 10.5 }}>WBS</th>
-              <th style={{ width: 58, fontSize: 10.5 }}>ID</th>
-              <th style={{ minWidth: 210 }}>Etapa / Tarefa</th>
-              <th style={{ width: 112 }}>Início</th>
-              <th style={{ width: 112 }}>Término</th>
-              <th style={{ width: 90 }}>Duração</th>
-              <th style={{ width: 150 }}>% Concluída</th>
-              <th style={{ width: 130, textAlign: 'right' }}>Custo</th>
-              <th style={{ width: 68,  textAlign: 'right', fontSize: 10.5 }}>Peso %</th>
-              <th style={{ width: 130, textAlign: 'right' }}>Custo Real</th>
-              <th style={{ width: 110, textAlign: 'right' }}>Saldo</th>
-              <th style={{ width: 130 }}>Responsável</th>
-              <th style={{ width: 130 }}>Predecessoras</th>
-              <th style={{ width: 110 }}>Sucessoras</th>
-              <th style={{ width: 105 }}>Status</th>
-              <th style={{ width: 200 }}>Restrição</th>
+              {colOrder.map(colId => renderTh(colId))}
               {customCols.map(col => (
-                <th key={col.id} style={{ minWidth: 110 }}>{col.label}</th>
+                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'relative', userSelect: 'none' }}>
+                  {col.label}
+                  <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 5 }}
+                    onMouseDown={(ev) => startColResize(ev, col.id)} />
+                </th>
               ))}
               <th style={{ width: 36, padding: '0 8px', textAlign: 'center' }}>
                 <button
@@ -1542,107 +1660,79 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
           </thead>
           <tbody>
             {filtrada.map((e) => {
-              const isSelected   = selectedId === e.id;
-              const indent       = (e.nivel || 0) * 20;
-              const hasChildren  = etapas.some(x => x.parentId === e.id);
-              const gv           = e.isGroup ? groupVals[e.id] : null;
-              const multiIdx     = multiSel.indexOf(e.id); // -1 se não está na multi-seleção
-              const isMultiSel   = multiIdx >= 0;
+              const isSelected  = selectedId === e.id;
+              const indent      = (e.nivel || 0) * 20;
+              const hasChildren = etapas.some(x => x.parentId === e.id);
+              const gv          = e.isGroup ? groupVals[e.id] : null;
+              const multiIdx    = multiSel.indexOf(e.id);
+              const isMultiSel  = multiIdx >= 0;
+              const eInicio     = gv ? gv.inicio : e.inicio;
+              const eDur        = gv ? gv.dur    : e.dur;
+              const eAvanco     = gv ? gv.avanco : e.avanco;
 
-              // Início e término efetivos (grupo usa groupVals)
-              const eInicio = gv ? gv.inicio : e.inicio;
-              const eDur    = gv ? gv.dur    : e.dur;
-              const eAvanco = gv ? gv.avanco : e.avanco;
+              // Background explícito para células sticky (colunas congeladas)
+              const frozenBg = isSelected
+                ? 'color-mix(in srgb, var(--brand) 8%, transparent)'
+                : e.isGroup ? 'var(--surface-muted)' : 'var(--surface)';
+              const stickyStyle = (colId) => ({
+                position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: frozenBg,
+              });
 
-              return (
-                <tr
-                  key={e.id}
-                  className={isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : ''}
-                  onClick={(ev) => {
-                    if (ev.ctrlKey || ev.metaKey) {
-                      // Ctrl+click: adiciona/remove da seleção ordenada
-                      ev.preventDefault();
-                      setMultiSel(ms => ms.includes(e.id) ? ms.filter(id => id !== e.id) : [...ms, e.id]);
-                    } else {
-                      setSelectedId(id => id === e.id ? null : e.id);
-                      setMultiSel([]);
-                    }
-                  }}
-                  style={{ cursor: 'pointer' }}
-                >
-                  {/* WBS */}
-                  <td className="mono text-sm text-muted" style={{ paddingRight: 4 }}>
+              // Mapa de células por colId — renderizadas na ordem de colOrder
+              const cells = {
+                wbs: (
+                  <td key="wbs" className="mono text-sm text-muted" style={{ paddingRight: 4, ...stickyStyle('wbs') }}>
                     {wbsMap[e.id]}
                   </td>
-
-                  {/* ID */}
-                  <td className="mono strong" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell value={e.id} onSave={v => handleCellSave(e.id, 'id', v)} />
+                ),
+                id: (
+                  <td key="id" className="mono" style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', ...stickyStyle('id') }}>
+                    {e.displayId ?? e.id}
                   </td>
-
-                  {/* Etapa com indent e toggle */}
-                  <td onClick={ev => ev.stopPropagation()} style={{ paddingLeft: 0 }}>
+                ),
+                etapa: (
+                  <td key="etapa" onClick={ev => ev.stopPropagation()} style={{ paddingLeft: 0, ...stickyStyle('etapa') }}>
                     <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 10 + indent }}>
                       {(e.isGroup || hasChildren) ? (
-                        <button
-                          className="lista-toggle"
-                          onClick={ev => { ev.stopPropagation(); handleToggleCollapse(e.id); }}
-                        >
+                        <button className="lista-toggle" onClick={ev => { ev.stopPropagation(); handleToggleCollapse(e.id); }}>
                           {e.collapsed ? '▶' : '▼'}
                         </button>
                       ) : (
                         <span style={{ width: 20, flexShrink: 0, display: 'inline-block' }} />
                       )}
-                      <EditableCell
-                        value={e.etapa}
-                        onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
-                        style={{ fontWeight: e.isGroup ? 600 : 400 }}
-                      />
-                      {isMultiSel && (
-                        <span className="multi-sel-badge">{multiIdx + 1}</span>
-                      )}
+                      <EditableCell value={e.etapa} onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
+                        style={{ fontWeight: e.isGroup ? 600 : 400 }} />
+                      {isMultiSel && <span className="multi-sel-badge">{multiIdx + 1}</span>}
                     </div>
                   </td>
-
-                  {/* Início */}
-                  <td className="mono text-sm" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell
-                      type="date"
-                      value={offsetToISO(eInicio)}
-                      onSave={v => handleCellSave(e.id, 'inicio', v)}
-                      readOnly={e.isGroup}
-                    />
+                ),
+                inicio: (
+                  <td key="inicio" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
+                    <EditableCell type="date" value={offsetToISO(eInicio)}
+                      onSave={v => handleCellSave(e.id, 'inicio', v)} readOnly={e.isGroup} />
                   </td>
-
-                  {/* Término */}
-                  <td className="mono text-sm" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell
-                      type="date"
-                      value={offsetToISO(eInicio + eDur)}
-                      onSave={v => handleCellSave(e.id, 'fim', v)}
-                      readOnly={e.isGroup}
-                    />
+                ),
+                fim: (
+                  <td key="fim" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
+                    <EditableCell type="date" value={offsetToISO(eInicio + eDur)}
+                      onSave={v => handleCellSave(e.id, 'fim', v)} readOnly={e.isGroup} />
                   </td>
-
-                  {/* Duração em dias */}
-                  <td className="mono num" onClick={ev => ev.stopPropagation()}>
+                ),
+                duracao: (
+                  <td key="duracao" className="mono num" onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
                       <span className="text-muted mono" style={{ fontSize: 12 }}>{eDur}d</span>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <EditableCell
-                          type="number"
-                          value={String(e.dur)}
-                          onSave={v => handleCellSave(e.id, 'duracaoDias', v)}
-                          style={{ minWidth: 32 }}
-                        />
+                        <EditableCell type="number" value={String(e.dur)}
+                          onSave={v => handleCellSave(e.id, 'duracaoDias', v)} style={{ minWidth: 32 }} />
                         <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>d</span>
                       </div>
                     )}
                   </td>
-
-                  {/* Avanço % com barra */}
-                  <td onClick={ev => ev.stopPropagation()}>
+                ),
+                avanco: (
+                  <td key="avanco" onClick={ev => ev.stopPropagation()}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <div style={{ flex: 1, minWidth: 50 }}>
                         <div className={'progress' + (e.status === 'done' ? ' success' : e.status === 'late' ? ' danger' : '')}>
@@ -1650,65 +1740,55 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <EditableCell
-                          type="number"
-                          value={String(eAvanco)}
-                          onSave={v => handleCellSave(e.id, 'avanco', v)}
-                          readOnly={e.isGroup}
-                          style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 28 }}
-                        />
+                        <EditableCell type="number" value={String(eAvanco)}
+                          onSave={v => handleCellSave(e.id, 'avanco', v)} readOnly={e.isGroup}
+                          style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 28 }} />
                         <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
                       </div>
                     </div>
                   </td>
-
-                  {/* R$ Previsto */}
-                  <td className="num" style={{ textAlign: 'right' }} onClick={ev => ev.stopPropagation()}>
+                ),
+                custo: (
+                  <td key="custo" className="num" style={{ textAlign: 'right' }} onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
                       <span className="text-muted mono" style={{ fontSize: 12 }}>{fmtBRL(gv?.custo || 0)}</span>
                     ) : editingCusto === e.id + '_custo' ? (
-                      <input
-                        autoFocus type="number" min="0" defaultValue={e.custo || 0}
+                      <input autoFocus type="number" min="0" defaultValue={e.custo || 0}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); } if (ev.key === 'Escape') setEditingCusto(null); }}
                       />
                     ) : (
                       <span className="mono" style={{ fontSize: 12, cursor: 'text', display: 'block', textAlign: 'right' }}
-                        onClick={() => setEditingCusto(e.id + '_custo')}>
-                        {fmtBRL(e.custo || 0)}
-                      </span>
+                        onClick={() => setEditingCusto(e.id + '_custo')}>{fmtBRL(e.custo || 0)}</span>
                     )}
                   </td>
-
-                  {/* Peso % */}
-                  <td className="num text-muted mono" style={{ textAlign: 'right', fontSize: 12 }}>
+                ),
+                peso: (
+                  <td key="peso" className="num text-muted mono" style={{ textAlign: 'right', fontSize: 12 }}>
                     {!e.isGroup && totalCusto > 0 ? ((e.custo || 0) / totalCusto * 100).toFixed(1) + '%' : '—'}
                   </td>
-
-                  {/* R$ Realizado */}
-                  <td className="num" style={{ textAlign: 'right' }} onClick={ev => ev.stopPropagation()}>
+                ),
+                custoReal: (
+                  <td key="custoReal" className="num" style={{ textAlign: 'right' }} onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
                       <span className="text-muted mono" style={{ fontSize: 12 }}>
                         {fmtBRL(etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0))}
                       </span>
                     ) : editingCusto === e.id + '_real' ? (
-                      <input
-                        autoFocus type="number" min="0" defaultValue={e.custoRealizado || 0}
+                      <input autoFocus type="number" min="0" defaultValue={e.custoRealizado || 0}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); } if (ev.key === 'Escape') setEditingCusto(null); }}
                       />
                     ) : (
                       <span className="mono" style={{ fontSize: 12, cursor: 'text', display: 'block', textAlign: 'right' }}
-                        onClick={() => setEditingCusto(e.id + '_real')}>
-                        {fmtBRL(e.custoRealizado || 0)}
-                      </span>
+                        onClick={() => setEditingCusto(e.id + '_real')}>{fmtBRL(e.custoRealizado || 0)}</span>
                     )}
                   </td>
-
-                  {/* R$ Saldo (computed) */}
-                  <td className="num mono" style={{ textAlign: 'right', fontSize: 12 }}>
+                ),
+                saldo: (
+                  <td key="saldo" className="num mono" style={{ textAlign: 'right', fontSize: 12 }}>
                     {(() => {
                       const prev = e.isGroup ? (gv?.custo || 0) : (e.custo || 0);
                       const real = e.isGroup
@@ -1718,47 +1798,37 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                       return <span style={{ color: saldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(saldo)}</span>;
                     })()}
                   </td>
-
-                  {/* Responsável */}
-                  <td onClick={ev => ev.stopPropagation()}>
-                    <EditableCell
-                      value={e.responsavel || ''}
-                      onSave={v => handleCellSave(e.id, 'responsavel', v)}
-                    />
+                ),
+                resp: (
+                  <td key="resp" onClick={ev => ev.stopPropagation()}>
+                    <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} />
                   </td>
-
-                  {/* Predecessoras — formato "E1, E2TT+3d" */}
-                  <td className="mono text-sm" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell
-                      value={formatDepList(e.dep)}
-                      onSave={v => handleCellSave(e.id, 'dep', v)}
-                      readOnly={e.isGroup}
-                    />
+                ),
+                dep: (
+                  <td key="dep" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
+                    <EditableCell value={formatDepList(e.dep)} onSave={v => handleCellSave(e.id, 'dep', v)} readOnly={e.isGroup} />
                   </td>
-
-                  {/* Sucessoras (computed) */}
-                  <td className="mono text-sm text-muted">
+                ),
+                succ: (
+                  <td key="succ" className="mono text-sm text-muted">
                     {(succMap[e.id] || []).join(', ') || '—'}
                   </td>
-
-                  {/* Status badge */}
-                  <td>
+                ),
+                status: (
+                  <td key="status">
                     <span className={'badge ' + statusBadgeClass(e.status)}>
-                      <span className="dot"></span>
-                      {statusLabel(e.status)}
+                      <span className="dot"></span>{statusLabel(e.status)}
                     </span>
                   </td>
-
-                  {/* Restrição */}
-                  <td onClick={ev => ev.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                ),
+                restricao: (
+                  <td key="restricao" onClick={ev => ev.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
                     {e.isGroup ? <span className="text-faint">—</span> : (
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <select
-                          className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
+                        <select className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
                           value={e.restricaoTipo || 'asap'}
                           onChange={ev => handleCellSave(e.id, 'restricaoTipo', ev.target.value)}
-                          onClick={ev => ev.stopPropagation()}
-                        >
+                          onClick={ev => ev.stopPropagation()}>
                           <option value="asap">O mais cedo possível</option>
                           <option value="snet">Não iniciar antes de</option>
                           <option value="snlt">Não iniciar depois de</option>
@@ -1768,16 +1838,32 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                           <option value="mfo">Deve terminar em</option>
                         </select>
                         {e.restricaoTipo && e.restricaoTipo !== 'asap' && (
-                          <input
-                            type="date" style={{ height: 26, fontSize: 11 }}
+                          <input type="date" style={{ height: 26, fontSize: 11 }}
                             value={e.restricaoData || ''}
                             onChange={ev => handleCellSave(e.id, 'restricaoData', ev.target.value)}
-                            onClick={ev => ev.stopPropagation()}
-                          />
+                            onClick={ev => ev.stopPropagation()} />
                         )}
                       </div>
                     )}
                   </td>
+                ),
+              };
+
+              return (
+                <tr key={e.id}
+                  className={isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : ''}
+                  onClick={(ev) => {
+                    if (ev.ctrlKey || ev.metaKey) {
+                      ev.preventDefault();
+                      setMultiSel(ms => ms.includes(e.id) ? ms.filter(id => id !== e.id) : [...ms, e.id]);
+                    } else {
+                      setSelectedId(id => id === e.id ? null : e.id);
+                      setMultiSel([]);
+                    }
+                  }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {colOrder.map(colId => cells[colId] || null)}
 
                   {/* Colunas personalizadas */}
                   {customCols.map(col => {
@@ -1785,8 +1871,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                     if (col.type === 'boolean') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <select className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
-                          value={cellVal}
-                          onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
+                          value={cellVal} onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
                           <option value="">—</option>
                           <option value="sim">Sim</option>
                           <option value="não">Não</option>
@@ -1796,8 +1881,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                     if (col.type === 'list') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <select className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
-                          value={cellVal}
-                          onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
+                          value={cellVal} onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
                           <option value="">—</option>
                           {(col.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
@@ -1805,19 +1889,14 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                     );
                     if (col.type === 'currency') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()} className="num" style={{ textAlign: 'right' }}>
-                        <EditableCell
-                          type="number"
-                          value={cellVal}
-                          onSave={v => handleCellSave(e.id, col.id, v)}
-                          style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
-                        />
+                        <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)}
+                          style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
                       </td>
                     );
                     if (col.type === 'percent') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <EditableCell type="number" value={cellVal}
-                            onSave={v => handleCellSave(e.id, col.id, v)} />
+                          <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} />
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
                         </div>
                       </td>
@@ -1825,24 +1904,18 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange }) =
                     if (col.type === 'duration') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <EditableCell type="number" value={cellVal}
-                            onSave={v => handleCellSave(e.id, col.id, v)} />
+                          <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} />
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>d</span>
                         </div>
                       </td>
                     );
                     return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                        <EditableCell
-                          type={col.type}
-                          value={cellVal}
-                          onSave={v => handleCellSave(e.id, col.id, v)}
-                        />
+                        <EditableCell type={col.type} value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} />
                       </td>
                     );
                   })}
 
-                  {/* Célula vazia da coluna "+" */}
                   <td></td>
                 </tr>
               );
@@ -2355,6 +2428,7 @@ const CronogramaFull = ({ initialObraId }) => {
                   onCommit={commit}
                   customCols={customCols}
                   onCustomColsChange={handleCustomColsChange}
+                  obraId={obraSel}
                 />
               )}
 
