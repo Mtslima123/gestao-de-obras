@@ -2842,6 +2842,184 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
           })()}
         </div>
       </div>
+      {/* ── Distribuição por tarefa × mês ───────────────────────────────── */}
+      {(() => {
+        const groupVals2  = computeGroupValues(etapas);
+        const visibleRows = getVisibleEtapas(etapas);
+        const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
+        const thBase = {
+          fontSize: 10.5, fontWeight: 600, letterSpacing: '0.07em',
+          textTransform: 'uppercase', color: 'var(--text-soft)',
+          borderBottom: '2px solid var(--border)',
+          background: 'var(--surface-muted)',
+          whiteSpace: 'nowrap', padding: '8px 6px',
+        };
+        const tdBase = {
+          borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))',
+          padding: '6px 6px', whiteSpace: 'nowrap', verticalAlign: 'middle',
+        };
+        const fmt = v => v > 0.005 ? v.toFixed(2) + '%' : '—';
+
+        // Avanco médio ponderado geral (para o rodapé)
+        const folhas = etapas.filter(e => !e.isGroup);
+        const totalCustoFolha = folhas.reduce((s, e) => s + (e.custo || 0), 0);
+        const avancoGeral = totalCustoFolha > 0
+          ? folhas.reduce((s, e) => s + (e.avanco || 0) * (e.custo || 0), 0) / totalCustoFolha
+          : 0;
+
+        return (
+          <div className="card">
+            <div className="card-header">
+              <div>
+                <div className="card-title">Distribuição por tarefa</div>
+                <div className="card-subtitle">% do custo de cada tarefa alocado por mês · clique nos grupos para expandir / recolher</div>
+              </div>
+            </div>
+            <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed',
+                minWidth: ACT_W + VAL_W + PESO_W + CONC_W + months.length * MON_W + TOT_W }}>
+                <colgroup>
+                  <col style={{ width: ACT_W }} />
+                  <col style={{ width: VAL_W }} />
+                  <col style={{ width: PESO_W }} />
+                  <col style={{ width: CONC_W }} />
+                  {months.map(m => <col key={m.key} style={{ width: MON_W }} />)}
+                  <col style={{ width: TOT_W }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style={{ ...thBase, textAlign: 'left', position: 'sticky', left: 0, zIndex: 3, padding: '8px 14px' }}>
+                      Atividade
+                    </th>
+                    <th style={{ ...thBase, textAlign: 'right' }}>Valor (R$)</th>
+                    <th style={{ ...thBase, textAlign: 'right' }}>Peso %</th>
+                    <th style={{ ...thBase, textAlign: 'right' }}>Conc. %</th>
+                    {months.map(m => (
+                      <th key={m.key} style={{
+                        ...thBase, textAlign: 'right',
+                        color: m.key === todayKey ? 'var(--brand)' : 'var(--text-soft)',
+                        fontWeight: m.key === todayKey ? 700 : 600,
+                        background: m.key === todayKey ? 'rgba(1,67,134,0.07)' : 'var(--surface-muted)',
+                      }}>{m.label}</th>
+                    ))}
+                    <th style={{ ...thBase, textAlign: 'right', borderLeft: '2px solid var(--border)' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.map((e, ri) => {
+                    const gv       = groupVals2[e.id];
+                    const taskDist = e.isGroup
+                      ? getGroupMonthlyDist(e.id, etapas, monthlyDist)
+                      : (monthlyDist[e.id] || {});
+                    const taskCusto  = e.isGroup ? (gv?.custo || 0) : (e.custo || 0);
+                    const taskAvanco = e.isGroup ? (gv?.avanco || 0) : (e.avanco || 0);
+                    const rowBg = e.isGroup ? 'var(--surface-muted)' : (ri % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)');
+                    return (
+                      <tr key={e.id} style={{ background: rowBg }}>
+                        {/* Atividade (sticky) */}
+                        <td style={{
+                          ...tdBase, position: 'sticky', left: 0, zIndex: 1,
+                          background: rowBg || 'var(--surface)',
+                          fontWeight: e.isGroup ? 600 : 400,
+                          paddingLeft: e.nivel * 14 + 10,
+                          overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {e.isGroup ? (
+                              <button
+                                onClick={() => {
+                                  const novas = etapas.map(t => t.id === e.id ? { ...t, collapsed: !t.collapsed } : t);
+                                  onCommit(novas, { silent: true });
+                                }}
+                                style={{ width: 16, height: 16, flexShrink: 0, display: 'flex', alignItems: 'center',
+                                  justifyContent: 'center', border: 'none', background: 'none',
+                                  cursor: 'pointer', color: 'var(--text-soft)', fontSize: 9, padding: 0 }}
+                              >{e.collapsed ? '▶' : '▼'}</button>
+                            ) : (
+                              <span style={{ width: 16, flexShrink: 0 }} />
+                            )}
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.etapa}</span>
+                          </div>
+                        </td>
+                        {/* Valor */}
+                        <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                          color: taskCusto > 0 ? 'var(--text)' : 'var(--text-faint)', fontSize: 10.5 }}>
+                          {taskCusto > 0 ? fmtBRL(taskCusto) : '—'}
+                        </td>
+                        {/* Peso */}
+                        <td style={{ ...tdBase, textAlign: 'right', color: 'var(--text-soft)', fontSize: 10.5 }}>
+                          {total > 0 && taskCusto > 0 ? (taskCusto / total * 100).toFixed(2) + '%' : '—'}
+                        </td>
+                        {/* Conc. */}
+                        <td style={{ ...tdBase, textAlign: 'right',
+                          color: taskAvanco === 100 ? '#16a34a' : taskAvanco > 0 ? 'var(--brand)' : 'var(--text-faint)',
+                          fontWeight: 500, fontSize: 10.5 }}>
+                          {taskAvanco > 0 ? taskAvanco.toFixed(0) + '%' : '—'}
+                        </td>
+                        {/* Meses */}
+                        {months.map(m => {
+                          const v   = taskDist[m.key] || 0;
+                          const pct = taskCusto > 0 ? v / taskCusto * 100 : 0;
+                          return (
+                            <td key={m.key} style={{
+                              ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                              color: pct > 0.005 ? (e.isGroup ? 'var(--brand)' : 'var(--text)') : 'var(--text-faint)',
+                              fontWeight: e.isGroup ? 600 : 400,
+                              background: m.key === todayKey ? 'rgba(1,67,134,0.04)' : undefined,
+                              fontSize: 10.5,
+                            }}>
+                              {fmt(pct)}
+                            </td>
+                          );
+                        })}
+                        {/* Total col */}
+                        <td style={{ ...tdBase, textAlign: 'right', borderLeft: '2px solid var(--border)',
+                          fontWeight: 600, color: taskCusto > 0 ? 'var(--text-soft)' : 'var(--text-faint)', fontSize: 10.5 }}>
+                          {taskCusto > 0 ? '100%' : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--surface-muted)', fontWeight: 600 }}>
+                    <td style={{ ...tdBase, borderTop: '2px solid var(--border)', position: 'sticky', left: 0,
+                      zIndex: 1, background: 'var(--surface-muted)', paddingLeft: 14, fontSize: 11 }}>
+                      Total geral
+                    </td>
+                    <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
+                      fontVariantNumeric: 'tabular-nums', fontSize: 10.5 }}>
+                      {fmtBRL(total)}
+                    </td>
+                    <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right', fontSize: 10.5 }}>100%</td>
+                    <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
+                      color: '#16a34a', fontSize: 10.5 }}>
+                      {avancoGeral > 0 ? avancoGeral.toFixed(0) + '%' : '—'}
+                    </td>
+                    {months.map(m => {
+                      const pct = total > 0 ? (filteredPlanned[m.key] || 0) / total * 100 : 0;
+                      return (
+                        <td key={m.key} style={{
+                          ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
+                          fontVariantNumeric: 'tabular-nums',
+                          color: pct > 0.005 ? 'var(--brand)' : 'var(--text-faint)',
+                          background: m.key === todayKey ? 'rgba(1,67,134,0.07)' : undefined,
+                          fontSize: 10.5,
+                        }}>
+                          {fmt(pct)}
+                        </td>
+                      );
+                    })}
+                    <td style={{ ...tdBase, borderTop: '2px solid var(--border)',
+                      borderLeft: '2px solid var(--border)', textAlign: 'right',
+                      color: 'var(--brand)', fontSize: 10.5 }}>100%</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
