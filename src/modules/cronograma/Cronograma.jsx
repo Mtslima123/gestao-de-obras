@@ -2743,81 +2743,103 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
         <div className="card-header">
           <div>
             <div className="card-title">Resumo mensal</div>
-            <div className="card-subtitle">Planejado e realizado mês a mês</div>
+            <div className="card-subtitle">Planejado e realizado mês a mês — meses nas colunas</div>
           </div>
         </div>
         <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr>
-                {['Mês', 'Plan. (R$)', '% Plan.', 'Plan. Acum.', '% Acum.', 'Real. (R$)', 'Real. Acum.', 'Desvio Acum.', ''].map((h, i) => (
-                  <th key={i} style={{ ...thSt, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                let ap = 0, ar = 0;
-                return months.map((m, i) => {
-                  const v = filteredPlanned[m.key] || 0;
-                  const r = m.key <= todayKey ? (realizedTotals[m.key] || 0) : null;
-                  ap += v;
-                  if (r !== null) ar += r;
-                  const pctM  = total > 0 ? v / total * 100 : 0;
-                  const pctA  = total > 0 ? ap / total * 100 : 0;
-                  const desvio = r !== null ? ar - ap : null;
-                  return (
-                    <tr key={m.key} style={{ background: i % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)' }}>
-                      <td style={{ ...tdSt, fontWeight: m.key === todayKey ? 600 : 400,
-                        color: m.key === todayKey ? 'var(--brand)' : undefined }}>{m.label}</td>
-                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                        color: v > 0 ? 'var(--text)' : 'var(--text-faint)' }}>
-                        {v > 0 ? fmtBRL(v) : '—'}
+          {(() => {
+            // Pré-computa todas as séries por mês
+            let ap = 0, ar = 0;
+            const rows = { planM: [], planA: [], realM: [], realA: [], desvio: [] };
+            months.forEach(m => {
+              const v = filteredPlanned[m.key] || 0;
+              const r = m.key <= todayKey ? (realizedTotals[m.key] || 0) : null;
+              ap += v; if (r !== null) ar += r;
+              rows.planM.push(total > 0 ? v / total * 100 : 0);
+              rows.planA.push(total > 0 ? ap / total * 100 : 0);
+              rows.realM.push(r !== null ? (total > 0 ? r / total * 100 : 0) : null);
+              rows.realA.push(r !== null ? (total > 0 ? ar / total * 100 : 0) : null);
+              rows.desvio.push(r !== null ? (total > 0 ? (ar - ap) / total * 100 : 0) : null);
+            });
+            const labelW = 160;
+            const colW   = 62;
+            const thC = { ...thSt, textAlign: 'right', minWidth: colW, padding: '8px 8px' };
+            const thL = { ...thSt, textAlign: 'left',  minWidth: labelW, padding: '8px 14px',
+              position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface-muted)' };
+            const tdC = { ...tdSt, textAlign: 'right', fontSize: 11, padding: '7px 8px',
+              fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+            const tdL = { ...tdSt, fontSize: 11.5, fontWeight: 600, padding: '7px 14px',
+              position: 'sticky', left: 0, zIndex: 1, background: 'var(--surface)', whiteSpace: 'nowrap' };
+            const fmt1 = v => v !== null ? (v === 0 ? '—' : v.toFixed(2) + '%') : '—';
+            const fmtD = v => v !== null ? (v > 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
+
+            const SERIES = [
+              { key: 'planM',  label: 'Plan. Mensal (%)',    color: 'var(--text)',  fmt: fmt1 },
+              { key: 'planA',  label: 'Plan. Acumulado (%)', color: 'var(--brand)', fmt: fmt1, bold: true },
+              { key: 'realM',  label: 'Real. Mensal (%)',    color: '#16a34a',      fmt: fmt1 },
+              { key: 'realA',  label: 'Real. Acumulado (%)', color: '#16a34a',      fmt: fmt1, bold: true },
+              { key: 'desvio', label: 'Desvio Acum. (%)',    color: null,           fmt: fmtD },
+            ];
+
+            return (
+              <table style={{ borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    <th style={thL}>Indicador</th>
+                    {months.map(m => (
+                      <th key={m.key} style={{
+                        ...thC,
+                        color: m.key === todayKey ? 'var(--brand)' : 'var(--text-soft)',
+                        fontWeight: m.key === todayKey ? 700 : 600,
+                      }}>{m.label}</th>
+                    ))}
+                    <th style={{ ...thC, borderLeft: '2px solid var(--border)' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {SERIES.map((s, si) => (
+                    <tr key={s.key} style={{ background: si % 2 === 0 ? undefined : 'rgba(0,0,0,0.02)' }}>
+                      <td style={{ ...tdL, color: s.color || 'var(--text)',
+                        borderTop: s.key === 'realM' ? '2px solid var(--border)' : undefined }}>
+                        {s.label}
                       </td>
-                      <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }}>
-                        {pctM > 0 ? pctM.toFixed(1) + '%' : '—'}
-                      </td>
-                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
-                        {fmtBRL(ap)}
-                      </td>
-                      <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }}>
-                        {pctA.toFixed(1)}%
-                      </td>
-                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                        color: r !== null && r > 0 ? '#16a34a' : 'var(--text-faint)' }}>
-                        {r !== null ? (r > 0 ? fmtBRL(r) : '—') : '—'}
-                      </td>
-                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                        {r !== null ? fmtBRL(ar) : '—'}
-                      </td>
-                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                        color: desvio === null ? undefined : desvio >= 0 ? '#16a34a' : '#dc2626' }}>
-                        {desvio !== null ? (desvio >= 0 ? '+' : '') + fmtBRL(desvio) : '—'}
-                      </td>
-                      <td style={{ ...tdSt, width: 130 }}>
-                        <div style={{ background: 'var(--border)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
-                          <div style={{ width: pctA + '%', height: '100%', background: 'var(--brand)', borderRadius: 4 }} />
-                        </div>
+                      {rows[s.key].map((v, i) => {
+                        const isDesvio = s.key === 'desvio';
+                        const clr = isDesvio && v !== null
+                          ? (v >= 0 ? '#16a34a' : '#dc2626')
+                          : (s.color || 'var(--text)');
+                        return (
+                          <td key={months[i].key} style={{
+                            ...tdC,
+                            color: v === null || v === 0 ? 'var(--text-faint)' : clr,
+                            fontWeight: s.bold ? 600 : 400,
+                            borderTop: s.key === 'realM' ? '2px solid var(--border)' : undefined,
+                            background: months[i].key === todayKey ? 'rgba(1,67,134,0.04)' : undefined,
+                          }}>
+                            {s.fmt(v)}
+                          </td>
+                        );
+                      })}
+                      <td style={{
+                        ...tdC, fontWeight: 600,
+                        borderLeft: '2px solid var(--border)',
+                        borderTop: s.key === 'realM' ? '2px solid var(--border)' : undefined,
+                        color: s.key === 'planM' || s.key === 'planA' ? 'var(--brand)'
+                             : s.key === 'realM' || s.key === 'realA' ? '#16a34a'
+                             : 'var(--text-muted)',
+                      }}>
+                        {s.key === 'planM'  ? '100%'
+                        : s.key === 'planA'  ? '100%'
+                        : s.key === 'realM'  ? (totalReal > 0 ? (totalReal / total * 100).toFixed(2) + '%' : '—')
+                        : s.key === 'realA'  ? (totalReal > 0 ? (totalReal / total * 100).toFixed(2) + '%' : '—')
+                        : '—'}
                       </td>
                     </tr>
-                  );
-                });
-              })()}
-            </tbody>
-            <tfoot>
-              <tr style={{ background: 'var(--surface-muted)', fontWeight: 600 }}>
-                <td style={{ ...tdSt, borderTop: '2px solid var(--border)' }}>Total</td>
-                <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{fmtBRL(total)}</td>
-                <td style={{ ...tdSt, textAlign: 'right', borderTop: '2px solid var(--border)' }}>100%</td>
-                <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{fmtBRL(total)}</td>
-                <td style={{ ...tdSt, textAlign: 'right', borderTop: '2px solid var(--border)' }}>100%</td>
-                <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)', color: '#16a34a' }}>{totalReal > 0 ? fmtBRL(totalReal) : '—'}</td>
-                <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{totalReal > 0 ? fmtBRL(totalReal) : '—'}</td>
-                <td style={{ ...tdSt, borderTop: '2px solid var(--border)' }} />
-                <td style={{ ...tdSt, borderTop: '2px solid var(--border)' }} />
-              </tr>
-            </tfoot>
-          </table>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
         </div>
       </div>
     </div>
