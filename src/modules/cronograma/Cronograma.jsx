@@ -2681,7 +2681,8 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
     return () => { L.removeEventListener('scroll', sl); R.removeEventListener('scroll', sr); };
   }, []);
 
-  const visible = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+  // UsoTarefaView mostra todas as tarefas independente de collapsed na Lista
+  const visible = etapas;
   const wbsMap  = React.useMemo(() => computeAllWBS(etapas), [etapas]);
 
   const getDist = (e) =>
@@ -3282,7 +3283,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       {/* ── Distribuição por tarefa × mês ───────────────────────────────── */}
       {(() => {
         const groupVals2  = computeGroupValues(etapas);
-        const visibleRows = getVisibleEtapas(etapas);
+        // CurvaFisicaView mostra todas as tarefas independente de collapsed na Lista
+        const visibleRows = etapas;
         const distRows    = visibleRows.filter(e => e.isGroup || e.showInDist === true);
         const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
         const thBase = {
