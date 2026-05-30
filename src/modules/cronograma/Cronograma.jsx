@@ -848,7 +848,17 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     }
   };
 
-  const getBar = (e) => draft && draft[e.id] ? { ...e, ...draft[e.id] } : e;
+  // Valores calculados dos grupos (inicio/dur baseados nos descendentes)
+  const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
+
+  // Para grupos usa inicio/dur calculados; para tarefas normais usa os valores diretos.
+  // O draft (estado de drag) tem prioridade em ambos os casos.
+  const getBar = (e) => {
+    const base = e.isGroup && groupVals[e.id]
+      ? { ...e, inicio: groupVals[e.id].inicio, dur: groupVals[e.id].dur }
+      : e;
+    return draft && draft[e.id] ? { ...base, ...draft[e.id] } : base;
+  };
   const findEt = (id) => etapas.find(e => e.id === id);
   const idxEt  = (id) => etapas.findIndex(e => e.id === id);
 
