@@ -425,30 +425,47 @@ function autoScheduleFromDeps(etapas) {
   order.forEach(id => {
     const e = upd[id];
     if (!e || e.isGroup) return;
-    if (e.restricaoTipo && e.restricaoTipo !== 'asap') return;
-    const deps = e.dep || [];
-    if (!deps.length) return;
 
-    // ASAP: calcula a data mais cedo possível a partir do zero, não da data atual.
-    // Isso garante que a tarefa seja puxada para perto do predecessor,
-    // mesmo que esteja posicionada mais tarde do que o necessário.
-    let minStart = 0;
+    const tipo   = e.restricaoTipo;
+    const isAsap = !tipo || tipo === 'asap';
+    const deps   = e.dep || [];
+
+    // Para ASAP sem dependências: nada a mover
+    if (isAsap && !deps.length) return;
+
+    // ASAP parte do zero; tarefas com restrição partem da posição atual
+    // para não serem puxadas para trás involuntariamente
+    let minStart = isAsap ? 0 : e.inicio;
+
     deps.forEach(d => {
       const pid  = typeof d === 'string' ? d : d.id;
-      const tipo = typeof d === 'string' ? 'TI' : (d.tipo || 'TI');
-      const lag  = typeof d === 'string' ? 0   : (d.lag || 0);
+      const dt   = typeof d === 'string' ? 'TI' : (d.tipo || 'TI');
+      const lag  = typeof d === 'string' ? 0    : (d.lag  || 0);
       const pred = upd[pid];
       if (!pred) return;
       let req;
-      if      (tipo === 'TI') req = pred.inicio + pred.dur + lag;
-      else if (tipo === 'TT') req = pred.inicio + pred.dur + lag - e.dur;
-      else if (tipo === 'II') req = pred.inicio + lag;
-      else if (tipo === 'IT') req = pred.inicio + lag - e.dur;
-      else                    req = pred.inicio + pred.dur + lag;
+      if      (dt === 'TI') req = pred.inicio + pred.dur + lag;
+      else if (dt === 'TT') req = pred.inicio + pred.dur + lag - e.dur;
+      else if (dt === 'II') req = pred.inicio + lag;
+      else if (dt === 'IT') req = pred.inicio + lag - e.dur;
+      else                  req = pred.inicio + pred.dur + lag;
       if (req > minStart) minStart = req;
     });
 
-    upd[id] = { ...e, inicio: Math.max(0, minStart) };
+    // Aplica restrições hard — forçam data mínima ou exata de início/fim
+    // snlt e fnlt são soft (só avisam via verificarRestricoes, não forçam movimento)
+    if (tipo && e.restricaoData) {
+      const cd = dateToOffset(e.restricaoData);
+      if (tipo === 'snet') minStart = Math.max(minStart, cd);
+      if (tipo === 'mso')  minStart = cd;
+      if (tipo === 'mfo')  minStart = cd - e.dur;
+      if (tipo === 'fnet') minStart = Math.max(minStart, cd - e.dur);
+    }
+
+    const novoInicio = Math.max(0, minStart);
+    if (novoInicio !== e.inicio) {
+      upd[id] = { ...e, inicio: novoInicio };
+    }
   });
 
   return etapas.map(e => upd[e.id] || e);
@@ -1954,7 +1971,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       return { ...e, [field]: rawValue };
     });
 
-    const reescalonar = ['dep', 'inicio', 'fim', 'duracaoDias'];
+    const reescalonar = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricaoTipo', 'restricaoData'];
     onCommit(reescalonar.includes(field) ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
 
