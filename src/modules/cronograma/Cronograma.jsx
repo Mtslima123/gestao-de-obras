@@ -703,7 +703,6 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
   const getBar = (e) => draft && draft[e.id] ? { ...e, ...draft[e.id] } : e;
   const findEt = (id) => etapas.find(e => e.id === id);
   const idxEt  = (id) => etapas.findIndex(e => e.id === id);
-  const tlW    = dynTotal * GM_MONTH_W;
 
   const barColor = (e, isConf) =>
     isConf                    ? '#d97706'
@@ -748,6 +747,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     }
     return out;
   }, [dynTotal]);
+  const tlW = dynTotal * GM_MONTH_W;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
