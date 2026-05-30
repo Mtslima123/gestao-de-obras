@@ -2565,7 +2565,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
 };
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
-const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, onCommit }) => {
+const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, onCommit }) => {
   // Totais planejados — soma de todas as tarefas (sem filtro de grupo)
   const filteredPlanned = React.useMemo(() => {
     const agg = {};
@@ -2575,9 +2575,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     return agg;
   }, [monthlyDist]);
 
-  // Linha de Base = primeiro baseline salvo
-  const blEtapas = baselines?.[0]?.etapas || null;
-  const blNome   = baselines?.[0]?.nome   || 'Linha de Base';
+  // Linha de Base = baseline selecionado (ou primeiro se nenhum estiver ativo)
+  const activeBL = blVisivelId
+    ? (baselines?.find(b => b.id === blVisivelId) || baselines?.[0] || null)
+    : (baselines?.[0] || null);
+  const blEtapas = activeBL?.etapas || null;
+  const blNome   = activeBL?.nome   || 'Linha de Base';
 
   const baselineDist = React.useMemo(() => {
     if (!blEtapas) return null;
@@ -2946,14 +2949,14 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   </tr>
                   {hasBL && (
                     <tr>
-                      <td style={tdAct(false)}>Dif. em relação à Linha de Base — Acumulado R01</td>
+                      <td style={tdAct(false)}>Dif. em relação à Linha de Base — Acumulado</td>
                       <td style={tdVal}></td>
                       <td style={tdPeso}></td>
                       {monCells(difBL, fmtD, 'desvio', false)}
                     </tr>
                   )}
                   <tr>
-                    <td style={tdAct(false)}>Dif. em relação ao Reprogramado — Acumulado R01</td>
+                    <td style={tdAct(false)}>Dif. em relação ao Reprogramado — Acumulado</td>
                     <td style={tdVal}></td>
                     <td style={tdPeso}></td>
                     {monCells(difRep, fmtD, 'desvio', false)}
@@ -3717,6 +3720,7 @@ const CronogramaFull = ({ initialObraId }) => {
                   monthlyDist={monthlyDist}
                   realizedTotals={realizedTotals}
                   baselines={baselines}
+                  blVisivelId={blVisivelId}
                   onCommit={commit}
                 />
               )}
