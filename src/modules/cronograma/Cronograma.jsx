@@ -315,26 +315,32 @@ function updateParentBounds(etapas) {
   return result;
 }
 
-// Converte dep[] para string exibível: "E1, E2TT+3d"
-function formatDepList(dep) {
+// Converte dep[] para string exibível usando displayId: "1, 2TT+3d"
+function formatDepList(dep, etapas) {
+  const idToDisp = etapas
+    ? Object.fromEntries(etapas.map(e => [e.id, e.displayId ?? e.id]))
+    : {};
   return (dep || []).map(d => {
-    if (typeof d === 'string') return d;
+    if (typeof d === 'string') return idToDisp[d] ?? d;
+    const disp = idToDisp[d.id] ?? d.id;
     const t = (d.tipo && d.tipo !== 'TI') ? d.tipo : '';
     const l = d.lag ? ((d.lag > 0 ? '+' : '') + d.lag + 'd') : '';
-    return d.id + t + l;
+    return disp + t + l;
   }).join(', ');
 }
 
-// Converte string "E1, E2TT+3d" para dep[]
+// Converte string "1, 2TT+3d" para dep[] resolvendo por displayId ou id interno
 function parseDep(raw, etapas) {
   return String(raw).split(',').map(s => s.trim()).filter(Boolean).map(token => {
-    const m = token.match(/^([A-Za-z0-9\-]+)(TI|TT|II|IT)?([+-]\d+d?)?$/);
+    const m = token.match(/^(\d+|[A-Za-z0-9\-]+)(TI|TT|II|IT)?([+-]\d+d?)?$/);
     if (!m) return null;
-    const id   = m[1];
+    const ref  = m[1];
     const tipo = m[2] || 'TI';
     const lag  = m[3] ? parseInt(m[3]) : 0;
-    if (!etapas.find(x => x.id === id)) return null;
-    return { id, tipo, lag };
+    const found = etapas.find(x => String(x.displayId) === ref)
+               || etapas.find(x => x.id === ref);
+    if (!found) return null;
+    return { id: found.id, tipo, lag };
   }).filter(Boolean);
 }
 
@@ -1305,6 +1311,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 
   const wbsMap      = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   const succMap     = React.useMemo(() => computeSuccessors(etapas), [etapas]);
+  const idToDisplayId = React.useMemo(
+    () => Object.fromEntries(etapas.map(e => [e.id, e.displayId ?? e.id])),
+    [etapas]
+  );
   const visible     = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
   const groupVals   = React.useMemo(() => computeGroupValues(etapas), [etapas]);
   const totalCusto  = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), [etapas]);
@@ -1806,12 +1816,12 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 ),
                 dep: (
                   <td key="dep" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell value={formatDepList(e.dep)} onSave={v => handleCellSave(e.id, 'dep', v)} readOnly={e.isGroup} />
+                    <EditableCell value={formatDepList(e.dep, etapas)} onSave={v => handleCellSave(e.id, 'dep', v)} readOnly={e.isGroup} />
                   </td>
                 ),
                 succ: (
                   <td key="succ" className="mono text-sm text-muted">
-                    {(succMap[e.id] || []).join(', ') || '—'}
+                    {(succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', ') || '—'}
                   </td>
                 ),
                 status: (
