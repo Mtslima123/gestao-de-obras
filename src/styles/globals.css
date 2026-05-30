@@ -2001,3 +2001,39 @@ a:hover { color: var(--brand-600); }
 tr:hover .obras-row-actions {
   opacity: 1;
 }
+
+/* ── Menu de contexto (botão direito na lista) ───────────────────────────── */
+.ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+  padding: 4px 0;
+  min-width: 190px;
+}
+.ctx-menu button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ctx-menu button:hover { background: var(--surface-hover, rgba(0,0,0,0.05)); }
+.ctx-menu button.danger { color: var(--danger, #e53e3e); }
+.ctx-menu hr { margin: 4px 0; border: none; border-top: 1px solid var(--border-subtle, rgba(0,0,0,0.08)); }
+
+/* ── Indicador de drop ao arrastar linhas da lista ───────────────────────── */
+.drag-over-row > td,
+.drag-over-row > th {
+  border-top: 2px solid var(--brand) !important;
+}
+.drag-row-dragging {
+  opacity: 0.4;
+}

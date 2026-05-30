@@ -102,6 +102,12 @@ function offsetToISO(days) {
   return `${y}-${mo}-${day}`;
 }
 
+// Converte "YYYY-MM-DD" → "DD/MM/AAAA" para exibição
+function isoToBR(iso) {
+  if (!iso || iso.length < 10) return iso || '';
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+}
+
 // Converte string ISO para offset em DIAS desde GM_REF
 function dateToOffset(iso) {
   if (!iso) return 0;
@@ -622,6 +628,23 @@ function computeGroupValues(etapas) {
     };
   });
   return result;
+}
+
+// Move um bloco de tarefas (tarefa + todos os descendentes) para nova posição no array.
+// O parentId das tarefas movidas não é alterado — apenas a ordem no array muda.
+function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
+  const descIds = new Set();
+  const collect = (id) => {
+    descIds.add(id);
+    etapas.filter(e => e.parentId === id).forEach(c => collect(c.id));
+  };
+  collect(draggedId);
+  const block  = etapas.filter(e => descIds.has(e.id));
+  const rest   = etapas.filter(e => !descIds.has(e.id));
+  const tgtIdx = rest.findIndex(e => e.id === targetId);
+  if (tgtIdx < 0) return etapas;
+  rest.splice(insertAfter ? tgtIdx + 1 : tgtIdx, 0, ...block);
+  return rest;
 }
 
 // ─── GanttInterativo ─────────────────────────────────────────────────────────
@@ -1329,12 +1352,14 @@ const EditableCell = ({ value, type = 'text', onSave, readOnly = false, style })
   const cancel = () => { setEditing(false); setDraft(value); };
 
   if (readOnly) {
-    const display = value !== undefined && value !== null && value !== '' ? value : null;
+    const raw     = value !== undefined && value !== null && value !== '' ? value : null;
+    const display = type === 'date' && raw ? isoToBR(raw) : raw;
     return <span style={style}>{display ?? <span style={{ color: 'var(--text-faint)' }}>—</span>}</span>;
   }
 
   if (!editing) {
-    const display = value !== undefined && value !== null && value !== '' ? value : null;
+    const raw     = value !== undefined && value !== null && value !== '' ? value : null;
+    const display = type === 'date' && raw ? isoToBR(raw) : raw;
     return (
       <span
         onClick={() => { setDraft(value); setEditing(true); }}
@@ -1623,6 +1648,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const [busca,          setBusca]          = React.useState('');
   const [filtroStatus,   setFiltroStatus]   = React.useState('');
   const [filtroResp,     setFiltroResp]     = React.useState('');
+  const [ctxMenu,        setCtxMenu]        = React.useState(null); // { x, y, taskId }
+  const [dragOverId,     setDragOverId]     = React.useState(null);
+  const dragRowRef = React.useRef(null);
 
   const wbsMap      = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   const succMap     = React.useMemo(() => computeSuccessors(etapas), [etapas]);
@@ -1735,6 +1763,48 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     setMultiSel(ms => ms.filter(id => etapas.find(e => e.id === id)));
   }, [etapas, selectedId]);
 
+  // Insere uma nova tarefa acima ou abaixo da tarefa de referência
+  const insertTask = (referenceId, position) => {
+    const refIdx = etapas.findIndex(e => e.id === referenceId);
+    if (refIdx < 0) return;
+    const ref = etapas[refIdx];
+    const newTask = {
+      id:            nextEtapaId(etapas),
+      displayId:     nextDisplayId(etapas),
+      etapa:         'Nova Tarefa',
+      inicio:        ref.inicio,
+      dur:           1,
+      avanco:        0,
+      status:        'upcoming',
+      dep:           [],
+      nivel:         ref.nivel,
+      parentId:      ref.parentId,
+      isGroup:       false,
+      collapsed:     false,
+      responsavel:   '',
+      custo:         0,
+      custoRealizado: 0,
+      showInDist:    false,
+      restricaoTipo: 'asap',
+      restricaoData: '',
+      customCols:    emptyCustomCols(customCols),
+    };
+    const novas = [...etapas];
+    novas.splice(position === 'above' ? refIdx : refIdx + 1, 0, newTask);
+    onCommit(novas);
+    setSelectedId(newTask.id);
+  };
+
+  // Fecha menu de contexto ao clicar fora ou pressionar Escape
+  React.useEffect(() => {
+    if (!ctxMenu) return;
+    const onDown = (ev) => { if (!ev.target.closest('.ctx-menu')) setCtxMenu(null); };
+    const onKey  = (ev) => { if (ev.key === 'Escape') setCtxMenu(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [ctxMenu]);
+
   // Atalho Ctrl+F2 — cria vínculos em cadeia entre tarefas de multiSel (na ordem de clique)
   React.useEffect(() => {
     const handler = (e) => {
@@ -1753,10 +1823,15 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         setMultiSel([]);
         toast(`${multiSel.length - 1} vínculo(s) criado(s)`, { tone: 'success', icon: 'check' });
       }
+      // Insert — insere linha abaixo da tarefa selecionada
+      if (e.key === 'Insert' && selectedId) {
+        e.preventDefault();
+        insertTask(selectedId, 'below');
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [multiSel, etapas]);
+  }, [multiSel, etapas, selectedId]);
 
   // ── Atualização de campo ────────────────────────────────────────────────────
   const handleCellSave = (id, field, rawValue) => {
@@ -2251,7 +2326,29 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 
               return (
                 <tr key={e.id}
-                  className={isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : ''}
+                  className={[
+                    isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
+                    dragOverId === e.id ? 'drag-over-row' : '',
+                  ].filter(Boolean).join(' ')}
+                  draggable
+                  onDragStart={(ev) => {
+                    dragRowRef.current = e.id;
+                    ev.dataTransfer.effectAllowed = 'move';
+                    ev.stopPropagation();
+                  }}
+                  onDragOver={(ev) => { ev.preventDefault(); ev.stopPropagation(); setDragOverId(e.id); }}
+                  onDragLeave={() => setDragOverId(prev => prev === e.id ? null : prev)}
+                  onDrop={(ev) => {
+                    ev.preventDefault(); ev.stopPropagation();
+                    const dragged = dragRowRef.current;
+                    if (dragged && dragged !== e.id) {
+                      onCommit(moveTaskBlock(etapas, dragged, e.id, true));
+                    }
+                    dragRowRef.current = null;
+                    setDragOverId(null);
+                  }}
+                  onDragEnd={() => { dragRowRef.current = null; setDragOverId(null); }}
+                  onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, taskId: e.id }); }}
                   onClick={(ev) => {
                     if (ev.ctrlKey || ev.metaKey) {
                       ev.preventDefault();
@@ -2261,7 +2358,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                       setMultiSel([]);
                     }
                   }}
-                  style={{ cursor: 'pointer' }}
+                  style={{ cursor: 'grab' }}
                 >
                   {colOrder.map(colId => cells[colId] || null)}
 
@@ -2389,17 +2486,57 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
           onClose={() => setShowPavimentos(false)}
         />
       )}
+
+      {/* Menu de contexto — botão direito na linha */}
+      {ctxMenu && (
+        <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+          <button onClick={() => { insertTask(ctxMenu.taskId, 'above'); setCtxMenu(null); }}>
+            ↑ Inserir linha acima
+          </button>
+          <button onClick={() => { insertTask(ctxMenu.taskId, 'below'); setCtxMenu(null); }}>
+            ↓ Inserir linha abaixo
+          </button>
+          <hr />
+          <button className="danger" onClick={() => { setDeleteConfirm(ctxMenu.taskId); setCtxMenu(null); }}>
+            Excluir tarefa
+          </button>
+        </div>
+      )}
     </div>
   );
 };
 
 // ─── UsoTarefaView ───────────────────────────────────────────────────────────
-const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
+const USO_COL_KEYS    = ['id', 'wbs', 'nome', 'inicio', 'fim', 'dur', 'avanco', 'custo'];
+const USO_COL_LABELS  = ['ID', 'EAP', 'Nome da Tarefa', 'Início', 'Término', 'Dur.', '%', 'R$'];
+const USO_COL_DEFAULT = { id: 44, wbs: 52, nome: 200, inicio: 88, fim: 88, dur: 54, avanco: 44, custo: 94 };
+const USO_COL_ALIGN   = { id: 'right', wbs: 'left', nome: 'left', inicio: 'left', fim: 'left', dur: 'right', avanco: 'right', custo: 'right' };
+
+const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
   const [selectedId, setSelectedId] = React.useState(null);
   const [detalhe,    setDetalhe]    = React.useState('custo');
   const leftRef  = React.useRef(null);
   const rightRef = React.useRef(null);
   const syncing  = React.useRef(false);
+
+  // Larguras de colunas do painel esquerdo persistidas por obra
+  const [usoColW, setUsoColW] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(`uso_widths_${obraId}`) || 'null') || {}; }
+    catch { return {}; }
+  });
+  React.useEffect(() => {
+    if (obraId) localStorage.setItem(`uso_widths_${obraId}`, JSON.stringify(usoColW));
+  }, [usoColW, obraId]);
+  const getUsoW = (col) => usoColW[col] ?? USO_COL_DEFAULT[col] ?? 80;
+
+  const startUsoResize = (ev, col) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const startX = ev.clientX, startW = getUsoW(col);
+    const onMove = (e2) => setUsoColW(prev => ({ ...prev, [col]: Math.max(40, startW + e2.clientX - startX) }));
+    const onUp   = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   React.useEffect(() => {
     const L = leftRef.current, R = rightRef.current;
@@ -2436,15 +2573,18 @@ const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
     textTransform: 'uppercase',
     color: 'var(--text-soft)',
     whiteSpace: 'nowrap',
-    textAlign: 'left',
+    userSelect: 'none',
   };
   const tdSt = {
     padding: '0 10px',
     height: 36,
     fontSize: 13,
     whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
     borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))',
     verticalAlign: 'middle',
+    maxWidth: 0,
   };
 
   if (!months.length) return (
@@ -2470,48 +2610,57 @@ const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
       {/* Painel dividido */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)' }}>
 
-        {/* Lado esquerdo — hierarquia */}
-        <div ref={leftRef} style={{ width: 480, flexShrink: 0, overflowY: 'auto', overflowX: 'hidden', borderRight: '1px solid var(--border)' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+        {/* Lado esquerdo — hierarquia com colunas redimensionáveis */}
+        <div ref={leftRef} style={{ flexShrink: 0, overflowY: 'auto', overflowX: 'auto', borderRight: '1px solid var(--border)' }}>
+          <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: 44 }} />
-              <col style={{ width: 52 }} />
-              <col />
-              <col style={{ width: 82 }} />
-              <col style={{ width: 82 }} />
-              <col style={{ width: 50 }} />
-              <col style={{ width: 40 }} />
-              <col style={{ width: 84 }} />
+              {USO_COL_KEYS.map(k => <col key={k} style={{ width: getUsoW(k) }} />)}
             </colgroup>
             <thead>
               <tr>
-                {['ID','EAP','Nome da Tarefa','Início','Término','Dur.','%','R$'].map((h, i) => (
-                  <th key={h} style={{ ...thSt, textAlign: i >= 5 ? 'right' : 'left' }}>{h}</th>
+                {USO_COL_KEYS.map((k, i) => (
+                  <th key={k} style={{ ...thSt, width: getUsoW(k), minWidth: getUsoW(k), textAlign: USO_COL_ALIGN[k], position: 'sticky', top: 0, zIndex: 2 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                      {USO_COL_LABELS[i]}
+                    </span>
+                    <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 3 }}
+                      onMouseDown={ev => startUsoResize(ev, k)} />
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {visible.map(e => (
-                <tr key={e.id}
-                  style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
-                  onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
-                  <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-soft)' }}>
-                    {e.displayId ?? e.id}
-                  </td>
-                  <td style={{ ...tdSt, color: 'var(--text-faint)', fontSize: 12 }}>{wbsMap[e.id] || ''}</td>
-                  <td style={{ ...tdSt, paddingLeft: (e.nivel * 14 + 10) + 'px', fontWeight: e.isGroup ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {e.isGroup && <span style={{ marginRight: 5, color: 'var(--text-faint)', fontSize: 10 }}>▸</span>}
-                    {e.etapa}
-                  </td>
-                  <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }}>{offsetToISO(e.inicio)}</td>
-                  <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }}>{offsetToISO(e.inicio + e.dur)}</td>
-                  <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }}>{e.dur}d</td>
-                  <td style={{ ...tdSt, textAlign: 'right' }}>{e.avanco}%</td>
-                  <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {e.isGroup ? '—' : formatBRL(e.custo || 0)}
-                  </td>
-                </tr>
-              ))}
+              {visible.map(e => {
+                const nomeText = e.etapa;
+                const idText   = String(e.displayId ?? e.id);
+                const wbsText  = wbsMap[e.id] || '';
+                const iniText  = isoToBR(offsetToISO(e.inicio));
+                const fimText  = isoToBR(offsetToISO(e.inicio + e.dur));
+                const durText  = `${e.dur}d`;
+                const avText   = `${e.avanco}%`;
+                const cusText  = e.isGroup ? '—' : formatBRL(e.custo || 0);
+                return (
+                  <tr key={e.id}
+                    style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
+                    onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
+                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-soft)' }} title={idText}>
+                      {idText}
+                    </td>
+                    <td style={{ ...tdSt, color: 'var(--text-faint)', fontSize: 12 }} title={wbsText}>{wbsText}</td>
+                    <td style={{ ...tdSt, paddingLeft: (e.nivel * 14 + 10) + 'px', fontWeight: e.isGroup ? 600 : 400 }} title={nomeText}>
+                      {e.isGroup && <span style={{ marginRight: 5, color: 'var(--text-faint)', fontSize: 10 }}>▸</span>}
+                      {nomeText}
+                    </td>
+                    <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }} title={iniText}>{iniText}</td>
+                    <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }} title={fimText}>{fimText}</td>
+                    <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }} title={durText}>{durText}</td>
+                    <td style={{ ...tdSt, textAlign: 'right' }} title={avText}>{avText}</td>
+                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} title={cusText}>
+                      {cusText}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -2526,7 +2675,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
             </colgroup>
             <thead>
               <tr>
-                <th style={{ ...thSt }}>Detalhe</th>
+                <th style={{ ...thSt, textAlign: 'left' }}>Detalhe</th>
                 {months.map(m => (
                   <th key={m.key} style={{ ...thSt, textAlign: 'right' }}>{m.label}</th>
                 ))}
@@ -2544,13 +2693,14 @@ const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
                     <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12, paddingLeft: 14 }}>Custo</td>
                     {months.map(m => {
                       const v = dist[m.key] || 0;
+                      const txt = v > 0 ? formatBRL(v) : '—';
                       return (
-                        <td key={m.key} style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v > 0 ? 'var(--text)' : 'var(--text-faint)' }}>
-                          {v > 0 ? formatBRL(v) : '—'}
+                        <td key={m.key} style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v > 0 ? 'var(--text)' : 'var(--text-faint)' }} title={v > 0 ? txt : undefined}>
+                          {txt}
                         </td>
                       );
                     })}
-                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }} title={total > 0 ? formatBRL(total) : undefined}>
                       {total > 0 ? formatBRL(total) : '—'}
                     </td>
                   </tr>
@@ -3765,7 +3915,7 @@ const CronogramaFull = ({ initialObraId }) => {
               )}
 
               {view === 'uso' && (
-                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} />
+                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} />
               )}
             </>
           )
