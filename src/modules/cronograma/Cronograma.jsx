@@ -2575,10 +2575,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     return agg;
   }, [monthlyDist]);
 
-  // Linha de Base = baseline selecionado (ou primeiro se nenhum estiver ativo)
+  // Linha de Base = somente o baseline explicitamente selecionado
   const activeBL = blVisivelId
-    ? (baselines?.find(b => b.id === blVisivelId) || baselines?.[0] || null)
-    : (baselines?.[0] || null);
+    ? (baselines?.find(b => b.id === blVisivelId) || null)
+    : null;
   const blEtapas = activeBL?.etapas || null;
   const blNome   = activeBL?.nome   || 'Linha de Base';
 
