@@ -2575,9 +2575,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     return agg;
   }, [monthlyDist]);
 
-  // Linha de Base = primeiro baseline salvo (rev.01)
+  // Linha de Base = primeiro baseline salvo
   const blEtapas = baselines?.[0]?.etapas || null;
-  const blNome   = baselines?.[0]?.nome   || 'Linha de Base rev.01';
+  const blNome   = baselines?.[0]?.nome   || 'Linha de Base';
 
   const baselineDist = React.useMemo(() => {
     if (!blEtapas) return null;
@@ -2884,7 +2884,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   {/* ── Linha de Base ── */}
                   <tr>
                     <td colSpan={totalCols} style={grpHdrBlue}>
-                      {hasBL ? blNome : `${blNome} — nenhuma linha de base cadastrada`}
+                      {hasBL ? blNome : 'Linha de Base'}
                     </td>
                   </tr>
                   <tr>
@@ -3180,35 +3180,91 @@ async function carregarCronogramaDB(obraId) {
   return error ? null : data;
 }
 
-// ─── Modal: Criar Linha de Base ──────────────────────────────────────────────
-const CriarLinhaModal = ({ totalExistentes, totalEtapas, onClose, onCreate }) => {
-  const [nome, setNome] = React.useState(`Linha de Base ${totalExistentes + 1}`);
+// ─── Modal: Salvar Linha de Base ─────────────────────────────────────────────
+const CriarLinhaModal = ({ baselines, totalEtapas, onClose, onCreate, onUpdate }) => {
+  const temExistentes = baselines.length > 0;
+  const [modo,     setModo]     = React.useState('nova');  // 'nova' | 'sobrescrever'
+  const [nome,     setNome]     = React.useState(`Linha de Base ${baselines.length + 1}`);
+  const [targetId, setTargetId] = React.useState(temExistentes ? baselines[0].id : '');
+
+  const targetBL = baselines.find(b => b.id === targetId);
+  const labelBtn = modo === 'nova' ? 'Criar' : 'Sobrescrever';
+  const disabled = modo === 'nova' ? !nome.trim() : !targetId;
+
+  const handleConfirm = () => {
+    if (modo === 'nova' && nome.trim()) { onCreate(nome.trim()); onClose(); }
+    else if (modo === 'sobrescrever' && targetId) { onUpdate(targetId, targetBL?.nome || nome.trim()); onClose(); }
+  };
+
+  const radioSt = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+    cursor: 'pointer', padding: '8px 12px', borderRadius: 6,
+    border: '1px solid var(--border)', marginBottom: 6 };
+
   return (
-    <Modal title="Criar Linha de Base" onClose={onClose}
+    <Modal title="Salvar Linha de Base" onClose={onClose}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-primary" disabled={!nome.trim()}
-            onClick={() => { if (nome.trim()) { onCreate(nome.trim()); onClose(); } }}
-          >
-            <Icon name="check" size={14} />Criar
+          <button className="btn btn-primary" disabled={disabled} onClick={handleConfirm}>
+            <Icon name="check" size={14} />{labelBtn}
           </button>
         </>
       }
     >
-      <div className="stack" style={{ gap: 12 }}>
-        <div>
-          <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)', display: 'block', marginBottom: 6 }}>
-            Nome da linha de base
-          </label>
-          <input className="input" value={nome} autoFocus
-            onChange={e => setNome(e.target.value)}
-            placeholder="Ex: Planejamento Inicial"
-            style={{ width: '100%' }}
-          />
-        </div>
+      <div className="stack" style={{ gap: 14 }}>
+        {/* Modo: nova ou sobrescrever */}
+        {temExistentes && (
+          <div>
+            <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)', display: 'block', marginBottom: 8 }}>
+              Ação
+            </label>
+            <label style={{ ...radioSt, background: modo === 'nova' ? 'var(--brand-tint, #eef4fb)' : undefined }}>
+              <input type="radio" name="bl-modo" value="nova" checked={modo === 'nova'}
+                onChange={() => setModo('nova')} style={{ accentColor: 'var(--brand)' }} />
+              Criar nova linha de base
+            </label>
+            <label style={{ ...radioSt, background: modo === 'sobrescrever' ? 'var(--brand-tint, #eef4fb)' : undefined }}>
+              <input type="radio" name="bl-modo" value="sobrescrever" checked={modo === 'sobrescrever'}
+                onChange={() => setModo('sobrescrever')} style={{ accentColor: 'var(--brand)' }} />
+              Sobrescrever linha existente
+            </label>
+          </div>
+        )}
+
+        {/* Nova: campo de nome */}
+        {modo === 'nova' && (
+          <div>
+            <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)', display: 'block', marginBottom: 6 }}>
+              Nome
+            </label>
+            <input className="input" value={nome} autoFocus
+              onChange={e => setNome(e.target.value)}
+              placeholder="Ex: Planejamento Inicial"
+              style={{ width: '100%' }}
+            />
+          </div>
+        )}
+
+        {/* Sobrescrever: select */}
+        {modo === 'sobrescrever' && (
+          <div>
+            <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)', display: 'block', marginBottom: 6 }}>
+              Linha de base a sobrescrever
+            </label>
+            <select className="input" value={targetId} onChange={e => setTargetId(e.target.value)}
+              style={{ width: '100%' }}>
+              {baselines.map(b => (
+                <option key={b.id} value={b.id}>{b.nome} — {b.criadaEm}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: 12, color: '#b45309', margin: '8px 0 0' }}>
+              O conteúdo atual substituirá os dados salvos. Esta ação não pode ser desfeita.
+            </p>
+          </div>
+        )}
+
         <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>
-          O estado atual do cronograma ({totalEtapas} etapas) será salvo nesta linha de base e poderá ser comparado com versões futuras.
+          O estado atual do cronograma ({totalEtapas} etapas) será salvo na linha de base selecionada.
         </p>
       </div>
     </Modal>
@@ -3344,6 +3400,18 @@ const CronogramaFull = ({ initialObraId }) => {
     salvarBaselines(obraSel, novas);
     salvarCronograma(obraSel, etapas, customCols, novas);
     toast(`Linha de base "${nome}" criada`, { tone: 'success', icon: 'check' });
+  };
+
+  const atualizarLinha = (id, nome) => {
+    const novas = baselines.map(b =>
+      b.id === id
+        ? { ...b, nome, criadaEm: new Date().toISOString().slice(0, 10), etapas: etapas.map(e => ({ ...e })) }
+        : b
+    );
+    setBaselines(novas);
+    salvarBaselines(obraSel, novas);
+    salvarCronograma(obraSel, etapas, customCols, novas);
+    toast(`Linha de base "${nome}" atualizada`, { tone: 'success', icon: 'check' });
   };
 
   const excluirLinha = (id) => {
@@ -3672,10 +3740,11 @@ const CronogramaFull = ({ initialObraId }) => {
 
       {showCriar && (
         <CriarLinhaModal
-          totalExistentes={baselines.length}
+          baselines={baselines}
           totalEtapas={etapas.length}
           onClose={() => setShowCriar(false)}
           onCreate={criarLinha}
+          onUpdate={atualizarLinha}
         />
       )}
 
