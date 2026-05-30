@@ -344,6 +344,70 @@ function parseDep(raw, etapas) {
   }).filter(Boolean);
 }
 
+// ─── Utilitários de formatação ───────────────────────────────────────────────
+const formatBRL = v =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v || 0);
+
+// ─── Uso da Tarefa — funções de distribuição mensal ──────────────────────────
+
+// Retorna array de meses cobertos por qualquer tarefa: [{ key:"YYYY-MM", label:"Abr/26" }, ...]
+function getMonthRange(etapas) {
+  const set = new Set();
+  etapas.forEach(e => {
+    const s = offsetToDate(e.inicio);
+    const f = offsetToDate(e.inicio + Math.max(e.dur, 1));
+    let cur = new Date(s.getFullYear(), s.getMonth(), 1);
+    while (cur <= f) {
+      set.add(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`);
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
+  });
+  const MES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  return [...set].sort().map(key => {
+    const [y, m] = key.split('-');
+    return { key, label: `${MES[+m - 1]}/${String(y).slice(2)}` };
+  });
+}
+
+// Distribui o custo de cada tarefa folha proporcionalmente pelos dias em cada mês
+function computeMonthlyDist(etapas) {
+  const result = {};
+  etapas.forEach(e => {
+    if (e.isGroup) return;
+    const custo = e.custo || 0;
+    const s = offsetToDate(e.inicio);
+    const f = offsetToDate(e.inicio + Math.max(e.dur, 1));
+    const totalDays = Math.max(1, (f - s) / 86400000);
+    const dist = {};
+    let cur = new Date(s.getFullYear(), s.getMonth(), 1);
+    while (cur <= f) {
+      const mStart = new Date(Math.max(cur, s));
+      const mEnd   = new Date(Math.min(new Date(cur.getFullYear(), cur.getMonth() + 1, 1), f));
+      const days   = Math.max(0, (mEnd - mStart) / 86400000);
+      if (days > 0) {
+        const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
+        dist[key] = (custo * days) / totalDays;
+      }
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
+    result[e.id] = dist;
+  });
+  return result;
+}
+
+// Agrega distribuição mensal de todos os descendentes folha de um grupo
+function getGroupMonthlyDist(groupId, etapas, monthlyDist) {
+  const total = {};
+  const descend = (pid) => etapas
+    .filter(e => e.parentId === pid)
+    .forEach(e => {
+      if (e.isGroup) { descend(e.id); }
+      else { Object.entries(monthlyDist[e.id] || {}).forEach(([k, v]) => { total[k] = (total[k] || 0) + v; }); }
+    });
+  descend(groupId);
+  return total;
+}
+
 // Verifica restrições e retorna lista de violações
 function verificarRestricoes(etapas) {
   const violacoes = [];
@@ -2003,16 +2067,261 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   );
 };
 
-// ─── CurvaFisicaView (placeholder) ──────────────────────────────────────────
-const CurvaFisicaView = ({ obra }) => (
-  <div className="card" style={{ marginTop: 'var(--gap)', padding: 40, textAlign: 'center' }}>
-    <Icon name="trending-up" size={40} style={{ color: 'var(--text-faint)' }} />
-    <h3 style={{ marginTop: 12, fontSize: 16, color: 'var(--text-soft)' }}>Curva S — Avanço físico vs. planejado</h3>
-    <p className="text-muted" style={{ maxWidth: 420, margin: '6px auto 0', fontSize: 13 }}>
-      Visualização da curva S em desenvolvimento. Em breve: gráfico de avanço acumulado mensal.
-    </p>
-  </div>
-);
+// ─── UsoTarefaView ───────────────────────────────────────────────────────────
+const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
+  const [selectedId, setSelectedId] = React.useState(null);
+  const [detalhe,    setDetalhe]    = React.useState('custo');
+  const leftRef  = React.useRef(null);
+  const rightRef = React.useRef(null);
+  const syncing  = React.useRef(false);
+
+  React.useEffect(() => {
+    const L = leftRef.current, R = rightRef.current;
+    if (!L || !R) return;
+    const sl = () => { if (!syncing.current) { syncing.current = true; R.scrollTop = L.scrollTop; syncing.current = false; } };
+    const sr = () => { if (!syncing.current) { syncing.current = true; L.scrollTop = R.scrollTop; syncing.current = false; } };
+    L.addEventListener('scroll', sl);
+    R.addEventListener('scroll', sr);
+    return () => { L.removeEventListener('scroll', sl); R.removeEventListener('scroll', sr); };
+  }, []);
+
+  const visible = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+  const wbsMap  = React.useMemo(() => computeAllWBS(etapas), [etapas]);
+
+  const getDist = (e) =>
+    e.isGroup
+      ? getGroupMonthlyDist(e.id, etapas, monthlyDist)
+      : (monthlyDist[e.id] || {});
+
+  const rowBg = (e) =>
+    selectedId === e.id
+      ? 'color-mix(in srgb, var(--brand) 8%, transparent)'
+      : e.isGroup ? 'var(--surface-muted)' : undefined;
+
+  const thSt = {
+    position: 'sticky', top: 0, zIndex: 2,
+    background: 'var(--surface)',
+    borderBottom: '2px solid var(--border)',
+    padding: '0 10px',
+    height: 36,
+    fontSize: 10.5,
+    fontWeight: 600,
+    letterSpacing: '0.07em',
+    textTransform: 'uppercase',
+    color: 'var(--text-soft)',
+    whiteSpace: 'nowrap',
+    textAlign: 'left',
+  };
+  const tdSt = {
+    padding: '0 10px',
+    height: 36,
+    fontSize: 13,
+    whiteSpace: 'nowrap',
+    borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))',
+    verticalAlign: 'middle',
+  };
+
+  if (!months.length) return (
+    <div className="card" style={{ marginTop: 'var(--gap)', padding: 40, textAlign: 'center' }}>
+      <p className="text-muted">Adicione tarefas com datas e valores para ver a distribuição.</p>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 280px)', marginTop: 'var(--gap)' }}>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', marginBottom: 4 }}>
+        <span style={{ fontSize: 13, color: 'var(--text-soft)' }}>Detalhe:</span>
+        <select className="input" value={detalhe} onChange={e => setDetalhe(e.target.value)}
+          style={{ fontSize: 13, padding: '4px 10px', minWidth: 130 }}>
+          <option value="custo">Custo (R$)</option>
+        </select>
+        <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 8 }}>
+          Clique em uma tarefa para destacar na grade
+        </span>
+      </div>
+
+      {/* Painel dividido */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)' }}>
+
+        {/* Lado esquerdo — hierarquia */}
+        <div ref={leftRef} style={{ width: 480, flexShrink: 0, overflowY: 'auto', overflowX: 'hidden', borderRight: '1px solid var(--border)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: 44 }} />
+              <col style={{ width: 52 }} />
+              <col />
+              <col style={{ width: 82 }} />
+              <col style={{ width: 82 }} />
+              <col style={{ width: 50 }} />
+              <col style={{ width: 40 }} />
+              <col style={{ width: 84 }} />
+            </colgroup>
+            <thead>
+              <tr>
+                {['ID','EAP','Nome da Tarefa','Início','Término','Dur.','%','R$'].map((h, i) => (
+                  <th key={h} style={{ ...thSt, textAlign: i >= 5 ? 'right' : 'left' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(e => (
+                <tr key={e.id}
+                  style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
+                  onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
+                  <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-soft)' }}>
+                    {e.displayId ?? e.id}
+                  </td>
+                  <td style={{ ...tdSt, color: 'var(--text-faint)', fontSize: 12 }}>{wbsMap[e.id] || ''}</td>
+                  <td style={{ ...tdSt, paddingLeft: (e.nivel * 14 + 10) + 'px', fontWeight: e.isGroup ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {e.isGroup && <span style={{ marginRight: 5, color: 'var(--text-faint)', fontSize: 10 }}>▸</span>}
+                    {e.etapa}
+                  </td>
+                  <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }}>{offsetToISO(e.inicio)}</td>
+                  <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }}>{offsetToISO(e.inicio + e.dur)}</td>
+                  <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }}>{e.dur}d</td>
+                  <td style={{ ...tdSt, textAlign: 'right' }}>{e.avanco}%</td>
+                  <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {e.isGroup ? '—' : formatBRL(e.custo || 0)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Lado direito — grade temporal */}
+        <div ref={rightRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: 80 }} />
+              {months.map(m => <col key={m.key} style={{ width: 110 }} />)}
+              <col style={{ width: 110 }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th style={{ ...thSt }}>Detalhe</th>
+                {months.map(m => (
+                  <th key={m.key} style={{ ...thSt, textAlign: 'right' }}>{m.label}</th>
+                ))}
+                <th style={{ ...thSt, textAlign: 'right', color: 'var(--text)' }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(e => {
+                const dist  = getDist(e);
+                const total = Object.values(dist).reduce((s, v) => s + v, 0);
+                return (
+                  <tr key={e.id}
+                    style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
+                    onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
+                    <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12, paddingLeft: 14 }}>Custo</td>
+                    {months.map(m => {
+                      const v = dist[m.key] || 0;
+                      return (
+                        <td key={m.key} style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v > 0 ? 'var(--text)' : 'var(--text-faint)' }}>
+                          {v > 0 ? formatBRL(v) : '—'}
+                        </td>
+                      );
+                    })}
+                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                      {total > 0 ? formatBRL(total) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── CurvaFisicaView — Curva S planejada ─────────────────────────────────────
+const CurvaFisicaView = ({ months, monthlyTotals }) => {
+  if (!months || !months.length || !Object.values(monthlyTotals || {}).some(v => v > 0)) return (
+    <div className="card" style={{ marginTop: 'var(--gap)', padding: 40, textAlign: 'center' }}>
+      <Icon name="trending-up" size={40} style={{ color: 'var(--text-faint)' }} />
+      <h3 style={{ marginTop: 12, fontSize: 16, color: 'var(--text-soft)' }}>Curva S — Distribuição financeira planejada</h3>
+      <p className="text-muted" style={{ maxWidth: 420, margin: '6px auto 0', fontSize: 13 }}>
+        Adicione tarefas com datas e custos no cronograma para gerar a Curva S automaticamente.
+      </p>
+    </div>
+  );
+
+  const total = months.reduce((s, m) => s + (monthlyTotals[m.key] || 0), 0);
+  let acum = 0;
+
+  return (
+    <div className="card" style={{ marginTop: 'var(--gap)' }}>
+      <div className="card-header">
+        <div>
+          <div className="card-title">Curva S — Distribuição financeira planejada</div>
+          <div className="card-subtitle">Custo previsto mensal e acumulado · calculado automaticamente pelo cronograma</div>
+        </div>
+      </div>
+      <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: 'var(--surface-muted)' }}>
+              {['Mês', 'Previsto (R$)', '% Mensal', 'Acumulado (R$)', '% Acumulado', ''].map((h, i) => (
+                <th key={i} style={{
+                  padding: '10px 14px',
+                  textAlign: i === 0 ? 'left' : 'right',
+                  fontSize: 10.5, fontWeight: 600, letterSpacing: '0.07em',
+                  textTransform: 'uppercase', color: 'var(--text-soft)',
+                  borderBottom: '2px solid var(--border)', whiteSpace: 'nowrap',
+                }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {months.map((m, i) => {
+              const v = monthlyTotals[m.key] || 0;
+              acum += v;
+              const pctMes  = total > 0 ? (v / total * 100) : 0;
+              const pctAcum = total > 0 ? (acum / total * 100) : 0;
+              const tdB = { padding: '9px 14px', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))', verticalAlign: 'middle' };
+              return (
+                <tr key={m.key} style={{ background: i % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)' }}>
+                  <td style={{ ...tdB, fontWeight: 500 }}>{m.label}</td>
+                  <td style={{ ...tdB, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v > 0 ? 'var(--text)' : 'var(--text-faint)' }}>
+                    {v > 0 ? formatBRL(v) : '—'}
+                  </td>
+                  <td style={{ ...tdB, textAlign: 'right', color: 'var(--text-soft)' }}>
+                    {pctMes > 0 ? pctMes.toFixed(1) + '%' : '—'}
+                  </td>
+                  <td style={{ ...tdB, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
+                    {formatBRL(acum)}
+                  </td>
+                  <td style={{ ...tdB, textAlign: 'right', color: 'var(--text-soft)' }}>
+                    {pctAcum.toFixed(1)}%
+                  </td>
+                  <td style={{ ...tdB, width: 180 }}>
+                    <div style={{ background: 'var(--border)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                      <div style={{ width: pctAcum + '%', height: '100%', background: 'var(--brand)', borderRadius: 4 }} />
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: 'var(--surface-muted)', fontWeight: 600 }}>
+              <td style={{ padding: '10px 14px', borderTop: '2px solid var(--border)' }}>Total</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{formatBRL(total)}</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: '2px solid var(--border)' }}>100%</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{formatBRL(total)}</td>
+              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: '2px solid var(--border)' }}>100%</td>
+              <td style={{ padding: '10px 14px', borderTop: '2px solid var(--border)' }} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+};
 
 // ─── Helpers de Linha de Base ────────────────────────────────────────────────
 function carregarBaselines(obraId) {
@@ -2244,6 +2553,17 @@ const CronogramaFull = ({ initialObraId }) => {
     return Math.round(folhas.reduce((s, e) => s + e.avanco * (e.custo || 0), 0) / totalCusto);
   }, [etapas]);
 
+  // Distribuição mensal de custos — alimenta Uso da Tarefa e Curva S
+  const months      = React.useMemo(() => getMonthRange(etapas),      [etapas]);
+  const monthlyDist = React.useMemo(() => computeMonthlyDist(etapas), [etapas]);
+  const monthlyTotals = React.useMemo(() => {
+    const t = {};
+    Object.values(monthlyDist).forEach(d =>
+      Object.entries(d).forEach(([k, v]) => { t[k] = (t[k] || 0) + v; })
+    );
+    return t;
+  }, [monthlyDist]);
+
   // ── Commit (fonte única de verdade) ────────────────────────────────────────
   const commit = (novas, opts = {}) => {
     const clean = novas.map(e => ({ ...e }));
@@ -2317,10 +2637,10 @@ const CronogramaFull = ({ initialObraId }) => {
             ))}
           </select>
           <div className="segmented">
-            <button className={view === 'gantt'      ? 'active' : ''} onClick={() => setView('gantt')}>Gantt</button>
-            <button className={view === 'curva'      ? 'active' : ''} onClick={() => setView('curva')}>Curva Física</button>
-            <button className={view === 'lista'      ? 'active' : ''} onClick={() => setView('lista')}>Lista</button>
-            <button className={view === 'calendario' ? 'active' : ''} onClick={() => setView('calendario')}>Calendário</button>
+            <button className={view === 'gantt' ? 'active' : ''} onClick={() => setView('gantt')}>Gantt</button>
+            <button className={view === 'lista' ? 'active' : ''} onClick={() => setView('lista')}>Lista</button>
+            <button className={view === 'uso'   ? 'active' : ''} onClick={() => setView('uso')}>Uso da Tarefa</button>
+            <button className={view === 'curva' ? 'active' : ''} onClick={() => setView('curva')}>Curva Física</button>
           </div>
           {baselines.length > 0 && (
             <select className="input" style={{ minWidth: 180 }}
@@ -2430,7 +2750,7 @@ const CronogramaFull = ({ initialObraId }) => {
                 </div>
               )}
 
-              {view === 'curva' && <CurvaFisicaView obra={obra} />}
+              {view === 'curva' && <CurvaFisicaView months={months} monthlyTotals={monthlyTotals} />}
 
               {view === 'lista' && (
                 <ListaInterativa
@@ -2442,14 +2762,8 @@ const CronogramaFull = ({ initialObraId }) => {
                 />
               )}
 
-              {view === 'calendario' && (
-                <div className="card" style={{ marginTop: 'var(--gap)', padding: 40, textAlign: 'center' }}>
-                  <Icon name="calendar" size={40} style={{ color: 'var(--text-faint)' }} />
-                  <h3 style={{ marginTop: 12, fontSize: 16, color: 'var(--text-soft)' }}>Visualização em calendário</h3>
-                  <p className="text-muted" style={{ maxWidth: 380, margin: '6px auto 0', fontSize: 13 }}>
-                    Em breve: visualize etapas e marcos em uma grade mensal interativa.
-                  </p>
-                </div>
+              {view === 'uso' && (
+                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} />
               )}
             </>
           )
