@@ -117,9 +117,10 @@ function migrateEtapas(raw) {
   const arr = (raw || []).map(e => ({
     nivel: 0, parentId: null, isGroup: false,
     collapsed: false, responsavel: '', customCols: {},
-    milestone: false, custo: 0,
+    milestone: false, custo: 0, participaCurva: true,
     restricaoTipo: 'asap', restricaoData: '',
     ...e,
+    participaCurva: e.participaCurva ?? true,
     dep: (e.dep || []).map(d =>
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
     ),
@@ -448,7 +449,7 @@ function getMonthRange(etapas) {
 function computeMonthlyDist(etapas) {
   const result = {};
   etapas.forEach(e => {
-    if (e.isGroup) return;
+    if (e.isGroup || e.participaCurva === false) return;
     const custo = e.custo || 0;
     const s = offsetToDate(e.inicio);
     const f = offsetToDate(e.inicio + Math.max(e.dur, 1));
@@ -466,6 +467,36 @@ function computeMonthlyDist(etapas) {
       cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
     }
     result[e.id] = dist;
+  });
+  return result;
+}
+
+// Distribui o custo realizado (avanco × custo) de cada tarefa pelos meses passados até hoje
+function computeRealizedDist(etapas) {
+  const todayDate = new Date();
+  const result = {};
+  etapas.forEach(e => {
+    if (e.isGroup || e.participaCurva === false) return;
+    const custo = e.custo || 0;
+    const avanco = e.avanco || 0;
+    if (custo === 0 || avanco === 0) return;
+    const realized = (avanco / 100) * custo;
+    const s = offsetToDate(e.inicio);
+    const taskEnd = offsetToDate(e.inicio + Math.max(e.dur, 1));
+    const f = new Date(Math.min(taskEnd.getTime(), todayDate.getTime()));
+    if (f <= s) return;
+    const totalDays = Math.max(1, (f - s) / 86400000);
+    let cur = new Date(s.getFullYear(), s.getMonth(), 1);
+    while (cur <= f) {
+      const mStart = new Date(Math.max(cur.getTime(), s.getTime()));
+      const mEnd   = new Date(Math.min(new Date(cur.getFullYear(), cur.getMonth() + 1, 1).getTime(), f.getTime()));
+      const days   = Math.max(0, (mEnd - mStart) / 86400000);
+      if (days > 0) {
+        const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
+        result[key] = (result[key] || 0) + (realized * days) / totalDays;
+      }
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
   });
   return result;
 }
@@ -1507,6 +1538,7 @@ const LISTA_COL_DEFS = {
   succ:      { label: 'Sucessoras',    defWidth: 110 },
   status:    { label: 'Status',        defWidth: 105 },
   restricao: { label: 'Restrição',     defWidth: 200 },
+  participa: { label: 'Curva',         defWidth: 54, align: 'center' },
 };
 const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
@@ -1538,7 +1570,12 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 
   // ── Gerenciamento de colunas ────────────────────────────────────────────────
   const [colOrder, setColOrder] = React.useState(() => {
-    try { return JSON.parse(localStorage.getItem(`ls_cols_${obraId}`) || 'null') || LISTA_DEFAULT_ORDER; }
+    try {
+      const saved = JSON.parse(localStorage.getItem(`ls_cols_${obraId}`) || 'null');
+      if (!saved) return LISTA_DEFAULT_ORDER;
+      const missing = LISTA_DEFAULT_ORDER.filter(c => !saved.includes(c));
+      return missing.length ? [...saved, ...missing] : saved;
+    }
     catch { return LISTA_DEFAULT_ORDER; }
   });
   const [colWidths, setColWidths] = React.useState(() => {
@@ -2126,6 +2163,22 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     )}
                   </td>
                 ),
+                participa: (
+                  <td key="participa" onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center' }}>
+                    {!e.isGroup && (
+                      <input type="checkbox"
+                        checked={e.participaCurva !== false}
+                        style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--brand)' }}
+                        onChange={ev => {
+                          const novas = etapas.map(t =>
+                            t.id === e.id ? { ...t, participaCurva: ev.target.checked } : t
+                          );
+                          onCommit(novas, { silent: true });
+                        }}
+                      />
+                    )}
+                  </td>
+                ),
               };
 
               return (
@@ -2443,86 +2496,329 @@ const UsoTarefaView = ({ etapas, months, monthlyDist }) => {
   );
 };
 
-// ─── CurvaFisicaView — Curva S planejada ─────────────────────────────────────
-const CurvaFisicaView = ({ months, monthlyTotals }) => {
-  if (!months || !months.length || !Object.values(monthlyTotals || {}).some(v => v > 0)) return (
+// ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
+const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit }) => {
+  // Grupos de nível 0 para painel de filtros
+  const rootGroups = React.useMemo(
+    () => etapas.filter(e => e.isGroup && !e.parentId),
+    [etapas]
+  );
+  const [selGroups, setSelGroups] = React.useState(() => new Set(rootGroups.map(g => g.id)));
+  const [filterOpen, setFilterOpen] = React.useState(rootGroups.length > 0);
+
+  // Sincroniza selGroups quando rootGroups muda (nova obra, nova tarefa raiz)
+  React.useEffect(() => {
+    setSelGroups(new Set(rootGroups.map(g => g.id)));
+  }, [rootGroups.map(g => g.id).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mapa taskId → rootGroupId (para filtragem)
+  const taskRootMap = React.useMemo(() => {
+    const map = {};
+    etapas.forEach(e => {
+      let cur = e;
+      while (cur.parentId) {
+        const parent = etapas.find(x => x.id === cur.parentId);
+        if (!parent) break;
+        cur = parent;
+      }
+      map[e.id] = cur.id;
+    });
+    return map;
+  }, [etapas]);
+
+  // Totais planejados filtrados por grupo selecionado
+  const filteredPlanned = React.useMemo(() => {
+    const fp = {};
+    const allSelected = selGroups.size === 0 || selGroups.size === rootGroups.length;
+    Object.entries(monthlyDist).forEach(([taskId, dist]) => {
+      if (!allSelected && !selGroups.has(taskRootMap[taskId])) return;
+      Object.entries(dist).forEach(([k, v]) => { fp[k] = (fp[k] || 0) + v; });
+    });
+    return fp;
+  }, [selGroups, monthlyDist, taskRootMap, rootGroups.length]);
+
+  const hasData = months.length > 0 && Object.values(filteredPlanned).some(v => v > 0);
+
+  if (!hasData) return (
     <div className="card" style={{ marginTop: 'var(--gap)', padding: 40, textAlign: 'center' }}>
       <Icon name="trending-up" size={40} style={{ color: 'var(--text-faint)' }} />
-      <h3 style={{ marginTop: 12, fontSize: 16, color: 'var(--text-soft)' }}>Curva S — Distribuição financeira planejada</h3>
+      <h3 style={{ marginTop: 12, fontSize: 16, color: 'var(--text-soft)' }}>Curva S — Produção física planejada</h3>
       <p className="text-muted" style={{ maxWidth: 420, margin: '6px auto 0', fontSize: 13 }}>
         Adicione tarefas com datas e custos no cronograma para gerar a Curva S automaticamente.
       </p>
     </div>
   );
 
-  const total = months.reduce((s, m) => s + (monthlyTotals[m.key] || 0), 0);
-  let acum = 0;
+  const total = months.reduce((s, m) => s + (filteredPlanned[m.key] || 0), 0);
+  const totalReal = months.reduce((s, m) => s + (realizedTotals[m.key] || 0), 0);
+
+  // Chave do mês atual
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  // Séries acumuladas para o SVG
+  let acum = 0, acumReal = 0;
+  const seriesPlanned = [], seriesRealized = [];
+  months.forEach((m) => {
+    const v = filteredPlanned[m.key] || 0;
+    const r = realizedTotals[m.key] || 0;
+    acum += v;
+    const pctA = total > 0 ? acum / total * 100 : 0;
+    seriesPlanned.push(pctA);
+    if (m.key <= todayKey) {
+      acumReal += r;
+      seriesRealized.push(total > 0 ? acumReal / total * 100 : 0);
+    } else {
+      seriesRealized.push(null);
+    }
+  });
+
+  // Constantes SVG
+  const N = months.length;
+  const pL = 54, pR = 20, pT = 16, pB = 52;
+  const svgW = 1000, svgH = 300;
+  const chartW = svgW - pL - pR;
+  const chartH = svgH - pT - pB;
+  const xC = (i) => pL + (chartW / N) * (i + 0.5);
+  const yS = (pct) => pT + (1 - pct / 100) * chartH;
+  const barW = (chartW / N) * 0.55;
+  const todayIdx = months.findIndex(m => m.key === todayKey);
+  // Polilinha planejada
+  const ptsPlan = seriesPlanned.map((v, i) => `${xC(i).toFixed(1)},${yS(v).toFixed(1)}`).join(' ');
+  // Área planejada
+  const firstX = xC(0).toFixed(1), lastX = xC(N - 1).toFixed(1);
+  const areaPath = `M${firstX},${yS(seriesPlanned[0]).toFixed(1)} ` +
+    seriesPlanned.slice(1).map((v, i) => `L${xC(i + 1).toFixed(1)},${yS(v).toFixed(1)}`).join(' ') +
+    ` L${lastX},${(pT + chartH).toFixed(1)} L${firstX},${(pT + chartH).toFixed(1)} Z`;
+  // Polilinha realizada
+  const realPts = seriesRealized
+    .map((v, i) => v !== null ? `${xC(i).toFixed(1)},${yS(v).toFixed(1)}` : null)
+    .filter(Boolean).join(' ');
+
+  const thSt = {
+    padding: '9px 14px', fontSize: 10.5, fontWeight: 600,
+    letterSpacing: '0.07em', textTransform: 'uppercase',
+    color: 'var(--text-soft)', borderBottom: '2px solid var(--border)',
+    whiteSpace: 'nowrap', background: 'var(--surface-muted)',
+  };
+  const tdSt = { padding: '8px 14px', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))', verticalAlign: 'middle' };
+
+  const allSel = selGroups.size === rootGroups.length;
 
   return (
-    <div className="card" style={{ marginTop: 'var(--gap)' }}>
-      <div className="card-header">
-        <div>
-          <div className="card-title">Curva S — Distribuição financeira planejada</div>
-          <div className="card-subtitle">Custo previsto mensal e acumulado · calculado automaticamente pelo cronograma</div>
-        </div>
-      </div>
-      <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: 'var(--surface-muted)' }}>
-              {['Mês', 'Previsto (R$)', '% Mensal', 'Acumulado (R$)', '% Acumulado', ''].map((h, i) => (
-                <th key={i} style={{
-                  padding: '10px 14px',
-                  textAlign: i === 0 ? 'left' : 'right',
-                  fontSize: 10.5, fontWeight: 600, letterSpacing: '0.07em',
-                  textTransform: 'uppercase', color: 'var(--text-soft)',
-                  borderBottom: '2px solid var(--border)', whiteSpace: 'nowrap',
-                }}>{h}</th>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
+
+      {/* ── Painel de filtros ──────────────────────────────────────────────── */}
+      {rootGroups.length > 0 && (
+        <div className="card">
+          <button
+            onClick={() => setFilterOpen(o => !o)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '10px 16px',
+              background: 'none', border: 'none', cursor: 'pointer', fontSize: 12,
+              fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+              color: 'var(--text-soft)', textAlign: 'left' }}
+          >
+            <Icon name="layers" size={13} />
+            Grupos {filterOpen ? '▲' : '▼'}
+          </button>
+          {filterOpen && (
+            <div style={{ padding: '0 16px 14px', display: 'flex', flexWrap: 'wrap', gap: '6px 18px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}>
+                <input type="checkbox" checked={allSel}
+                  style={{ accentColor: 'var(--brand)', width: 13, height: 13 }}
+                  onChange={() => setSelGroups(allSel ? new Set() : new Set(rootGroups.map(g => g.id)))} />
+                Selecionar tudo
+              </label>
+              {rootGroups.map(g => (
+                <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={selGroups.has(g.id)}
+                    style={{ accentColor: 'var(--brand)', width: 13, height: 13 }}
+                    onChange={() => setSelGroups(s => {
+                      const n = new Set(s);
+                      n.has(g.id) ? n.delete(g.id) : n.add(g.id);
+                      return n;
+                    })} />
+                  {g.etapa}
+                </label>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Gráfico SVG ───────────────────────────────────────────────────── */}
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <div className="card-title">Curva S — Produção física acumulada</div>
+            <div className="card-subtitle">Distribuição mensal do custo planejado e realizado · calculado automaticamente pelo cronograma</div>
+          </div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 12 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 18, height: 3, background: 'var(--brand)', display: 'inline-block', borderRadius: 2 }} />
+              Planejado acum.
+            </span>
+            {totalReal > 0 && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 18, height: 2, borderTop: '2px dashed #16a34a', display: 'inline-block' }} />
+                Realizado acum.
+              </span>
+            )}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 14, height: 12, background: '#e2e8f0', display: 'inline-block', borderRadius: 2 }} />
+              Prod. mensal
+            </span>
+          </div>
+        </div>
+        <div className="card-body" style={{ padding: '12px 16px 0', overflowX: 'auto' }}>
+          <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={svgH}
+            style={{ display: 'block', minWidth: Math.max(600, N * 36) }}>
+
+            {/* Linhas de grade Y */}
+            {[0, 20, 40, 60, 80, 100].map(pct => (
+              <g key={pct}>
+                <line x1={pL} y1={yS(pct)} x2={pL + chartW} y2={yS(pct)}
+                  stroke="var(--border)" strokeWidth="1" strokeDasharray={pct === 0 || pct === 100 ? undefined : '3,4'} />
+                <text x={pL - 6} y={yS(pct) + 4} textAnchor="end" fontSize="10"
+                  fill="var(--text-muted)" fontFamily="var(--font-mono)">{pct}%</text>
+              </g>
+            ))}
+
+            {/* Barras histograma mensal */}
             {months.map((m, i) => {
-              const v = monthlyTotals[m.key] || 0;
-              acum += v;
-              const pctMes  = total > 0 ? (v / total * 100) : 0;
-              const pctAcum = total > 0 ? (acum / total * 100) : 0;
-              const tdB = { padding: '9px 14px', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))', verticalAlign: 'middle' };
+              const v = filteredPlanned[m.key] || 0;
+              const pct = total > 0 ? v / total * 100 : 0;
+              const bh = (pct / 100) * chartH;
               return (
-                <tr key={m.key} style={{ background: i % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)' }}>
-                  <td style={{ ...tdB, fontWeight: 500 }}>{m.label}</td>
-                  <td style={{ ...tdB, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v > 0 ? 'var(--text)' : 'var(--text-faint)' }}>
-                    {v > 0 ? formatBRL(v) : '—'}
-                  </td>
-                  <td style={{ ...tdB, textAlign: 'right', color: 'var(--text-soft)' }}>
-                    {pctMes > 0 ? pctMes.toFixed(1) + '%' : '—'}
-                  </td>
-                  <td style={{ ...tdB, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
-                    {formatBRL(acum)}
-                  </td>
-                  <td style={{ ...tdB, textAlign: 'right', color: 'var(--text-soft)' }}>
-                    {pctAcum.toFixed(1)}%
-                  </td>
-                  <td style={{ ...tdB, width: 180 }}>
-                    <div style={{ background: 'var(--border)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-                      <div style={{ width: pctAcum + '%', height: '100%', background: 'var(--brand)', borderRadius: 4 }} />
-                    </div>
-                  </td>
-                </tr>
+                <rect key={m.key}
+                  x={xC(i) - barW / 2} y={yS(0) - bh}
+                  width={barW} height={bh}
+                  fill="#e2e8f0" rx="2" />
               );
             })}
-          </tbody>
-          <tfoot>
-            <tr style={{ background: 'var(--surface-muted)', fontWeight: 600 }}>
-              <td style={{ padding: '10px 14px', borderTop: '2px solid var(--border)' }}>Total</td>
-              <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{formatBRL(total)}</td>
-              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: '2px solid var(--border)' }}>100%</td>
-              <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{formatBRL(total)}</td>
-              <td style={{ padding: '10px 14px', textAlign: 'right', borderTop: '2px solid var(--border)' }}>100%</td>
-              <td style={{ padding: '10px 14px', borderTop: '2px solid var(--border)' }} />
-            </tr>
-          </tfoot>
-        </table>
+
+            {/* Marcador HOJE */}
+            {todayIdx >= 0 && (
+              <line x1={xC(todayIdx)} y1={pT} x2={xC(todayIdx)} y2={pT + chartH}
+                stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4,3" opacity="0.7" />
+            )}
+
+            {/* Área sob curva planejada */}
+            <path d={areaPath} fill="var(--brand)" opacity="0.07" />
+
+            {/* Linha planejada acumulada */}
+            <polyline points={ptsPlan} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" />
+
+            {/* Pontos planejados */}
+            {seriesPlanned.map((v, i) => (
+              <circle key={i} cx={xC(i)} cy={yS(v)} r="3" fill="var(--brand)" />
+            ))}
+
+            {/* Linha realizada acumulada */}
+            {realPts && (
+              <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2"
+                strokeDasharray="5,3" strokeLinejoin="round" />
+            )}
+
+            {/* Rótulos X */}
+            {months.map((m, i) => {
+              if (N > 18 && i % 2 !== 0) return null;
+              if (N > 30 && i % 3 !== 0) return null;
+              return (
+                <text key={m.key} x={xC(i)} y={pT + chartH + 18}
+                  textAnchor="middle" fontSize="9.5" fill="var(--text-muted)"
+                  fontFamily="var(--font-sans)">{m.label}</text>
+              );
+            })}
+
+            {/* Eixo X base */}
+            <line x1={pL} y1={pT + chartH} x2={pL + chartW} y2={pT + chartH}
+              stroke="var(--border)" strokeWidth="1" />
+          </svg>
+        </div>
+      </div>
+
+      {/* ── Tabela resumo ─────────────────────────────────────────────────── */}
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <div className="card-title">Resumo mensal</div>
+            <div className="card-subtitle">Planejado e realizado mês a mês</div>
+          </div>
+        </div>
+        <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr>
+                {['Mês', 'Plan. (R$)', '% Plan.', 'Plan. Acum.', '% Acum.', 'Real. (R$)', 'Real. Acum.', 'Desvio Acum.', ''].map((h, i) => (
+                  <th key={i} style={{ ...thSt, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(() => {
+                let ap = 0, ar = 0;
+                return months.map((m, i) => {
+                  const v = filteredPlanned[m.key] || 0;
+                  const r = m.key <= todayKey ? (realizedTotals[m.key] || 0) : null;
+                  ap += v;
+                  if (r !== null) ar += r;
+                  const pctM  = total > 0 ? v / total * 100 : 0;
+                  const pctA  = total > 0 ? ap / total * 100 : 0;
+                  const desvio = r !== null ? ar - ap : null;
+                  return (
+                    <tr key={m.key} style={{ background: i % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)' }}>
+                      <td style={{ ...tdSt, fontWeight: m.key === todayKey ? 600 : 400,
+                        color: m.key === todayKey ? 'var(--brand)' : undefined }}>{m.label}</td>
+                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                        color: v > 0 ? 'var(--text)' : 'var(--text-faint)' }}>
+                        {v > 0 ? fmtBRL(v) : '—'}
+                      </td>
+                      <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }}>
+                        {pctM > 0 ? pctM.toFixed(1) + '%' : '—'}
+                      </td>
+                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
+                        {fmtBRL(ap)}
+                      </td>
+                      <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }}>
+                        {pctA.toFixed(1)}%
+                      </td>
+                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                        color: r !== null && r > 0 ? '#16a34a' : 'var(--text-faint)' }}>
+                        {r !== null ? (r > 0 ? fmtBRL(r) : '—') : '—'}
+                      </td>
+                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {r !== null ? fmtBRL(ar) : '—'}
+                      </td>
+                      <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                        color: desvio === null ? undefined : desvio >= 0 ? '#16a34a' : '#dc2626' }}>
+                        {desvio !== null ? (desvio >= 0 ? '+' : '') + fmtBRL(desvio) : '—'}
+                      </td>
+                      <td style={{ ...tdSt, width: 130 }}>
+                        <div style={{ background: 'var(--border)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+                          <div style={{ width: pctA + '%', height: '100%', background: 'var(--brand)', borderRadius: 4 }} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                });
+              })()}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: 'var(--surface-muted)', fontWeight: 600 }}>
+                <td style={{ ...tdSt, borderTop: '2px solid var(--border)' }}>Total</td>
+                <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{fmtBRL(total)}</td>
+                <td style={{ ...tdSt, textAlign: 'right', borderTop: '2px solid var(--border)' }}>100%</td>
+                <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{fmtBRL(total)}</td>
+                <td style={{ ...tdSt, textAlign: 'right', borderTop: '2px solid var(--border)' }}>100%</td>
+                <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)', color: '#16a34a' }}>{totalReal > 0 ? fmtBRL(totalReal) : '—'}</td>
+                <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderTop: '2px solid var(--border)' }}>{totalReal > 0 ? fmtBRL(totalReal) : '—'}</td>
+                <td style={{ ...tdSt, borderTop: '2px solid var(--border)' }} />
+                <td style={{ ...tdSt, borderTop: '2px solid var(--border)' }} />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -2770,6 +3066,7 @@ const CronogramaFull = ({ initialObraId }) => {
     );
     return t;
   }, [monthlyDist]);
+  const realizedTotals = React.useMemo(() => computeRealizedDist(etapas), [etapas]);
 
   // ── Commit (fonte única de verdade) ────────────────────────────────────────
   const commit = (novas, opts = {}) => {
@@ -3013,7 +3310,15 @@ const CronogramaFull = ({ initialObraId }) => {
                 </div>
               )}
 
-              {view === 'curva' && <CurvaFisicaView months={months} monthlyTotals={monthlyTotals} />}
+              {view === 'curva' && (
+                <CurvaFisicaView
+                  etapas={etapas}
+                  months={months}
+                  monthlyDist={monthlyDist}
+                  realizedTotals={realizedTotals}
+                  onCommit={commit}
+                />
+              )}
 
               {view === 'lista' && (
                 <ListaInterativa
