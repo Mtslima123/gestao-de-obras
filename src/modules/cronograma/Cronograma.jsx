@@ -117,10 +117,10 @@ function migrateEtapas(raw) {
   const arr = (raw || []).map(e => ({
     nivel: 0, parentId: null, isGroup: false,
     collapsed: false, responsavel: '', customCols: {},
-    milestone: false, custo: 0, participaCurva: false,
+    milestone: false, custo: 0, showInDist: false,
     restricaoTipo: 'asap', restricaoData: '',
     ...e,
-    participaCurva: e.participaCurva ?? false,
+    showInDist: e.showInDist ?? false,
     dep: (e.dep || []).map(d =>
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
     ),
@@ -2167,11 +2167,11 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                   <td key="participa" onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center' }}>
                     {!e.isGroup && (
                       <input type="checkbox"
-                        checked={e.participaCurva !== false}
+                        checked={e.showInDist === true}
                         style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--brand)' }}
                         onChange={ev => {
                           const novas = etapas.map(t =>
-                            t.id === e.id ? { ...t, participaCurva: ev.target.checked } : t
+                            t.id === e.id ? { ...t, showInDist: ev.target.checked } : t
                           );
                           onCommit(novas, { silent: true });
                         }}
@@ -2776,7 +2776,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
       {(() => {
         const groupVals2  = computeGroupValues(etapas);
         const visibleRows = getVisibleEtapas(etapas);
-        const distRows    = visibleRows.filter(e => e.isGroup || e.participaCurva === true);
+        const distRows    = visibleRows.filter(e => e.isGroup || e.showInDist === true);
         const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
         const thBase = {
           fontSize: 10.5, fontWeight: 600, letterSpacing: '0.07em',
