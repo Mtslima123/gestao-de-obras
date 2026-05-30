@@ -608,18 +608,41 @@ function verificarRestricoes(etapas) {
   return violacoes;
 }
 
-// Computa valores consolidados para linhas de grupo (somando filhos diretos)
+// Computa valores consolidados para linhas de grupo processando de baixo para cima,
+// garantindo que sub-grupos já tenham valores corretos antes de computar o pai.
 function computeGroupValues(etapas) {
   const result = {};
-  etapas.filter(e => e.isGroup).forEach(g => {
+
+  // Determina a profundidade de cada tarefa para ordenar do mais profundo para o mais raso
+  const depthOf = {};
+  const getDepth = (id, visited = new Set()) => {
+    if (depthOf[id] !== undefined) return depthOf[id];
+    if (visited.has(id)) return 0;
+    visited.add(id);
+    const e = etapas.find(x => x.id === id);
+    depthOf[id] = e && e.parentId ? 1 + getDepth(e.parentId, visited) : 0;
+    return depthOf[id];
+  };
+  etapas.forEach(e => getDepth(e.id));
+
+  // Processa grupos do mais profundo para o mais raso
+  const groups = etapas.filter(e => e.isGroup)
+    .slice()
+    .sort((a, b) => (depthOf[b.id] || 0) - (depthOf[a.id] || 0));
+
+  groups.forEach(g => {
     const children = etapas.filter(e => e.parentId === g.id);
     if (!children.length) return;
-    const totalCusto = children.reduce((s, c) => s + (c.custo || 0), 0);
+
+    // Para filhos que são grupos, usa os valores já calculados nesta passagem
+    const childVals = children.map(c => result[c.id] || { inicio: c.inicio, dur: c.dur, avanco: c.avanco, custo: c.custo || 0 });
+
+    const totalCusto = childVals.reduce((s, c) => s + (c.custo || 0), 0);
     const avanco = totalCusto > 0
-      ? children.reduce((s, c) => s + (c.avanco || 0) * (c.custo || 0), 0) / totalCusto
-      : children.reduce((s, c) => s + (c.avanco || 0), 0) / children.length;
-    const inicio = Math.min(...children.map(c => c.inicio));
-    const fim    = Math.max(...children.map(c => c.inicio + c.dur));
+      ? childVals.reduce((s, c) => s + (c.avanco || 0) * (c.custo || 0), 0) / totalCusto
+      : childVals.reduce((s, c) => s + (c.avanco || 0), 0) / childVals.length;
+    const inicio = Math.min(...childVals.map(c => c.inicio));
+    const fim    = Math.max(...childVals.map(c => c.inicio + c.dur));
     result[g.id] = {
       avanco:  Math.round(avanco),
       inicio,
