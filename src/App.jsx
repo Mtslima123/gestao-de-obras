@@ -222,17 +222,12 @@ const AppInner = () => {
           )}
           {view === 'orcamentos' && <OrcamentosScreen onNovoOrcamento={() => setModal('novo-orcamento')} />}
           {view === 'estimativas' && <EstimativasScreen />}
-          {view === 'controle' && <ControleObrasScreen />}
-          {view === 'efetivo' && <EfetivoScreen />}
-          {view === 'resumo' && <ResumoObrasScreen />}
-          {view === 'medicaobanco' && <MedicaoBancoScreen />}
           {view === 'incc' && <INCCScreen />}
           {view === 'cronograma' && <CronogramaFull initialObraId={cronogramaObraId} />}
-          {view === 'contratos' && <ContratosScreen />}
           {view === 'ia' && <IaScreen obras={obras} user={user} />}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
-           view !== 'orcamentos' && view !== 'estimativas' && view !== 'controle' && view !== 'resumo' && view !== 'incc' &&
-           view !== 'cronograma' && view !== 'contratos' && view !== 'medicaobanco' && view !== 'efetivo' && view !== 'ia' && (
+           view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
+           view !== 'cronograma' && view !== 'ia' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </ErrorBoundary>
@@ -301,6 +296,11 @@ const PlaceholderModule = ({ view, onOpenObra }) => {
     incorporacao: 'Incorporação',
     relatorios: 'Relatórios',
     admin: 'Administração',
+    controle: 'Controle de obras',
+    efetivo: 'Efetivo',
+    resumo: 'Resumo de obras',
+    medicaobanco: 'Medição Banco',
+    contratos: 'Contratos',
   };
   return (
     <>
