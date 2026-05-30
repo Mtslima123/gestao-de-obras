@@ -2806,16 +2806,16 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             const fmt1 = v => v != null ? (v === 0 ? '—' : v.toFixed(2) + '%') : '—';
             const fmtD = v => v != null ? (v > 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
 
-            const ACT_W = 250, PROD_W = 80, MON_W = 56;
+            const ACT_W = 190, PROD_W = 68, MON_W = 44;
 
             const thBase = {
-              padding: '8px 10px', fontSize: 10.5, fontWeight: 700,
-              letterSpacing: '0.07em', textTransform: 'uppercase',
+              padding: '6px 6px', fontSize: 10, fontWeight: 700,
+              letterSpacing: '0.06em', textTransform: 'uppercase',
               color: 'var(--text-soft)', borderBottom: '2px solid var(--border)',
               whiteSpace: 'nowrap', background: 'var(--surface-muted)',
             };
             const thAct  = { ...thBase, textAlign: 'left', minWidth: ACT_W,
-              position: 'sticky', left: 0, zIndex: 2 };
+              padding: '6px 14px', position: 'sticky', left: 0, zIndex: 2 };
             const thMon  = { ...thBase, textAlign: 'right', minWidth: MON_W };
 
             const grpHdrBlue = {
@@ -2827,14 +2827,14 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
             const bdr = '1px solid var(--border-subtle, rgba(0,0,0,0.06))';
             const tdAct = (accum) => ({
-              padding: '7px 14px 7px 28px', fontSize: 11.5,
+              padding: '5px 10px 5px 20px', fontSize: 11,
               borderBottom: bdr, whiteSpace: 'nowrap',
               position: 'sticky', left: 0, zIndex: 1,
               background: accum ? 'var(--surface-muted, #f9fafb)' : 'var(--surface)',
               fontWeight: accum ? 600 : 400, color: 'var(--text-soft)',
             });
             const tdBase = {
-              padding: '7px 10px', fontSize: 11, textAlign: 'right',
+              padding: '5px 6px', fontSize: 10.5, textAlign: 'right',
               borderBottom: bdr, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
             };
             const tdMon  = (accum) => ({
