@@ -377,6 +377,74 @@ function propagateDrag(etapas, endDeltaMap, startDeltaMap = {}) {
   );
 }
 
+// Agenda tarefas automaticamente com base nas dependências (tipo MS Project)
+// Só empurra para frente; respeita restrições fixas (mso, mfo, snet, snlt, fnet, fnlt)
+function autoScheduleFromDeps(etapas) {
+  const map = {};
+  etapas.forEach(e => { map[e.id] = e; });
+
+  // Grau de entrada e lista de sucessoras para ordenação topológica
+  const inDeg = {};
+  const succsOf = {};
+  etapas.forEach(e => {
+    inDeg[e.id] = inDeg[e.id] || 0;
+    (e.dep || []).forEach(d => {
+      const pid = typeof d === 'string' ? d : d.id;
+      if (!map[pid]) return;
+      inDeg[e.id]++;
+      succsOf[pid] = succsOf[pid] || [];
+      if (!succsOf[pid].includes(e.id)) succsOf[pid].push(e.id);
+    });
+  });
+
+  // Kahn's algorithm — garante que predecessores são processados antes das sucessoras
+  const queue = etapas.filter(e => !inDeg[e.id]).map(e => e.id);
+  const order = [];
+  const seen  = new Set();
+  while (queue.length) {
+    const id = queue.shift();
+    if (seen.has(id)) continue;
+    seen.add(id); order.push(id);
+    (succsOf[id] || []).forEach(sid => {
+      inDeg[sid]--;
+      if (inDeg[sid] <= 0 && !seen.has(sid)) queue.push(sid);
+    });
+  }
+  etapas.forEach(e => { if (!seen.has(e.id)) order.push(e.id); }); // ciclos → sem mover
+
+  // Propaga datas — só move para frente
+  const upd = {};
+  etapas.forEach(e => { upd[e.id] = { ...e }; });
+
+  order.forEach(id => {
+    const e = upd[id];
+    if (!e || e.isGroup) return;
+    if (e.restricaoTipo && e.restricaoTipo !== 'asap') return;
+    const deps = e.dep || [];
+    if (!deps.length) return;
+
+    let minStart = e.inicio;
+    deps.forEach(d => {
+      const pid  = typeof d === 'string' ? d : d.id;
+      const tipo = typeof d === 'string' ? 'TI' : (d.tipo || 'TI');
+      const lag  = typeof d === 'string' ? 0   : (d.lag || 0);
+      const pred = upd[pid];
+      if (!pred) return;
+      let req;
+      if      (tipo === 'TI') req = pred.inicio + pred.dur + lag;
+      else if (tipo === 'TT') req = pred.inicio + pred.dur + lag - e.dur;
+      else if (tipo === 'II') req = pred.inicio + lag;
+      else if (tipo === 'IT') req = pred.inicio + lag - e.dur;
+      else                    req = pred.inicio + pred.dur + lag;
+      if (req > minStart) minStart = req;
+    });
+
+    if (minStart !== e.inicio) upd[id] = { ...e, inicio: Math.max(0, minStart) };
+  });
+
+  return etapas.map(e => upd[e.id] || e);
+}
+
 // Recalcula inicio/dur dos grupos com base nos filhos diretos (de baixo para cima)
 function updateParentBounds(etapas) {
   let result = etapas.map(e => ({ ...e }));
@@ -1681,7 +1749,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             succ.dep = [...(succ.dep || []), { id: predId, tipo: 'TI', lag: 0 }];
           }
         }
-        onCommit(novas);
+        onCommit(autoScheduleFromDeps(novas));
         setMultiSel([]);
         toast(`${multiSel.length - 1} vínculo(s) criado(s)`, { tone: 'success', icon: 'check' });
       }
@@ -1750,7 +1818,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       return { ...e, [field]: rawValue };
     });
 
-    onCommit(novas, { silent: true });
+    onCommit(field === 'dep' ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
 
   const handleToggleCollapse = (id) => {
