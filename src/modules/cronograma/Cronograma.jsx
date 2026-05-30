@@ -3589,53 +3589,78 @@ const CriarLinhaModal = ({ baselines, totalEtapas, onClose, onCreate, onUpdate }
 };
 
 // ─── Modal: Gerenciar Linhas de Base ─────────────────────────────────────────
-const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDuplicar, onExcluir, onClose }) => (
-  <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="lg" onClose={onClose}
-    footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
-  >
-    {baselines.length === 0
-      ? <p style={{ fontSize: 13.5, color: 'var(--text-muted)', padding: '24px 0', textAlign: 'center' }}>
-          Nenhuma linha de base cadastrada. Clique em "Criar Linha de Base" para começar.
-        </p>
-      : (
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Criada em</th>
-              <th className="right">Etapas</th>
-              <th style={{ textAlign: 'center' }}>Visível</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {baselines.map(b => (
-              <tr key={b.id}>
-                <td className="strong">{b.nome}</td>
-                <td className="mono text-muted">{b.criadaEm}</td>
-                <td className="right num">{b.etapas.length}</td>
-                <td style={{ textAlign: 'center' }}>
-                  <input type="radio" name="bl-visivel"
-                    checked={blVisivelId === b.id}
-                    onChange={() => onSelect(blVisivelId === b.id ? null : b.id)}
-                    style={{ cursor: 'pointer' }}
-                  />
-                </td>
-                <td>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn-sm btn-ghost" onClick={() => onDuplicar(b.id)}>Duplicar</button>
-                    <button className="btn btn-sm" style={{ color: 'var(--danger)' }}
-                      onClick={() => onExcluir(b.id)}>Excluir</button>
-                  </div>
-                </td>
+const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDuplicar, onExcluir, onClose }) => {
+  const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
+
+  return (
+    <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="lg" onClose={onClose}
+      footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
+    >
+      {baselines.length === 0
+        ? <p style={{ fontSize: 13.5, color: 'var(--text-muted)', padding: '24px 0', textAlign: 'center' }}>
+            Nenhuma linha de base cadastrada. Clique em "Criar Linha de Base" para começar.
+          </p>
+        : (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Criada em</th>
+                <th className="right">Etapas</th>
+                <th style={{ textAlign: 'center' }}>Visível</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )
-    }
-  </Modal>
-);
+            </thead>
+            <tbody>
+              {baselines.map(b => (
+                <tr key={b.id}>
+                  <td className="strong">{b.nome}</td>
+                  <td className="mono text-muted">{b.criadaEm}</td>
+                  <td className="right num">{b.etapas.length}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    <input type="radio" name="bl-visivel"
+                      checked={blVisivelId === b.id}
+                      onChange={() => onSelect(blVisivelId === b.id ? null : b.id)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => { onDuplicar(b.id); setConfirmId(null); }}>Duplicar</button>
+
+                      {confirmId === b.id ? (
+                        /* — 2ª confirmação — */
+                        <>
+                          <span style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Excluir definitivamente?
+                          </span>
+                          <button className="btn btn-sm"
+                            style={{ background: 'var(--danger)', color: 'white', fontWeight: 700 }}
+                            onClick={() => { onExcluir(b.id); setConfirmId(null); }}>
+                            Sim, excluir
+                          </button>
+                          <button className="btn btn-sm btn-ghost" onClick={() => setConfirmId(null)}>
+                            Cancelar
+                          </button>
+                        </>
+                      ) : (
+                        /* — 1ª confirmação — */
+                        <button className="btn btn-sm" style={{ color: 'var(--danger)' }}
+                          onClick={() => setConfirmId(b.id)}>
+                          Excluir
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      }
+    </Modal>
+  );
+};
 
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
 const CronogramaFull = ({ initialObraId }) => {
