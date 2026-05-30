@@ -72,6 +72,7 @@ const AppInner = () => {
 
   const [obras, setObras] = React.useState(() => [...AppData.obras]);
   const [cronogramaObraId, setCronogramaObraId] = React.useState(null);
+  const [obrasLoaded,     setObrasLoaded]     = React.useState(false);
 
   // Carrega obras do Supabase ao autenticar; mantém mock como fallback se a tabela estiver vazia
   React.useEffect(() => {
@@ -81,6 +82,7 @@ const AppInner = () => {
         AppData.obras = data;
         setObras(data);
       }
+      setObrasLoaded(true); // garante que CronogramaFull só monta com obras reais
     });
   }, [authed]);
 
@@ -223,7 +225,7 @@ const AppInner = () => {
           {view === 'orcamentos' && <OrcamentosScreen onNovoOrcamento={() => setModal('novo-orcamento')} />}
           {view === 'estimativas' && <EstimativasScreen />}
           {view === 'incc' && <INCCScreen />}
-          {view === 'cronograma' && <CronogramaFull initialObraId={cronogramaObraId} />}
+          {view === 'cronograma' && obrasLoaded && <CronogramaFull initialObraId={cronogramaObraId} />}
           {view === 'ia' && <IaScreen obras={obras} user={user} />}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
