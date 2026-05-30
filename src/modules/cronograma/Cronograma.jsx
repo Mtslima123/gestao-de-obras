@@ -117,11 +117,10 @@ function migrateEtapas(raw) {
   const arr = (raw || []).map(e => ({
     nivel: 0, parentId: null, isGroup: false,
     collapsed: false, responsavel: '', customCols: {},
-    milestone: false, custo: 0, participaCurva: true,
-    restricaoTipo: 'asap', restricaoData: '', exibirDist: false,
+    milestone: false, custo: 0, participaCurva: false,
+    restricaoTipo: 'asap', restricaoData: '',
     ...e,
-    participaCurva: e.participaCurva ?? true,
-    exibirDist: e.exibirDist ?? false,
+    participaCurva: e.participaCurva ?? false,
     dep: (e.dep || []).map(d =>
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
     ),
@@ -450,7 +449,7 @@ function getMonthRange(etapas) {
 function computeMonthlyDist(etapas) {
   const result = {};
   etapas.forEach(e => {
-    if (e.isGroup || e.participaCurva === false) return;
+    if (e.isGroup) return;
     const custo = e.custo || 0;
     const s = offsetToDate(e.inicio);
     const f = offsetToDate(e.inicio + Math.max(e.dur, 1));
@@ -477,7 +476,7 @@ function computeRealizedDist(etapas) {
   const todayDate = new Date();
   const result = {};
   etapas.forEach(e => {
-    if (e.isGroup || e.participaCurva === false) return;
+    if (e.isGroup) return;
     const custo = e.custo || 0;
     const avanco = e.avanco || 0;
     if (custo === 0 || avanco === 0) return;
@@ -1540,7 +1539,6 @@ const LISTA_COL_DEFS = {
   status:    { label: 'Status',        defWidth: 105 },
   restricao: { label: 'Restrição',     defWidth: 200 },
   participa:  { label: 'Curva',         defWidth: 54, align: 'center' },
-  exibirDist: { label: 'Exibir',        defWidth: 54, align: 'center' },
 };
 const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
@@ -2181,20 +2179,6 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     )}
                   </td>
                 ),
-                exibirDist: (
-                  <td key="exibirDist" onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center' }}>
-                    <input type="checkbox"
-                      checked={e.exibirDist === true}
-                      style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--brand)' }}
-                      onChange={ev => {
-                        const novas = etapas.map(t =>
-                          t.id === e.id ? { ...t, exibirDist: ev.target.checked } : t
-                        );
-                        onCommit(novas, { silent: true });
-                      }}
-                    />
-                  </td>
-                ),
               };
 
               return (
@@ -2792,7 +2776,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
       {(() => {
         const groupVals2  = computeGroupValues(etapas);
         const visibleRows = getVisibleEtapas(etapas);
-        const distRows    = visibleRows.filter(e => e.exibirDist === true);
+        const distRows    = visibleRows.filter(e => e.participaCurva === true);
         const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
         const thBase = {
           fontSize: 10.5, fontWeight: 600, letterSpacing: '0.07em',
@@ -2858,7 +2842,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, onCommit
                       <td colSpan={4 + months.length + 1}
                           style={{ padding: '24px 0', textAlign: 'center',
                                    color: 'var(--text-faint)', fontSize: 12 }}>
-                        Nenhuma tarefa marcada — ative a coluna "Exibir" na Lista.
+                        Nenhuma tarefa marcada — ative a coluna "Curva" na Lista.
                       </td>
                     </tr>
                   )}
