@@ -433,9 +433,7 @@ function autoScheduleFromDeps(etapas) {
     // Para ASAP sem dependências: nada a mover
     if (isAsap && !deps.length) return;
 
-    // ASAP parte do zero; tarefas com restrição partem da posição atual
-    // para não serem puxadas para trás involuntariamente
-    let minStart = isAsap ? 0 : e.inicio;
+    let minStart = 0;
 
     deps.forEach(d => {
       const pid  = typeof d === 'string' ? d : d.id;
