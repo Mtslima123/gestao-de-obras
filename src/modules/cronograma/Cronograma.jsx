@@ -1974,6 +1974,28 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
           <Icon name="plus" size={13} /> Adicionar tarefa
         </button>
 
+        <button className="btn btn-ghost"
+          style={{ ...btnStyle, opacity: selectedId ? 1 : 0.45 }}
+          onClick={() => selectedId && insertTask(selectedId, 'above')}
+          disabled={!selectedId}
+          title="Inserir linha acima da selecionada (botão direito na linha também funciona)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><polyline points="5 12 12 5 19 12"/>
+          </svg>
+          Ins. acima
+        </button>
+
+        <button className="btn btn-ghost"
+          style={{ ...btnStyle, opacity: selectedId ? 1 : 0.45 }}
+          onClick={() => selectedId && insertTask(selectedId, 'below')}
+          disabled={!selectedId}
+          title="Inserir linha abaixo da selecionada (atalho: Insert)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
+          </svg>
+          Ins. abaixo
+        </button>
+
         <button className="btn btn-ghost" style={{ ...btnStyle, opacity: selectedId ? 1 : 0.45 }} onClick={handleAddSubtask} disabled={!selectedId}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/>
@@ -3040,7 +3062,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                 minWidth: ACT_W + PROD_W + months.length * MON_W }}>
                 <thead>
                   <tr>
-                    <th style={thAct}>Atividades</th>
+                    <th style={thAct}></th>
                     <th style={{
                       ...thBase, textAlign: 'center', minWidth: PROD_W,
                       borderLeft: '2px solid var(--border)',
