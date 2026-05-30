@@ -1673,7 +1673,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const [filtroResp,     setFiltroResp]     = React.useState('');
   const [ctxMenu,        setCtxMenu]        = React.useState(null); // { x, y, taskId }
   const [dragOverId,     setDragOverId]     = React.useState(null);
-  const dragRowRef = React.useRef(null);
+  const [showColPanel,   setShowColPanel]   = React.useState(false);
+  const dragRowRef   = React.useRef(null);
+  const colPanelRef  = React.useRef(null);
 
   const wbsMap      = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   const succMap     = React.useMemo(() => computeSuccessors(etapas), [etapas]);
@@ -1701,6 +1703,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     try { return JSON.parse(localStorage.getItem(`ls_widths_${obraId}`) || 'null') || {}; }
     catch { return {}; }
   });
+  const [hiddenCols, setHiddenCols] = React.useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`ls_hidden_${obraId}`) || '[]')); }
+    catch { return new Set(); }
+  });
   const dragColRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -1709,6 +1715,25 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   React.useEffect(() => {
     if (obraId) localStorage.setItem(`ls_widths_${obraId}`, JSON.stringify(colWidths));
   }, [colWidths, obraId]);
+  React.useEffect(() => {
+    if (obraId) localStorage.setItem(`ls_hidden_${obraId}`, JSON.stringify([...hiddenCols]));
+  }, [hiddenCols, obraId]);
+
+  const toggleColVisibility = (colId) => {
+    setHiddenCols(prev => {
+      const next = new Set(prev);
+      next.has(colId) ? next.delete(colId) : next.add(colId);
+      return next;
+    });
+  };
+
+  // Fecha painel de colunas ao clicar fora
+  React.useEffect(() => {
+    if (!showColPanel) return;
+    const onDown = (ev) => { if (colPanelRef.current && !colPanelRef.current.contains(ev.target)) setShowColPanel(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showColPanel]);
 
   const getColW = (colId) => colWidths[colId] ?? LISTA_COL_DEFS[colId]?.defWidth ?? 100;
 
@@ -2100,6 +2125,66 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>
           {visible.length} de {etapas.length} tarefas
         </span>
+
+        {/* Botão de visibilidade de colunas */}
+        <div ref={colPanelRef} style={{ position: 'relative' }}>
+          <button className="btn btn-ghost" style={{ ...btnStyle, position: 'relative' }}
+            onClick={() => setShowColPanel(v => !v)}
+            title="Mostrar/ocultar colunas">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
+            </svg>
+            Colunas{hiddenCols.size > 0 && <span style={{ marginLeft: 4, background: 'var(--brand)', color: 'white', borderRadius: 10, fontSize: 10, padding: '0 5px' }}>{hiddenCols.size}</span>}
+          </button>
+
+          {showColPanel && (
+            <div style={{
+              position: 'absolute', right: 0, top: '100%', marginTop: 4,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.13)',
+              padding: '8px 0', zIndex: 9999, minWidth: 200,
+            }}>
+              <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 600, color: 'var(--text-soft)', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid var(--border-subtle)' }}>
+                Visibilidade das colunas
+              </div>
+              {colOrder.filter(c => !LISTA_FROZEN.includes(c)).map(colId => {
+                const col = LISTA_COL_DEFS[colId];
+                if (!col) return null;
+                const visible = !hiddenCols.has(colId);
+                return (
+                  <label key={colId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, color: visible ? 'var(--text)' : 'var(--text-faint)' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hover, rgba(0,0,0,0.04))'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    <input type="checkbox" checked={visible} onChange={() => toggleColVisibility(colId)}
+                      style={{ accentColor: 'var(--brand)', width: 14, height: 14, cursor: 'pointer' }} />
+                    {col.label}
+                  </label>
+                );
+              })}
+              {/* Colunas personalizadas */}
+              {customCols.length > 0 && customCols.map(col => {
+                const visible = !hiddenCols.has(col.id);
+                return (
+                  <label key={col.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, color: visible ? 'var(--text)' : 'var(--text-faint)' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hover, rgba(0,0,0,0.04))'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    <input type="checkbox" checked={visible} onChange={() => toggleColVisibility(col.id)}
+                      style={{ accentColor: 'var(--brand)', width: 14, height: 14, cursor: 'pointer' }} />
+                    {col.label}
+                  </label>
+                );
+              })}
+              {hiddenCols.size > 0 && (
+                <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '6px 14px 2px' }}>
+                  <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 0', color: 'var(--brand)' }}
+                    onClick={() => setHiddenCols(new Set())}>
+                    Mostrar todas
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Barra de filtros ─────────────────────────────────────────────── */}
@@ -2145,8 +2230,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         <table className="tbl tbl-lista" style={{ minWidth: 1780 }}>
           <thead>
             <tr>
-              {colOrder.map(colId => renderTh(colId))}
-              {customCols.map(col => (
+              {colOrder.filter(c => !hiddenCols.has(c)).map(colId => renderTh(colId))}
+              {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
                 <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'relative', userSelect: 'none' }}>
                   {col.label}
                   <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 5 }}
@@ -2405,10 +2490,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                   }}
                   style={{ cursor: 'grab' }}
                 >
-                  {colOrder.map(colId => cells[colId] || null)}
+                  {colOrder.filter(c => !hiddenCols.has(c)).map(colId => cells[colId] || null)}
 
                   {/* Colunas personalizadas */}
-                  {customCols.map(col => {
+                  {customCols.filter(col => !hiddenCols.has(col.id)).map(col => {
                     const cellVal = (e.customCols || {})[col.id] || '';
                     if (col.type === 'boolean') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
