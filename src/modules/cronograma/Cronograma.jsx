@@ -1944,7 +1944,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       return { ...e, [field]: rawValue };
     });
 
-    onCommit(field === 'dep' ? autoScheduleFromDeps(novas) : novas, { silent: true });
+    const reescalonar = ['dep', 'inicio', 'fim', 'duracaoDias'];
+    onCommit(reescalonar.includes(field) ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
 
   const handleToggleCollapse = (id) => {
