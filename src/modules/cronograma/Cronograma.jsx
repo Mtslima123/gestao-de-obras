@@ -690,6 +690,14 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     : e.status === 'upcoming' ? '#3d7fc9'
     : 'var(--brand)';
 
+  // Filtra linhas ocultas por collapse — respeita grupos recolhidos
+  const visible = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+
+  const handleToggleCollapse = (id) => {
+    const novas = etapas.map(e => e.id === id ? { ...e, collapsed: !e.collapsed } : e);
+    onCommit(novas, { silent: true });
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative' }}>
@@ -817,7 +825,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
           </div>
 
           {/* ── Linhas das etapas ────────────────────────────────────────── */}
-          {etapas.map((e, i) => {
+          {visible.map((e, i) => {
             const bar    = getBar(e);
             const isSel  = selected.has(e.id);
             const isConf = conflictIds.has(e.id);
@@ -845,6 +853,15 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', minWidth: 26, flexShrink: 0 }}>
                     {e.displayId ?? e.id}
                   </span>
+                  {e.isGroup
+                    ? <button
+                        onClick={ev => { ev.stopPropagation(); handleToggleCollapse(e.id); }}
+                        style={{ width: 18, height: 18, flexShrink: 0, display: 'flex', alignItems: 'center',
+                                 justifyContent: 'center', border: 'none', background: 'none',
+                                 cursor: 'pointer', color: 'var(--text-soft)', fontSize: 10, padding: 0 }}
+                      >{e.collapsed ? '▶' : '▼'}</button>
+                    : <span style={{ width: 18, flexShrink: 0 }} />
+                  }
                   <span style={{
                     flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     paddingLeft: (e.nivel || 0) * 12,
