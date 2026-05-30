@@ -2488,7 +2488,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                       setMultiSel([]);
                     }
                   }}
-                  style={{ cursor: 'grab' }}
+                  style={{ cursor: 'grab', fontWeight: e.isGroup ? 600 : undefined }}
                 >
                   {colOrder.filter(c => !hiddenCols.has(c)).map(colId => cells[colId] || null)}
 
