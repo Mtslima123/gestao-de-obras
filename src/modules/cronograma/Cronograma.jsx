@@ -1673,7 +1673,7 @@ const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
 
 // ─── ListaInterativa ──────────────────────────────────────────────────────────
-const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId }) => {
+const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showAddCol,     setShowAddCol]     = React.useState(false);
@@ -2123,6 +2123,22 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         </button>
 
         <div style={{ flex: 1 }} />
+
+        <button className="btn btn-ghost" style={btnStyle} onClick={undo} title="Desfazer (Ctrl+Z)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/>
+          </svg>
+          Desfazer
+        </button>
+
+        <button className="btn btn-ghost" style={btnStyle} onClick={redo} title="Refazer (Ctrl+Y)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/>
+          </svg>
+          Refazer
+        </button>
+
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
 
         {multiSel.length > 0 && (
           <span style={{ fontSize: 11.5, color: 'var(--brand)', fontWeight: 600, padding: '3px 10px', background: 'var(--brand-tint)', borderRadius: 20 }}>
@@ -4082,6 +4098,8 @@ const CronogramaFull = ({ initialObraId }) => {
                   customCols={customCols}
                   onCustomColsChange={handleCustomColsChange}
                   obraId={obraSel}
+                  undo={undo}
+                  redo={redo}
                 />
               )}
 
