@@ -136,7 +136,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
   );
 };
 
-const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
+const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user }) => {
   const toast         = useToast();
   const [items, setItems]           = React.useState([]);
   const [dirty, setDirty]           = React.useState(false);
@@ -218,6 +218,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
   const makeNewRow = (codigo, ordem) => ({
     id: 'tmp-' + Math.random().toString(36).slice(2),
     orcamento_id: orcamento.id,
+    user_id: user?.id ?? null,
     codigo,
     nome: '',
     quantidade: 0,
@@ -795,6 +796,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
         orcamento={selected}
         onBack={() => setSelected(null)}
         onDelete={handleDelete}
+        user={user}
         onCriarRevisao={handleCriarRevisao}
       />
     );
