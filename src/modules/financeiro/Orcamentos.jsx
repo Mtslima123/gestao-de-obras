@@ -594,10 +594,37 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   };
 
   const addAbove = (refCodigo) => {
-    const ref = items.find(it => it.codigo === refCodigo);
-    const idx = items.findIndex(it => it.codigo === refCodigo);
-    const newRow = makeNewRow(nextCode(refCodigo, items), (ref?.ordem ?? 1) - 1);
-    setItems(prev => { const n = [...prev]; n.splice(idx, 0, newRow); return n; });
+    const parts    = refCodigo.split('.');
+    const parent   = parts.slice(0, -1).join('.');
+    const refNum   = parseInt(parts[parts.length - 1], 10);
+    const padWidth = parts[parts.length - 1].length;
+    const nivel    = getNivel(refCodigo);
+
+    // Renumera todos os itens cujo segmento no nível `nivel` (mesmo pai) for >= refNum
+    // Isso inclui o próprio item de referência e seus descendentes
+    const renumber = (list) => list.map(it => {
+      const seg = it.codigo.split('.');
+      if (seg.length <= nivel) return it;
+      const segAtNivel  = parseInt(seg[nivel], 10);
+      const sameParent  = seg.slice(0, nivel).join('.') === (parent || '');
+      if (sameParent && segAtNivel >= refNum) {
+        const newSeg = [...seg];
+        newSeg[nivel] = String(segAtNivel + 1).padStart(padWidth, '0');
+        return { ...it, codigo: newSeg.join('.'), _dirty: !it._new };
+      }
+      return it;
+    });
+
+    const idx    = items.findIndex(it => it.codigo === refCodigo);
+    const ref    = items[idx];
+    const newRow = makeNewRow(refCodigo, (ref?.ordem ?? 1) - 1);
+
+    setItems(prev => {
+      const renumbered = renumber(prev);
+      const n = [...renumbered];
+      n.splice(idx, 0, newRow);
+      return n;
+    });
     setDirty(true);
   };
 
