@@ -730,7 +730,8 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
       .filter(it => it._new)
       .map(({ _new, _dirty, id, ...rest }) => rest);
 
-    // Itens existentes editados: manter `id` para o upsert atualizar corretamente
+    // Itens existentes editados: UPDATE individual por id
+    // (upsert falha com colunas GENERATED ALWAYS AS IDENTITY)
     const toUpdate = items
       .filter(it => !it._new && it._dirty)
       .map(({ _new, _dirty, ...rest }) => rest);
@@ -744,9 +745,12 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
       }
     }
     if (toUpdate.length) {
-      const { error } = await orcamentosService.itens.upsert(toUpdate);
-      if (error) {
-        toast('Erro ao atualizar itens: ' + error.message, { tone: 'error', icon: 'alert' });
+      const resultados = await Promise.all(
+        toUpdate.map(({ id, ...dados }) => orcamentosService.itens.atualizar(id, dados))
+      );
+      const falha = resultados.find(r => r.error);
+      if (falha) {
+        toast('Erro ao atualizar itens: ' + falha.error.message, { tone: 'error', icon: 'alert' });
         setSaving(false);
         return;
       }
