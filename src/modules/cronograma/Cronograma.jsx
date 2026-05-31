@@ -934,16 +934,75 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
   };
 
   const exportPDFGantt = async () => {
-    if (!ganttRef.current) return;
     setExportingPDF(true);
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
-      const canvas  = await html2canvas(ganttRef.current, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff', logging: false });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf     = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      const pW = pdf.internal.pageSize.getWidth();
-      pdf.addImage(imgData, 'PNG', 0, 0, pW, Math.min(canvas.height * pW / canvas.width, pdf.internal.pageSize.getHeight()));
-      pdf.save(`gantt-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const BRAND = [1, 67, 134];
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      doc.setFontSize(13); doc.text('Cronograma de Obras', 14, 14);
+      doc.setFontSize(8);  doc.setTextColor(130);
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
+      doc.setTextColor(0);
+      const wbs  = computeAllWBS(etapas);
+      const body = etapas.map(e => {
+        const gv  = e.isGroup ? groupVals[e.id] : null;
+        const ini = gv ? gv.inicio : e.inicio;
+        const dur = gv ? gv.dur    : e.dur;
+        const av  = gv ? gv.avanco : e.avanco;
+        const cst = gv ? (gv.custo || 0) : (e.custo || 0);
+        return {
+          _isGroup: e.isGroup,
+          vals: [
+            wbs[e.id] || '',
+            String(e.displayId ?? e.id),
+            '  '.repeat(e.nivel || 0) + e.etapa,
+            isoToBR(offsetToISO(ini)),
+            isoToBR(offsetToISO(ini + dur)),
+            dur + 'd',
+            av + '%',
+            e.isGroup ? '' : (e.status === 'done' ? 'Concluída' : e.status === 'late' ? 'Atrasada' : 'Futura'),
+            fmtBRL(cst),
+            e.isGroup ? '' : formatDepList(e.dep, etapas),
+          ],
+        };
+      });
+      autoTable(doc, {
+        startY: 25,
+        head: [['WBS', 'ID', 'Nome', 'Início', 'Término', 'Dur', 'Avanço', 'Status', 'Custo (R$)', 'Predecessoras']],
+        body: body.map(r => r.vals),
+        theme: 'grid',
+        headStyles: { fillColor: BRAND, textColor: 255, fontSize: 8, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 8, textColor: 40 },
+        alternateRowStyles: { fillColor: [248, 249, 250] },
+        columnStyles: {
+          0: { cellWidth: 12 },
+          1: { cellWidth: 8,  halign: 'center' },
+          2: { cellWidth: 70 },
+          3: { cellWidth: 20, halign: 'center' },
+          4: { cellWidth: 20, halign: 'center' },
+          5: { cellWidth: 12, halign: 'right' },
+          6: { cellWidth: 12, halign: 'right' },
+          7: { cellWidth: 18, halign: 'center' },
+          8: { cellWidth: 28, halign: 'right' },
+          9: { cellWidth: 'auto' },
+        },
+        margin: { top: 25, right: 14, bottom: 14, left: 14 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && body[data.row.index]?._isGroup) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [232, 240, 252];
+            data.cell.styles.textColor = 20;
+          }
+        },
+        didDrawPage: ({ pageNumber }) => {
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text(`Página ${pageNumber}`, W - 20, H - 6);
+          doc.setTextColor(0);
+        },
+      });
+      doc.save(`gantt-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setExportingPDF(false); }
   };
 
@@ -2190,16 +2249,90 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   };
 
   const exportPDFLista = async () => {
-    if (!listaRef.current) return;
     setExportingPDF(true);
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
-      const canvas  = await html2canvas(listaRef.current, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff', logging: false });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf     = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      const pW = pdf.internal.pageSize.getWidth();
-      pdf.addImage(imgData, 'PNG', 0, 0, pW, Math.min(canvas.height * pW / canvas.width, pdf.internal.pageSize.getHeight()));
-      pdf.save(`lista-tarefas-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const BRAND = [1, 67, 134];
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      doc.setFontSize(13); doc.text('Lista de Tarefas', 14, 14);
+      doc.setFontSize(8);  doc.setTextColor(130);
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
+      doc.setTextColor(0);
+      const visCols    = colOrder.filter(c => !hiddenCols.has(c));
+      const getLabel   = (cid) => LISTA_COL_DEFS[cid]?.label ?? (customCols.find(c => c.id === cid)?.label ?? cid);
+      const RIGHT_C    = new Set(['custo', 'custoReal', 'saldo', 'peso', 'avanco', 'duracao', 'id']);
+      const CENTER_C   = new Set(['status', 'inicio', 'fim', 'participa']);
+      const getPDFVal  = (e, cid) => {
+        const gv      = e.isGroup ? groupVals[e.id] : null;
+        const ini     = gv ? gv.inicio : e.inicio;
+        const dur     = gv ? gv.dur    : e.dur;
+        const av      = gv ? gv.avanco : e.avanco;
+        const cst     = gv ? (gv.custo || 0) : (e.custo || 0);
+        const realCst = e.isGroup
+          ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+          : (e.custoRealizado || 0);
+        if (cid === 'wbs')       return wbsMap[e.id] || '';
+        if (cid === 'id')        return String(e.displayId ?? e.id);
+        if (cid === 'etapa')     return '  '.repeat(e.nivel || 0) + e.etapa;
+        if (cid === 'inicio')    return isoToBR(offsetToISO(ini));
+        if (cid === 'fim')       return isoToBR(offsetToISO(ini + dur));
+        if (cid === 'duracao')   return dur + 'd';
+        if (cid === 'avanco')    return av + '%';
+        if (cid === 'custo')     return fmtBRL(cst);
+        if (cid === 'peso')      return e.isGroup ? '—' : (((e.custo || 0) / (totalCusto || 1)) * 100).toFixed(1) + '%';
+        if (cid === 'custoReal') return fmtBRL(realCst);
+        if (cid === 'saldo')     return fmtBRL(cst - realCst);
+        if (cid === 'resp')      return e.responsavel || '';
+        if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas);
+        if (cid === 'succ')      return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', ');
+        if (cid === 'status')    return e.isGroup ? '' : (e.status === 'done' ? 'Concluída' : e.status === 'late' ? 'Atrasada' : 'Futura');
+        if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap') ? `${e.restricaoTipo}${e.restricaoData ? ' ' + e.restricaoData : ''}` : '';
+        if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
+        return String(e.customCols?.[cid] ?? '');
+      };
+      const body = filtrada.map(e => ({
+        _isGroup: e.isGroup,
+        vals: visCols.map(cid => getPDFVal(e, cid)),
+      }));
+      const totRow = visCols.map(cid => {
+        if (cid === 'etapa')     return 'Total';
+        if (cid === 'custo')     return fmtBRL(totalCusto);
+        if (cid === 'custoReal') return fmtBRL(totalReal);
+        if (cid === 'saldo')     return fmtBRL(totalSaldo);
+        return '';
+      });
+      const colStyles = Object.fromEntries(visCols.map((cid, i) => [i, {
+        halign: RIGHT_C.has(cid) ? 'right' : CENTER_C.has(cid) ? 'center' : 'left',
+        cellWidth: Math.max(10, (LISTA_COL_DEFS[cid]?.defWidth ?? 100) / 4),
+      }]));
+      autoTable(doc, {
+        startY: 25,
+        head: [visCols.map(getLabel)],
+        body: body.map(r => r.vals),
+        foot: [totRow],
+        theme: 'grid',
+        headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 7, textColor: 40 },
+        alternateRowStyles: { fillColor: [248, 249, 250] },
+        footStyles: { fillColor: [225, 232, 242], fontStyle: 'bold', fontSize: 7 },
+        columnStyles: colStyles,
+        margin: { top: 25, right: 14, bottom: 14, left: 14 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && body[data.row.index]?._isGroup) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [232, 240, 252];
+            data.cell.styles.textColor = 20;
+          }
+        },
+        didDrawPage: ({ pageNumber }) => {
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text(`Página ${pageNumber}`, W - 20, H - 6);
+          doc.setTextColor(0);
+        },
+      });
+      doc.save(`lista-tarefas-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setExportingPDF(false); }
   };
 
@@ -2981,16 +3114,76 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
   };
 
   const exportPDFUso = async () => {
-    if (!usoRef.current) return;
     setExportingPDF(true);
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
-      const canvas  = await html2canvas(usoRef.current, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff', logging: false });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf     = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      const pW = pdf.internal.pageSize.getWidth();
-      pdf.addImage(imgData, 'PNG', 0, 0, pW, Math.min(canvas.height * pW / canvas.width, pdf.internal.pageSize.getHeight()));
-      pdf.save(`uso-tarefa-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const BRAND = [1, 67, 134];
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      doc.setFontSize(13); doc.text('Uso da Tarefa', 14, 14);
+      doc.setFontSize(8);  doc.setTextColor(130);
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
+      doc.setTextColor(0);
+      const body = etapas.map(e => {
+        const dist  = getDist(e);
+        const total = Object.values(dist).reduce((s, v) => s + v, 0);
+        return {
+          _isGroup: e.isGroup,
+          vals: [
+            String(e.displayId ?? e.id),
+            wbsMap[e.id] || '',
+            '  '.repeat(e.nivel || 0) + e.etapa,
+            isoToBR(offsetToISO(e.inicio)),
+            isoToBR(offsetToISO(e.inicio + e.dur)),
+            e.dur + 'd',
+            e.avanco + '%',
+            e.isGroup ? '—' : fmtBRL(e.custo || 0),
+            ...months.map(m => dist[m.key] > 0 ? fmtBRL(dist[m.key]) : '—'),
+            total > 0 ? fmtBRL(total) : '—',
+          ],
+        };
+      });
+      const fixedStyles = {
+        0: { cellWidth: 8,  halign: 'right' },
+        1: { cellWidth: 12, halign: 'left' },
+        2: { cellWidth: 55, halign: 'left' },
+        3: { cellWidth: 18, halign: 'center' },
+        4: { cellWidth: 18, halign: 'center' },
+        5: { cellWidth: 10, halign: 'right' },
+        6: { cellWidth: 10, halign: 'right' },
+        7: { cellWidth: 22, halign: 'right' },
+      };
+      const monthStyles = Object.fromEntries([
+        ...months.map((_, i) => [8 + i, { cellWidth: 22, halign: 'right' }]),
+        [8 + months.length, { cellWidth: 22, halign: 'right' }],
+      ]);
+      autoTable(doc, {
+        startY: 25,
+        head: [[ ...USO_COL_LABELS, ...months.map(m => m.label), 'Total']],
+        body: body.map(r => r.vals),
+        theme: 'grid',
+        headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
+        bodyStyles: { fontSize: 7, textColor: 40 },
+        alternateRowStyles: { fillColor: [248, 249, 250] },
+        columnStyles: { ...fixedStyles, ...monthStyles },
+        horizontalPageBreak: true,
+        horizontalPageBreakRepeat: 2,
+        margin: { top: 25, right: 14, bottom: 14, left: 14 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && body[data.row.index]?._isGroup) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [232, 240, 252];
+            data.cell.styles.textColor = 20;
+          }
+        },
+        didDrawPage: ({ pageNumber }) => {
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text(`Página ${pageNumber}`, W - 20, H - 6);
+          doc.setTextColor(0);
+        },
+      });
+      doc.save(`uso-tarefa-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setExportingPDF(false); }
   };
 
@@ -3247,23 +3440,108 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   };
 
   const exportPDF = async () => {
-    if (!curvaRef.current) return;
     setExportingPDF(true);
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ]);
-      const canvas = await html2canvas(curvaRef.current, {
-        scale: 1.5, useCORS: true, backgroundColor: '#ffffff', logging: false,
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const BRAND = [1, 67, 134];
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      const footerFn = ({ pageNumber }) => {
+        doc.setFontSize(8); doc.setTextColor(150);
+        doc.text(`Página ${pageNumber}`, W - 20, H - 6);
+        doc.setTextColor(0);
+      };
+      doc.setFontSize(13); doc.text('Curva Física', 14, 14);
+      doc.setFontSize(8);  doc.setTextColor(130);
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
+      doc.setTextColor(0);
+
+      // ── Tabela 1: Resumo Mensal ─────────────────────────────────────────
+      const { blM, blA, repM, repA, rrM, rrA, difBL, difRep } = computeSeries();
+      const fmt      = v => v != null ? v.toFixed(2) + '%' : '—';
+      const cabMeses = months.map(m => m.label);
+      autoTable(doc, {
+        startY: 25,
+        head: [['Atividade', ...cabMeses]],
+        body: [
+          ['LB Mensal',              ...blM.map(fmt)],
+          ['LB Acumulado',           ...blA.map(fmt)],
+          ['Reprogramado Mensal',    ...repM.map(fmt)],
+          ['Reprogramado Acumulado', ...repA.map(fmt)],
+          ['Real Mensal',            ...rrM.map(fmt)],
+          ['Real Acumulado',         ...rrA.map(fmt)],
+          ['Dif. vs LB Acumulado',   ...difBL.map(fmt)],
+          ['Dif. vs Rep. Acumulado', ...difRep.map(fmt)],
+        ],
+        theme: 'grid',
+        headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
+        bodyStyles: { fontSize: 7 },
+        columnStyles: {
+          0: { cellWidth: 45, fontStyle: 'bold', halign: 'left' },
+          ...Object.fromEntries(cabMeses.map((_, i) => [i + 1, { cellWidth: 20, halign: 'right' }])),
+        },
+        horizontalPageBreak: true,
+        horizontalPageBreakRepeat: 0,
+        margin: { top: 25, right: 14, bottom: 14, left: 14 },
+        didDrawPage: footerFn,
       });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      const pW = pdf.internal.pageSize.getWidth();
-      const pH = canvas.height * pW / canvas.width;
-      const maxH = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', 0, 0, pW, Math.min(pH, maxH));
-      pdf.save(`curva-fisica-${new Date().toISOString().slice(0,10)}.pdf`);
+
+      // ── Tabela 2: Distribuição por Tarefa ──────────────────────────────
+      const groupValsExp = computeGroupValues(etapas);
+      const distRows     = etapas.filter(e => e.isGroup || e.showInDist === true);
+      const folhas       = etapas.filter(e => !e.isGroup);
+      const totCusto     = folhas.reduce((s, e) => s + (e.custo || 0), 0);
+      const avancoGeral  = totCusto > 0
+        ? folhas.reduce((s, e) => s + (e.avanco || 0) * (e.custo || 0), 0) / totCusto : 0;
+      const distBody = distRows.map(e => {
+        const gv      = e.isGroup ? (groupValsExp[e.id] || {}) : {};
+        const taskCst = e.isGroup ? (gv.custo || 0) : (e.custo || 0);
+        const taskAv  = e.isGroup ? (gv.avanco || 0) : (e.avanco || 0);
+        const peso    = totCusto > 0 ? taskCst / totCusto * 100 : 0;
+        const mDist   = monthlyDist[e.id] || {};
+        return {
+          _isGroup: e.isGroup,
+          vals: [
+            e.etapa, fmtBRL(taskCst), peso.toFixed(2) + '%', taskAv.toFixed(1) + '%',
+            ...months.map(m => taskCst > 0 ? ((mDist[m.key] || 0) / taskCst * 100).toFixed(2) + '%' : '—'),
+            '100%',
+          ],
+        };
+      });
+      const totMonPcts = months.map(m => totCusto > 0 ? ((filteredPlanned[m.key] || 0) / totCusto * 100).toFixed(2) + '%' : '—');
+      const startY2    = (doc.lastAutoTable?.finalY ?? 60) + 12;
+      doc.setFontSize(10); doc.setTextColor(0);
+      doc.text('Distribuição por Tarefa', 14, startY2 - 4);
+      autoTable(doc, {
+        startY: startY2,
+        head: [['Atividade', 'Valor (R$)', 'Peso %', 'Conc. %', ...cabMeses, 'Total']],
+        body: distBody.map(r => r.vals),
+        foot: [['Total geral', fmtBRL(totCusto), '100%', avancoGeral.toFixed(1) + '%', ...totMonPcts, '100%']],
+        theme: 'grid',
+        headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
+        bodyStyles: { fontSize: 7 },
+        footStyles: { fillColor: [225, 232, 242], fontStyle: 'bold', fontSize: 7 },
+        columnStyles: {
+          0: { cellWidth: 45, halign: 'left' },
+          1: { cellWidth: 22, halign: 'right' },
+          2: { cellWidth: 14, halign: 'right' },
+          3: { cellWidth: 14, halign: 'right' },
+          ...Object.fromEntries(months.map((_, i) => [i + 4, { cellWidth: 20, halign: 'right' }])),
+          [4 + months.length]: { cellWidth: 14, halign: 'right' },
+        },
+        horizontalPageBreak: true,
+        horizontalPageBreakRepeat: 0,
+        margin: { top: 25, right: 14, bottom: 14, left: 14 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && distBody[data.row.index]?._isGroup) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [232, 240, 252];
+          }
+        },
+        didDrawPage: footerFn,
+      });
+      doc.save(`curva-fisica-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally {
       setExportingPDF(false);
     }
