@@ -2037,3 +2037,13 @@ tr:hover .obras-row-actions {
 .drag-row-dragging {
   opacity: 0.4;
 }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.skeleton {
+  background: var(--border);
+  border-radius: 4px;
+  animation: pulse 1.4s ease-in-out infinite;
+}

@@ -10,7 +10,7 @@ const { brl: brlOR } = AppData;
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
-const OrcamentoLista = ({ onOpen, onNovo, orcamentos = AppData.orcamentosLista }) => {
+const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) => {
   const [filter, setFilter] = React.useState('todos');
 
   const filtered = filter === 'todos' ? orcamentos : orcamentos.filter(o => o.status === filter);
@@ -22,7 +22,11 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = AppData.orcamentosLista }
       <div className="page-header">
         <div>
           <h1 className="page-title">Orçamentos</h1>
-          <div className="page-subtitle">{orcamentos.length} orçamentos · {brlOR(totalAprovado + totalPendente, { compact: true })} em valor total</div>
+          <div className="page-subtitle">
+            {loading
+              ? 'Carregando…'
+              : `${orcamentos.length} orçamentos · ${brlOR(totalAprovado + totalPendente, { compact: true })} em valor total`}
+          </div>
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
@@ -95,25 +99,35 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = AppData.orcamentosLista }
               </tr>
             </thead>
             <tbody>
-              {filtered.map((o) => (
-                <tr key={o.id} onClick={() => onOpen(o)}>
-                  <td className="strong mono">{o.id}</td>
-                  <td>
-                    <div className="strong">{o.obra}</div>
-                    <div className="text-xs text-muted">{o.cliente}</div>
-                  </td>
-                  <td className="center mono text-muted">{o.versao}</td>
-                  <td className="right strong num">{brlOR(o.valor, { compact: true })}</td>
-                  <td className="right mono num">{Number(o.bdi).toFixed(1)}%</td>
-                  <td><StatusBadge status={o.status} /></td>
-                  <td className="mono text-sm text-muted">{o.data}</td>
-                  <td>
-                    <button className="icon-btn" style={{ width: 28, height: 28 }} onClick={(e) => e.stopPropagation()}>
-                      <Icon name="dots" size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i} style={{ pointerEvents: 'none' }}>
+                    {Array.from({ length: 8 }).map((__, j) => (
+                      <td key={j}><div className="skeleton" style={{ height: 14 }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : (
+                filtered.map((o) => (
+                  <tr key={o.id} onClick={() => onOpen(o)}>
+                    <td className="strong mono">{o.id}</td>
+                    <td>
+                      <div className="strong">{o.obra}</div>
+                      <div className="text-xs text-muted">{o.cliente}</div>
+                    </td>
+                    <td className="center mono text-muted">{o.versao}</td>
+                    <td className="right strong num">{brlOR(o.valor, { compact: true })}</td>
+                    <td className="right mono num">{Number(o.bdi).toFixed(1)}%</td>
+                    <td><StatusBadge status={o.status} /></td>
+                    <td className="mono text-sm text-muted">{o.data}</td>
+                    <td>
+                      <button className="icon-btn" style={{ width: 28, height: 28 }} onClick={(e) => e.stopPropagation()}>
+                        <Icon name="dots" size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -338,9 +352,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
 const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user }) => {
   const toast = useToast();
   const [selected, setSelected]     = React.useState(null);
-  const [orcamentos, setOrcamentos] = React.useState(AppData.orcamentosLista);
+  const [orcamentos, setOrcamentos] = React.useState([]);
+  const [loading, setLoading]       = React.useState(true);
 
   const refetch = React.useCallback(() => {
+    setLoading(true);
     orcamentosService.listar().then(({ data, error }) => {
       if (!error && data && data.length > 0) {
         const enriched = data.map(o => ({
@@ -348,7 +364,11 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
           obra: obras.find(ob => ob.id === o.obra_id)?.nome || o.obra_id,
         }));
         setOrcamentos(enriched);
+      } else {
+        // Fallback para mock quando tabela vazia ou sem autenticação (devMode)
+        setOrcamentos(AppData.orcamentosLista);
       }
+      setLoading(false);
     });
   }, [obras]);
 
@@ -422,6 +442,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
       onOpen={setSelected}
       onNovo={onNovoOrcamento}
       orcamentos={orcamentos}
+      loading={loading}
     />
   );
 };
