@@ -430,8 +430,8 @@ function autoScheduleFromDeps(etapas) {
     const isAsap = !tipo || tipo === 'asap';
     const deps   = e.dep || [];
 
-    // Para ASAP sem dependências: nada a mover
-    if (isAsap && !deps.length) return;
+    // Sem dependências e sem restrição com data: nada a mover
+    if (!deps.length && (isAsap || !e.restricaoData)) return;
 
     let minStart = 0;
 
