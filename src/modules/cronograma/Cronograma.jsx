@@ -710,6 +710,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
   const cRef      = React.useRef(null);
   const etapasRef = React.useRef(etapas);  // ref para event handlers (evita closures stale)
   const dragged   = React.useRef(false);
+  const ganttRef  = React.useRef(null);
+  const [exportingPDF, setExportingPDF] = React.useState(false);
 
   // Mantém o ref sincronizado com a prop a cada render
   etapasRef.current = etapas;
@@ -891,6 +893,60 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     : e.status === 'upcoming' ? '#3d7fc9'
     : 'var(--brand)';
 
+  const exportExcelGantt = () => {
+    import('xlsx').then(XLSX => {
+      const wb   = XLSX.utils.book_new();
+      const wbs  = computeAllWBS(etapas);
+      const hdrs = ['WBS', 'ID', 'Nome', 'Início', 'Término', 'Duração (d)', 'Avanço', 'Status', 'Custo (R$)', 'Predecessoras'];
+      const rows = [hdrs, ...etapas.map(e => {
+        const gv  = e.isGroup ? groupVals[e.id] : null;
+        const ini = gv ? gv.inicio : e.inicio;
+        const dur = gv ? gv.dur    : e.dur;
+        const av  = gv ? gv.avanco : e.avanco;
+        const cst = gv ? (gv.custo || 0) : (e.custo || 0);
+        return [
+          wbs[e.id] || '',
+          e.displayId ?? e.id,
+          '  '.repeat(e.nivel || 0) + e.etapa,
+          offsetToDate(ini),
+          offsetToDate(ini + dur),
+          dur,
+          av / 100,
+          e.isGroup ? '' : (e.status === 'done' ? 'Concluída' : e.status === 'late' ? 'Atrasada' : 'Futura'),
+          cst,
+          e.isGroup ? '' : formatDepList(e.dep, etapas),
+        ];
+      })];
+      const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
+      const fmts = { 3: 'DD/MM/YYYY', 4: 'DD/MM/YYYY', 6: '0.00%', 8: '#,##0.00' };
+      const rng  = XLSX.utils.decode_range(ws['!ref']);
+      for (let R = 1; R <= rng.e.r; R++) {
+        Object.entries(fmts).forEach(([C, z]) => {
+          const addr = XLSX.utils.encode_cell({ r: R, c: Number(C) });
+          if (ws[addr]) ws[addr].z = z;
+        });
+      }
+      ws['!cols']   = [{ wch: 8 }, { wch: 6 }, { wch: 32 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 20 }];
+      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+      XLSX.utils.book_append_sheet(wb, ws, 'Cronograma');
+      XLSX.writeFile(wb, `gantt-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    });
+  };
+
+  const exportPDFGantt = async () => {
+    if (!ganttRef.current) return;
+    setExportingPDF(true);
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
+      const canvas  = await html2canvas(ganttRef.current, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf     = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const pW = pdf.internal.pageSize.getWidth();
+      pdf.addImage(imgData, 'PNG', 0, 0, pW, Math.min(canvas.height * pW / canvas.width, pdf.internal.pageSize.getHeight()));
+      pdf.save(`gantt-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } finally { setExportingPDF(false); }
+  };
+
   // Filtra linhas ocultas por collapse — respeita grupos recolhidos
   const visible = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
 
@@ -931,7 +987,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={ganttRef} style={{ position: 'relative' }}>
 
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
       <div style={{
@@ -996,6 +1052,16 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
             <Icon name="alert-triangle" size={11} /> Conflito de dependência
           </span>
         )}
+
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 30, gap: 5 }}
+          onClick={exportExcelGantt} title="Exportar para Excel (.xlsx)">
+          <Icon name="download" size={13} /> Excel
+        </button>
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 30, gap: 5 }}
+          onClick={exportPDFGantt} disabled={exportingPDF} title="Exportar para PDF">
+          <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+        </button>
       </div>
 
       {/* ── Scroll container ──────────────────────────────────────────────── */}
@@ -1743,6 +1809,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     catch { return new Set(); }
   });
   const dragColRef = React.useRef(null);
+  const listaRef   = React.useRef(null);
+  const [exportingPDF, setExportingPDF] = React.useState(false);
 
   React.useEffect(() => {
     if (obraId) localStorage.setItem(`ls_cols_${obraId}`, JSON.stringify(colOrder));
@@ -2043,10 +2111,102 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const statusBadgeClass = s => s === 'done' ? 'success' : s === 'late' ? 'danger' : 'info';
   const statusLabel      = s => s === 'done' ? 'Concluída' : s === 'late' ? 'Atrasada' : 'Futura';
 
+  const exportExcelLista = () => {
+    import('xlsx').then(XLSX => {
+      const wb      = XLSX.utils.book_new();
+      // Colunas visíveis na ordem atual (inclui custom cols que já estão em colOrder)
+      const visCols = colOrder.filter(c => !hiddenCols.has(c));
+      const getLabel = (cid) => {
+        if (LISTA_COL_DEFS[cid]) return LISTA_COL_DEFS[cid].label;
+        const cc = customCols.find(c => c.id === cid);
+        return cc ? cc.label : cid;
+      };
+      // Formatos por índice de coluna
+      const colFmts = {};
+      visCols.forEach((cid, i) => {
+        if (['custo', 'custoReal', 'saldo'].includes(cid)) { colFmts[i] = '#,##0.00'; return; }
+        if (cid === 'avanco' || cid === 'peso') { colFmts[i] = '0.00%'; return; }
+        if (cid === 'inicio' || cid === 'fim')  { colFmts[i] = 'DD/MM/YYYY'; return; }
+        const cc = customCols.find(c => c.id === cid);
+        if (cc) {
+          if (cc.type === 'currency') colFmts[i] = '#,##0.00';
+          if (cc.type === 'percent')  colFmts[i] = '0.00%';
+          if (cc.type === 'date')     colFmts[i] = 'DD/MM/YYYY';
+        }
+      });
+      const getCellVal = (e, cid) => {
+        const gv      = e.isGroup ? groupVals[e.id] : null;
+        const ini     = gv ? gv.inicio : e.inicio;
+        const dur     = gv ? gv.dur    : e.dur;
+        const av      = gv ? gv.avanco : e.avanco;
+        const cst     = gv ? (gv.custo || 0) : (e.custo || 0);
+        const realCst = e.isGroup
+          ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+          : (e.custoRealizado || 0);
+        if (cid === 'wbs')      return wbsMap[e.id] || '';
+        if (cid === 'id')       return e.displayId ?? e.id;
+        if (cid === 'etapa')    return '  '.repeat(e.nivel || 0) + e.etapa;
+        if (cid === 'inicio')   return offsetToDate(ini);
+        if (cid === 'fim')      return offsetToDate(ini + dur);
+        if (cid === 'duracao')  return dur;
+        if (cid === 'avanco')   return av / 100;
+        if (cid === 'custo')    return cst;
+        if (cid === 'peso')     return e.isGroup ? '' : ((e.custo || 0) / (totalCusto || 1));
+        if (cid === 'custoReal') return realCst;
+        if (cid === 'saldo')    return cst - realCst;
+        if (cid === 'resp')     return e.responsavel || '';
+        if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas);
+        if (cid === 'succ')     return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', ');
+        if (cid === 'status')   return e.isGroup ? '' : (e.status === 'done' ? 'Concluída' : e.status === 'late' ? 'Atrasada' : 'Futura');
+        if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap')
+          ? `${e.restricaoTipo}${e.restricaoData ? ' ' + e.restricaoData : ''}` : '';
+        if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
+        return e.customCols?.[cid] ?? '';
+      };
+      const rows = [
+        visCols.map(getLabel),
+        ...filtrada.map(e => visCols.map(cid => getCellVal(e, cid))),
+        visCols.map(cid => {
+          if (cid === 'etapa')    return 'Total';
+          if (cid === 'custo')    return totalCusto;
+          if (cid === 'custoReal') return totalReal;
+          if (cid === 'saldo')    return totalSaldo;
+          return '';
+        }),
+      ];
+      const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
+      const rng = XLSX.utils.decode_range(ws['!ref']);
+      for (let R = 1; R <= rng.e.r; R++) {
+        Object.entries(colFmts).forEach(([C, z]) => {
+          const addr = XLSX.utils.encode_cell({ r: R, c: Number(C) });
+          if (ws[addr]) ws[addr].z = z;
+        });
+      }
+      ws['!cols']   = visCols.map(c => ({ wch: Math.max(8, Math.round(getColW(c) / 7)) }));
+      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+      XLSX.utils.book_append_sheet(wb, ws, 'Tarefas');
+      XLSX.writeFile(wb, `lista-tarefas-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    });
+  };
+
+  const exportPDFLista = async () => {
+    if (!listaRef.current) return;
+    setExportingPDF(true);
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
+      const canvas  = await html2canvas(listaRef.current, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf     = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const pW = pdf.internal.pageSize.getWidth();
+      pdf.addImage(imgData, 'PNG', 0, 0, pW, Math.min(canvas.height * pW / canvas.width, pdf.internal.pageSize.getHeight()));
+      pdf.save(`lista-tarefas-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } finally { setExportingPDF(false); }
+  };
+
   const btnStyle = { fontSize: 12, padding: '4px 10px', height: 30, gap: 5, display: 'flex', alignItems: 'center' };
 
   return (
-    <div className="card" style={{ marginTop: 'var(--gap)' }}>
+    <div ref={listaRef} className="card" style={{ marginTop: 'var(--gap)' }}>
 
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
       <div style={{
@@ -2237,6 +2397,15 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             </div>
           )}
         </div>
+
+        <div style={{ flex: 1 }} />
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+        <button className="btn btn-ghost" style={btnStyle} onClick={exportExcelLista} title="Exportar para Excel (.xlsx)">
+          <Icon name="download" size={13} /> Excel
+        </button>
+        <button className="btn btn-ghost" style={{ ...btnStyle, minWidth: 72 }} onClick={exportPDFLista} disabled={exportingPDF} title="Exportar para PDF">
+          <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+        </button>
       </div>
 
       {/* ── Barra de filtros ─────────────────────────────────────────────── */}
@@ -2710,6 +2879,8 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
     if (obraId) localStorage.setItem(`uso_widths_${obraId}`, JSON.stringify(usoColW));
   }, [usoColW, obraId]);
   const getUsoW = (col) => usoColW[col] ?? USO_COL_DEFAULT[col] ?? 80;
+  const usoRef  = React.useRef(null);
+  const [exportingPDF, setExportingPDF] = React.useState(false);
 
   const startUsoResize = (ev, col) => {
     ev.preventDefault(); ev.stopPropagation();
@@ -2770,6 +2941,59 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
     maxWidth: 0,
   };
 
+  const exportExcelUso = () => {
+    import('xlsx').then(XLSX => {
+      const wb   = XLSX.utils.book_new();
+      const hdrs = [...USO_COL_LABELS, ...months.map(m => m.label), 'Total'];
+      const rows = [hdrs, ...etapas.map(e => {
+        const dist  = getDist(e);
+        const total = Object.values(dist).reduce((s, v) => s + v, 0);
+        return [
+          e.displayId ?? e.id,
+          wbsMap[e.id] || '',
+          '  '.repeat(e.nivel || 0) + e.etapa,
+          offsetToDate(e.inicio),
+          offsetToDate(e.inicio + e.dur),
+          e.dur,
+          e.avanco / 100,
+          e.isGroup ? '' : (e.custo || 0),
+          ...months.map(m => dist[m.key] || 0),
+          total,
+        ];
+      })];
+      const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
+      const rng = XLSX.utils.decode_range(ws['!ref']);
+      for (let R = 1; R <= rng.e.r; R++) {
+        [[3, 'DD/MM/YYYY'], [4, 'DD/MM/YYYY'], [6, '0.00%'], [7, '#,##0.00']].forEach(([C, z]) => {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (ws[addr]) ws[addr].z = z;
+        });
+        for (let C = 8; C <= rng.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (ws[addr]) ws[addr].z = '#,##0.00';
+        }
+      }
+      ws['!cols']   = [...USO_COL_KEYS.map(k => ({ wch: Math.max(8, Math.round(getUsoW(k) / 7)) })), ...months.map(() => ({ wch: 16 })), { wch: 16 }];
+      ws['!freeze'] = { xSplit: 3, ySplit: 1 };
+      XLSX.utils.book_append_sheet(wb, ws, 'Uso da Tarefa');
+      XLSX.writeFile(wb, `uso-tarefa-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    });
+  };
+
+  const exportPDFUso = async () => {
+    if (!usoRef.current) return;
+    setExportingPDF(true);
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
+      const canvas  = await html2canvas(usoRef.current, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf     = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const pW = pdf.internal.pageSize.getWidth();
+      pdf.addImage(imgData, 'PNG', 0, 0, pW, Math.min(canvas.height * pW / canvas.width, pdf.internal.pageSize.getHeight()));
+      pdf.save(`uso-tarefa-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } finally { setExportingPDF(false); }
+  };
+
   if (!months.length) return (
     <div className="card" style={{ marginTop: 'var(--gap)', padding: 40, textAlign: 'center' }}>
       <p className="text-muted">Adicione tarefas com datas e valores para ver a distribuição.</p>
@@ -2777,7 +3001,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 280px)', marginTop: 'var(--gap)' }}>
+    <div ref={usoRef} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 280px)', marginTop: 'var(--gap)' }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', marginBottom: 4 }}>
         <span style={{ fontSize: 13, color: 'var(--text-soft)' }}>Detalhe:</span>
@@ -2788,6 +3012,15 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
         <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 8 }}>
           Clique em uma tarefa para destacar na grade
         </span>
+        <div style={{ flex: 1 }} />
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5 }}
+          onClick={exportExcelUso} title="Exportar para Excel (.xlsx)">
+          <Icon name="download" size={13} /> Excel
+        </button>
+        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5, minWidth: 72 }}
+          onClick={exportPDFUso} disabled={exportingPDF} title="Exportar para PDF">
+          <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+        </button>
       </div>
 
       {/* Painel dividido */}
