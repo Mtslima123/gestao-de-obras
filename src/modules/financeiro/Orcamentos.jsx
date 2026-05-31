@@ -191,9 +191,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
       )
       .map(it => parseInt(it.codigo.split('.').pop(), 10))
       .filter(n => !isNaN(n));
-    const next   = siblings.length ? Math.max(...siblings) + 1 : 1;
-    const prefix = parent ? parent + '.' : '';
-    return prefix + String(next).padStart(2, '0');
+    const next     = siblings.length ? Math.max(...siblings) + 1 : 1;
+    const prefix   = parent ? parent + '.' : '';
+    // Preserva a largura do último segmento do código de referência (001→3, 01→2)
+    const padWidth = parts[parts.length - 1].length;
+    return prefix + String(next).padStart(padWidth, '0');
   };
 
   // Linha visível se nenhum ancestral estiver colapsado
