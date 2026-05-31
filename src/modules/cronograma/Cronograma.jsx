@@ -936,14 +936,34 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
   const exportPDFGantt = async () => {
     setExportingPDF(true);
     try {
-      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const [{ jsPDF }, { default: autoTable }, { default: html2canvas }] = await Promise.all([
+        import('jspdf'), import('jspdf-autotable'), import('html2canvas'),
+      ]);
       const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
       const BRAND = [1, 67, 134];
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
-      doc.setFontSize(13); doc.text('Cronograma de Obras', 14, 14);
-      doc.setFontSize(8);  doc.setTextColor(130);
-      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
+
+      // ── Página 1: gráfico visual ─────────────────────────────────────
+      doc.setFontSize(11); doc.setTextColor(0);
+      doc.text('Cronograma de Obras', 14, 12);
+      doc.setFontSize(7);  doc.setTextColor(130);
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 17);
+      doc.setTextColor(0);
+      if (ganttRef.current) {
+        const canvas = await html2canvas(ganttRef.current, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+        const availW = W - 28;
+        const availH = H - 24;
+        const ratio  = Math.min(availW / canvas.width, availH / canvas.height);
+        doc.addImage(canvas.toDataURL('image/png'), 'PNG', 14, 20, canvas.width * ratio, canvas.height * ratio);
+      }
+
+      // ── Páginas seguintes: tabela de dados ─────────────────────────
+      doc.addPage();
+      doc.setFontSize(10); doc.setTextColor(0);
+      doc.text('Lista de Tarefas', 14, 12);
+      doc.setFontSize(7);  doc.setTextColor(130);
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 17);
       doc.setTextColor(0);
       const wbs  = computeAllWBS(etapas);
       const body = etapas.map(e => {
@@ -969,7 +989,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
         };
       });
       autoTable(doc, {
-        startY: 25,
+        startY: 20,
         head: [['WBS', 'ID', 'Nome', 'Início', 'Término', 'Dur', 'Avanço', 'Status', 'Custo (R$)', 'Predecessoras']],
         body: body.map(r => r.vals),
         theme: 'grid',
@@ -988,7 +1008,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
           8: { cellWidth: 28, halign: 'right' },
           9: { cellWidth: 'auto' },
         },
-        margin: { top: 25, right: 14, bottom: 14, left: 14 },
+        margin: { top: 20, right: 14, bottom: 14, left: 14 },
         didParseCell: (data) => {
           if (data.section === 'body' && body[data.row.index]?._isGroup) {
             data.cell.styles.fontStyle = 'bold';
