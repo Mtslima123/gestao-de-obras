@@ -962,11 +962,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                         {/* Ações */}
                         <td>
                           <div className="orca-row-actions">
-                            <button
-                              className="orca-row-btn"
-                              title="Inserir acima (mesmo nível)"
-                              onClick={() => addAbove(it.codigo)}
-                            >↑+</button>
+                            {nivel > 0 && (
+                              <button
+                                className="orca-row-btn"
+                                title="Inserir acima (mesmo nível)"
+                                onClick={() => addAbove(it.codigo)}
+                              >↑+</button>
+                            )}
                             <button
                               className="orca-row-btn"
                               title="Inserir abaixo (mesmo nível)"
