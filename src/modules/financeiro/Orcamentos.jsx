@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
-import { Modal } from '../../components/Modals';
+import { useToast } from '../../components/Modals';
 import { StatusBadge } from '../../components/StatusBadge';
 import { orcamentosService } from './orcamentos.service';
 
@@ -9,22 +9,9 @@ import { orcamentosService } from './orcamentos.service';
 const { brl: brlOR } = AppData;
 
 
-const OrcamentoLista = ({ onOpen, onNovo, obras = [] }) => {
-  const [orcamentos, setOrcamentos] = React.useState(AppData.orcamentosLista);
+// OrcamentoLista recebe orcamentos já buscados pelo screen pai
+const OrcamentoLista = ({ onOpen, onNovo, orcamentos = AppData.orcamentosLista }) => {
   const [filter, setFilter] = React.useState('todos');
-
-  React.useEffect(() => {
-    orcamentosService.listar().then(({ data, error }) => {
-      if (!error && data && data.length > 0) {
-        // Enriquece cada orçamento com o nome da obra para exibição na tabela
-        const enriched = data.map(o => ({
-          ...o,
-          obra: obras.find(ob => ob.id === o.obra_id)?.nome || o.obra_id,
-        }));
-        setOrcamentos(enriched);
-      }
-    });
-  }, []);
 
   const filtered = filter === 'todos' ? orcamentos : orcamentos.filter(o => o.status === filter);
   const totalAprovado = orcamentos.filter(o => o.status === 'aprovado').reduce((a, b) => a + b.valor, 0);
@@ -78,11 +65,11 @@ const OrcamentoLista = ({ onOpen, onNovo, obras = [] }) => {
         <div className="card-header">
           <div className="filters">
             {[
-              { id: 'todos', label: 'Todos', count: orcamentos.length },
-              { id: 'aprovado', label: 'Aprovados', count: orcamentos.filter(o => o.status === 'aprovado').length },
+              { id: 'todos',    label: 'Todos',        count: orcamentos.length },
+              { id: 'aprovado', label: 'Aprovados',    count: orcamentos.filter(o => o.status === 'aprovado').length },
               { id: 'pendente', label: 'Em aprovação', count: orcamentos.filter(o => o.status === 'pendente').length },
-              { id: 'rascunho', label: 'Rascunhos', count: orcamentos.filter(o => o.status === 'rascunho').length },
-              { id: 'rejeitado', label: 'Rejeitados', count: orcamentos.filter(o => o.status === 'rejeitado').length },
+              { id: 'rascunho', label: 'Rascunhos',    count: orcamentos.filter(o => o.status === 'rascunho').length },
+              { id: 'rejeitado',label: 'Rejeitados',   count: orcamentos.filter(o => o.status === 'rejeitado').length },
             ].map(f => (
               <button key={f.id} className={'chip' + (filter === f.id ? ' active' : '')} onClick={() => setFilter(f.id)}>
                 {f.label} <span style={{ color: 'var(--text-faint)' }}>·</span> {f.count}
@@ -120,7 +107,11 @@ const OrcamentoLista = ({ onOpen, onNovo, obras = [] }) => {
                   <td className="right mono num">{Number(o.bdi).toFixed(1)}%</td>
                   <td><StatusBadge status={o.status} /></td>
                   <td className="mono text-sm text-muted">{o.data}</td>
-                  <td><button className="icon-btn" style={{ width: 28, height: 28 }} onClick={(e) => e.stopPropagation()}><Icon name="dots" size={14} /></button></td>
+                  <td>
+                    <button className="icon-btn" style={{ width: 28, height: 28 }} onClick={(e) => e.stopPropagation()}>
+                      <Icon name="dots" size={14} />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -131,9 +122,12 @@ const OrcamentoLista = ({ onOpen, onNovo, obras = [] }) => {
   );
 };
 
-const OrcamentoDetalhe = ({ orcamento, onBack }) => {
-  const [rawItems, setRawItems] = React.useState(AppData.orcamentoItens);
-  const [openGroups, setOpenGroups] = React.useState(['01', '02', '03']);
+const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
+  const [rawItems, setRawItems]       = React.useState(AppData.orcamentoItens);
+  const [openGroups, setOpenGroups]   = React.useState(['01', '02', '03']);
+  const [confirmDelete, setConfirm]   = React.useState(false);
+  const [deleting, setDeleting]       = React.useState(false);
+  const [revisando, setRevisando]     = React.useState(false);
 
   React.useEffect(() => {
     orcamentosService.itens.listar(orcamento.id).then(({ data, error }) => {
@@ -145,16 +139,32 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
   const items = rawItems.map(it => ({
     ...it,
     unit: it.unit_cost ?? it.unit ?? 0,
-    bdi: it.is_bdi ?? it.bdi ?? false,
+    bdi:  it.is_bdi   ?? it.bdi   ?? false,
   }));
 
-  const total = items.filter(i => i.nivel === 0).reduce((a, b) => a + b.total, 0);
+  const total       = items.filter(i => i.nivel === 0).reduce((a, b) => a + b.total, 0);
   const totalDireto = items.filter(i => i.nivel === 0 && !i.bdi).reduce((a, b) => a + b.total, 0);
-  const totalBdi = items.find(i => i.bdi)?.total || 0;
-  const bdiPct = totalDireto > 0 ? (totalBdi / totalDireto * 100).toFixed(1) : '0.0';
+  const totalBdi    = items.find(i => i.bdi)?.total || 0;
+  const bdiPct      = totalDireto > 0 ? (totalBdi / totalDireto * 100).toFixed(1) : '0.0';
 
-  const toggle = (codigo) => {
+  const toggle = (codigo) =>
     setOpenGroups(g => g.includes(codigo) ? g.filter(x => x !== codigo) : [...g, codigo]);
+
+  const handleDeleteClick = async () => {
+    if (!confirmDelete) {
+      setConfirm(true);
+      // Reseta confirmação após 5s se o usuário não confirmar
+      setTimeout(() => setConfirm(false), 5000);
+      return;
+    }
+    setDeleting(true);
+    await onDelete(orcamento.id);
+  };
+
+  const handleCriarRevisao = async () => {
+    setRevisando(true);
+    await onCriarRevisao(orcamento);
+    setRevisando(false);
   };
 
   return (
@@ -172,6 +182,18 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
           <div className="page-subtitle">{orcamento.obra} · {orcamento.cliente} · atualizado em {orcamento.data}</div>
         </div>
         <div className="page-actions">
+          <button
+            className={'btn ' + (confirmDelete ? 'btn-danger' : 'btn-ghost')}
+            onClick={handleDeleteClick}
+            disabled={deleting}
+          >
+            <Icon name="trash" size={15} />
+            {deleting ? 'Excluindo…' : confirmDelete ? 'Confirmar exclusão' : 'Excluir'}
+          </button>
+          <button className="btn btn-ghost" onClick={handleCriarRevisao} disabled={revisando}>
+            <Icon name="file" size={15} />
+            {revisando ? 'Criando…' : 'Criar revisão'}
+          </button>
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar PDF</button>
           <button className="btn btn-ghost"><Icon name="edit" size={15} />Editar</button>
           {orcamento.status === 'pendente' && (
@@ -195,7 +217,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Valor por m²</div>
-          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{brlOR(total / 18420, { compact: true }).replace('R$ ', 'R$ ')}</div>
+          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{brlOR(total / 18420, { compact: true })}</div>
           <div className="kpi-foot" style={{ marginTop: 4 }}>
             <span className="kpi-foot-text">Base: 18.420 m²</span>
           </div>
@@ -229,8 +251,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
                 <div key={i} className={'tree-row level-' + it.nivel}>
                   <div className="cell" style={{ paddingLeft: it.nivel === 1 ? 36 : 12 }}>
                     {it.nivel === 0 && !it.bdi && (
-                      <button className={'tree-toggle' + (openGroups.includes(it.codigo) ? ' open' : '')}
-                        onClick={() => toggle(it.codigo)} style={{ verticalAlign: 'middle' }}>
+                      <button
+                        className={'tree-toggle' + (openGroups.includes(it.codigo) ? ' open' : '')}
+                        onClick={() => toggle(it.codigo)}
+                        style={{ verticalAlign: 'middle' }}
+                      >
                         <Icon name="chevron-right" size={14} />
                       </button>
                     )}
@@ -256,7 +281,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
             </div>
             <div className="card-body">
               <div className="stack" style={{ gap: 11 }}>
-                {items.filter(i => i.nivel === 0 && !i.bdi).slice(0, 8).sort((a,b) => b.peso - a.peso).map((it, i) => (
+                {items.filter(i => i.nivel === 0 && !i.bdi).slice(0, 8).sort((a, b) => b.peso - a.peso).map((it, i) => (
                   <div key={i}>
                     <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
                       <span className="text-sm">
@@ -281,13 +306,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
             <div className="card-body">
               <div className="stack" style={{ gap: 9, fontSize: 13 }}>
                 {[
-                  { label: 'Administração central', value: '4,2%' },
-                  { label: 'Despesas financeiras', value: '1,1%' },
-                  { label: 'Seguros e garantias', value: '0,8%' },
-                  { label: 'Risco do empreendimento', value: '2,0%' },
-                  { label: 'Lucro bruto', value: '8,0%' },
+                  { label: 'Administração central',    value: '4,2%' },
+                  { label: 'Despesas financeiras',     value: '1,1%' },
+                  { label: 'Seguros e garantias',      value: '0,8%' },
+                  { label: 'Risco do empreendimento',  value: '2,0%' },
+                  { label: 'Lucro bruto',              value: '8,0%' },
                   { label: 'Tributos (PIS/COFINS/ISS)', value: '6,4%' },
-                  { label: 'CPRB', value: '4,5%' },
+                  { label: 'CPRB',                     value: '4,5%' },
                 ].map((b, i) => (
                   <div key={i} className="row" style={{ justifyContent: 'space-between' }}>
                     <span className="text-soft">{b.label}</span>
@@ -309,11 +334,96 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
   );
 };
 
-// Top-level Orçamentos screen with internal state
-const OrcamentosScreen = ({ onNovoOrcamento, obras = [] }) => {
-  const [selected, setSelected] = React.useState(null);
-  if (selected) return <OrcamentoDetalhe orcamento={selected} onBack={() => setSelected(null)} />;
-  return <OrcamentoLista onOpen={setSelected} onNovo={onNovoOrcamento} obras={obras} />;
+// OrcamentosScreen gerencia o estado da lista e os handlers de ação
+const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user }) => {
+  const toast = useToast();
+  const [selected, setSelected]     = React.useState(null);
+  const [orcamentos, setOrcamentos] = React.useState(AppData.orcamentosLista);
+
+  const refetch = React.useCallback(() => {
+    orcamentosService.listar().then(({ data, error }) => {
+      if (!error && data && data.length > 0) {
+        const enriched = data.map(o => ({
+          ...o,
+          obra: obras.find(ob => ob.id === o.obra_id)?.nome || o.obra_id,
+        }));
+        setOrcamentos(enriched);
+      }
+    });
+  }, [obras]);
+
+  // Rebusca quando refreshKey muda (criação via modal) ou na montagem inicial
+  React.useEffect(() => { refetch(); }, [refreshKey]);
+
+  const handleDelete = async (id) => {
+    const { error } = await orcamentosService.excluir(id);
+    if (error) {
+      toast('Erro ao excluir: ' + error.message, { tone: 'error', icon: 'alert' });
+      return;
+    }
+    toast('Orçamento excluído', { tone: 'success', icon: 'check' });
+    setSelected(null);
+    refetch();
+  };
+
+  const handleCriarRevisao = async (orcamento) => {
+    if (!orcamento.obra_id) {
+      toast('Orçamento sem obra vinculada — não é possível criar revisão', { tone: 'error', icon: 'alert' });
+      return;
+    }
+    const versaoNum = parseInt((orcamento.versao || 'v1').replace('v', ''), 10);
+    const novaVersao = 'v' + (versaoNum + 1);
+    const novoId = 'OR-' + String(Date.now()).slice(-4);
+
+    const { error } = await orcamentosService.criar({
+      id:      novoId,
+      obra_id: orcamento.obra_id,
+      cliente: orcamento.cliente,
+      versao:  novaVersao,
+      bdi:     orcamento.bdi,
+      status:  'rascunho',
+      valor:   orcamento.valor,
+      data:    new Date().toISOString().slice(0, 10),
+    }, user?.id);
+
+    if (error) {
+      toast('Erro ao criar revisão: ' + error.message, { tone: 'error', icon: 'alert' });
+      return;
+    }
+
+    // Copia os itens do orçamento original para a nova revisão
+    const { data: itens } = await orcamentosService.itens.listar(orcamento.id);
+    if (itens && itens.length > 0) {
+      const novosItens = itens.map(({ id, created_at, orcamento_id, ...rest }) => ({
+        ...rest,
+        orcamento_id: novoId,
+      }));
+      await orcamentosService.itens.criar(novosItens);
+    }
+
+    toast('Revisão ' + novaVersao + ' criada', { tone: 'success', icon: 'check' });
+    refetch();
+    setSelected({ ...orcamento, id: novoId, versao: novaVersao, status: 'rascunho', data: new Date().toLocaleDateString('pt-BR') });
+  };
+
+  if (selected) {
+    return (
+      <OrcamentoDetalhe
+        orcamento={selected}
+        onBack={() => setSelected(null)}
+        onDelete={handleDelete}
+        onCriarRevisao={handleCriarRevisao}
+      />
+    );
+  }
+
+  return (
+    <OrcamentoLista
+      onOpen={setSelected}
+      onNovo={onNovoOrcamento}
+      orcamentos={orcamentos}
+    />
+  );
 };
 
 export { OrcamentosScreen, OrcamentoDetalhe, OrcamentoLista };

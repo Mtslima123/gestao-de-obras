@@ -71,6 +71,7 @@ const AppInner = () => {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
   const [obras, setObras] = React.useState(() => [...AppData.obras]);
+  const [refreshOrcamentos, setRefreshOrcamentos] = React.useState(0);
   const [cronogramaObraId, setCronogramaObraId] = React.useState(null);
   const [obrasLoaded,     setObrasLoaded]     = React.useState(false);
 
@@ -223,7 +224,12 @@ const AppInner = () => {
             />
           )}
           {view === 'orcamentos' && (
-            <OrcamentosScreen onNovoOrcamento={() => setModal('novo-orcamento')} obras={obras} />
+            <OrcamentosScreen
+              onNovoOrcamento={() => setModal('novo-orcamento')}
+              obras={obras}
+              refreshKey={refreshOrcamentos}
+              user={user}
+            />
           )}
           {view === 'estimativas' && <EstimativasScreen />}
           {view === 'incc' && <INCCScreen />}
@@ -246,7 +252,7 @@ const AppInner = () => {
           onClose={() => setModal(null)}
           obras={obras}
           user={user}
-          onCreated={() => setModal(null)}
+          onCreated={() => setRefreshOrcamentos(k => k + 1)}
         />
       )}
       {modal && typeof modal === 'object' && modal.type === 'compra' && (
