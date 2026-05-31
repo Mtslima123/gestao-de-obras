@@ -490,6 +490,15 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   const [deletedIds, setDeletedIds] = React.useState([]);
   const [dirty, setDirty]           = React.useState(false);
   const [showImport, setShowImport] = React.useState(false);
+  const [activeCell, setActiveCell] = React.useState(null); // { id, field, raw }
+
+  // Formata número com separadores pt-BR (ex: 1.234,56)
+  const fmtNum = (n, dec = 2) =>
+    (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+
+  // Converte string pt-BR de volta para float (1.234,56 → 1234.56)
+  const parseNum = (s) =>
+    parseFloat(String(s).replace(/\./g, '').replace(',', '.')) || 0;
   const [saving, setSaving]         = React.useState(false);
   const [collapsed, setCollapsed]   = React.useState(new Set());
   const [confirmDelete, setConfirm] = React.useState(false);
@@ -947,10 +956,16 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                           {!hasKids ? (
                             <input
                               className="orca-cell-input right"
-                              type="number"
-                              value={it.quantidade || ''}
-                              placeholder="0"
-                              onChange={e => editCell(it.id, 'quantidade', parseFloat(e.target.value) || 0)}
+                              inputMode="decimal"
+                              value={
+                                activeCell?.id === it.id && activeCell?.field === 'quantidade'
+                                  ? activeCell.raw
+                                  : fmtNum(it.quantidade)
+                              }
+                              onFocus={() => setActiveCell({ id: it.id, field: 'quantidade', raw: it.quantidade || '' })}
+                              onChange={e => setActiveCell(prev => ({ ...prev, raw: e.target.value }))}
+                              onBlur={e => { editCell(it.id, 'quantidade', parseNum(e.target.value)); setActiveCell(null); }}
+                              placeholder="0,00"
                             />
                           ) : <span className="text-muted" style={{ fontSize: 11 }}>—</span>}
                         </td>
@@ -974,10 +989,16 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                           {!hasKids ? (
                             <input
                               className="orca-cell-input right"
-                              type="number"
-                              value={it.valor_unitario || ''}
+                              inputMode="decimal"
+                              value={
+                                activeCell?.id === it.id && activeCell?.field === 'valor_unitario'
+                                  ? activeCell.raw
+                                  : fmtNum(it.valor_unitario)
+                              }
+                              onFocus={() => setActiveCell({ id: it.id, field: 'valor_unitario', raw: it.valor_unitario || '' })}
+                              onChange={e => setActiveCell(prev => ({ ...prev, raw: e.target.value }))}
+                              onBlur={e => { editCell(it.id, 'valor_unitario', parseNum(e.target.value)); setActiveCell(null); }}
                               placeholder="0,00"
-                              onChange={e => editCell(it.id, 'valor_unitario', parseFloat(e.target.value) || 0)}
                             />
                           ) : <span className="text-muted" style={{ fontSize: 11 }}>—</span>}
                         </td>
