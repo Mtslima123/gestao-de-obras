@@ -588,11 +588,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
                               title="Inserir abaixo (mesmo nível)"
                               onClick={() => addBelow(it.codigo)}
                             >↓+</button>
-                            <button
-                              className="orca-row-btn"
-                              title="Inserir subgrupo (nível filho)"
-                              onClick={() => addChild(it.codigo)}
-                            >→+</button>
+                            {nivel < 3 && (
+                              <button
+                                className="orca-row-btn"
+                                title="Inserir subgrupo (nível filho)"
+                                onClick={() => addChild(it.codigo)}
+                              >→+</button>
+                            )}
                             <button
                               className="orca-row-btn danger"
                               title="Remover linha (e filhos)"
