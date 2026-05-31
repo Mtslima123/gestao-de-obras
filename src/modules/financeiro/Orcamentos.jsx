@@ -3,24 +3,39 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { Modal } from '../../components/Modals';
 import { StatusBadge } from '../../components/StatusBadge';
+import { orcamentosService } from './orcamentos.service';
 
 // Orçamentos — lista + detalhe com composição
 const { brl: brlOR } = AppData;
 
 
-const OrcamentoLista = ({ onOpen, onNovo }) => {
-  const D = AppData;
+const OrcamentoLista = ({ onOpen, onNovo, obras = [] }) => {
+  const [orcamentos, setOrcamentos] = React.useState(AppData.orcamentosLista);
   const [filter, setFilter] = React.useState('todos');
-  const filtered = filter === 'todos' ? D.orcamentosLista : D.orcamentosLista.filter(o => o.status === filter);
-  const totalAprovado = D.orcamentosLista.filter(o => o.status === 'aprovado').reduce((a, b) => a + b.valor, 0);
-  const totalPendente = D.orcamentosLista.filter(o => o.status === 'pendente').reduce((a, b) => a + b.valor, 0);
+
+  React.useEffect(() => {
+    orcamentosService.listar().then(({ data, error }) => {
+      if (!error && data && data.length > 0) {
+        // Enriquece cada orçamento com o nome da obra para exibição na tabela
+        const enriched = data.map(o => ({
+          ...o,
+          obra: obras.find(ob => ob.id === o.obra_id)?.nome || o.obra_id,
+        }));
+        setOrcamentos(enriched);
+      }
+    });
+  }, []);
+
+  const filtered = filter === 'todos' ? orcamentos : orcamentos.filter(o => o.status === filter);
+  const totalAprovado = orcamentos.filter(o => o.status === 'aprovado').reduce((a, b) => a + b.valor, 0);
+  const totalPendente = orcamentos.filter(o => o.status === 'pendente').reduce((a, b) => a + b.valor, 0);
 
   return (
     <>
       <div className="page-header">
         <div>
           <h1 className="page-title">Orçamentos</h1>
-          <div className="page-subtitle">{D.orcamentosLista.length} orçamentos · {brlOR(totalAprovado + totalPendente, { compact: true })} em valor total</div>
+          <div className="page-subtitle">{orcamentos.length} orçamentos · {brlOR(totalAprovado + totalPendente, { compact: true })} em valor total</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
@@ -33,14 +48,14 @@ const OrcamentoLista = ({ onOpen, onNovo }) => {
           <div className="kpi-label">Aprovados</div>
           <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{brlOR(totalAprovado, { compact: true })}</div>
           <div className="kpi-foot" style={{ marginTop: 6 }}>
-            <span className="kpi-foot-text">{D.orcamentosLista.filter(o => o.status === 'aprovado').length} contratos firmados</span>
+            <span className="kpi-foot-text">{orcamentos.filter(o => o.status === 'aprovado').length} contratos firmados</span>
           </div>
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Em aprovação</div>
           <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{brlOR(totalPendente, { compact: true })}</div>
           <div className="kpi-foot" style={{ marginTop: 6 }}>
-            <span className="kpi-foot-text">{D.orcamentosLista.filter(o => o.status === 'pendente').length} aguardando cliente</span>
+            <span className="kpi-foot-text">{orcamentos.filter(o => o.status === 'pendente').length} aguardando cliente</span>
           </div>
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
@@ -54,8 +69,7 @@ const OrcamentoLista = ({ onOpen, onNovo }) => {
           <div className="kpi-label">Taxa de conversão (90d)</div>
           <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>72<span className="unit">%</span></div>
           <div className="kpi-foot" style={{ marginTop: 6 }}>
-            <span className="kpi-trend up"><Icon name="arrow-up" size={11} stroke={2.5} />+8 p.p.</span>
-            <span className="kpi-foot-text">vs trimestre anterior</span>
+            <span className="kpi-foot-text"><Icon name="arrow-up" size={11} stroke={2.5} />+8 p.p. vs trimestre anterior</span>
           </div>
         </div>
       </div>
@@ -64,11 +78,11 @@ const OrcamentoLista = ({ onOpen, onNovo }) => {
         <div className="card-header">
           <div className="filters">
             {[
-              { id: 'todos', label: 'Todos', count: D.orcamentosLista.length },
-              { id: 'aprovado', label: 'Aprovados', count: D.orcamentosLista.filter(o => o.status === 'aprovado').length },
-              { id: 'pendente', label: 'Em aprovação', count: D.orcamentosLista.filter(o => o.status === 'pendente').length },
-              { id: 'rascunho', label: 'Rascunhos', count: D.orcamentosLista.filter(o => o.status === 'rascunho').length },
-              { id: 'rejeitado', label: 'Rejeitados', count: D.orcamentosLista.filter(o => o.status === 'rejeitado').length },
+              { id: 'todos', label: 'Todos', count: orcamentos.length },
+              { id: 'aprovado', label: 'Aprovados', count: orcamentos.filter(o => o.status === 'aprovado').length },
+              { id: 'pendente', label: 'Em aprovação', count: orcamentos.filter(o => o.status === 'pendente').length },
+              { id: 'rascunho', label: 'Rascunhos', count: orcamentos.filter(o => o.status === 'rascunho').length },
+              { id: 'rejeitado', label: 'Rejeitados', count: orcamentos.filter(o => o.status === 'rejeitado').length },
             ].map(f => (
               <button key={f.id} className={'chip' + (filter === f.id ? ' active' : '')} onClick={() => setFilter(f.id)}>
                 {f.label} <span style={{ color: 'var(--text-faint)' }}>·</span> {f.count}
@@ -103,7 +117,7 @@ const OrcamentoLista = ({ onOpen, onNovo }) => {
                   </td>
                   <td className="center mono text-muted">{o.versao}</td>
                   <td className="right strong num">{brlOR(o.valor, { compact: true })}</td>
-                  <td className="right mono num">{o.bdi.toFixed(1)}%</td>
+                  <td className="right mono num">{Number(o.bdi).toFixed(1)}%</td>
                   <td><StatusBadge status={o.status} /></td>
                   <td className="mono text-sm text-muted">{o.data}</td>
                   <td><button className="icon-btn" style={{ width: 28, height: 28 }} onClick={(e) => e.stopPropagation()}><Icon name="dots" size={14} /></button></td>
@@ -118,13 +132,26 @@ const OrcamentoLista = ({ onOpen, onNovo }) => {
 };
 
 const OrcamentoDetalhe = ({ orcamento, onBack }) => {
-  const D = AppData;
+  const [rawItems, setRawItems] = React.useState(AppData.orcamentoItens);
   const [openGroups, setOpenGroups] = React.useState(['01', '02', '03']);
-  const items = D.orcamentoItens;
+
+  React.useEffect(() => {
+    orcamentosService.itens.listar(orcamento.id).then(({ data, error }) => {
+      if (!error && data && data.length > 0) setRawItems(data);
+    });
+  }, [orcamento.id]);
+
+  // Adapter: normaliza nomes de coluna do DB para os campos usados no JSX
+  const items = rawItems.map(it => ({
+    ...it,
+    unit: it.unit_cost ?? it.unit ?? 0,
+    bdi: it.is_bdi ?? it.bdi ?? false,
+  }));
+
   const total = items.filter(i => i.nivel === 0).reduce((a, b) => a + b.total, 0);
   const totalDireto = items.filter(i => i.nivel === 0 && !i.bdi).reduce((a, b) => a + b.total, 0);
   const totalBdi = items.find(i => i.bdi)?.total || 0;
-  const bdiPct = (totalBdi / totalDireto * 100).toFixed(1);
+  const bdiPct = totalDireto > 0 ? (totalBdi / totalDireto * 100).toFixed(1) : '0.0';
 
   const toggle = (codigo) => {
     setOpenGroups(g => g.includes(codigo) ? g.filter(x => x !== codigo) : [...g, codigo]);
@@ -211,10 +238,10 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
                     {it.item}
                   </div>
                   <div className="cell">{it.un}</div>
-                  <div className="cell right mono num">{it.quant === 1 && it.nivel === 0 ? '—' : it.quant.toLocaleString('pt-BR')}</div>
+                  <div className="cell right mono num">{it.quant === 1 && it.nivel === 0 ? '—' : Number(it.quant).toLocaleString('pt-BR')}</div>
                   <div className="cell right mono num">{it.unit > 0 ? brlOR(it.unit) : '—'}</div>
                   <div className="cell right mono num" style={{ fontWeight: it.nivel === 0 ? 600 : 500 }}>{brlOR(it.total, { compact: true })}</div>
-                  <div className="cell right mono num text-muted">{it.peso.toFixed(1)}%</div>
+                  <div className="cell right mono num text-muted">{Number(it.peso).toFixed(1)}%</div>
                 </div>
               );
             })}
@@ -236,7 +263,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
                         <span className="mono text-muted" style={{ marginRight: 6 }}>{it.codigo}</span>
                         {it.item}
                       </span>
-                      <span className="mono num fw-600 text-sm">{it.peso.toFixed(1)}%</span>
+                      <span className="mono num fw-600 text-sm">{Number(it.peso).toFixed(1)}%</span>
                     </div>
                     <div className="progress" style={{ height: 5 }}>
                       <span style={{ width: (it.peso / 22 * 100) + '%' }}></span>
@@ -283,10 +310,10 @@ const OrcamentoDetalhe = ({ orcamento, onBack }) => {
 };
 
 // Top-level Orçamentos screen with internal state
-const OrcamentosScreen = ({ onNovoOrcamento }) => {
+const OrcamentosScreen = ({ onNovoOrcamento, obras = [] }) => {
   const [selected, setSelected] = React.useState(null);
   if (selected) return <OrcamentoDetalhe orcamento={selected} onBack={() => setSelected(null)} />;
-  return <OrcamentoLista onOpen={setSelected} onNovo={onNovoOrcamento} />;
+  return <OrcamentoLista onOpen={setSelected} onNovo={onNovoOrcamento} obras={obras} />;
 };
 
 export { OrcamentosScreen, OrcamentoDetalhe, OrcamentoLista };

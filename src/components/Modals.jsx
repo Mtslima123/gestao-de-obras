@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from './Icons';
 import { AppData } from '../utils/data';
+import { orcamentosService } from '../modules/financeiro/orcamentos.service';
 
 // Modals, toasts, dropdowns — shared interactive components
 
@@ -508,22 +509,74 @@ const NotifPanel = ({ onClose }) => {
 };
 
 // ----- Novo Orçamento modal -----
-const NovoOrcamentoModal = ({ onClose }) => {
+const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
   const toast = useToast();
-  const obras = AppData.obras || [];
   const [form, setForm] = React.useState({
-    obra: obras[0]?.nome || '',
-    cliente: '',
+    obra_id: obras[0]?.id || '',
+    cliente: obras[0]?.cliente || '',
     versao: 'v1',
     bdi: '26,0',
     status: 'rascunho',
   });
-  const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const onSave = () => {
-    if (!form.obra || !form.cliente) return;
+  const [loading, setLoading] = React.useState(false);
+
+  const handleObraChange = (obraId) => {
+    const obra = obras.find(o => o.id === obraId);
+    setForm(f => ({ ...f, obra_id: obraId, cliente: obra?.cliente || f.cliente }));
+  };
+
+  const onSave = async () => {
+    if (!form.obra_id) {
+      toast('Selecione uma obra', { tone: 'error', icon: 'alert' });
+      return;
+    }
+    if (!form.cliente.trim()) {
+      toast('Preencha o nome do cliente', { tone: 'error', icon: 'alert' });
+      return;
+    }
+    const novoId = 'OR-' + String(Date.now()).slice(-4);
+    const bdiNum = parseFloat(form.bdi.replace(',', '.')) || 0;
+    setLoading(true);
+    const { error } = await orcamentosService.criar({
+      id: novoId,
+      obra_id: form.obra_id,
+      cliente: form.cliente,
+      versao: form.versao || 'v1',
+      bdi: bdiNum,
+      status: form.status,
+      valor: 0,
+      data: new Date().toISOString().slice(0, 10),
+    }, user?.id);
+    setLoading(false);
+    if (error) {
+      toast('Erro ao criar orçamento: ' + error.message, { tone: 'error', icon: 'alert' });
+      return;
+    }
     toast('Orçamento criado com sucesso', { tone: 'success', icon: 'check' });
+    if (onCreated) onCreated();
     onClose();
   };
+
+  // Estado vazio: nenhuma obra cadastrada ainda
+  if (obras.length === 0) {
+    return (
+      <Modal
+        title="Novo orçamento"
+        subtitle="Nenhuma obra disponível"
+        onClose={onClose}
+        footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
+      >
+        <div style={{ textAlign: 'center', padding: '32px 0' }}>
+          <Icon name="hard-hat" size={36} style={{ color: 'var(--text-faint)' }} />
+          <div style={{ marginTop: 12, fontWeight: 600 }}>Cadastre uma obra primeiro</div>
+          <div className="text-muted" style={{ marginTop: 6, fontSize: 13 }}>
+            Todo orçamento precisa estar vinculado a uma obra.
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal
       title="Novo orçamento"
@@ -532,8 +585,13 @@ const NovoOrcamentoModal = ({ onClose }) => {
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-primary" onClick={onSave}>
-            <Icon name="check" size={14} />Criar orçamento
+          <button
+            className="btn btn-primary"
+            onClick={onSave}
+            disabled={loading}
+          >
+            <Icon name="check" size={14} />
+            {loading ? 'Salvando…' : 'Criar orçamento'}
           </button>
         </>
       }
@@ -541,8 +599,8 @@ const NovoOrcamentoModal = ({ onClose }) => {
       <div className="form-grid">
         <div className="field">
           <label>Obra <span className="req">*</span></label>
-          <select value={form.obra} onChange={e => upd('obra', e.target.value)}>
-            {obras.map(o => <option key={o.id} value={o.nome}>{o.nome}</option>)}
+          <select value={form.obra_id} onChange={e => handleObraChange(e.target.value)}>
+            {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
           </select>
         </div>
         <div className="field">
@@ -550,7 +608,7 @@ const NovoOrcamentoModal = ({ onClose }) => {
           <input
             placeholder="Nome do cliente"
             value={form.cliente}
-            onChange={e => upd('cliente', e.target.value)}
+            onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))}
           />
         </div>
         <div className="field">
@@ -558,7 +616,7 @@ const NovoOrcamentoModal = ({ onClose }) => {
           <input
             placeholder="v1"
             value={form.versao}
-            onChange={e => upd('versao', e.target.value)}
+            onChange={e => setForm(f => ({ ...f, versao: e.target.value }))}
           />
         </div>
         <div className="field">
@@ -566,12 +624,12 @@ const NovoOrcamentoModal = ({ onClose }) => {
           <input
             placeholder="0,0"
             value={form.bdi}
-            onChange={e => upd('bdi', e.target.value)}
+            onChange={e => setForm(f => ({ ...f, bdi: e.target.value }))}
           />
         </div>
         <div className="field full">
           <label>Status inicial</label>
-          <select value={form.status} onChange={e => upd('status', e.target.value)}>
+          <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
             <option value="rascunho">Rascunho</option>
             <option value="pendente">Pendente</option>
             <option value="aprovado">Aprovado</option>

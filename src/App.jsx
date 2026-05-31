@@ -222,7 +222,9 @@ const AppInner = () => {
               onOpenCronograma={handleOpenCronograma}
             />
           )}
-          {view === 'orcamentos' && <OrcamentosScreen onNovoOrcamento={() => setModal('novo-orcamento')} />}
+          {view === 'orcamentos' && (
+            <OrcamentosScreen onNovoOrcamento={() => setModal('novo-orcamento')} obras={obras} />
+          )}
           {view === 'estimativas' && <EstimativasScreen />}
           {view === 'incc' && <INCCScreen />}
           {view === 'cronograma' && obrasLoaded && <CronogramaFull initialObraId={cronogramaObraId} />}
@@ -239,7 +241,14 @@ const AppInner = () => {
       {/* Modals */}
       {modal === 'nova-obra' && <NovaObraModal onClose={() => setModal(null)} />}
       {modal === 'nova-medicao' && <NovaMedicaoModal onClose={() => setModal(null)} />}
-      {modal === 'novo-orcamento' && <NovoOrcamentoModal onClose={() => setModal(null)} />}
+      {modal === 'novo-orcamento' && (
+        <NovoOrcamentoModal
+          onClose={() => setModal(null)}
+          obras={obras}
+          user={user}
+          onCreated={() => setModal(null)}
+        />
+      )}
       {modal && typeof modal === 'object' && modal.type === 'compra' && (
         <SolicitarCompraModal insumo={modal.insumo} onClose={() => setModal(null)} />
       )}
