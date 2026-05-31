@@ -286,16 +286,29 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
   // ── Salvar no DB ───────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
-    const toUpsert = items
-      .filter(it => it._new || it._dirty)
-      .map(({ _new, _dirty, ...rest }) => ({
-        ...rest,
-        id: typeof rest.id === 'string' && rest.id.startsWith('tmp-') ? undefined : rest.id,
-      }));
-    if (toUpsert.length) {
-      const { error } = await orcamentosService.itens.upsert(toUpsert);
+
+    // Itens novos: omitir `id` para o DB gerar o UUID automaticamente
+    const toInsert = items
+      .filter(it => it._new)
+      .map(({ _new, _dirty, id, ...rest }) => rest);
+
+    // Itens existentes editados: manter `id` para o upsert atualizar corretamente
+    const toUpdate = items
+      .filter(it => !it._new && it._dirty)
+      .map(({ _new, _dirty, ...rest }) => rest);
+
+    if (toInsert.length) {
+      const { error } = await orcamentosService.itens.criar(toInsert);
       if (error) {
-        toast('Erro ao salvar: ' + error.message, { tone: 'error', icon: 'alert' });
+        toast('Erro ao inserir itens: ' + error.message, { tone: 'error', icon: 'alert' });
+        setSaving(false);
+        return;
+      }
+    }
+    if (toUpdate.length) {
+      const { error } = await orcamentosService.itens.upsert(toUpdate);
+      if (error) {
+        toast('Erro ao atualizar itens: ' + error.message, { tone: 'error', icon: 'alert' });
         setSaving(false);
         return;
       }
