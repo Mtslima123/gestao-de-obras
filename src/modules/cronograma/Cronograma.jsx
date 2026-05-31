@@ -936,34 +936,166 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
   const exportPDFGantt = async () => {
     setExportingPDF(true);
     try {
-      const [{ jsPDF }, { default: autoTable }, { default: html2canvas }] = await Promise.all([
-        import('jspdf'), import('jspdf-autotable'), import('html2canvas'),
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+        import('jspdf'), import('jspdf-autotable'),
       ]);
-      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
       const BRAND = [1, 67, 134];
-      const W = doc.internal.pageSize.getWidth();
-      const H = doc.internal.pageSize.getHeight();
+      const W = doc.internal.pageSize.getWidth();   // 420mm
+      const H = doc.internal.pageSize.getHeight();  // 297mm
 
-      // ── Página 1: gráfico visual ─────────────────────────────────────
-      doc.setFontSize(11); doc.setTextColor(0);
-      doc.text('Cronograma de Obras', 14, 12);
-      doc.setFontSize(7);  doc.setTextColor(130);
-      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 17);
-      doc.setTextColor(0);
-      if (ganttRef.current) {
-        const canvas = await html2canvas(ganttRef.current, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
-        const availW = W - 28;
-        const availH = H - 24;
-        const ratio  = Math.min(availW / canvas.width, availH / canvas.height);
-        doc.addImage(canvas.toDataURL('image/png'), 'PNG', 14, 20, canvas.width * ratio, canvas.height * ratio);
+      const ML = 14, MR = 14, MT = 20, MB = 14;
+      const LABEL_W  = 72;
+      const TL_W     = W - ML - MR - LABEL_W;
+      const ROW_H    = 7;
+      const HDR_H    = 14;   // 7mm trimestres + 7mm meses
+      const BAR_H    = 3.5;
+      const tlX      = ML + LABEL_W;
+      const mpd      = TL_W / (dynTotal * 30);  // mm por dia
+
+      const availH      = H - MT - MB - HDR_H;
+      const rowsPerPage = Math.max(1, Math.floor(availH / ROW_H));
+
+      // Cor da barra por status (RGB)
+      const pdfBarColor = (e) => {
+        if (e.isGroup) return BRAND;
+        if (e.status === 'done') return [27, 143, 94];
+        if (e.status === 'late') return [192, 40, 31];
+        return [61, 127, 201];
+      };
+
+      const drawGanttHeader = (startY) => {
+        // Trimestres
+        let x = tlX;
+        dynQuarters.forEach((q, qi) => {
+          const qW = (q.end - q.start) * 30 * mpd;
+          doc.setFillColor(qi % 2 === 0 ? 244 : 250, 246, 251);
+          doc.rect(x, startY, qW, 7, 'F');
+          doc.setFontSize(6.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(50);
+          doc.text(q.label, x + 2, startY + 4.8);
+          doc.setFont('helvetica', 'normal');
+          doc.setDrawColor(190); doc.setLineWidth(0.2);
+          doc.line(x + qW, startY, x + qW, startY + 7);
+          x += qW;
+        });
+        doc.setDrawColor(175); doc.setLineWidth(0.3);
+        doc.line(ML, startY + 7, W - MR, startY + 7);
+        // Meses
+        x = tlX;
+        dynMonths.forEach((m) => {
+          const mW = 30 * mpd;
+          doc.setFontSize(6);
+          doc.setFont('helvetica', m.isQ ? 'bold' : 'normal');
+          doc.setTextColor(m.isQ ? 30 : 80);
+          doc.text(m.short, x + mW / 2, startY + 7 + 5, { align: 'center' });
+          doc.setFont('helvetica', 'normal');
+          doc.setDrawColor(210); doc.setLineWidth(0.15);
+          doc.line(x + mW, startY + 7, x + mW, startY + 14);
+          x += mW;
+        });
+        doc.setDrawColor(155); doc.setLineWidth(0.3);
+        doc.line(ML, startY + 14, W - MR, startY + 14);
+      };
+
+      const drawGanttPage = (slice, pageIdx) => {
+        if (pageIdx > 0) doc.addPage();
+        // Título e data
+        doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(20);
+        doc.text('Cronograma de Obras', ML, 12);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7); doc.setTextColor(130);
+        doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, ML, 17);
+        doc.setTextColor(0);
+        // Divisor coluna de nomes / timeline
+        doc.setDrawColor(180); doc.setLineWidth(0.3);
+        doc.line(tlX, MT, tlX, H - MB);
+        drawGanttHeader(MT);
+
+        const bodyY = MT + HDR_H;
+
+        slice.forEach((e, ri) => {
+          const y   = bodyY + ri * ROW_H;
+          const gv  = e.isGroup ? groupVals[e.id] : null;
+          const ini = (gv ? gv.inicio : e.inicio) ?? 0;
+          const dur = Math.max((gv ? gv.dur : e.dur) ?? 1, 1);
+          const av  = (gv ? gv.avanco : e.avanco) ?? 0;
+
+          // Fundo zebrado
+          if (ri % 2 === 0) {
+            doc.setFillColor(248, 249, 251);
+            doc.rect(ML, y, W - ML - MR, ROW_H, 'F');
+          }
+          // Divisor horizontal
+          doc.setDrawColor(228); doc.setLineWidth(0.1);
+          doc.line(ML, y + ROW_H, W - ML - MR, y + ROW_H);
+
+          // Nome da tarefa (coluna esquerda)
+          const indent = (e.nivel || 0) * 2.5;
+          doc.setFontSize(6.5);
+          doc.setFont('helvetica', e.isGroup ? 'bold' : 'normal');
+          doc.setTextColor(e.isGroup ? 15 : 40);
+          const maxTxtW = LABEL_W - indent - 3;
+          const nameStr = doc.splitTextToSize(e.etapa, maxTxtW)[0];
+          doc.text(nameStr, ML + indent, y + ROW_H / 2 + 1.8);
+          doc.setFont('helvetica', 'normal');
+
+          // Barra ou marco
+          const bx = tlX + ini * mpd;
+          const bw = Math.max(dur * mpd, 0.8);
+          const by = y + (ROW_H - BAR_H) / 2;
+          const [r, g, b] = pdfBarColor(e);
+
+          if (e.milestone) {
+            // Marco: quadrado preenchido (visual de losango)
+            const cx = tlX + ini * mpd;
+            const cy = y + ROW_H / 2;
+            doc.setFillColor(r, g, b);
+            doc.rect(cx - 2, cy - 2, 4, 4, 'F');
+          } else {
+            // Fundo da barra (cor clara = parte não executada)
+            doc.setFillColor(Math.min(r + 100, 255), Math.min(g + 100, 255), Math.min(b + 100, 255));
+            doc.rect(bx, by, bw, BAR_H, 'F');
+            // Progresso executado (cor plena)
+            if (av > 0) {
+              doc.setFillColor(r, g, b);
+              doc.rect(bx, by, bw * (av / 100), BAR_H, 'F');
+            }
+            // % dentro da barra
+            const execW = bw * (av / 100);
+            if (av > 5 && execW > 5) {
+              doc.setFontSize(4.5); doc.setTextColor(255);
+              doc.text(`${av}%`, bx + execW / 2, by + BAR_H / 2 + 1.5, { align: 'center' });
+            }
+          }
+        });
+
+        // Linha "hoje" (tracejada)
+        const todayX = tlX + today * mpd;
+        if (todayX >= tlX && todayX <= tlX + TL_W) {
+          doc.setDrawColor(220, 38, 38); doc.setLineWidth(0.4);
+          doc.setLineDashPattern([1.5, 1], 0);
+          doc.line(todayX, bodyY, todayX, bodyY + slice.length * ROW_H);
+          doc.setLineDashPattern([], 0); doc.setLineWidth(0.2);
+        }
+        // Número da página
+        doc.setFontSize(7); doc.setTextColor(160);
+        doc.text(`Cronograma — pág. ${pageIdx + 1}`, W - MR, H - 6, { align: 'right' });
+        doc.setTextColor(0);
+      };
+
+      // Paginar verticalmente o gráfico
+      const totalGanttPages = Math.ceil(visible.length / rowsPerPage);
+      for (let p = 0; p < totalGanttPages; p++) {
+        drawGanttPage(visible.slice(p * rowsPerPage, (p + 1) * rowsPerPage), p);
       }
 
-      // ── Páginas seguintes: tabela de dados ─────────────────────────
+      // ── Tabela de dados ───────────────────────────────────────────────
       doc.addPage();
-      doc.setFontSize(10); doc.setTextColor(0);
-      doc.text('Lista de Tarefas', 14, 12);
-      doc.setFontSize(7);  doc.setTextColor(130);
-      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 17);
+      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(0);
+      doc.text('Lista de Tarefas', ML, 12);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7); doc.setTextColor(130);
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, ML, 17);
       doc.setTextColor(0);
       const wbs  = computeAllWBS(etapas);
       const body = etapas.map(e => {
@@ -1018,7 +1150,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
         },
         didDrawPage: ({ pageNumber }) => {
           doc.setFontSize(8); doc.setTextColor(150);
-          doc.text(`Página ${pageNumber}`, W - 20, H - 6);
+          doc.text(`Lista — pág. ${pageNumber}`, W - 20, H - 6);
           doc.setTextColor(0);
         },
       });
