@@ -415,7 +415,23 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => {
-                  const newRow = makeNewRow('001', items.length);
+                  // Detecta o próximo grupo de nível 1 (ex: 001.01 → 001.02)
+                  const level1 = items.filter(it => getNivel(it.codigo) === 1);
+                  let newCode;
+                  if (level1.length === 0) {
+                    // Sem grupos nível 1: usa raiz existente ou '001' como base
+                    const root = items.find(it => getNivel(it.codigo) === 0);
+                    newCode = (root?.codigo ?? '001') + '.01';
+                  } else {
+                    // Próximo irmão após o último grupo nível 1
+                    const last = [...level1].sort((a, b) => {
+                      const an = parseInt(a.codigo.split('.').pop(), 10);
+                      const bn = parseInt(b.codigo.split('.').pop(), 10);
+                      return bn - an;
+                    })[0];
+                    newCode = nextCode(last.codigo, items);
+                  }
+                  const newRow = makeNewRow(newCode, items.length);
                   setItems(prev => [...prev, newRow]);
                   setDirty(true);
                 }}
