@@ -712,6 +712,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
   const dragged   = React.useRef(false);
   const ganttRef  = React.useRef(null);
   const [exportingPDF, setExportingPDF] = React.useState(false);
+  const [pdfFormat,    setPdfFormat]    = React.useState('a3');
 
   // Mantém o ref sincronizado com a prop a cada render
   etapasRef.current = etapas;
@@ -939,7 +940,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
       const [{ jsPDF }, { default: autoTable }] = await Promise.all([
         import('jspdf'), import('jspdf-autotable'),
       ]);
-      const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: pdfFormat });
       const BRAND = [1, 67, 134];
       const W = doc.internal.pageSize.getWidth();   // 420mm
       const H = doc.internal.pageSize.getHeight();  // 297mm
@@ -1269,6 +1270,18 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
           onClick={exportExcelGantt} title="Exportar para Excel (.xlsx)">
           <Icon name="download" size={13} /> Excel
         </button>
+        <select
+          value={pdfFormat}
+          onChange={e => setPdfFormat(e.target.value)}
+          style={{ fontSize: 12, height: 30, padding: '0 6px', borderRadius: 6,
+                   border: '1px solid var(--border)', background: 'var(--surface)',
+                   color: 'var(--text)', cursor: 'pointer' }}
+          title="Formato do PDF">
+          <option value="a3">A3</option>
+          <option value="a2">A2</option>
+          <option value="a1">A1</option>
+          <option value="a0">A0</option>
+        </select>
         <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 30, gap: 5 }}
           onClick={exportPDFGantt} disabled={exportingPDF} title="Exportar para PDF">
           <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
