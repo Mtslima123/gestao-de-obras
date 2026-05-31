@@ -242,6 +242,33 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
     setDirty(true);
   };
 
+  const addChild = (parentCodigo) => {
+    // Próximo filho direto de parentCodigo
+    const childNivel = getNivel(parentCodigo) + 1;
+    const existingChildren = items.filter(it =>
+      getNivel(it.codigo) === childNivel &&
+      it.codigo.startsWith(parentCodigo + '.')
+    );
+    const nums = existingChildren
+      .map(it => parseInt(it.codigo.split('.').pop(), 10))
+      .filter(n => !isNaN(n));
+    const next = nums.length ? Math.max(...nums) + 1 : 1;
+    const newCode = parentCodigo + '.' + String(next).padStart(2, '0');
+
+    // Insere após o último filho existente ou logo após o pai
+    const parentIdx = items.findIndex(it => it.codigo === parentCodigo);
+    const lastChildIdx = existingChildren.length
+      ? Math.max(...existingChildren.map(ch => items.findIndex(it => it.codigo === ch.codigo)))
+      : parentIdx;
+
+    const ref = items[lastChildIdx];
+    const newRow = makeNewRow(newCode, (ref?.ordem ?? 0) + 1);
+    setItems(prev => { const n = [...prev]; n.splice(lastChildIdx + 1, 0, newRow); return n; });
+    // Garante que o pai fique expandido
+    setCollapsed(prev => { const next = new Set(prev); next.delete(parentCodigo); return next; });
+    setDirty(true);
+  };
+
   const removeRow = (codigo) => {
     setItems(prev => prev.filter(it =>
       it.codigo !== codigo && !it.codigo.startsWith(codigo + '.')
@@ -407,7 +434,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
                   <th style={{ width: 60 }}>Un.</th>
                   <th className="right" style={{ width: 110 }}>Valor Unit.</th>
                   <th className="right" style={{ width: 120 }}>Valor Total</th>
-                  <th style={{ width: 80 }}></th>
+                  <th style={{ width: 104 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -510,17 +537,22 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
                           <div className="orca-row-actions">
                             <button
                               className="orca-row-btn"
-                              title="Inserir acima"
+                              title="Inserir acima (mesmo nível)"
                               onClick={() => addAbove(it.codigo)}
                             >↑+</button>
                             <button
                               className="orca-row-btn"
-                              title="Inserir abaixo"
+                              title="Inserir abaixo (mesmo nível)"
                               onClick={() => addBelow(it.codigo)}
                             >↓+</button>
                             <button
+                              className="orca-row-btn"
+                              title="Inserir subgrupo (nível filho)"
+                              onClick={() => addChild(it.codigo)}
+                            >→+</button>
+                            <button
                               className="orca-row-btn danger"
-                              title="Remover linha"
+                              title="Remover linha (e filhos)"
                               onClick={() => removeRow(it.codigo)}
                             >×</button>
                           </div>
