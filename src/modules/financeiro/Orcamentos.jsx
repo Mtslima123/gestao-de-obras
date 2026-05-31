@@ -428,9 +428,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => {
+                  let newCode;
+                  if (items.length === 0) {
+                    // Lista vazia: primeira tarefa é sempre a raiz 001
+                    newCode = '001';
+                  } else {
                   // Detecta o próximo grupo de nível 1 (ex: 001.01 → 001.02)
                   const level1 = items.filter(it => getNivel(it.codigo) === 1);
-                  let newCode;
                   if (level1.length === 0) {
                     // Sem grupos nível 1: usa raiz existente ou '001' como base
                     const root = items.find(it => getNivel(it.codigo) === 0);
@@ -444,6 +448,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
                     })[0];
                     newCode = nextCode(last.codigo, items);
                   }
+                  } // fecha else (items não vazio)
                   const newRow = makeNewRow(newCode, items.length);
                   setItems(prev => [...prev, newRow]);
                   setDirty(true);
