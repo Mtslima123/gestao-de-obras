@@ -8,6 +8,7 @@ import { orcamentosService } from './orcamentos.service';
 
 // Orçamentos — lista + detalhe com composição
 const { brl: brlOR } = AppData;
+const brlFull = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
@@ -458,7 +459,7 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
                         <td style={{ paddingLeft: indent + 10 }}>{r.nome || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                         <td className="right mono">{r.quantidade || '—'}</td>
                         <td>{r.unidade}</td>
-                        <td className="right mono">{r.valor_unitario ? brlOR(r.valor_unitario) : '—'}</td>
+                        <td className="right mono">{r.valor_unitario ? brlFull(r.valor_unitario) : '—'}</td>
                         <td>
                           <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 14, padding: '0 4px' }}
                             title="Remover linha"
@@ -809,15 +810,15 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Custo direto</div>
-          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{brlOR(totalDireto, { compact: true })}</div>
+          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{brlFull(totalDireto)}</div>
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">BDI ({bdiPct}%)</div>
-          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{brlOR(totalBdi, { compact: true })}</div>
+          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{brlFull(totalBdi)}</div>
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Valor total</div>
-          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6, color: 'var(--brand)' }}>{brlOR(grandTotal, { compact: true })}</div>
+          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6, color: 'var(--brand)' }}>{brlFull(grandTotal)}</div>
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Itens cadastrados</div>
@@ -983,7 +984,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
 
                         {/* Valor Total (calculado) */}
                         <td className="right mono" style={{ fontWeight: hasKids ? 600 : 500, color: nivel === 0 ? 'var(--brand)' : 'inherit' }}>
-                          {brlOR(it.valor_total, { compact: true })}
+                          {brlFull(it.valor_total)}
                         </td>
 
                         {/* Ações */}
