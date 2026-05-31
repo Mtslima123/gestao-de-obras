@@ -139,6 +139,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
 const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user }) => {
   const toast         = useToast();
   const [items, setItems]           = React.useState([]);
+  const [deletedIds, setDeletedIds] = React.useState([]);
   const [dirty, setDirty]           = React.useState(false);
   const [saving, setSaving]         = React.useState(false);
   const [collapsed, setCollapsed]   = React.useState(new Set());
@@ -280,6 +281,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   };
 
   const removeRow = (codigo) => {
+    // Rastreia IDs de itens já salvos no banco para deletar no próximo save
+    const toDelete = items
+      .filter(it => it.codigo === codigo || it.codigo.startsWith(codigo + '.'))
+      .filter(it => !it._new)
+      .map(it => it.id);
+    if (toDelete.length) setDeletedIds(prev => [...prev, ...toDelete]);
+
     setItems(prev => prev.filter(it =>
       it.codigo !== codigo && !it.codigo.startsWith(codigo + '.')
     ));
@@ -288,14 +296,26 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
 
   const discardChanges = () => {
     orcamentosService.itens.listar(orcamento.id).then(({ data }) => {
-      if (data) setItems(data);
+      if (data && data.length > 0) setItems(data);
     });
+    setDeletedIds([]);
     setDirty(false);
   };
 
   // ── Salvar no DB ───────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
+
+    // Deleta do banco itens removidos localmente
+    if (deletedIds.length) {
+      const { error } = await orcamentosService.itens.excluirVarios(deletedIds);
+      if (error) {
+        toast('Erro ao excluir itens: ' + error.message, { tone: 'error', icon: 'alert' });
+        setSaving(false);
+        return;
+      }
+      setDeletedIds([]);
+    }
 
     // Itens novos: omitir `id` para o DB gerar o UUID automaticamente
     const toInsert = items

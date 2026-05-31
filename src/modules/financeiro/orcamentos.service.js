@@ -29,6 +29,9 @@ export const orcamentosService = {
     excluir: (id) =>
       supabase.from('orcamento_itens').delete().eq('id', id),
 
+    excluirVarios: (ids) =>
+      supabase.from('orcamento_itens').delete().in('id', ids),
+
     upsert: (itens) =>
       supabase.from('orcamento_itens').upsert(itens, { onConflict: 'id' }),
   },
