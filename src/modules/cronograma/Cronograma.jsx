@@ -516,6 +516,9 @@ function parseDep(raw, etapas) {
 const formatBRL = v =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v || 0);
 
+const formatBRL2 = v =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
+
 // ─── Uso da Tarefa — funções de distribuição mensal ──────────────────────────
 
 // Retorna array de meses cobertos por qualquer tarefa: [{ key:"YYYY-MM", label:"Abr/26" }, ...]
@@ -2818,7 +2821,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
                 const fimText  = isoToBR(offsetToISO(e.inicio + e.dur));
                 const durText  = `${e.dur}d`;
                 const avText   = `${e.avanco}%`;
-                const cusText  = e.isGroup ? '—' : formatBRL(e.custo || 0);
+                const cusText  = e.isGroup ? '—' : formatBRL2(e.custo || 0);
                 return (
                   <tr key={e.id}
                     style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
@@ -2873,15 +2876,15 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
                     <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12, paddingLeft: 14 }}>Custo</td>
                     {months.map(m => {
                       const v = dist[m.key] || 0;
-                      const txt = v > 0 ? formatBRL(v) : '—';
+                      const txt = v > 0 ? formatBRL2(v) : '—';
                       return (
                         <td key={m.key} style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v > 0 ? 'var(--text)' : 'var(--text-faint)' }} title={v > 0 ? txt : undefined}>
                           {txt}
                         </td>
                       );
                     })}
-                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }} title={total > 0 ? formatBRL(total) : undefined}>
-                      {total > 0 ? formatBRL(total) : '—'}
+                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }} title={total > 0 ? formatBRL2(total) : undefined}>
+                      {total > 0 ? formatBRL2(total) : '—'}
                     </td>
                   </tr>
                 );
