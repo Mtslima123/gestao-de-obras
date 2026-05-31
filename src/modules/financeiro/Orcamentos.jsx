@@ -566,6 +566,17 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
     return true;
   };
 
+  // Colapsa todos os grupos no nível maxNivel; -1 = expandir tudo
+  const collapseToLevel = (maxNivel) => {
+    if (maxNivel < 0) { setCollapsed(new Set()); return; }
+    const next = new Set();
+    items.forEach(it => {
+      if (getNivel(it.codigo) === maxNivel && isParent(it.codigo, items))
+        next.add(it.codigo);
+    });
+    setCollapsed(next);
+  };
+
   // ── Operações de linha ─────────────────────────────────────────────────────
   const editCell = (id, field, value) => {
     setItems(prev => prev.map(it =>
@@ -852,6 +863,24 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
               </div>
             </div>
             <div className="card-actions">
+              <div style={{ display: 'flex', gap: 2, marginRight: 4 }}>
+                {[
+                  { label: 'N1', title: 'Mostrar só grupos raiz (001…)',    nivel: 0  },
+                  { label: 'N2', title: 'Mostrar até nível 2 (001.01…)',    nivel: 1  },
+                  { label: 'N3', title: 'Mostrar até nível 3 (001.01.01…)', nivel: 2  },
+                  { label: '≡',  title: 'Expandir tudo',                    nivel: -1 },
+                ].map(b => (
+                  <button
+                    key={b.label}
+                    className="orca-row-btn"
+                    title={b.title}
+                    style={{ width: 26, height: 24, fontSize: 11, fontWeight: 600 }}
+                    onClick={() => collapseToLevel(b.nivel)}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
               <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}>
                 <Icon name="download" size={13} />Importar
               </button>
