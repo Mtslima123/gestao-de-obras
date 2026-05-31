@@ -148,7 +148,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
 
   React.useEffect(() => {
     orcamentosService.itens.listar(orcamento.id).then(({ data, error }) => {
-      if (!error && data) setItems(data);
+      if (!error && data && data.length > 0) setItems(data);
     });
   }, [orcamento.id]);
 
@@ -328,8 +328,8 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
       .filter(it => getNivel(it.codigo) === 0)
       .reduce((s, it) => s + it.valor_total, 0);
     await orcamentosService.atualizar(orcamento.id, { valor: grandTotal });
-    const { data } = await orcamentosService.itens.listar(orcamento.id);
-    if (data) setItems(data);
+    // Limpa flags localmente — não recarrega do DB para evitar que RLS vazio apague a UI
+    setItems(prev => prev.map(({ _new, _dirty, ...rest }) => rest));
     setSaving(false);
     setDirty(false);
     toast('Itens salvos com sucesso', { tone: 'success', icon: 'check' });
