@@ -734,11 +734,15 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     });
   }, [etapas]);
 
-  // Posiciona scroll próximo da data atual ao montar (key={obraSel} garante re-mount ao trocar obra)
+  // Posiciona scroll na menor posição entre hoje e a primeira tarefa visível
+  // Evita que tarefas fora do período atual fiquem completamente fora da tela
   React.useEffect(() => {
     if (!cRef.current) return;
-    const todayPx = labelWidth + today * GM_DAY_W;
-    cRef.current.scrollLeft = Math.max(0, todayPx - cRef.current.clientWidth * 0.3);
+    const folhas = etapas.filter(e => !e.isGroup);
+    const minInicio = folhas.length ? Math.min(...folhas.map(e => e.inicio)) : today;
+    const alvo = Math.min(today, minInicio);
+    const alvoPx = labelWidth + alvo * GM_DAY_W;
+    cRef.current.scrollLeft = Math.max(0, alvoPx - cRef.current.clientWidth * 0.15);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pan (arrastar para rolar) ──────────────────────────────────────────────
@@ -3744,8 +3748,19 @@ const CronogramaFull = ({ initialObraId }) => {
       // isLoading já é true sincronamente quando obraSel muda — sem necessidade de setState extra
       const db = await carregarCronogramaDB(obraSel);
       if (cancelled) return;
+      // Sanitiza restrições com tipo definido mas sem data (estado inválido de bug anterior)
+      // e re-aplica scheduling para recuperar posições corrompidas
+      const sanitizarERecuperar = (lista) => {
+        const sem_data = lista.map(e =>
+          (e.restricaoTipo && e.restricaoTipo !== 'asap' && !e.restricaoData)
+            ? { ...e, restricaoTipo: 'asap' }
+            : e
+        );
+        return autoScheduleFromDeps(sem_data);
+      };
+
       if (db) {
-        const etapasDB = migrateEtapas(db.etapas || []);
+        const etapasDB = sanitizarERecuperar(migrateEtapas(db.etapas || []));
         setEtapas(etapasDB);
         D.cronograma[obraSel] = etapasDB;
         histRef.current = [etapasDB.map(e => ({ ...e }))];
@@ -3758,7 +3773,7 @@ const CronogramaFull = ({ initialObraId }) => {
         setBaselines(bls);
         if (db.baselines?.length) salvarBaselines(obraSel, db.baselines);
       } else {
-        const mock = migrateEtapas(D.cronograma[obraSel] || []);
+        const mock = sanitizarERecuperar(migrateEtapas(D.cronograma[obraSel] || []));
         setEtapas(mock);
         histRef.current = [mock.map(e => ({ ...e }))];
         hidxRef.current = 0;
