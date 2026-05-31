@@ -348,21 +348,27 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
   );
 };
 
+// Cache module-level: sobrevive a desmontagens do componente, resetado no F5
+let _orcamentosCache = null;
+
 // OrcamentosScreen gerencia o estado da lista e os handlers de ação
 const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user }) => {
   const toast = useToast();
   const [selected, setSelected]     = React.useState(null);
-  const [orcamentos, setOrcamentos] = React.useState([]);
-  const [loading, setLoading]       = React.useState(true);
+  const [orcamentos, setOrcamentos] = React.useState(_orcamentosCache ?? []);
+  const [loading, setLoading]       = React.useState(_orcamentosCache === null);
 
-  const refetch = React.useCallback(() => {
-    setLoading(true);
+  const refetch = React.useCallback((invalidate = false) => {
+    if (invalidate) _orcamentosCache = null;
+    // Só exibe skeleton quando não há cache (primeira visita ou após mutação)
+    if (_orcamentosCache === null) setLoading(true);
     orcamentosService.listar().then(({ data, error }) => {
       if (!error && data && data.length > 0) {
         const enriched = data.map(o => ({
           ...o,
           obra: obras.find(ob => ob.id === o.obra_id)?.nome || o.obra_id,
         }));
+        _orcamentosCache = enriched;
         setOrcamentos(enriched);
       } else {
         // Fallback para mock quando tabela vazia ou sem autenticação (devMode)
@@ -372,8 +378,13 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
     });
   }, [obras]);
 
-  // Rebusca quando refreshKey muda (criação via modal) ou na montagem inicial
-  React.useEffect(() => { refetch(); }, [refreshKey]);
+  const prevRefreshKeyRef = React.useRef(refreshKey);
+  React.useEffect(() => {
+    const isCreation = refreshKey !== prevRefreshKeyRef.current;
+    prevRefreshKeyRef.current = refreshKey;
+    // Após criação invalida o cache; demais visitas fazem refresh em background
+    refetch(isCreation);
+  }, [refreshKey, refetch]);
 
   const handleDelete = async (id) => {
     const { error } = await orcamentosService.excluir(id);
@@ -383,7 +394,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
     }
     toast('Orçamento excluído', { tone: 'success', icon: 'check' });
     setSelected(null);
-    refetch();
+    refetch(true);
   };
 
   const handleCriarRevisao = async (orcamento) => {
@@ -422,7 +433,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
     }
 
     toast('Revisão ' + novaVersao + ' criada', { tone: 'success', icon: 'check' });
-    refetch();
+    refetch(true);
     setSelected({ ...orcamento, id: novoId, versao: novaVersao, status: 'rascunho', data: new Date().toLocaleDateString('pt-BR') });
   };
 
