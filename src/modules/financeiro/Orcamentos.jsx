@@ -228,9 +228,16 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
 
   const addBelow = (refCodigo) => {
     const ref = items.find(it => it.codigo === refCodigo);
-    const idx = items.findIndex(it => it.codigo === refCodigo);
+    // Avança além de todos os descendentes para inserir após a subárvore inteira
+    let insertIdx = items.findIndex(it => it.codigo === refCodigo);
+    while (
+      insertIdx + 1 < items.length &&
+      items[insertIdx + 1].codigo.startsWith(refCodigo + '.')
+    ) {
+      insertIdx++;
+    }
     const newRow = makeNewRow(nextCode(refCodigo, items), (ref?.ordem ?? 0) + 1);
-    setItems(prev => { const n = [...prev]; n.splice(idx + 1, 0, newRow); return n; });
+    setItems(prev => { const n = [...prev]; n.splice(insertIdx + 1, 0, newRow); return n; });
     setDirty(true);
   };
 
