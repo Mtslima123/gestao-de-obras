@@ -1,7 +1,8 @@
 import React from 'react';
+import * as XLSX from 'xlsx';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
-import { useToast } from '../../components/Modals';
+import { useToast, Modal } from '../../components/Modals';
 import { StatusBadge } from '../../components/StatusBadge';
 import { orcamentosService } from './orcamentos.service';
 
@@ -136,11 +137,358 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
   );
 };
 
+// ── Importação de base orçamentária (Excel/CSV) ───────────────────────────────
+const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onClose }) => {
+  const [step, setStep]         = React.useState(1);
+  const [rows, setRows]         = React.useState([]);
+  const [erros, setErros]       = React.useState([]);
+  const [removidos, setRemo]    = React.useState(new Set());
+  const [modo, setModo]         = React.useState('substituir');
+  const [parsing, setParsing]   = React.useState(false);
+  const [dragging, setDragging] = React.useState(false);
+  const fileRef = React.useRef();
+
+  const ALIASES = {
+    codigo:         ['código', 'codigo', 'code', 'cod'],
+    nome:           ['nome', 'descrição', 'descricao', 'name', 'description', 'desc'],
+    quantidade:     ['quantidade', 'qtd', 'qty', 'quantity'],
+    unidade:        ['unidade', 'un', 'unit'],
+    valor_unitario: ['valor unitário', 'valor unit', 'unit price', 'preco', 'preço', 'v.unit'],
+  };
+
+  const detectCol = (headers, field) =>
+    headers.findIndex(h => ALIASES[field].some(a => String(h).toLowerCase().trim().startsWith(a)));
+
+  const validate = React.useCallback((rowList, modoAtual) => {
+    const lista = [];
+    const codigos = new Set();
+    const existentes = new Set(existingItems.map(it => it.codigo));
+    rowList.forEach((r, i) => {
+      if (!r.codigo)
+        lista.push({ rowIdx: i, tipo: 'Erro', descricao: 'Código vazio' });
+      else if (!/^\d+(\.\d+)*$/.test(r.codigo))
+        lista.push({ rowIdx: i, tipo: 'Erro', descricao: `Código inválido: "${r.codigo}"` });
+      else if (codigos.has(r.codigo))
+        lista.push({ rowIdx: i, tipo: 'Erro', descricao: `Código duplicado: ${r.codigo}` });
+      else if (modoAtual === 'adicionar' && existentes.has(r.codigo))
+        lista.push({ rowIdx: i, tipo: 'Aviso', descricao: `Código já existe: ${r.codigo}` });
+
+      if (!r.nome)
+        lista.push({ rowIdx: i, tipo: 'Aviso', descricao: 'Nome vazio' });
+
+      if (r.codigo && r.codigo.includes('.')) {
+        const parent = r.codigo.split('.').slice(0, -1).join('.');
+        if (!rowList.some(x => x.codigo === parent))
+          lista.push({ rowIdx: i, tipo: 'Aviso', descricao: `Grupo pai não encontrado: ${parent}` });
+      }
+      if (r.codigo) codigos.add(r.codigo);
+    });
+    return lista;
+  }, [existingItems]);
+
+  const parseFile = async (file) => {
+    setParsing(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb  = XLSX.read(buf, { type: 'array' });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const hdrIdx = raw.findIndex(r => r.some(c => String(c).trim()));
+      if (hdrIdx === -1) return;
+      const headers = raw[hdrIdx].map(c => String(c).toLowerCase().trim());
+      const cols = {
+        codigo:         detectCol(headers, 'codigo'),
+        nome:           detectCol(headers, 'nome'),
+        quantidade:     detectCol(headers, 'quantidade'),
+        unidade:        detectCol(headers, 'unidade'),
+        valor_unitario: detectCol(headers, 'valor_unitario'),
+      };
+      const parsed = raw.slice(hdrIdx + 1)
+        .filter(r => r.some(c => String(c).trim()))
+        .map((r, i) => ({
+          rowIdx:         i,
+          codigo:         String(r[cols.codigo]  ?? '').trim(),
+          nome:           String(r[cols.nome]    ?? '').trim(),
+          quantidade:     parseFloat(r[cols.quantidade])     || 0,
+          unidade:        (String(r[cols.unidade] ?? 'UN').trim().toUpperCase().slice(0, 8)) || 'UN',
+          valor_unitario: parseFloat(r[cols.valor_unitario]) || 0,
+        }));
+      setRows(parsed);
+      setErros(validate(parsed, modo));
+      setRemo(new Set());
+      setStep(2);
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const downloadTemplate = () => {
+    const wb   = XLSX.utils.book_new();
+    const data = [
+      ['Código', 'Nome', 'Quantidade', 'Unidade', 'Valor Unitário'],
+      ['001',       'Serviços Iniciais',      0,  '',   0    ],
+      ['001.01',    'Projetos',               0,  '',   0    ],
+      ['001.01.01', 'Projeto de Arquitetura', 1, 'VB', 15000],
+      ['001.01.02', 'Projeto Estrutural',     1, 'VB', 12000],
+      ['001.02',    'Licenças',               0,  '',   0    ],
+      ['001.02.01', 'Alvará de Construção',   1, 'VB',  3000],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 10 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Modelo');
+    XLSX.writeFile(wb, 'modelo-orcamento.xlsx');
+  };
+
+  const visibleRows  = rows.filter(r => !removidos.has(r.rowIdx));
+  const errosAtivos  = erros.filter(e => !removidos.has(e.rowIdx));
+  const temErro      = errosAtivos.some(e => e.tipo === 'Erro');
+  const qtdGrupos    = visibleRows.filter(r => visibleRows.some(x => x.codigo !== r.codigo && x.codigo.startsWith(r.codigo + '.'))).length;
+  const qtdFolhas    = visibleRows.length - qtdGrupos;
+
+  const handleConfirmar = () => {
+    const validos  = visibleRows.filter(r => !errosAtivos.some(e => e.rowIdx === r.rowIdx && e.tipo === 'Erro'));
+    const newItems = validos.map((r, i) => ({
+      id:             'tmp-' + Math.random().toString(36).slice(2),
+      orcamento_id:   orcamento.id,
+      user_id:        user?.id ?? null,
+      codigo:         r.codigo,
+      nome:           r.nome,
+      quantidade:     r.quantidade,
+      unidade:        r.unidade,
+      valor_unitario: r.valor_unitario,
+      valor_total:    0,
+      ordem:          i,
+      _new:           true,
+    }));
+    onImport(newItems, modo);
+    onClose();
+  };
+
+  const footer = (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        {[1, 2].map(s => (
+          <div key={s} style={{ width: 8, height: 8, borderRadius: 4, background: step >= s ? 'var(--brand)' : 'var(--border-strong)' }} />
+        ))}
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 4 }}>
+          {step === 1 ? 'Carregar arquivo' : 'Revisar e confirmar'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {step === 2 && <button className="btn btn-ghost" onClick={() => setStep(1)}>Voltar</button>}
+        <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        {step === 2 && (
+          <button
+            className="btn btn-primary"
+            onClick={handleConfirmar}
+            disabled={temErro}
+            title={temErro ? 'Corrija ou remova as linhas com erro antes de importar' : ''}
+          >
+            <Icon name="check" size={14} />
+            Confirmar importação ({visibleRows.length} itens)
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <Modal
+      title="Importar Base Orçamentária"
+      subtitle={
+        step === 1
+          ? 'Carregue uma planilha Excel ou CSV'
+          : `${visibleRows.length} linhas · ${errosAtivos.filter(e => e.tipo === 'Erro').length} erros · ${errosAtivos.filter(e => e.tipo === 'Aviso').length} avisos`
+      }
+      onClose={onClose}
+      size="xl"
+      footer={footer}
+    >
+      {/* Step 1 — Upload */}
+      {step === 1 && (
+        <div className="stack" style={{ gap: 20 }}>
+          <div
+            className={'import-dropzone' + (dragging ? ' over' : '')}
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) parseFile(f); }}
+            onClick={() => fileRef.current?.click()}
+          >
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
+              onChange={e => { if (e.target.files[0]) parseFile(e.target.files[0]); }} />
+            {parsing ? (
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Lendo arquivo…</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>📂</div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>Clique ou arraste o arquivo aqui</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12.5, marginTop: 4 }}>
+                  Aceita XLSX, XLS e CSV · colunas: Código, Nome, Quantidade, Unidade, Valor Unitário
+                </div>
+              </>
+            )}
+          </div>
+
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 10 }}>
+              Modo de importação
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              {[
+                { val: 'substituir', label: 'Substituir itens existentes',   desc: 'Remove tudo e importa a planilha' },
+                { val: 'adicionar',  label: 'Adicionar aos itens existentes', desc: 'Mantém itens atuais e adiciona os novos' },
+              ].map(opt => (
+                <label key={opt.val} style={{
+                  flex: 1, border: '1px solid', cursor: 'pointer', borderRadius: 8, padding: '12px 14px',
+                  borderColor: modo === opt.val ? 'var(--brand)' : 'var(--border)',
+                  background:  modo === opt.val ? 'var(--brand-tint)' : 'var(--surface)',
+                  transition: 'all .12s',
+                }}>
+                  <input type="radio" name="modo" value={opt.val} checked={modo === opt.val}
+                    onChange={() => setModo(opt.val)} style={{ display: 'none' }} />
+                  <div style={{ fontWeight: 600, fontSize: 13, color: modo === opt.val ? 'var(--brand)' : 'var(--text)' }}>
+                    {opt.label}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{opt.desc}</div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button className="btn btn-ghost btn-sm" onClick={downloadTemplate}>
+              <Icon name="download" size={13} />Baixar modelo de importação
+            </button>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Modelo com colunas obrigatórias e exemplos de hierarquia
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2 — Preview + erros */}
+      {step === 2 && (
+        <div className="stack" style={{ gap: 16 }}>
+          {/* KPIs de resumo */}
+          <div style={{ display: 'flex', gap: 12 }}>
+            {[
+              { label: 'Total',    val: visibleRows.length },
+              { label: 'Grupos',   val: qtdGrupos },
+              { label: 'Folhas',   val: qtdFolhas },
+              { label: 'Erros',    val: errosAtivos.filter(e => e.tipo === 'Erro').length,  color: '#dc2626' },
+              { label: 'Avisos',   val: errosAtivos.filter(e => e.tipo === 'Aviso').length, color: '#d97706' },
+            ].map((s, i) => (
+              <div key={i} style={{
+                flex: 1, padding: '10px 14px', borderRadius: 8, textAlign: 'center',
+                background: 'var(--surface-muted)', border: '1px solid var(--border)',
+              }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: s.color || 'var(--text)' }}>{s.val}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Grade de erros */}
+          {errosAtivos.length > 0 && (
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ padding: '8px 14px', fontWeight: 600, fontSize: 12, background: 'var(--surface-muted)', borderBottom: '1px solid var(--border)' }}>
+                Problemas encontrados
+              </div>
+              <table className="tbl" style={{ fontSize: 12.5 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 60 }}>Linha</th>
+                    <th style={{ width: 70 }}>Tipo</th>
+                    <th>Descrição</th>
+                    <th style={{ width: 100 }}>Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {errosAtivos.map((e, i) => (
+                    <tr key={i}>
+                      <td className="mono">{e.rowIdx + 2}</td>
+                      <td>
+                        <span style={{
+                          fontSize: 11, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+                          background: e.tipo === 'Erro' ? '#fef2f2' : '#fffbeb',
+                          color: e.tipo === 'Erro' ? '#dc2626' : '#d97706',
+                        }}>
+                          {e.tipo}
+                        </span>
+                      </td>
+                      <td style={{ color: 'var(--text-soft)' }}>{e.descricao}</td>
+                      <td>
+                        <button className="btn btn-sm btn-ghost" style={{ fontSize: 11, padding: '2px 8px', color: '#dc2626' }}
+                          onClick={() => setRemo(prev => new Set([...prev, e.rowIdx]))}>
+                          Remover linha
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pré-visualização */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ padding: '8px 14px', fontWeight: 600, fontSize: 12, background: 'var(--surface-muted)', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0 }}>
+              Pré-visualização ({visibleRows.length} linhas)
+            </div>
+            <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+              <table className="tbl" style={{ fontSize: 12.5 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 110 }}>Código</th>
+                    <th>Nome</th>
+                    <th className="right" style={{ width: 90 }}>Quantidade</th>
+                    <th style={{ width: 60 }}>Un.</th>
+                    <th className="right" style={{ width: 110 }}>Valor Unit.</th>
+                    <th style={{ width: 40 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.map((r, i) => {
+                    const hasErro  = errosAtivos.some(e => e.rowIdx === r.rowIdx && e.tipo === 'Erro');
+                    const hasAviso = errosAtivos.some(e => e.rowIdx === r.rowIdx && e.tipo === 'Aviso');
+                    const indent   = (r.codigo.split('.').length - 1) * 14;
+                    return (
+                      <tr key={i} className={hasErro ? 'import-err-row' : hasAviso ? 'import-warn-row' : ''}>
+                        <td className="mono" style={{ fontSize: 11.5 }}>{r.codigo}</td>
+                        <td style={{ paddingLeft: indent + 10 }}>{r.nome || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                        <td className="right mono">{r.quantidade || '—'}</td>
+                        <td>{r.unidade}</td>
+                        <td className="right mono">{r.valor_unitario ? brlOR(r.valor_unitario) : '—'}</td>
+                        <td>
+                          <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 14, padding: '0 4px' }}
+                            title="Remover linha"
+                            onClick={() => setRemo(prev => new Set([...prev, r.rowIdx]))}>×</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {temErro && (
+            <div style={{ padding: '10px 14px', background: '#fef2f2', borderRadius: 8, fontSize: 13, color: '#dc2626', border: '1px solid #fecaca' }}>
+              Corrija ou remova as linhas com <strong>Erro</strong> antes de confirmar.
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+};
+
 const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user }) => {
   const toast         = useToast();
   const [items, setItems]           = React.useState([]);
   const [deletedIds, setDeletedIds] = React.useState([]);
   const [dirty, setDirty]           = React.useState(false);
+  const [showImport, setShowImport] = React.useState(false);
   const [saving, setSaving]         = React.useState(false);
   const [collapsed, setCollapsed]   = React.useState(new Set());
   const [confirmDelete, setConfirm] = React.useState(false);
@@ -302,6 +650,18 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
     setDirty(false);
   };
 
+  const handleImport = (newItems, modo) => {
+    if (modo === 'substituir') {
+      // Marca itens existentes no banco para deletar no próximo save
+      const toDelete = items.filter(it => !it._new).map(it => it.id);
+      if (toDelete.length) setDeletedIds(prev => [...prev, ...toDelete]);
+      setItems(newItems);
+    } else {
+      setItems(prev => [...prev, ...newItems]);
+    }
+    setDirty(true);
+  };
+
   // ── Salvar no DB ───────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
@@ -455,6 +815,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
               </div>
             </div>
             <div className="card-actions">
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}>
+                <Icon name="download" size={13} />Importar
+              </button>
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => {
@@ -717,6 +1080,16 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
           </div>
         </div>
       </div>
+
+      {showImport && (
+        <ImportarOrcamentoModal
+          orcamento={orcamento}
+          user={user}
+          existingItems={items}
+          onImport={handleImport}
+          onClose={() => setShowImport(false)}
+        />
+      )}
     </>
   );
 };

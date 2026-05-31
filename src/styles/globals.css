@@ -2101,3 +2101,19 @@ tr:hover .obras-row-actions {
   display: flex; gap: 8px; justify-content: flex-end;
   box-shadow: 0 -2px 8px rgba(0,0,0,.06); z-index: 10;
 }
+
+/* ---- Importação de orçamento ---- */
+.import-dropzone {
+  border: 2px dashed var(--border-strong);
+  border-radius: 10px;
+  padding: 36px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  user-select: none;
+}
+.import-dropzone:hover,
+.import-dropzone.over { border-color: var(--brand); background: var(--brand-tint); }
+
+.import-err-row  { background: #fef2f2 !important; }
+.import-warn-row { background: #fffbeb !important; }
