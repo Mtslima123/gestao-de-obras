@@ -2935,7 +2935,106 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
   });
 
+  const [exportingPDF, setExportingPDF] = React.useState(false);
+  const curvaRef = React.useRef(null);
+
   const hasData = months.length > 0 && Object.values(filteredPlanned).some(v => v > 0);
+
+  // Recomputa séries mensais (usadas no export e no render)
+  const computeSeries = () => {
+    const totalPlanned = months.reduce((s, m) => s + (filteredPlanned[m.key] || 0), 0);
+    const hasBL  = baselineDist != null;
+    const refBLT = baselineTotal || totalPlanned || 1;
+    const refRep = totalPlanned || 1;
+    const todayKey2 = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    let apBL = 0, apRep = 0, apRR = 0;
+    const blM=[], blA=[], repM=[], repA=[], rrM=[], rrA=[], difBL=[], difRep=[];
+    months.forEach(m => {
+      const vBL  = hasBL ? (baselineDist[m.key] || 0) : 0;
+      const vRep = filteredPlanned[m.key] || 0;
+      const vRR  = m.key <= todayKey2 ? (realizedTotals[m.key] || 0) : vRep;
+      apBL += vBL; apRep += vRep; apRR += vRR;
+      blM.push(vBL  / refBLT * 100); blA.push(apBL / refBLT * 100);
+      repM.push(vRep / refRep * 100); repA.push(apRep / refRep * 100);
+      rrM.push(vRR  / refRep * 100); rrA.push(apRR  / refRep * 100);
+      difBL.push(hasBL ? rrA[rrA.length-1] - blA[blA.length-1] : null);
+      difRep.push(rrA[rrA.length-1] - repA[repA.length-1]);
+    });
+    return { blM, blA, repM, repA, rrM, rrA, difBL, difRep };
+  };
+
+  const exportExcel = () => {
+    import('xlsx').then(XLSX => {
+      const wb = XLSX.utils.book_new();
+      const { blM, blA, repM, repA, rrM, rrA, difBL, difRep } = computeSeries();
+      const fmt = v => v != null ? parseFloat(v.toFixed(4)) : null;
+
+      // Sheet 1 — Resumo Mensal
+      const cabMeses = months.map(m => m.label);
+      const resumo = [
+        ['Atividade', ...cabMeses],
+        ['LB Mensal (%)',              ...blM.map(fmt)],
+        ['LB Acumulado (%)',           ...blA.map(fmt)],
+        ['Reprogramado Mensal (%)',    ...repM.map(fmt)],
+        ['Reprogramado Acumulado (%)', ...repA.map(fmt)],
+        ['Real+Rep. Mensal (%)',       ...rrM.map(fmt)],
+        ['Real+Rep. Acumulado (%)',    ...rrA.map(fmt)],
+        ['Dif. vs LB Acumulado (%)',   ...difBL.map(fmt)],
+        ['Dif. vs Rep. Acumulado (%)', ...difRep.map(fmt)],
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), 'Resumo Mensal');
+
+      // Sheet 2 — Distribuição por Tarefa
+      const groupValsExp = computeGroupValues(etapas);
+      const distRows = etapas.filter(e => e.isGroup || e.showInDist === true);
+      const folhas = etapas.filter(e => !e.isGroup);
+      const totalCusto = folhas.reduce((s, e) => s + (e.custo || 0), 0);
+      const avancoGeral = totalCusto > 0
+        ? folhas.reduce((s, e) => s + (e.avanco || 0) * (e.custo || 0), 0) / totalCusto : 0;
+
+      const cabDist = ['Atividade', 'Valor (R$)', 'Peso %', 'Conc. %', ...cabMeses, 'Total'];
+      const dist = [cabDist];
+      distRows.forEach(e => {
+        const gv = e.isGroup ? (groupValsExp[e.id] || {}) : {};
+        const taskCusto  = e.isGroup ? (gv.custo || 0) : (e.custo || 0);
+        const taskAvanco = e.isGroup ? (gv.avanco || 0) : (e.avanco || 0);
+        const peso = totalCusto > 0 ? taskCusto / totalCusto * 100 : 0;
+        const mDist = monthlyDist[e.id] || {};
+        const monPcts = months.map(m => taskCusto > 0 ? parseFloat(((mDist[m.key] || 0) / taskCusto * 100).toFixed(4)) : null);
+        dist.push([e.etapa, taskCusto, parseFloat(peso.toFixed(4)), parseFloat(taskAvanco.toFixed(2)), ...monPcts, 100]);
+      });
+      // Rodapé
+      const totalMonPcts = months.map(m => totalCusto > 0 ? parseFloat(((filteredPlanned[m.key] || 0) / totalCusto * 100).toFixed(4)) : null);
+      dist.push(['Total geral', totalCusto, 100, parseFloat(avancoGeral.toFixed(2)), ...totalMonPcts, 100]);
+
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dist), 'Distribuição');
+
+      XLSX.writeFile(wb, `curva-fisica-${new Date().toISOString().slice(0,10)}.xlsx`);
+    });
+  };
+
+  const exportPDF = async () => {
+    if (!curvaRef.current) return;
+    setExportingPDF(true);
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ]);
+      const canvas = await html2canvas(curvaRef.current, {
+        scale: 1.5, useCORS: true, backgroundColor: '#ffffff', logging: false,
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const pW = pdf.internal.pageSize.getWidth();
+      const pH = canvas.height * pW / canvas.width;
+      const maxH = pdf.internal.pageSize.getHeight();
+      pdf.addImage(imgData, 'PNG', 0, 0, pW, Math.min(pH, maxH));
+      pdf.save(`curva-fisica-${new Date().toISOString().slice(0,10)}.pdf`);
+    } finally {
+      setExportingPDF(false);
+    }
+  };
 
   if (!hasData) return (
     <div className="card" style={{ marginTop: 'var(--gap)', padding: 40, textAlign: 'center' }}>
@@ -3002,7 +3101,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   const tdSt = { padding: '8px 14px', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))', verticalAlign: 'middle' };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
+    <div ref={curvaRef} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
 
       {/* ── Gráfico SVG ───────────────────────────────────────────────────── */}
       <div className="card">
@@ -3026,6 +3125,16 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               <span style={{ width: 14, height: 12, background: '#e2e8f0', display: 'inline-block', borderRadius: 2 }} />
               Prod. mensal
             </span>
+            <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
+              <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28 }}
+                onClick={exportExcel} title="Exportar para Excel (.xlsx)">
+                <Icon name="download" size={13} />Excel
+              </button>
+              <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28 }}
+                onClick={exportPDF} disabled={exportingPDF} title="Exportar para PDF">
+                <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'PDF'}
+              </button>
+            </div>
           </div>
         </div>
         <div className="card-body" style={{ padding: '12px 16px 0', overflowX: 'auto' }}>
