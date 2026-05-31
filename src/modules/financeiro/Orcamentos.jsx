@@ -137,37 +137,158 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
 };
 
 const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
-  const [rawItems, setRawItems]       = React.useState(AppData.orcamentoItens);
-  const [openGroups, setOpenGroups]   = React.useState(['01', '02', '03']);
-  const [confirmDelete, setConfirm]   = React.useState(false);
-  const [deleting, setDeleting]       = React.useState(false);
-  const [revisando, setRevisando]     = React.useState(false);
+  const toast         = useToast();
+  const [items, setItems]           = React.useState([]);
+  const [dirty, setDirty]           = React.useState(false);
+  const [saving, setSaving]         = React.useState(false);
+  const [collapsed, setCollapsed]   = React.useState(new Set());
+  const [confirmDelete, setConfirm] = React.useState(false);
+  const [deleting, setDeleting]     = React.useState(false);
+  const [revisando, setRevisando]   = React.useState(false);
 
   React.useEffect(() => {
     orcamentosService.itens.listar(orcamento.id).then(({ data, error }) => {
-      if (!error && data && data.length > 0) setRawItems(data);
+      if (!error && data) setItems(data);
     });
   }, [orcamento.id]);
 
-  // Adapter: normaliza nomes de coluna do DB para os campos usados no JSX
-  const items = rawItems.map(it => ({
-    ...it,
-    unit: it.unit_cost ?? it.unit ?? 0,
-    bdi:  it.is_bdi   ?? it.bdi   ?? false,
-  }));
+  // ── Utilitários de hierarquia ──────────────────────────────────────────────
+  const getNivel = (codigo) => (codigo.match(/\./g) || []).length;
 
-  const total       = items.filter(i => i.nivel === 0).reduce((a, b) => a + b.total, 0);
-  const totalDireto = items.filter(i => i.nivel === 0 && !i.bdi).reduce((a, b) => a + b.total, 0);
-  const totalBdi    = items.find(i => i.bdi)?.total || 0;
-  const bdiPct      = totalDireto > 0 ? (totalBdi / totalDireto * 100).toFixed(1) : '0.0';
+  const isParent = (codigo, list) =>
+    list.some(it => it.codigo !== codigo && it.codigo.startsWith(codigo + '.'));
 
-  const toggle = (codigo) =>
-    setOpenGroups(g => g.includes(codigo) ? g.filter(x => x !== codigo) : [...g, codigo]);
+  // Calcula totais bottom-up: folha = qty × unit; grupo = soma dos filhos diretos
+  const calcTotals = (list) => {
+    const map = {};
+    [...list]
+      .sort((a, b) => getNivel(b.codigo) - getNivel(a.codigo))
+      .forEach(it => {
+        if (isParent(it.codigo, list)) {
+          const children = list.filter(ch =>
+            ch.codigo.startsWith(it.codigo + '.') &&
+            getNivel(ch.codigo) === getNivel(it.codigo) + 1
+          );
+          map[it.codigo] = children.reduce((s, ch) => s + (map[ch.codigo] ?? 0), 0);
+        } else {
+          map[it.codigo] = (Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0);
+        }
+      });
+    return list.map(it => ({ ...it, valor_total: map[it.codigo] ?? it.valor_total ?? 0 }));
+  };
 
+  const withTotals = calcTotals(items);
+
+  // Próximo código de mesmo nível (irmão seguinte)
+  const nextCode = (refCodigo, list) => {
+    const parts  = refCodigo.split('.');
+    const parent = parts.slice(0, -1).join('.');
+    const nivel  = getNivel(refCodigo);
+    const siblings = list
+      .filter(it =>
+        getNivel(it.codigo) === nivel &&
+        it.codigo.split('.').slice(0, -1).join('.') === parent
+      )
+      .map(it => parseInt(it.codigo.split('.').pop(), 10))
+      .filter(n => !isNaN(n));
+    const next   = siblings.length ? Math.max(...siblings) + 1 : 1;
+    const prefix = parent ? parent + '.' : '';
+    return prefix + String(next).padStart(2, '0');
+  };
+
+  // Linha visível se nenhum ancestral estiver colapsado
+  const isVisible = (codigo) => {
+    const parts = codigo.split('.');
+    for (let i = 1; i < parts.length; i++) {
+      if (collapsed.has(parts.slice(0, i).join('.'))) return false;
+    }
+    return true;
+  };
+
+  // ── Operações de linha ─────────────────────────────────────────────────────
+  const editCell = (id, field, value) => {
+    setItems(prev => prev.map(it =>
+      it.id === id ? { ...it, [field]: value, _dirty: true } : it
+    ));
+    setDirty(true);
+  };
+
+  const makeNewRow = (codigo, ordem) => ({
+    id: 'tmp-' + Math.random().toString(36).slice(2),
+    orcamento_id: orcamento.id,
+    codigo,
+    nome: '',
+    quantidade: 0,
+    unidade: 'UN',
+    valor_unitario: 0,
+    valor_total: 0,
+    ordem,
+    _new: true,
+  });
+
+  const addBelow = (refCodigo) => {
+    const ref = items.find(it => it.codigo === refCodigo);
+    const idx = items.findIndex(it => it.codigo === refCodigo);
+    const newRow = makeNewRow(nextCode(refCodigo, items), (ref?.ordem ?? 0) + 1);
+    setItems(prev => { const n = [...prev]; n.splice(idx + 1, 0, newRow); return n; });
+    setDirty(true);
+  };
+
+  const addAbove = (refCodigo) => {
+    const ref = items.find(it => it.codigo === refCodigo);
+    const idx = items.findIndex(it => it.codigo === refCodigo);
+    const newRow = makeNewRow(nextCode(refCodigo, items), (ref?.ordem ?? 1) - 1);
+    setItems(prev => { const n = [...prev]; n.splice(idx, 0, newRow); return n; });
+    setDirty(true);
+  };
+
+  const removeRow = (codigo) => {
+    setItems(prev => prev.filter(it =>
+      it.codigo !== codigo && !it.codigo.startsWith(codigo + '.')
+    ));
+    setDirty(true);
+  };
+
+  const discardChanges = () => {
+    orcamentosService.itens.listar(orcamento.id).then(({ data }) => {
+      if (data) setItems(data);
+    });
+    setDirty(false);
+  };
+
+  // ── Salvar no DB ───────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    setSaving(true);
+    const toUpsert = items
+      .filter(it => it._new || it._dirty)
+      .map(({ _new, _dirty, ...rest }) => ({
+        ...rest,
+        id: typeof rest.id === 'string' && rest.id.startsWith('tmp-') ? undefined : rest.id,
+      }));
+    if (toUpsert.length) {
+      const { error } = await orcamentosService.itens.upsert(toUpsert);
+      if (error) {
+        toast('Erro ao salvar: ' + error.message, { tone: 'error', icon: 'alert' });
+        setSaving(false);
+        return;
+      }
+    }
+    // Atualiza valor total do cabeçalho do orçamento
+    const grandTotal = withTotals
+      .filter(it => getNivel(it.codigo) === 0)
+      .reduce((s, it) => s + it.valor_total, 0);
+    await orcamentosService.atualizar(orcamento.id, { valor: grandTotal });
+    const { data } = await orcamentosService.itens.listar(orcamento.id);
+    if (data) setItems(data);
+    setSaving(false);
+    setDirty(false);
+    toast('Itens salvos com sucesso', { tone: 'success', icon: 'check' });
+  };
+
+  // ── Excluir / Revisão ──────────────────────────────────────────────────────
   const handleDeleteClick = async () => {
     if (!confirmDelete) {
       setConfirm(true);
-      // Reseta confirmação após 5s se o usuário não confirmar
       setTimeout(() => setConfirm(false), 5000);
       return;
     }
@@ -181,8 +302,20 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
     setRevisando(false);
   };
 
+  // ── KPIs ───────────────────────────────────────────────────────────────────
+  const grandTotal  = withTotals.filter(it => getNivel(it.codigo) === 0).reduce((s, it) => s + it.valor_total, 0);
+  const bdiNum      = parseFloat(String(orcamento.bdi).replace(',', '.')) || 0;
+  const totalDireto = bdiNum > 0 ? grandTotal / (1 + bdiNum / 100) : grandTotal;
+  const totalBdi    = grandTotal - totalDireto;
+  const bdiPct      = bdiNum > 0 ? bdiNum.toFixed(1) : '0.0';
+
+  // Seções de nível 1 para Curva ABC
+  const secoes = withTotals.filter(it => getNivel(it.codigo) === 1);
+  const maxSecaoTotal = Math.max(...secoes.map(s => s.valor_total), 1);
+
   return (
     <>
+      {/* Cabeçalho */}
       <div className="page-header" style={{ marginBottom: 12 }}>
         <div>
           <button className="btn btn-sm btn-ghost" onClick={onBack} style={{ marginBottom: 8 }}>
@@ -209,13 +342,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
             {revisando ? 'Criando…' : 'Criar revisão'}
           </button>
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar PDF</button>
-          <button className="btn btn-ghost"><Icon name="edit" size={15} />Editar</button>
           {orcamento.status === 'pendente' && (
             <button className="btn btn-primary"><Icon name="check" size={15} />Aprovar</button>
           )}
         </div>
       </div>
 
+      {/* KPIs */}
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Custo direto</div>
@@ -227,92 +360,234 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Valor total</div>
-          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6, color: 'var(--brand)' }}>{brlOR(total, { compact: true })}</div>
+          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6, color: 'var(--brand)' }}>{brlOR(grandTotal, { compact: true })}</div>
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">Valor por m²</div>
-          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{brlOR(total / 18420, { compact: true })}</div>
+          <div className="kpi-label">Itens cadastrados</div>
+          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{items.filter(it => !isParent(it.codigo, items)).length}</div>
           <div className="kpi-foot" style={{ marginTop: 4 }}>
-            <span className="kpi-foot-text">Base: 18.420 m²</span>
+            <span className="kpi-foot-text">{items.length} total (incluindo grupos)</span>
           </div>
         </div>
       </div>
 
+      {/* Composição + Curva ABC */}
       <div className="grid-cols-3-2" style={{ marginTop: 'var(--gap)' }}>
-        <div className="card">
+        {/* Tabela de itens */}
+        <div className="card" style={{ overflow: 'hidden' }}>
           <div className="card-header">
             <div>
               <div className="card-title">Composição orçamentária</div>
-              <div className="card-subtitle">Estrutura analítica por grupos e subitens</div>
+              <div className="card-subtitle">
+                {items.length === 0
+                  ? 'Nenhum item. Use + abaixo para adicionar.'
+                  : `${items.length} itens · clique para editar`}
+              </div>
             </div>
             <div className="card-actions">
-              <button className="chip">SINAPI <Icon name="chevron-down" size={12} className="caret" /></button>
-              <button className="btn btn-sm btn-ghost"><Icon name="download" size={13} />Excel</button>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => {
+                  const newRow = makeNewRow('001', items.length);
+                  setItems(prev => [...prev, newRow]);
+                  setDirty(true);
+                }}
+              >
+                <Icon name="plus" size={13} />Novo item
+              </button>
             </div>
           </div>
-          <div className="card-body flush">
-            <div className="tree-row head">
-              <div className="cell">Item</div>
-              <div className="cell">Un.</div>
-              <div className="cell right">Quant.</div>
-              <div className="cell right">Unitário</div>
-              <div className="cell right">Total</div>
-              <div className="cell right">Peso</div>
-            </div>
-            {items.map((it, i) => {
-              if (it.nivel === 1 && !openGroups.includes(it.codigo.split('.')[0])) return null;
-              return (
-                <div key={i} className={'tree-row level-' + it.nivel}>
-                  <div className="cell" style={{ paddingLeft: it.nivel === 1 ? 36 : 12 }}>
-                    {it.nivel === 0 && !it.bdi && (
-                      <button
-                        className={'tree-toggle' + (openGroups.includes(it.codigo) ? ' open' : '')}
-                        onClick={() => toggle(it.codigo)}
-                        style={{ verticalAlign: 'middle' }}
+          <div className="card-body flush" style={{ overflowX: 'auto' }}>
+            <table className="orca-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 140 }}>Código</th>
+                  <th>Nome</th>
+                  <th className="right" style={{ width: 100 }}>Quant.</th>
+                  <th style={{ width: 60 }}>Un.</th>
+                  <th className="right" style={{ width: 110 }}>Valor Unit.</th>
+                  <th className="right" style={{ width: 120 }}>Valor Total</th>
+                  <th style={{ width: 80 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {withTotals
+                  .filter(it => isVisible(it.codigo))
+                  .map((it) => {
+                    const nivel     = getNivel(it.codigo);
+                    const hasKids   = isParent(it.codigo, items);
+                    const isOpen    = !collapsed.has(it.codigo);
+                    const indent    = nivel * 18;
+
+                    return (
+                      <tr
+                        key={it.id}
+                        className={`orca-row level-${nivel}${hasKids ? ' is-group' : ''}`}
                       >
-                        <Icon name="chevron-right" size={14} />
-                      </button>
-                    )}
-                    <span className="tree-code">{it.codigo}</span>
-                    {it.item}
-                  </div>
-                  <div className="cell">{it.un}</div>
-                  <div className="cell right mono num">{it.quant === 1 && it.nivel === 0 ? '—' : Number(it.quant).toLocaleString('pt-BR')}</div>
-                  <div className="cell right mono num">{it.unit > 0 ? brlOR(it.unit) : '—'}</div>
-                  <div className="cell right mono num" style={{ fontWeight: it.nivel === 0 ? 600 : 500 }}>{brlOR(it.total, { compact: true })}</div>
-                  <div className="cell right mono num text-muted">{Number(it.peso).toFixed(1)}%</div>
-                </div>
-              );
-            })}
+                        {/* Código */}
+                        <td style={{ paddingLeft: indent + 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {hasKids ? (
+                              <button
+                                className={'orca-toggle' + (isOpen ? ' open' : '')}
+                                onClick={() => setCollapsed(prev => {
+                                  const next = new Set(prev);
+                                  next.has(it.codigo) ? next.delete(it.codigo) : next.add(it.codigo);
+                                  return next;
+                                })}
+                              >
+                                <Icon name="chevron-right" size={12} />
+                              </button>
+                            ) : (
+                              <span style={{ width: 16, flexShrink: 0 }} />
+                            )}
+                            <input
+                              className="orca-cell-input"
+                              value={it.codigo}
+                              onChange={e => editCell(it.id, 'codigo', e.target.value)}
+                              style={{ width: 90, fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5 }}
+                            />
+                          </div>
+                        </td>
+
+                        {/* Nome */}
+                        <td>
+                          <input
+                            className="orca-cell-input"
+                            value={it.nome || ''}
+                            placeholder={hasKids ? 'Nome do grupo…' : 'Nome do item…'}
+                            onChange={e => editCell(it.id, 'nome', e.target.value)}
+                          />
+                        </td>
+
+                        {/* Quantidade */}
+                        <td className="right">
+                          {!hasKids ? (
+                            <input
+                              className="orca-cell-input right"
+                              type="number"
+                              value={it.quantidade || ''}
+                              placeholder="0"
+                              onChange={e => editCell(it.id, 'quantidade', parseFloat(e.target.value) || 0)}
+                            />
+                          ) : <span className="text-muted" style={{ fontSize: 11 }}>—</span>}
+                        </td>
+
+                        {/* Unidade */}
+                        <td>
+                          {!hasKids ? (
+                            <input
+                              className="orca-cell-input"
+                              value={it.unidade || ''}
+                              placeholder="UN"
+                              maxLength={8}
+                              onChange={e => editCell(it.id, 'unidade', e.target.value.toUpperCase())}
+                              style={{ width: 52, textTransform: 'uppercase' }}
+                            />
+                          ) : null}
+                        </td>
+
+                        {/* Valor Unitário */}
+                        <td className="right">
+                          {!hasKids ? (
+                            <input
+                              className="orca-cell-input right"
+                              type="number"
+                              value={it.valor_unitario || ''}
+                              placeholder="0,00"
+                              onChange={e => editCell(it.id, 'valor_unitario', parseFloat(e.target.value) || 0)}
+                            />
+                          ) : <span className="text-muted" style={{ fontSize: 11 }}>—</span>}
+                        </td>
+
+                        {/* Valor Total (calculado) */}
+                        <td className="right mono" style={{ fontWeight: hasKids ? 600 : 500, color: nivel === 0 ? 'var(--brand)' : 'inherit' }}>
+                          {brlOR(it.valor_total, { compact: true })}
+                        </td>
+
+                        {/* Ações */}
+                        <td>
+                          <div className="orca-row-actions">
+                            <button
+                              className="orca-row-btn"
+                              title="Inserir acima"
+                              onClick={() => addAbove(it.codigo)}
+                            >↑+</button>
+                            <button
+                              className="orca-row-btn"
+                              title="Inserir abaixo"
+                              onClick={() => addBelow(it.codigo)}
+                            >↓+</button>
+                            <button
+                              className="orca-row-btn danger"
+                              title="Remover linha"
+                              onClick={() => removeRow(it.codigo)}
+                            >×</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-muted)' }}>
+                      Nenhum item cadastrado. Clique em "Novo item" para começar.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+
+            {/* Barra de salvar sticky */}
+            {dirty && (
+              <div className="orca-save-bar">
+                <button className="btn btn-ghost" onClick={discardChanges}>Descartar</button>
+                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                  <Icon name="check" size={14} />
+                  {saving ? 'Salvando…' : 'Salvar alterações'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Painéis laterais */}
         <div className="stack">
+          {/* Curva ABC por seção */}
           <div className="card">
             <div className="card-header">
-              <div className="card-title">Curva ABC</div>
-              <button className="icon-btn"><Icon name="dots" size={16} /></button>
+              <div className="card-title">Curva ABC — Seções</div>
             </div>
             <div className="card-body">
               <div className="stack" style={{ gap: 11 }}>
-                {items.filter(i => i.nivel === 0 && !i.bdi).slice(0, 8).sort((a, b) => b.peso - a.peso).map((it, i) => (
-                  <div key={i}>
-                    <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span className="text-sm">
-                        <span className="mono text-muted" style={{ marginRight: 6 }}>{it.codigo}</span>
-                        {it.item}
-                      </span>
-                      <span className="mono num fw-600 text-sm">{Number(it.peso).toFixed(1)}%</span>
-                    </div>
-                    <div className="progress" style={{ height: 5 }}>
-                      <span style={{ width: (it.peso / 22 * 100) + '%' }}></span>
-                    </div>
-                  </div>
-                ))}
+                {secoes.length === 0 && (
+                  <div className="text-muted" style={{ fontSize: 13 }}>Adicione itens para ver a Curva ABC.</div>
+                )}
+                {secoes
+                  .sort((a, b) => b.valor_total - a.valor_total)
+                  .slice(0, 8)
+                  .map((it, i) => {
+                    const pct = grandTotal > 0 ? (it.valor_total / grandTotal * 100) : 0;
+                    return (
+                      <div key={i}>
+                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span className="text-sm" style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
+                            <span className="mono text-muted" style={{ marginRight: 6 }}>{it.codigo}</span>
+                            {it.nome || '—'}
+                          </span>
+                          <span className="mono num fw-600 text-sm">{pct.toFixed(1)}%</span>
+                        </div>
+                        <div className="progress" style={{ height: 5 }}>
+                          <span style={{ width: (it.valor_total / maxSecaoTotal * 100) + '%' }}></span>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           </div>
 
+          {/* Composição do BDI */}
           <div className="card">
             <div className="card-header">
               <div className="card-title">Composição do BDI</div>
@@ -320,13 +595,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao }) => {
             <div className="card-body">
               <div className="stack" style={{ gap: 9, fontSize: 13 }}>
                 {[
-                  { label: 'Administração central',    value: '4,2%' },
-                  { label: 'Despesas financeiras',     value: '1,1%' },
-                  { label: 'Seguros e garantias',      value: '0,8%' },
-                  { label: 'Risco do empreendimento',  value: '2,0%' },
-                  { label: 'Lucro bruto',              value: '8,0%' },
+                  { label: 'Administração central',     value: '4,2%' },
+                  { label: 'Despesas financeiras',      value: '1,1%' },
+                  { label: 'Seguros e garantias',       value: '0,8%' },
+                  { label: 'Risco do empreendimento',   value: '2,0%' },
+                  { label: 'Lucro bruto',               value: '8,0%' },
                   { label: 'Tributos (PIS/COFINS/ISS)', value: '6,4%' },
-                  { label: 'CPRB',                     value: '4,5%' },
+                  { label: 'CPRB',                      value: '4,5%' },
                 ].map((b, i) => (
                   <div key={i} className="row" style={{ justifyContent: 'space-between' }}>
                     <span className="text-soft">{b.label}</span>

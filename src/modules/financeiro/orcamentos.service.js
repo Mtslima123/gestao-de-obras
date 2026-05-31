@@ -18,9 +18,18 @@ export const orcamentosService = {
 
   itens: {
     listar: (orcamentoId) =>
-      supabase.from('orcamento_itens').select('*').eq('orcamento_id', orcamentoId).order('codigo'),
+      supabase.from('orcamento_itens').select('*').eq('orcamento_id', orcamentoId).order('ordem').order('codigo'),
 
     criar: (itens) =>
       supabase.from('orcamento_itens').insert(itens),
+
+    atualizar: (id, dados) =>
+      supabase.from('orcamento_itens').update(dados).eq('id', id),
+
+    excluir: (id) =>
+      supabase.from('orcamento_itens').delete().eq('id', id),
+
+    upsert: (itens) =>
+      supabase.from('orcamento_itens').upsert(itens, { onConflict: 'id' }),
   },
 };
