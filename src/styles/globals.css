@@ -2059,9 +2059,28 @@ tr:hover .obras-row-actions {
 .orca-table thead th.right { text-align: right; }
 
 .orca-row { border-bottom: 1px solid var(--border-faint, #f0f2f5); position: relative; }
-.orca-row:hover { background: var(--surface-hover, #f7f9fc); }
-.orca-row.is-group > td { font-weight: 600; background: var(--surface-muted); }
-.orca-row.level-0 > td { font-weight: 700; font-size: 13px; background: var(--brand-50, #eaf1f9); }
+.orca-row:hover > td { filter: brightness(0.97); }
+
+/* Hierarquia de cores: nível 0 = mais escuro → nível 3 = sem cor */
+.orca-row.level-0 > td {
+  background: #d6e8f7;
+  font-weight: 700;
+  font-size: 13px;
+  border-bottom: 1px solid #aaccec;
+}
+.orca-row.level-1 > td {
+  background: #e8f2fb;
+  font-weight: 600;
+  border-bottom: 1px solid #c5dcf0;
+}
+.orca-row.level-2 > td {
+  background: #f3f8fd;
+  font-weight: 600;
+  border-bottom: 1px solid #daeaf6;
+}
+.orca-row.level-3 > td {
+  background: #fff;
+}
 
 .orca-row td { padding: 4px 10px; vertical-align: middle; }
 .orca-row td.right { text-align: right; }
