@@ -5,10 +5,11 @@ import { AppData } from '../../utils/data';
 import { useToast, Modal } from '../../components/Modals';
 import { StatusBadge } from '../../components/StatusBadge';
 import { orcamentosService } from './orcamentos.service';
+import { formatBRL } from '../../utils/formatters';
 
 // Orçamentos — lista + detalhe com composição
 const { brl: brlOR } = AppData;
-const brlFull = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const brlFull = formatBRL;
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
@@ -188,6 +189,10 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
   }, [existingItems]);
 
   const parseFile = async (file) => {
+    if (file.size > 25 * 1024 * 1024) {
+      toast('Arquivo muito grande. Máximo: 25 MB', { tone: 'danger' });
+      return;
+    }
     setParsing(true);
     try {
       const buf = await file.arrayBuffer();
@@ -484,6 +489,19 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
   );
 };
 
+// Célula editável isolada com memo — evita re-render de todas as linhas ao digitar
+const NumericCell = React.memo(({ id, field, rawValue, displayValue, isActive, onFocus, onChange, onBlur, placeholder }) => (
+  <input
+    className="orca-cell-input right"
+    inputMode="decimal"
+    value={isActive ? rawValue : displayValue}
+    onFocus={onFocus}
+    onChange={onChange}
+    onBlur={onBlur}
+    placeholder={placeholder}
+  />
+));
+
 const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user }) => {
   const toast         = useToast();
   const [items, setItems]           = React.useState([]);
@@ -536,7 +554,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
     return list.map(it => ({ ...it, valor_total: map[it.codigo] ?? it.valor_total ?? 0 }));
   };
 
-  const withTotals = calcTotals(items);
+  const withTotals = React.useMemo(() => calcTotals(items), [items]);
 
   // Próximo código de mesmo nível (irmão seguinte)
   const nextCode = (refCodigo, list) => {
@@ -565,6 +583,12 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
     }
     return true;
   };
+
+  // Pré-computa itens visíveis para evitar re-cálculo por linha no render
+  const visibleItems = React.useMemo(() => {
+    if (!collapsed.size) return withTotals;
+    return withTotals.filter(it => isVisible(it.codigo));
+  }, [withTotals, collapsed]);
 
   // Colapsa todos os grupos no nível maxNivel; -1 = expandir tudo
   const collapseToLevel = (maxNivel) => {
@@ -785,15 +809,16 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   };
 
   // ── KPIs ───────────────────────────────────────────────────────────────────
-  const grandTotal  = withTotals.filter(it => getNivel(it.codigo) === 0).reduce((s, it) => s + it.valor_total, 0);
-  const bdiNum      = parseFloat(String(orcamento.bdi).replace(',', '.')) || 0;
-  const totalDireto = bdiNum > 0 ? grandTotal / (1 + bdiNum / 100) : grandTotal;
-  const totalBdi    = grandTotal - totalDireto;
-  const bdiPct      = bdiNum > 0 ? bdiNum.toFixed(1) : '0.0';
+  const grandTotal  = React.useMemo(() => withTotals.filter(it => getNivel(it.codigo) === 0).reduce((s, it) => s + it.valor_total, 0), [withTotals]);
+  const bdiNum      = React.useMemo(() => parseFloat(String(orcamento.bdi).replace(',', '.')) || 0, [orcamento.bdi]);
+  const totalDireto = React.useMemo(() => bdiNum > 0 ? grandTotal / (1 + bdiNum / 100) : grandTotal, [grandTotal, bdiNum]);
+  const totalBdi    = React.useMemo(() => grandTotal - totalDireto, [grandTotal, totalDireto]);
+  const bdiPct      = React.useMemo(() => bdiNum > 0 ? bdiNum.toFixed(1) : '0.0', [bdiNum]);
 
   // Seções de nível 1 para Curva ABC
-  const secoes = withTotals.filter(it => getNivel(it.codigo) === 1);
-  const maxSecaoTotal = Math.max(...secoes.map(s => s.valor_total), 1);
+  const secoes        = React.useMemo(() => withTotals.filter(it => getNivel(it.codigo) === 1), [withTotals]);
+  const maxSecaoTotal = React.useMemo(() => Math.max(...secoes.map(s => s.valor_total), 1), [secoes]);
+  const abcSorted     = React.useMemo(() => [...secoes].sort((a, b) => b.valor_total - a.valor_total).slice(0, 8), [secoes]);
 
   return (
     <>
@@ -935,9 +960,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                 </tr>
               </thead>
               <tbody>
-                {withTotals
-                  .filter(it => isVisible(it.codigo))
-                  .map((it) => {
+                {visibleItems.map((it) => {
                     const nivel     = getNivel(it.codigo);
                     const hasKids   = isParent(it.codigo, items);
                     const isOpen    = !collapsed.has(it.codigo);
@@ -987,14 +1010,12 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                         {/* Quantidade */}
                         <td className="right">
                           {!hasKids ? (
-                            <input
-                              className="orca-cell-input right"
-                              inputMode="decimal"
-                              value={
-                                activeCell?.id === it.id && activeCell?.field === 'quantidade'
-                                  ? activeCell.raw
-                                  : fmtNum(it.quantidade)
-                              }
+                            <NumericCell
+                              id={it.id}
+                              field="quantidade"
+                              rawValue={activeCell?.id === it.id && activeCell?.field === 'quantidade' ? activeCell.raw : ''}
+                              displayValue={fmtNum(it.quantidade)}
+                              isActive={activeCell?.id === it.id && activeCell?.field === 'quantidade'}
                               onFocus={() => setActiveCell({ id: it.id, field: 'quantidade', raw: it.quantidade || '' })}
                               onChange={e => setActiveCell(prev => ({ ...prev, raw: e.target.value }))}
                               onBlur={e => { editCell(it.id, 'quantidade', parseNum(e.target.value)); setActiveCell(null); }}
@@ -1020,14 +1041,12 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                         {/* Valor Unitário */}
                         <td className="right">
                           {!hasKids ? (
-                            <input
-                              className="orca-cell-input right"
-                              inputMode="decimal"
-                              value={
-                                activeCell?.id === it.id && activeCell?.field === 'valor_unitario'
-                                  ? activeCell.raw
-                                  : fmtNum(it.valor_unitario)
-                              }
+                            <NumericCell
+                              id={it.id}
+                              field="valor_unitario"
+                              rawValue={activeCell?.id === it.id && activeCell?.field === 'valor_unitario' ? activeCell.raw : ''}
+                              displayValue={fmtNum(it.valor_unitario)}
+                              isActive={activeCell?.id === it.id && activeCell?.field === 'valor_unitario'}
                               onFocus={() => setActiveCell({ id: it.id, field: 'valor_unitario', raw: it.valor_unitario || '' })}
                               onChange={e => setActiveCell(prev => ({ ...prev, raw: e.target.value }))}
                               onBlur={e => { editCell(it.id, 'valor_unitario', parseNum(e.target.value)); setActiveCell(null); }}
@@ -1108,10 +1127,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                 {secoes.length === 0 && (
                   <div className="text-muted" style={{ fontSize: 13 }}>Adicione itens para ver a Curva ABC.</div>
                 )}
-                {secoes
-                  .sort((a, b) => b.valor_total - a.valor_total)
-                  .slice(0, 8)
-                  .map((it, i) => {
+                {abcSorted.map((it, i) => {
                     const pct = grandTotal > 0 ? (it.valor_total / grandTotal * 100) : 0;
                     return (
                       <div key={i}>
