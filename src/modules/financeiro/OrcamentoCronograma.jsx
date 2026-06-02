@@ -5,10 +5,11 @@ import { supabase } from '../../services/supabase';
 import { vinculoService } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 
-// ─── OrcamentoCronogramaScreen ────────────────────────────────────────────────
-// Tela de vinculação muitos-para-muitos entre itens do orçamento e tarefas do cronograma.
-// Os vínculos criados aqui alimentam o cálculo automático de pesos físicos no Cronograma.
+// Calcula valor do item: usa valor_total armazenado ou fallback quantidade × valor_unitario
+const itemValor = (it) =>
+  it?.valor_total || (it?.quantidade || 0) * (it?.valor_unitario || 0);
 
+// ─── OrcamentoCronogramaScreen ────────────────────────────────────────────────
 const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const toast = useToast();
 
@@ -23,9 +24,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const [filtroItem,  setFiltroItem]  = React.useState('');
   const [filtroEtapa, setFiltroEtapa] = React.useState('');
 
-  // Seleção para novo vínculo
-  const [selItem,  setSelItem]  = React.useState('');
+  // Seleção para novo vínculo — múltiplos itens, uma etapa
+  const [selItens, setSelItens] = React.useState([]);
   const [selEtapa, setSelEtapa] = React.useState('');
+  const [buscaItem, setBuscaItem] = React.useState('');
 
   // Carrega dados quando a obra muda
   React.useEffect(() => {
@@ -46,32 +48,65 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     });
   }, [obraSel]);
 
-  // ── Adicionar vínculo ──────────────────────────────────────────────────────
+  // Etapas que já têm pelo menos um vínculo — não devem aparecer no seletor
+  const linkedEtapaIds = React.useMemo(
+    () => new Set(vinculos.map(v => v.etapa_id)),
+    [vinculos]
+  );
+
+  // Toggle de item na seleção múltipla
+  const toggleItem = (id) => {
+    const sid = String(id);
+    setSelItens(prev =>
+      prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]
+    );
+  };
+
+  // Itens filtrados pela busca dentro do seletor
+  const itensFiltradosBusca = React.useMemo(() => {
+    if (!buscaItem) return itens;
+    const q = buscaItem.toLowerCase();
+    return itens.filter(it =>
+      it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q)
+    );
+  }, [itens, buscaItem]);
+
+  // ── Adicionar vínculos ─────────────────────────────────────────────────────
   const handleAdd = async () => {
-    if (!selItem || !selEtapa) return;
-    if (vinculos.some(v => v.orcamento_item_id === selItem && v.etapa_id === selEtapa)) {
-      toast('Este vínculo já existe', { tone: 'warning', icon: 'alert' });
-      return;
-    }
+    if (!selItens.length || !selEtapa) return;
     setSaving(true);
-    const { error } = await vinculoService.criar({
-      obra_id: obraSel,
-      orcamento_item_id: selItem,
-      etapa_id: selEtapa,
-    }, user?.id);
 
-    if (error) {
-      toast('Erro ao criar vínculo: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
-      setSaving(false);
-      return;
+    let criados = 0;
+    let erros = 0;
+    for (const itemId of selItens) {
+      const numId = Number(itemId);
+      if (vinculos.some(v => v.orcamento_item_id === numId && v.etapa_id === selEtapa)) continue;
+      const { error } = await vinculoService.criar({
+        obra_id: obraSel,
+        orcamento_item_id: numId,
+        etapa_id: selEtapa,
+      }, user?.id);
+      if (error) erros++;
+      else criados++;
     }
 
-    const { data } = await vinculoService.listarPorObra(obraSel);
-    setVinculos(data || []);
-    setSelItem('');
-    setSelEtapa('');
+    if (erros > 0) {
+      toast(`${erros} vínculo(s) falharam ao salvar`, { tone: 'danger', icon: 'alert-triangle' });
+    }
+
+    if (criados > 0) {
+      const { data } = await vinculoService.listarPorObra(obraSel);
+      setVinculos(data || []);
+      setSelItens([]);
+      setSelEtapa('');
+      setBuscaItem('');
+      toast(
+        criados === 1 ? 'Vínculo criado com sucesso' : `${criados} vínculos criados`,
+        { tone: 'success', icon: 'check' }
+      );
+    }
+
     setSaving(false);
-    toast('Vínculo criado com sucesso', { tone: 'success', icon: 'check' });
   };
 
   // ── Remover vínculo ────────────────────────────────────────────────────────
@@ -85,7 +120,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     toast('Vínculo removido', { tone: 'neutral', icon: 'check' });
   };
 
-  // ── Filtros ────────────────────────────────────────────────────────────────
+  // ── Filtros da tabela ──────────────────────────────────────────────────────
   const filtrados = vinculos.filter(v => {
     const itemNome  = (v.orcamento_itens?.nome || '').toLowerCase();
     const etapaNome = (etapas.find(e => e.id === v.etapa_id)?.etapa || '').toLowerCase();
@@ -95,10 +130,13 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     );
   });
 
-  const totalVinculado = filtrados.reduce((s, v) => s + (v.orcamento_itens?.valor_total || 0), 0);
+  const totalVinculado = filtrados.reduce((s, v) => s + itemValor(v.orcamento_itens), 0);
 
-  // ── Helpers de exibição ───────────────────────────────────────────────────
-  const indentEtapa = (e) => ' '.repeat((e.nivel || 0) * 3) + (e.isGroup ? '▸ ' : '') + e.etapa;
+  const indentEtapa = (e) =>
+    ' '.repeat((e.nivel || 0) * 3) + (e.isGroup ? '▸ ' : '') + e.etapa;
+
+  // Etapas disponíveis para vincular (excluindo já vinculadas)
+  const etapasDisponiveis = etapas.filter(et => !linkedEtapaIds.has(et.id));
 
   return (
     <>
@@ -147,7 +185,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
             <div className="card-header">
               <div className="card-title">Adicionar vínculo</div>
               <div className="card-subtitle">
-                Relacione um item do orçamento com uma tarefa do cronograma
+                Selecione um ou mais itens do orçamento e a tarefa do cronograma que receberá os pesos
               </div>
             </div>
             <div className="card-body">
@@ -156,31 +194,96 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                   Nenhum item de orçamento encontrado para esta obra. Crie um orçamento primeiro.
                 </div>
               )}
-              {etapas.length === 0 && (
+              {etapasDisponiveis.length === 0 && etapas.length === 0 && (
                 <div className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
                   Nenhuma tarefa de cronograma encontrada para esta obra. Crie um cronograma primeiro.
                 </div>
               )}
-              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 280px', minWidth: 200 }}>
+              {etapasDisponiveis.length === 0 && etapas.length > 0 && (
+                <div className="text-muted" style={{ fontSize: 13, marginBottom: 12, padding: '8px 12px', background: 'var(--surface-muted)', borderRadius: 6 }}>
+                  Todas as tarefas já foram vinculadas.
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                {/* Multi-select de itens de orçamento */}
+                <div style={{ flex: '1 1 300px', minWidth: 240 }}>
                   <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
-                    Item do Orçamento
+                    Itens do Orçamento
+                    {selItens.length > 0 && (
+                      <span style={{ marginLeft: 6, color: 'var(--brand)', fontWeight: 600 }}>
+                        ({selItens.length} selecionado{selItens.length > 1 ? 's' : ''})
+                      </span>
+                    )}
                   </label>
-                  <select
+                  <input
                     className="input"
-                    value={selItem}
-                    onChange={e => setSelItem(e.target.value)}
-                    style={{ width: '100%' }}
-                  >
-                    <option value="">— Selecione um item —</option>
-                    {itens.map(it => (
-                      <option key={it.id} value={it.id}>
-                        {it.codigo} — {it.nome} ({formatBRL(it.valor_total)})
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Buscar item…"
+                    value={buscaItem}
+                    onChange={e => setBuscaItem(e.target.value)}
+                    style={{ width: '100%', marginBottom: 6 }}
+                  />
+                  <div style={{
+                    maxHeight: 220,
+                    overflowY: 'auto',
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    background: 'var(--surface)',
+                  }}>
+                    {itensFiltradosBusca.length === 0 && (
+                      <div style={{ padding: '10px 12px', fontSize: 13, color: 'var(--text-faint)' }}>
+                        Nenhum item encontrado.
+                      </div>
+                    )}
+                    {itensFiltradosBusca.map(it => {
+                      const val = itemValor(it);
+                      const sid = String(it.id);
+                      const checked = selItens.includes(sid);
+                      return (
+                        <label
+                          key={it.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 10,
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid var(--border-subtle)',
+                            background: checked ? 'var(--brand-tint)' : 'transparent',
+                            transition: 'background 0.1s',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleItem(it.id)}
+                            style={{ marginTop: 2, accentColor: 'var(--brand)', flexShrink: 0 }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: checked ? 600 : 400 }}>
+                              <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{it.codigo}</span>
+                              {it.nome}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
+                              {formatBRL(val)}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {selItens.length > 0 && (
+                    <button
+                      className="btn btn-ghost"
+                      style={{ marginTop: 6, fontSize: 12 }}
+                      onClick={() => setSelItens([])}
+                    >
+                      Limpar seleção
+                    </button>
+                  )}
                 </div>
 
+                {/* Select de tarefa do cronograma */}
                 <div style={{ flex: '1 1 280px', minWidth: 200 }}>
                   <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
                     Tarefa do Cronograma
@@ -190,38 +293,47 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                     value={selEtapa}
                     onChange={e => setSelEtapa(e.target.value)}
                     style={{ width: '100%' }}
+                    disabled={etapasDisponiveis.length === 0}
                   >
                     <option value="">— Selecione uma tarefa —</option>
-                    {etapas.map(et => (
+                    {etapasDisponiveis.map(et => (
                       <option key={et.id} value={et.id}>{indentEtapa(et)}</option>
                     ))}
                   </select>
+
+                  {selItens.length > 0 && selEtapa && (() => {
+                    const etapa = etapas.find(e => e.id === selEtapa);
+                    const totalSel = selItens.reduce((s, sid) => {
+                      const it = itens.find(i => String(i.id) === sid);
+                      return s + (it ? itemValor(it) : 0);
+                    }, 0);
+                    return (
+                      <div style={{ marginTop: 10, padding: '10px 14px', background: 'var(--brand-tint)', borderRadius: 8, fontSize: 13, color: 'var(--brand)' }}>
+                        <strong>{selItens.length} item{selItens.length > 1 ? 's' : ''}</strong>
+                        <span style={{ margin: '0 8px', opacity: 0.6 }}>→</span>
+                        <strong>{etapa?.etapa}</strong>
+                        <div style={{ marginTop: 4, opacity: 0.8 }}>
+                          Total: {formatBRL(totalSel)}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleAdd}
+                    disabled={!selItens.length || !selEtapa || saving}
+                    style={{ marginTop: 12, width: '100%' }}
+                  >
+                    <Icon name="plus" size={15} />
+                    {saving
+                      ? 'Salvando…'
+                      : selItens.length > 0
+                        ? `Adicionar (${selItens.length} item${selItens.length > 1 ? 's' : ''})`
+                        : 'Adicionar'}
+                  </button>
                 </div>
-
-                <button
-                  className="btn btn-primary"
-                  onClick={handleAdd}
-                  disabled={!selItem || !selEtapa || saving}
-                  style={{ flexShrink: 0 }}
-                >
-                  <Icon name="plus" size={15} />
-                  {saving ? 'Salvando…' : 'Adicionar'}
-                </button>
               </div>
-
-              {selItem && selEtapa && (() => {
-                const item  = itens.find(it => it.id === selItem);
-                const etapa = etapas.find(e => e.id === selEtapa);
-                if (!item || !etapa) return null;
-                return (
-                  <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--brand-tint)', borderRadius: 8, fontSize: 13, color: 'var(--brand)' }}>
-                    <strong>{item.codigo} — {item.nome}</strong>
-                    <span style={{ margin: '0 8px', opacity: 0.6 }}>→</span>
-                    <strong>{etapa.etapa}</strong>
-                    <span style={{ marginLeft: 8, opacity: 0.7 }}>({formatBRL(item.valor_total)})</span>
-                  </div>
-                );
-              })()}
             </div>
           </div>
 
@@ -302,7 +414,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                         <td>
                           {etapa ? (
                             <span>
-                              {' '.repeat((etapa.nivel || 0) * 2)}
+                              {' '.repeat((etapa.nivel || 0) * 2)}
                               {etapa.isGroup && <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>▸</span>}
                               {etapa.etapa}
                             </span>
@@ -314,7 +426,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                           {etapa ? (etapa.isGroup ? 'Grupo' : `N${etapa.nivel || 0}`) : '—'}
                         </td>
                         <td className="mono" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                          {formatBRL(v.orcamento_itens?.valor_total || 0)}
+                          {formatBRL(itemValor(v.orcamento_itens))}
                         </td>
                         <td style={{ textAlign: 'center' }}>
                           <button
@@ -356,14 +468,13 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   );
 };
 
-// ─── ResumoVinculos — mostra o valor total vinculado por tarefa do cronograma ─
+// ─── ResumoVinculos ───────────────────────────────────────────────────────────
 const ResumoVinculos = ({ vinculos, etapas }) => {
-  // Agrupa por etapa_id
   const porEtapa = {};
   vinculos.forEach(v => {
     if (!porEtapa[v.etapa_id]) porEtapa[v.etapa_id] = { itens: [], total: 0 };
     porEtapa[v.etapa_id].itens.push(v);
-    porEtapa[v.etapa_id].total += v.orcamento_itens?.valor_total || 0;
+    porEtapa[v.etapa_id].total += itemValor(v.orcamento_itens);
   });
 
   const etapasComVinculo = etapas.filter(e => porEtapa[e.id]);
@@ -388,7 +499,7 @@ const ResumoVinculos = ({ vinculos, etapas }) => {
             {etapasComVinculo.map(e => (
               <tr key={e.id}>
                 <td>
-                  {' '.repeat((e.nivel || 0) * 2)}
+                  {' '.repeat((e.nivel || 0) * 2)}
                   {e.isGroup && <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>▸</span>}
                   {e.etapa}
                 </td>

@@ -5,7 +5,7 @@ export const vinculoService = {
   listarPorObra: (obraId) =>
     supabase
       .from('orcamento_cronograma_vinculos')
-      .select('*, orcamento_itens(id, codigo, nome, valor_total, orcamento_id)')
+      .select('*, orcamento_itens(id, codigo, nome, valor_total, quantidade, valor_unitario, orcamento_id)')
       .eq('obra_id', obraId),
 
   // Cria um vínculo entre um item do orçamento e uma etapa do cronograma
