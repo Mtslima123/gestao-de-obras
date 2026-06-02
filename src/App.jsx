@@ -1,10 +1,11 @@
 import React from 'react';
-import { supabase } from './services/supabase';
 import { AppData } from './utils/data';
 import { Icon } from './components/Icons';
-import { ToastProvider, NovaObraModal, NovaMedicaoModal, SolicitarCompraModal, NovoOrcamentoModal } from './components/Modals';
+import { ToastProvider, useToast, NovaObraModal, NovaMedicaoModal, SolicitarCompraModal, NovoOrcamentoModal } from './components/Modals';
 import { Sidebar, Topbar } from './Chrome';
 import { LoginScreen } from './modules/auth/Login';
+import { authService } from './modules/auth/auth.service';
+import { obrasService } from './modules/obras/obras.service';
 import { Dashboard } from './modules/dashboard/Dashboard';
 import { ObrasList } from './modules/obras/ObrasList';
 import { ObraDetail } from './modules/obras/ObraDetail';
@@ -17,6 +18,7 @@ import { MedicaoBancoScreen } from './modules/financeiro/Medicao';
 import { INCCScreen } from './modules/financeiro/Incc';
 import { CronogramaFull } from './modules/cronograma/Cronograma';
 import { ContratosScreen } from './modules/financeiro/Contratos';
+import { OrcamentoCronogramaScreen } from './modules/financeiro/OrcamentoCronograma';
 import { IaScreen } from './modules/ia/IA';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
@@ -59,9 +61,9 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 const AppInner = () => {
-  const devMode = new URLSearchParams(window.location.search).get('devMode') === '1';
-  const [authed, setAuthed] = React.useState(() => devMode);
-  const [user,   setUser]   = React.useState(() => devMode ? { email: 'dev@local' } : null);
+  const toast = useToast();
+  const [authed, setAuthed] = React.useState(false);
+  const [user,   setUser]   = React.useState(null);
   const [view, setView] = React.useState(() => {
     const saved = sessionStorage.getItem('nav_view');
     return (saved && saved !== 'obra-detail') ? saved : 'dashboard';
@@ -78,7 +80,7 @@ const AppInner = () => {
   // Carrega obras do Supabase ao autenticar; mantém mock como fallback se a tabela estiver vazia
   React.useEffect(() => {
     if (!authed) return;
-    supabase.from('obras').select('*').then(({ data, error }) => {
+    obrasService.listar().then(({ data, error }) => {
       if (!error && data && data.length > 0) {
         AppData.obras = data;
         setObras(data);
@@ -88,23 +90,33 @@ const AppInner = () => {
   }, [authed]);
 
   const handleObraCreate = async (nova) => {
-    const { error } = await supabase.from('obras').insert([{ ...nova, user_id: user?.id }]);
-    if (error) { console.warn('Supabase insert error:', error); }
-    const novas = [...obras, nova];
+    const { data, error } = await obrasService.criar(nova, user?.id);
+    if (error) {
+      toast('Erro ao criar obra: ' + error.message, { tone: 'danger' });
+      return;
+    }
+    const novaComId = (Array.isArray(data) ? data[0] : data) || nova;
+    const novas = [...obras, novaComId];
     AppData.obras = novas;
     setObras(novas);
   };
   const handleObraUpdate = async (updated) => {
-    const { error } = await supabase.from('obras').update(updated).eq('id', updated.id);
-    if (error) { console.warn('Supabase update error:', error); }
+    const { error } = await obrasService.atualizar(updated.id, updated);
+    if (error) {
+      toast('Erro ao atualizar obra: ' + error.message, { tone: 'danger' });
+      return;
+    }
     const novas = obras.map(o => o.id === updated.id ? updated : o);
     AppData.obras = novas;
     setObras(novas);
     if (selectedObra?.id === updated.id) setSelectedObra(updated);
   };
   const handleObraDelete = async (id) => {
-    const { error } = await supabase.from('obras').delete().eq('id', id);
-    if (error) { console.warn('Supabase delete error:', error); }
+    const { error } = await obrasService.excluir(id);
+    if (error) {
+      toast('Erro ao excluir obra: ' + error.message, { tone: 'danger' });
+      return;
+    }
     const novas = obras.filter(o => o.id !== id);
     AppData.obras = novas;
     setObras(novas);
@@ -112,11 +124,10 @@ const AppInner = () => {
   };
 
   React.useEffect(() => {
-    if (devMode) return; // em devMode ignora Supabase auth
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    authService.getSession().then(({ data: { session } }) => {
       if (session?.user) { setAuthed(true); setUser(session.user); }
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+    const { data: { subscription } } = authService.onAuthStateChange((_, session) => {
       setAuthed(!!session);
       setUser(session?.user ?? null);
     });
@@ -134,7 +145,7 @@ const AppInner = () => {
     }
   }, []);
 
-  const handleLogout = () => supabase.auth.signOut();
+  const handleLogout = () => authService.signOut();
 
   // apply theme + density + accent to root
   React.useEffect(() => {
@@ -170,9 +181,10 @@ const AppInner = () => {
     'estimativas': '06 Estimativas',
     'orcamentos': '07 Orçamentos',
     'cronograma': '08 Cronograma',
-    'contratos': '09 Contratos',
-    'incc': '10 INCC',
-    'ia':   '11 Assistente IA',
+    'orc-x-cron': '09 Orç. × Cronograma',
+    'contratos': '10 Contratos',
+    'incc': '11 INCC',
+    'ia':   '12 Assistente IA',
   };
 
   const buildBreadcrumb = () => {
@@ -186,7 +198,7 @@ const AppInner = () => {
     const map = {
       obras: 'Obras', resumo: 'Resumo de obras', controle: 'Controle de obras', efetivo: 'Efetivo', estimativas: 'Estimativas',
       orcamentos: 'Orçamentos', planejamento: 'Planejamento',
-      cronograma: 'Cronogramas', contratos: 'Contratos', medicaobanco: 'Medição Banco', incc: 'INCC',
+      cronograma: 'Cronogramas', 'orc-x-cron': 'Orçamento × Cronograma', contratos: 'Contratos', medicaobanco: 'Medição Banco', incc: 'INCC',
       incorporacao: 'Incorporação', relatorios: 'Relatórios', admin: 'Administração',
     };
     return [home, { label: map[view] || view }];
@@ -234,10 +246,13 @@ const AppInner = () => {
           {view === 'estimativas' && <EstimativasScreen />}
           {view === 'incc' && <INCCScreen />}
           {view === 'cronograma' && obrasLoaded && <CronogramaFull initialObraId={cronogramaObraId} />}
+          {view === 'orc-x-cron' && (
+            <OrcamentoCronogramaScreen obras={obras} user={user} />
+          )}
           {view === 'ia' && <IaScreen obras={obras} user={user} />}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
-           view !== 'cronograma' && view !== 'ia' && (
+           view !== 'cronograma' && view !== 'orc-x-cron' && view !== 'ia' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </ErrorBoundary>
@@ -286,6 +301,7 @@ const AppInner = () => {
         <TweakButton label="Estimativas" onClick={() => handleNavigate('estimativas')} />
         <TweakButton label="Orçamentos" onClick={() => handleNavigate('orcamentos')} />
         <TweakButton label="Cronograma" onClick={() => handleNavigate('cronograma')} />
+        <TweakButton label="Orç. × Cronograma" onClick={() => handleNavigate('orc-x-cron')} />
         <TweakButton label="Contratos" onClick={() => handleNavigate('contratos')} />
         <TweakButton label="INCC" onClick={() => handleNavigate('incc')} />
 

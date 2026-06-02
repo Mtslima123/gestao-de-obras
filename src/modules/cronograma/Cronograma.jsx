@@ -3,6 +3,16 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { Modal, useToast } from '../../components/Modals';
+import { formatBRL as formatBRLUtil } from '../../utils/formatters';
+import { vinculoService } from '../financeiro/vinculoService';
+import { computeValorVinculadoMap as _computeValorVinculadoMap } from './ganttUtils';
+// ganttUtils exporta as funções puras do Gantt — disponíveis para testes e reutilização
+export { gmConflicts, computeAllWBS, recomputeHierarchy, computeSuccessors, getVisibleEtapas,
+         computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist, verificarRestricoes,
+         computeGroupValues, migrateEtapas, formatDepList, parseDep,
+         computeValorVinculadoMap } from './ganttUtils';
+// Alias local para uso interno neste módulo
+const computeValorVinculadoMap = _computeValorVinculadoMap;
 
 // cronograma.jsx — Gantt interativo com drag & drop, undo/redo, tooltips e validação de dependências
 
@@ -125,8 +135,10 @@ function migrateEtapas(raw) {
     collapsed: false, responsavel: '', customCols: {},
     milestone: false, custo: 0, showInDist: false,
     restricaoTipo: 'asap', restricaoData: '',
+    fator_peso: 1,
     ...e,
     showInDist: e.showInDist ?? false,
+    fator_peso: e.fator_peso ?? 1,
     dep: (e.dep || []).map(d =>
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
     ),
@@ -137,7 +149,7 @@ function migrateEtapas(raw) {
   return arr.map(e => e.displayId ? e : { ...e, displayId: nextDid++ });
 }
 
-const fmtBRL   = n => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtBRL   = (n) => formatBRLUtil(n);
 const parseBRL  = s => { const n = parseFloat(String(s).replace(/R\$\s?/g, '').replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : Math.max(0, n); };
 
 function computeAllWBS(etapas) {
@@ -275,7 +287,7 @@ function createTask(afterId, etapas, customCols) {
     dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
-    restricaoTipo: 'asap', restricaoData: '',
+    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
   };
   return [...etapas.slice(0, idx + 1), novo, ...etapas.slice(idx + 1)];
 }
@@ -300,7 +312,7 @@ function createSubtask(parentId, etapas, customCols) {
     inicio: parent.inicio, dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
-    restricaoTipo: 'asap', restricaoData: '',
+    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
   };
   return [...etapas.slice(0, insertIdx + 1), novo, ...etapas.slice(insertIdx + 1)];
 }
@@ -317,7 +329,7 @@ function createGroup(afterId, etapas, customCols) {
     dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
-    restricaoTipo: 'asap', restricaoData: '',
+    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
   };
   return [...etapas.slice(0, idx + 1), novo, ...etapas.slice(idx + 1)];
 }
@@ -695,14 +707,16 @@ function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
 const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
-  const [editMode,    setEdit]     = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; });
-  const [lockDone,    setLock]     = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; });
-  const [replanAuto,  setReplan]   = React.useState(() => { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.replanAuto ?? true; });
-  const [labelWidth,  setLabelW]   = React.useState(() => { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; });
+  const [editMode,    setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
+  const [lockDone,    setLock]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; } catch { return true; } });
+  const [replanAuto,  setReplan]   = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.replanAuto ?? true; } catch { return true; } });
+  const [labelWidth,  setLabelW]   = React.useState(() => { try { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; } catch { return 220; } });
 
   const saveGanttCfg = (patch) => {
-    const curr = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}');
-    localStorage.setItem(`gantt_cfg_${obraId}`, JSON.stringify({ ...curr, ...patch }));
+    try {
+      const curr = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}');
+      localStorage.setItem(`gantt_cfg_${obraId}`, JSON.stringify({ ...curr, ...patch }));
+    } catch { /* ignora falha de escrita no storage */ }
   };
   const [tooltip,     setTip]      = React.useState(null);
   const [draft,       setDraft]    = React.useState(null);
@@ -896,6 +910,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
 
   const exportExcelGantt = () => {
     import('xlsx').then(XLSX => {
+      try {
       const wb   = XLSX.utils.book_new();
       const wbs  = computeAllWBS(etapas);
       const hdrs = ['WBS', 'ID', 'Nome', 'Início', 'Término', 'Duração (d)', 'Avanço', 'Status', 'Custo (R$)', 'Predecessoras'];
@@ -931,6 +946,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
       ws['!freeze'] = { xSplit: 0, ySplit: 1 };
       XLSX.utils.book_append_sheet(wb, ws, 'Cronograma');
       XLSX.writeFile(wb, `gantt-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      } catch (err) { toast('Erro ao exportar Excel: ' + err.message, { tone: 'danger' }); }
     });
   };
 
@@ -1971,7 +1987,9 @@ const LISTA_COL_DEFS = {
   duracao:   { label: 'Duração',       defWidth: 90  },
   avanco:    { label: '% Concluída',   defWidth: 150 },
   custo:     { label: 'Custo',         defWidth: 130, align: 'right' },
-  peso:      { label: 'Peso %',        defWidth: 68,  align: 'right' },
+  peso:           { label: 'Peso %',          defWidth: 68,  align: 'right' },
+  fatorPeso:      { label: 'Fator Peso',      defWidth: 90,  align: 'right' },
+  valorVinculado: { label: 'Valor Vinculado', defWidth: 130, align: 'right' },
   custoReal: { label: 'Custo Real',    defWidth: 130, align: 'right' },
   saldo:     { label: 'Saldo',         defWidth: 110, align: 'right' },
   resp:      { label: 'Responsável',   defWidth: 130 },
@@ -1985,7 +2003,7 @@ const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
 
 // ─── ListaInterativa ──────────────────────────────────────────────────────────
-const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo }) => {
+const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {} }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showAddCol,     setShowAddCol]     = React.useState(false);
@@ -1993,6 +2011,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const [showPavimentos, setShowPavimentos] = React.useState(false);
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
+  const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
   const [busca,          setBusca]          = React.useState('');
   const [filtroStatus,   setFiltroStatus]   = React.useState('');
   const [filtroResp,     setFiltroResp]     = React.useState('');
@@ -2013,6 +2032,26 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const totalCusto  = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), [etapas]);
   const totalReal   = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custoRealizado || 0), 0), [etapas]);
   const totalSaldo  = totalCusto - totalReal;
+
+  // Integração Orçamento × Cronograma — calcula valor vinculado por etapa
+  const hasVinculos = vinculos.length > 0;
+  const valorVinculadoMap = React.useMemo(
+    () => computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap),
+    [etapas, vinculos, orcamentoItensMap]
+  );
+  // Total para calcular o peso % (soma das folhas)
+  const totalValorVinculado = React.useMemo(
+    () => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (valorVinculadoMap[e.id] || 0), 0),
+    [etapas, valorVinculadoMap]
+  );
+
+  // Avisa quando há vínculos mas a soma dos fatores impediu a distribuição (RN003)
+  React.useEffect(() => {
+    if (hasVinculos && totalValorVinculado === 0) {
+      toast('Fator Peso de todas as tarefas é zero — distribuição não realizada. Defina valores > 0.', { tone: 'warning', icon: 'alert-triangle' });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasVinculos, totalValorVinculado]);
 
   // ── Gerenciamento de colunas ────────────────────────────────────────────────
   const [colOrder, setColOrder] = React.useState(() => {
@@ -2262,6 +2301,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       if (field === 'custo' || field === 'custoRealizado') {
         return { ...e, [field]: parseBRL(rawValue) };
       }
+      if (field === 'fator_peso') {
+        const v = parseFloat(rawValue);
+        return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) };
+      }
       if (field.startsWith('cc_')) {
         return { ...e, customCols: { ...(e.customCols || {}), [field]: rawValue } };
       }
@@ -2375,7 +2418,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         if (cid === 'duracao')  return dur;
         if (cid === 'avanco')   return av / 100;
         if (cid === 'custo')    return cst;
-        if (cid === 'peso')     return e.isGroup ? '' : ((e.custo || 0) / (totalCusto || 1));
+        if (cid === 'peso') {
+          if (e.isGroup) return '';
+          if (hasVinculos && totalValorVinculado > 0) return (valorVinculadoMap[e.id] || 0) / totalValorVinculado;
+          return (e.custo || 0) / (totalCusto || 1);
+        }
+        if (cid === 'fatorPeso')      return e.isGroup ? '' : (e.fator_peso ?? 1);
+        if (cid === 'valorVinculado') return valorVinculadoMap[e.id] || '';
         if (cid === 'custoReal') return realCst;
         if (cid === 'saldo')    return cst - realCst;
         if (cid === 'resp')     return e.responsavel || '';
@@ -2427,7 +2476,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       doc.setTextColor(0);
       const visCols    = colOrder.filter(c => !hiddenCols.has(c));
       const getLabel   = (cid) => LISTA_COL_DEFS[cid]?.label ?? (customCols.find(c => c.id === cid)?.label ?? cid);
-      const RIGHT_C    = new Set(['custo', 'custoReal', 'saldo', 'peso', 'avanco', 'duracao', 'id']);
+      const RIGHT_C    = new Set(['custo', 'custoReal', 'saldo', 'peso', 'avanco', 'duracao', 'id', 'fatorPeso', 'valorVinculado']);
       const CENTER_C   = new Set(['status', 'inicio', 'fim', 'participa']);
       const getPDFVal  = (e, cid) => {
         const gv      = e.isGroup ? groupVals[e.id] : null;
@@ -2446,7 +2495,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         if (cid === 'duracao')   return dur + 'd';
         if (cid === 'avanco')    return av + '%';
         if (cid === 'custo')     return fmtBRL(cst);
-        if (cid === 'peso')      return e.isGroup ? '—' : (((e.custo || 0) / (totalCusto || 1)) * 100).toFixed(1) + '%';
+        if (cid === 'peso') {
+          if (e.isGroup) return '—';
+          if (hasVinculos && totalValorVinculado > 0) return ((valorVinculadoMap[e.id] || 0) / totalValorVinculado * 100).toFixed(1) + '%';
+          return (((e.custo || 0) / (totalCusto || 1)) * 100).toFixed(1) + '%';
+        }
+        if (cid === 'fatorPeso')      return e.isGroup ? '—' : (e.fator_peso ?? 1).toLocaleString('pt-BR');
+        if (cid === 'valorVinculado') return valorVinculadoMap[e.id] ? fmtBRL(valorVinculadoMap[e.id]) : '—';
         if (cid === 'custoReal') return fmtBRL(realCst);
         if (cid === 'saldo')     return fmtBRL(cst - realCst);
         if (cid === 'resp')      return e.responsavel || '';
@@ -2874,7 +2929,36 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 ),
                 peso: (
                   <td key="peso" className="num text-muted mono" style={{ textAlign: 'right', fontSize: 12 }}>
-                    {!e.isGroup && totalCusto > 0 ? ((e.custo || 0) / totalCusto * 100).toFixed(1) + '%' : '—'}
+                    {e.isGroup ? '—' : (() => {
+                      if (hasVinculos && totalValorVinculado > 0)
+                        return ((valorVinculadoMap[e.id] || 0) / totalValorVinculado * 100).toFixed(1) + '%';
+                      return totalCusto > 0 ? ((e.custo || 0) / totalCusto * 100).toFixed(1) + '%' : '—';
+                    })()}
+                  </td>
+                ),
+                fatorPeso: (
+                  <td key="fatorPeso" className="num" style={{ textAlign: 'right', fontSize: 12 }} onClick={ev => ev.stopPropagation()}>
+                    {e.isGroup ? (
+                      <span className="text-faint">—</span>
+                    ) : editingFatorPeso === e.id ? (
+                      <input
+                        autoFocus type="number" min="0" step="any"
+                        defaultValue={e.fator_peso ?? 1}
+                        style={{ width: 72, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
+                        onBlur={ev => { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); }}
+                        onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); } if (ev.key === 'Escape') setEditingFatorPeso(null); }}
+                      />
+                    ) : (
+                      <span className="mono" style={{ cursor: 'text', display: 'block', textAlign: 'right' }}
+                        onClick={() => setEditingFatorPeso(e.id)}>
+                        {(e.fator_peso ?? 1).toLocaleString('pt-BR')}
+                      </span>
+                    )}
+                  </td>
+                ),
+                valorVinculado: (
+                  <td key="valorVinculado" className="num mono" style={{ textAlign: 'right', fontSize: 12, color: valorVinculadoMap[e.id] ? 'var(--text)' : 'var(--text-faint)' }}>
+                    {valorVinculadoMap[e.id] ? fmtBRL(valorVinculadoMap[e.id]) : '—'}
                   </td>
                 ),
                 custoReal: (
@@ -3556,6 +3640,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
   const exportExcel = () => {
     import('xlsx').then(XLSX => {
+      try {
       const wb = XLSX.utils.book_new();
       const { blM, blA, repM, repA, rrM, rrA, difBL, difRep } = computeSeries();
       const fmt = v => v != null ? parseFloat(v.toFixed(4)) : null;
@@ -3601,6 +3686,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dist), 'Distribuição');
 
       XLSX.writeFile(wb, `curva-fisica-${new Date().toISOString().slice(0,10)}.xlsx`);
+      } catch (err) { toast('Erro ao exportar Excel: ' + err.message, { tone: 'danger' }); }
     });
   };
 
@@ -4517,6 +4603,9 @@ const CronogramaFull = ({ initialObraId }) => {
   const [showGerenciar, setShowGerenciar] = React.useState(false);
   const [outlineOpen,  setOutlineOpen]  = React.useState(false);
   const [loadedObraId, setLoadedObraId] = React.useState(null);
+  // Integração Orçamento × Cronograma
+  const [vinculos,         setVinculos]         = React.useState([]);
+  const [orcamentoItensMap, setOrcamentoItensMap] = React.useState({});
   // isLoading derivado: true quando obraSel existe mas ainda não terminou de carregar seus dados
   const isLoading = !!(obraSel && loadedObraId !== obraSel);
 
@@ -4527,6 +4616,20 @@ const CronogramaFull = ({ initialObraId }) => {
   const redoRef        = React.useRef(null);
   const applyOutlineRef = React.useRef(null);
   const saveTimerRef   = React.useRef(null);
+
+  // Carrega vínculos orçamento × cronograma para a obra selecionada
+  React.useEffect(() => {
+    if (!obraSel) { setVinculos([]); setOrcamentoItensMap({}); return; }
+    vinculoService.listarPorObra(obraSel).then(({ data }) => {
+      if (!data?.length) { setVinculos([]); setOrcamentoItensMap({}); return; }
+      setVinculos(data);
+      const m = {};
+      data.forEach(v => {
+        if (v.orcamento_itens) m[v.orcamento_item_id] = v.orcamento_itens.valor_total || 0;
+      });
+      setOrcamentoItensMap(m);
+    });
+  }, [obraSel]);
 
   // Recarrega etapas, histórico e baselines ao trocar de obra (Supabase first, fallback para mock)
   React.useEffect(() => {
@@ -4643,9 +4746,16 @@ const CronogramaFull = ({ initialObraId }) => {
     return Math.round(folhas.reduce((s, e) => s + e.avanco * (e.custo || 0), 0) / totalCusto);
   }, [etapas]);
 
+  // Pesos vinculados ao orçamento — quando existem, substituem custo na Curva S
+  const valorVinculadoMapFull = React.useMemo(
+    () => computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap),
+    [etapas, vinculos, orcamentoItensMap]
+  );
+  const weightOverride = vinculos.length > 0 ? valorVinculadoMapFull : null;
+
   // Distribuição mensal de custos — alimenta Uso da Tarefa e Curva S
-  const months      = React.useMemo(() => getMonthRange(etapas),      [etapas]);
-  const monthlyDist = React.useMemo(() => computeMonthlyDist(etapas), [etapas]);
+  const months      = React.useMemo(() => getMonthRange(etapas),                           [etapas]);
+  const monthlyDist = React.useMemo(() => computeMonthlyDist(etapas, weightOverride),      [etapas, weightOverride]);
   const monthlyTotals = React.useMemo(() => {
     const t = {};
     Object.values(monthlyDist).forEach(d =>
@@ -4831,7 +4941,7 @@ const CronogramaFull = ({ initialObraId }) => {
                             avanco: 0, status: 'upcoming', dep: [], milestone: false,
                             nivel: 0, parentId: null, isGroup: false, collapsed: false,
                             responsavel: '', customCols: {}, custo: 0,
-                            restricaoTipo: 'asap', restricaoData: '' }]);
+                            restricaoTipo: 'asap', restricaoData: '', fator_peso: 1 }]);
                   setView('lista');
                 }}>
                   <Icon name="plus" size={15} />Criar cronograma
@@ -4918,6 +5028,8 @@ const CronogramaFull = ({ initialObraId }) => {
                   obraId={obraSel}
                   undo={undo}
                   redo={redo}
+                  vinculos={vinculos}
+                  orcamentoItensMap={orcamentoItensMap}
                 />
               )}
 

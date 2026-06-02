@@ -11,6 +11,7 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
     { id: 'obras',         label: 'Obras',               icon: 'building', badge: 14 },
     { id: 'orcamentos',    label: 'Orçamentos',          icon: 'wallet' },
     { id: 'cronograma',    label: 'Cronogramas',         icon: 'calendar' },
+    { id: 'orc-x-cron',   label: 'Orç. × Cronograma',  icon: 'link' },
     { id: 'resumo',        label: 'Resumo de obras',     icon: 'chart' },
     { id: 'controle',      label: 'Controle de obras',   icon: 'hard-hat' },
     { id: 'efetivo',       label: 'Efetivo',             icon: 'users' },
