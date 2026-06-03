@@ -218,14 +218,6 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const grupoIds = React.useMemo(() => {
     const ids = new Set();
 
-    // DEBUG TEMPORÁRIO
-    if (etapas.length > 0) {
-      console.log('[DEBUG] total etapas:', etapas.length);
-      etapas.forEach((e, i) => {
-        console.log(`[DEBUG #${i}] "${e.etapa}" | id=${e.id} (${typeof e.id}) | nivel=${e.nivel} | parentId=${e.parentId} (${typeof e.parentId}) | isGroup=${e.isGroup}`);
-      });
-    }
-
     etapas.forEach(e => { if (e.parentId) ids.add(e.parentId); });
     etapas.forEach(e => { if (e.isGroup) ids.add(e.id); });
     etapas.forEach((e, i) => {
@@ -233,10 +225,6 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
         ids.add(e.id);
       }
     });
-
-    if (etapas.length > 0) {
-      console.log('[DEBUG] grupoIds:', [...ids]);
-    }
 
     return ids;
   }, [etapas]);
