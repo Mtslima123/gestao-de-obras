@@ -119,19 +119,19 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     );
   };
 
-  // Itens folha: exclui resumos (qualquer item cujo codigo é prefixo de outro)
-  const itensAssociaveis = React.useMemo(
-    () => itens.filter(it => !itens.some(other => other.codigo?.startsWith(it.codigo + '.'))),
+  // IDs dos itens-resumo: qualquer item cujo codigo é prefixo de outro não pode ser vinculado
+  const resumoIds = React.useMemo(
+    () => new Set(itens.filter(it => itens.some(other => other.codigo?.startsWith(it.codigo + '.'))).map(it => it.id)),
     [itens]
   );
 
   const itensFiltradosBusca = React.useMemo(() => {
-    if (!buscaItem) return itensAssociaveis;
+    if (!buscaItem) return itens;
     const q = buscaItem.toLowerCase();
-    return itensAssociaveis.filter(it =>
+    return itens.filter(it =>
       it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q)
     );
-  }, [itensAssociaveis, buscaItem]);
+  }, [itens, buscaItem]);
 
   // ── Adicionar vínculos (tela principal) ───────────────────────────────────
   const handleAdd = async () => {
@@ -224,7 +224,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const editandoEtapa     = etapas.find(e => e.id === editandoEtapaId);
   const vinculosEtapa     = vinculos.filter(v => v.etapa_id === editandoEtapaId);
   const vinculadosItemIds = new Set(vinculosEtapa.map(v => v.orcamento_item_id));
-  const itensNaoVinculados = itensAssociaveis.filter(it => {
+  const itensNaoVinculados = itens.filter(it => {
     if (vinculadosItemIds.has(it.id)) return false;
     if (!buscaModalItem) return true;
     const q = buscaModalItem.toLowerCase();
@@ -334,30 +334,35 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                       const val = itemValor(it);
                       const sid = String(it.id);
                       const checked = selItens.includes(sid);
+                      const resumo = resumoIds.has(it.id);
                       return (
                         <label
                           key={it.id}
+                          title={resumo ? 'Item-resumo não pode ser vinculado diretamente' : undefined}
                           style={{
                             display: 'flex',
                             alignItems: 'flex-start',
                             gap: 10,
                             padding: '8px 12px',
-                            cursor: 'pointer',
+                            cursor: resumo ? 'not-allowed' : 'pointer',
                             borderBottom: '1px solid var(--border-subtle)',
                             background: checked ? 'var(--brand-tint)' : 'transparent',
+                            opacity: resumo ? 0.45 : 1,
                             transition: 'background 0.1s',
                           }}
                         >
                           <input
                             type="checkbox"
                             checked={checked}
-                            onChange={() => toggleItem(it.id)}
+                            disabled={resumo}
+                            onChange={() => !resumo && toggleItem(it.id)}
                             style={{ marginTop: 2, accentColor: 'var(--brand)', flexShrink: 0 }}
                           />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 12.5, fontWeight: checked ? 600 : 400 }}>
                               <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{it.codigo}</span>
                               {it.nome}
+                              {resumo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>resumo</span>}
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
                               {formatBRL(val)}
@@ -637,28 +642,36 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                   {buscaModalItem ? 'Nenhum item encontrado para essa busca.' : 'Todos os itens já estão vinculados a esta tarefa.'}
                 </div>
               ) : (
-                itensNaoVinculados.map(it => (
-                  <div key={it.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
-                  }}>
-                    <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
-                      {it.codigo}
-                    </span>
-                    <span style={{ flex: 1, fontSize: 13 }}>{it.nome}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
-                      {formatBRL(itemValor(it))}
-                    </span>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0, gap: 4 }}
-                      onClick={() => handleAddVinculoModal(it.id)}
-                      disabled={saving}
-                    >
-                      <Icon name="plus" size={12} />Vincular
-                    </button>
-                  </div>
-                ))
+                itensNaoVinculados.map(it => {
+                  const resumo = resumoIds.has(it.id);
+                  return (
+                    <div key={it.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
+                      opacity: resumo ? 0.45 : 1,
+                    }}>
+                      <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
+                        {it.codigo}
+                      </span>
+                      <span style={{ flex: 1, fontSize: 13 }}>
+                        {it.nome}
+                        {resumo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>resumo</span>}
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
+                        {formatBRL(itemValor(it))}
+                      </span>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0, gap: 4 }}
+                        onClick={() => handleAddVinculoModal(it.id)}
+                        disabled={saving || resumo}
+                        title={resumo ? 'Item-resumo não pode ser vinculado diretamente' : undefined}
+                      >
+                        <Icon name="plus" size={12} />Vincular
+                      </button>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
