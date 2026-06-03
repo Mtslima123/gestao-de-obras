@@ -1,13 +1,70 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
-import { useToast } from '../../components/Modals';
+import { useToast, Modal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
 import { vinculoService } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 
-// Calcula valor do item: usa valor_total armazenado ou fallback quantidade × valor_unitario
 const itemValor = (it) =>
   it?.valor_total || (it?.quantidade || 0) * (it?.valor_unitario || 0);
+
+// ─── AutocompleteInput ────────────────────────────────────────────────────────
+const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  const filtered = React.useMemo(() => {
+    if (!value) return suggestions.slice(0, 8);
+    const q = value.toLowerCase();
+    return suggestions.filter(s => s.toLowerCase().includes(q)).slice(0, 8);
+  }, [value, suggestions]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', ...style }}>
+      <input
+        className="input"
+        placeholder={placeholder}
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        style={{ width: '100%' }}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+          maxHeight: 200, overflowY: 'auto', marginTop: 2,
+        }}>
+          {filtered.map(s => (
+            <div
+              key={s}
+              onMouseDown={(e) => { e.preventDefault(); onChange(s); setOpen(false); }}
+              style={{
+                padding: '7px 12px', fontSize: 13, cursor: 'pointer',
+                borderBottom: '1px solid var(--border-subtle)',
+                transition: 'background 0.1s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-muted)'}
+              onMouseLeave={e => e.currentTarget.style.background = ''}
+            >
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── OrcamentoCronogramaScreen ────────────────────────────────────────────────
 const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
@@ -20,16 +77,17 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const [loading,    setLoading]    = React.useState(false);
   const [saving,     setSaving]     = React.useState(false);
 
-  // Filtros da tabela de vínculos
   const [filtroItem,  setFiltroItem]  = React.useState('');
   const [filtroEtapa, setFiltroEtapa] = React.useState('');
 
-  // Seleção para novo vínculo — múltiplos itens, uma etapa
   const [selItens, setSelItens] = React.useState([]);
   const [selEtapa, setSelEtapa] = React.useState('');
   const [buscaItem, setBuscaItem] = React.useState('');
 
-  // Carrega dados quando a obra muda
+  // Estado do modal de edição de vínculos por tarefa
+  const [editandoEtapaId,  setEditandoEtapaId]  = React.useState(null);
+  const [buscaModalItem,   setBuscaModalItem]    = React.useState('');
+
   React.useEffect(() => {
     if (!obraSel) {
       setVinculos([]); setItens([]); setEtapas([]);
@@ -48,13 +106,11 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     });
   }, [obraSel]);
 
-  // Etapas que já têm pelo menos um vínculo — não devem aparecer no seletor
   const linkedEtapaIds = React.useMemo(
     () => new Set(vinculos.map(v => v.etapa_id)),
     [vinculos]
   );
 
-  // Toggle de item na seleção múltipla
   const toggleItem = (id) => {
     const sid = String(id);
     setSelItens(prev =>
@@ -62,7 +118,6 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     );
   };
 
-  // Itens filtrados pela busca dentro do seletor
   const itensFiltradosBusca = React.useMemo(() => {
     if (!buscaItem) return itens;
     const q = buscaItem.toLowerCase();
@@ -71,41 +126,40 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     );
   }, [itens, buscaItem]);
 
-  // ── Adicionar vínculos ─────────────────────────────────────────────────────
+  // ── Adicionar vínculos (tela principal) ───────────────────────────────────
   const handleAdd = async () => {
     if (!selItens.length || !selEtapa) return;
-    setSaving(true);
 
-    let criados = 0;
-    let erros = 0;
+    // Bloqueia tarefas-resumo (grupos hierárquicos)
+    const etapaObj = etapas.find(e => e.id === selEtapa);
+    if (etapaObj?.isGroup) {
+      toast('Tarefas-resumo não podem receber vínculos. Selecione uma tarefa executável.', { tone: 'warning', icon: 'alert-triangle' });
+      return;
+    }
+
+    setSaving(true);
+    let criados = 0, erros = 0;
+
     for (const itemId of selItens) {
       const numId = Number(itemId);
       if (vinculos.some(v => v.orcamento_item_id === numId && v.etapa_id === selEtapa)) continue;
       const { error } = await vinculoService.criar({
-        obra_id: obraSel,
-        orcamento_item_id: numId,
-        etapa_id: selEtapa,
+        obra_id: obraSel, orcamento_item_id: numId, etapa_id: selEtapa,
       }, user?.id);
       if (error) erros++;
       else criados++;
     }
 
-    if (erros > 0) {
-      toast(`${erros} vínculo(s) falharam ao salvar`, { tone: 'danger', icon: 'alert-triangle' });
-    }
-
+    if (erros > 0) toast(`${erros} vínculo(s) falharam ao salvar`, { tone: 'danger', icon: 'alert-triangle' });
     if (criados > 0) {
       const { data } = await vinculoService.listarPorObra(obraSel);
       setVinculos(data || []);
-      setSelItens([]);
-      setSelEtapa('');
-      setBuscaItem('');
+      setSelItens([]); setSelEtapa(''); setBuscaItem('');
       toast(
         criados === 1 ? 'Vínculo criado com sucesso' : `${criados} vínculos criados`,
         { tone: 'success', icon: 'check' }
       );
     }
-
     setSaving(false);
   };
 
@@ -118,6 +172,25 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     }
     setVinculos(v => v.filter(x => x.id !== id));
     toast('Vínculo removido', { tone: 'neutral', icon: 'check' });
+  };
+
+  // ── Adicionar vínculo via modal "Editar Itens Associados" ─────────────────
+  const handleAddVinculoModal = async (itemId) => {
+    if (!editandoEtapaId) return;
+    const numId = Number(itemId);
+    if (vinculos.some(v => v.orcamento_item_id === numId && v.etapa_id === editandoEtapaId)) return;
+    setSaving(true);
+    const { error } = await vinculoService.criar({
+      obra_id: obraSel, orcamento_item_id: numId, etapa_id: editandoEtapaId,
+    }, user?.id);
+    if (error) {
+      toast('Erro ao criar vínculo: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+    } else {
+      const { data } = await vinculoService.listarPorObra(obraSel);
+      setVinculos(data || []);
+      toast('Item associado com sucesso', { tone: 'success', icon: 'check' });
+    }
+    setSaving(false);
   };
 
   // ── Filtros da tabela ──────────────────────────────────────────────────────
@@ -133,10 +206,33 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const totalVinculado = filtrados.reduce((s, v) => s + itemValor(v.orcamento_itens), 0);
 
   const indentEtapa = (e) =>
-    ' '.repeat((e.nivel || 0) * 3) + (e.isGroup ? '▸ ' : '') + e.etapa;
+    ' '.repeat((e.nivel || 0) * 3) + e.etapa;
 
-  // Etapas disponíveis para vincular (excluindo já vinculadas)
-  const etapasDisponiveis = etapas.filter(et => !linkedEtapaIds.has(et.id));
+  // Etapas disponíveis: exclui já vinculadas E tarefas-resumo (grupos)
+  const etapasDisponiveis = etapas.filter(et => !linkedEtapaIds.has(et.id) && !et.isGroup);
+
+  // Sugestões para autocomplete dos filtros
+  const sugestoesItem = React.useMemo(
+    () => [...new Set(vinculos.map(v => v.orcamento_itens?.nome).filter(Boolean))].sort(),
+    [vinculos]
+  );
+  const sugestoesEtapa = React.useMemo(
+    () => [...new Set(vinculos.map(v => etapas.find(e => e.id === v.etapa_id)?.etapa).filter(Boolean))].sort(),
+    [vinculos, etapas]
+  );
+
+  // ── Dados do modal de edição ───────────────────────────────────────────────
+  const editandoEtapa     = etapas.find(e => e.id === editandoEtapaId);
+  const vinculosEtapa     = vinculos.filter(v => v.etapa_id === editandoEtapaId);
+  const vinculadosItemIds = new Set(vinculosEtapa.map(v => v.orcamento_item_id));
+  const itensNaoVinculados = itens.filter(it => {
+    if (vinculadosItemIds.has(it.id)) return false;
+    if (!buscaModalItem) return true;
+    const q = buscaModalItem.toLowerCase();
+    return it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q);
+  });
+
+  const fecharModal = () => { setEditandoEtapaId(null); setBuscaModalItem(''); };
 
   return (
     <>
@@ -201,7 +297,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
               )}
               {etapasDisponiveis.length === 0 && etapas.length > 0 && (
                 <div className="text-muted" style={{ fontSize: 13, marginBottom: 12, padding: '8px 12px', background: 'var(--surface-muted)', borderRadius: 6 }}>
-                  Todas as tarefas já foram vinculadas.
+                  Todas as tarefas executáveis já foram vinculadas.
                 </div>
               )}
 
@@ -287,6 +383,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                 <div style={{ flex: '1 1 280px', minWidth: 200 }}>
                   <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
                     Tarefa do Cronograma
+                    <span style={{ marginLeft: 6, color: 'var(--text-faint)', fontWeight: 400, fontSize: 11 }}>
+                      somente tarefas executáveis
+                    </span>
                   </label>
                   <select
                     className="input"
@@ -319,19 +418,20 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                     );
                   })()}
 
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleAdd}
-                    disabled={!selItens.length || !selEtapa || saving}
-                    style={{ marginTop: 12, width: '100%' }}
-                  >
-                    <Icon name="plus" size={15} />
-                    {saving
-                      ? 'Salvando…'
-                      : selItens.length > 0
-                        ? `Adicionar (${selItens.length} item${selItens.length > 1 ? 's' : ''})`
-                        : 'Adicionar'}
-                  </button>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleAdd}
+                      disabled={!selItens.length || !selEtapa || saving}
+                    >
+                      <Icon name="plus" size={15} />
+                      {saving
+                        ? 'Salvando…'
+                        : selItens.length > 0
+                          ? `Adicionar (${selItens.length} item${selItens.length > 1 ? 's' : ''})`
+                          : 'Adicionar'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -339,7 +439,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
 
           {/* ── Tabela de vínculos ────────────────────────────────────────────── */}
           <div className="card" style={{ marginTop: 'var(--gap)' }}>
-            <div className="card-header">
+            <div className="card-header" style={{ overflow: 'visible' }}>
               <div>
                 <div className="card-title">
                   Vínculos cadastrados
@@ -358,19 +458,19 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                   </div>
                 )}
               </div>
-              <div className="card-actions">
-                <input
-                  className="input"
-                  placeholder="Filtrar por item…"
+              <div className="card-actions" style={{ overflow: 'visible' }}>
+                <AutocompleteInput
                   value={filtroItem}
-                  onChange={e => setFiltroItem(e.target.value)}
+                  onChange={setFiltroItem}
+                  placeholder="Filtrar por item…"
+                  suggestions={sugestoesItem}
                   style={{ width: 190 }}
                 />
-                <input
-                  className="input"
-                  placeholder="Filtrar por tarefa…"
+                <AutocompleteInput
                   value={filtroEtapa}
-                  onChange={e => setFiltroEtapa(e.target.value)}
+                  onChange={setFiltroEtapa}
+                  placeholder="Filtrar por tarefa…"
+                  suggestions={sugestoesEtapa}
                   style={{ width: 190 }}
                 />
                 {(filtroItem || filtroEtapa) && (
@@ -381,95 +481,196 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
               </div>
             </div>
 
-            <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th style={{ width: 90 }}>Código</th>
-                    <th>Item do Orçamento</th>
-                    <th>Tarefa do Cronograma</th>
-                    <th style={{ width: 60, textAlign: 'center' }}>Nível</th>
-                    <th style={{ textAlign: 'right', width: 140 }}>Valor (R$)</th>
-                    <th style={{ width: 48 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtrados.length === 0 && (
+            {/* Corpo com altura fixa e scroll interno */}
+            <div style={{ overflowX: 'auto' }}>
+              <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+                <table className="table">
+                  <thead>
                     <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: '32px 24px', color: 'var(--text-faint)' }}>
-                        {vinculos.length === 0
-                          ? 'Nenhum vínculo cadastrado. Adicione o primeiro acima.'
-                          : 'Nenhum resultado para os filtros aplicados.'}
-                      </td>
+                      <th style={{ width: 90, position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Código</th>
+                      <th style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Item do Orçamento</th>
+                      <th style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Tarefa do Cronograma</th>
+                      <th style={{ width: 60, textAlign: 'center', position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Nível</th>
+                      <th style={{ textAlign: 'right', width: 140, position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Valor (R$)</th>
+                      <th style={{ width: 48, position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}></th>
                     </tr>
-                  )}
-                  {filtrados.map(v => {
-                    const etapa = etapas.find(e => e.id === v.etapa_id);
-                    return (
-                      <tr key={v.id}>
-                        <td className="mono text-sm" style={{ color: 'var(--text-muted)' }}>
-                          {v.orcamento_itens?.codigo || '—'}
-                        </td>
-                        <td>{v.orcamento_itens?.nome || <span className="text-faint">Item removido</span>}</td>
-                        <td>
-                          {etapa ? (
-                            <span>
-                              {' '.repeat((etapa.nivel || 0) * 2)}
-                              {etapa.isGroup && <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>▸</span>}
-                              {etapa.etapa}
-                            </span>
-                          ) : (
-                            <span className="text-faint">Tarefa removida ({v.etapa_id})</span>
-                          )}
-                        </td>
-                        <td style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
-                          {etapa ? (etapa.isGroup ? 'Grupo' : `N${etapa.nivel || 0}`) : '—'}
-                        </td>
-                        <td className="mono" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                          {formatBRL(itemValor(v.orcamento_itens))}
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <button
-                            className="icon-btn"
-                            title="Remover vínculo"
-                            onClick={() => handleRemove(v.id)}
-                            style={{ color: 'var(--danger)' }}
-                          >
-                            <Icon name="trash" size={14} />
-                          </button>
+                  </thead>
+                  <tbody>
+                    {filtrados.length === 0 && (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: 'center', padding: '32px 24px', color: 'var(--text-faint)' }}>
+                          {vinculos.length === 0
+                            ? 'Nenhum vínculo cadastrado. Adicione o primeiro acima.'
+                            : 'Nenhum resultado para os filtros aplicados.'}
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
+                    )}
+                    {filtrados.map(v => {
+                      const etapa = etapas.find(e => e.id === v.etapa_id);
+                      return (
+                        <tr key={v.id}>
+                          <td className="mono text-sm" style={{ color: 'var(--text-muted)' }}>
+                            {v.orcamento_itens?.codigo || '—'}
+                          </td>
+                          <td>{v.orcamento_itens?.nome || <span className="text-faint">Item removido</span>}</td>
+                          <td>
+                            {etapa ? (
+                              <span>
+                                {' '.repeat((etapa.nivel || 0) * 2)}
+                                {etapa.isGroup && <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>▸</span>}
+                                {etapa.etapa}
+                              </span>
+                            ) : (
+                              <span className="text-faint">Tarefa removida ({v.etapa_id})</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
+                            {etapa ? (etapa.isGroup ? 'Grupo' : `N${etapa.nivel || 0}`) : '—'}
+                          </td>
+                          <td className="mono" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                            {formatBRL(itemValor(v.orcamento_itens))}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button
+                              className="icon-btn"
+                              title="Remover vínculo"
+                              onClick={() => handleRemove(v.id)}
+                              style={{ color: 'var(--danger)' }}
+                            >
+                              <Icon name="trash" size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
 
-                {filtrados.length > 0 && (
-                  <tfoot>
-                    <tr style={{ fontWeight: 600 }}>
-                      <td colSpan={4} style={{ textAlign: 'right', fontSize: 13 }}>Total vinculado</td>
-                      <td className="mono" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                        {formatBRL(totalVinculado)}
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
+                  {filtrados.length > 0 && (
+                    <tfoot>
+                      <tr style={{ fontWeight: 600 }}>
+                        <td colSpan={4} style={{ textAlign: 'right', fontSize: 13 }}>Total vinculado</td>
+                        <td className="mono" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          {formatBRL(totalVinculado)}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
             </div>
           </div>
 
           {/* ── Resumo por tarefa ─────────────────────────────────────────────── */}
           {vinculos.length > 0 && (
-            <ResumoVinculos vinculos={vinculos} etapas={etapas} />
+            <ResumoVinculos
+              vinculos={vinculos}
+              etapas={etapas}
+              onEditarVinculos={setEditandoEtapaId}
+            />
           )}
         </>
+      )}
+
+      {/* ── Modal: Editar Itens Associados ─────────────────────────────────── */}
+      {editandoEtapaId && editandoEtapa && (
+        <Modal
+          title={`Editar Itens Associados — ${editandoEtapa.etapa}`}
+          onClose={fecharModal}
+          footer={
+            <button className="btn btn-ghost" onClick={fecharModal}>Fechar</button>
+          }
+        >
+          {/* Itens atualmente vinculados */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+              Itens vinculados ({vinculosEtapa.length})
+            </div>
+            {vinculosEtapa.length === 0 ? (
+              <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: '8px 0' }}>
+                Nenhum item associado a esta tarefa.
+              </div>
+            ) : (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+                {vinculosEtapa.map(v => (
+                  <div key={v.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
+                  }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
+                      {v.orcamento_itens?.codigo || '—'}
+                    </span>
+                    <span style={{ flex: 1, fontSize: 13 }}>
+                      {v.orcamento_itens?.nome || <span style={{ color: 'var(--text-faint)' }}>Item removido</span>}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
+                      {formatBRL(itemValor(v.orcamento_itens))}
+                    </span>
+                    <button
+                      className="icon-btn"
+                      title="Remover vínculo"
+                      onClick={() => handleRemove(v.id)}
+                      style={{ color: 'var(--danger)', flexShrink: 0 }}
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Adicionar novos itens */}
+          <div>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+              Adicionar itens
+            </div>
+            <input
+              className="input"
+              placeholder="Buscar item do orçamento…"
+              value={buscaModalItem}
+              onChange={e => setBuscaModalItem(e.target.value)}
+              style={{ width: '100%', marginBottom: 8 }}
+            />
+            <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 260, overflowY: 'auto' }}>
+              {itensNaoVinculados.length === 0 ? (
+                <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>
+                  {buscaModalItem ? 'Nenhum item encontrado para essa busca.' : 'Todos os itens já estão vinculados a esta tarefa.'}
+                </div>
+              ) : (
+                itensNaoVinculados.map(it => (
+                  <div key={it.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
+                  }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
+                      {it.codigo}
+                    </span>
+                    <span style={{ flex: 1, fontSize: 13 }}>{it.nome}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
+                      {formatBRL(itemValor(it))}
+                    </span>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0, gap: 4 }}
+                      onClick={() => handleAddVinculoModal(it.id)}
+                      disabled={saving}
+                    >
+                      <Icon name="plus" size={12} />Vincular
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );
 };
 
 // ─── ResumoVinculos ───────────────────────────────────────────────────────────
-const ResumoVinculos = ({ vinculos, etapas }) => {
+const ResumoVinculos = ({ vinculos, etapas, onEditarVinculos }) => {
   const porEtapa = {};
   vinculos.forEach(v => {
     if (!porEtapa[v.etapa_id]) porEtapa[v.etapa_id] = { itens: [], total: 0 };
@@ -491,8 +692,9 @@ const ResumoVinculos = ({ vinculos, etapas }) => {
           <thead>
             <tr>
               <th>Tarefa</th>
-              <th style={{ textAlign: 'center', width: 80 }}>Itens</th>
+              <th style={{ textAlign: 'center', width: 70 }}>Itens</th>
               <th style={{ textAlign: 'right', width: 150 }}>Valor Vinculado</th>
+              <th style={{ width: 140 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -508,6 +710,16 @@ const ResumoVinculos = ({ vinculos, etapas }) => {
                 </td>
                 <td className="mono" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
                   {formatBRL(porEtapa[e.id].total)}
+                </td>
+                <td style={{ textAlign: 'right', paddingRight: 12 }}>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ fontSize: 11.5, padding: '2px 10px', height: 26, gap: 4 }}
+                    onClick={() => onEditarVinculos(e.id)}
+                    title="Visualizar e editar itens associados a esta tarefa"
+                  >
+                    <Icon name="edit" size={12} />Editar Itens Associados
+                  </button>
                 </td>
               </tr>
             ))}
