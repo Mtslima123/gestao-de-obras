@@ -219,13 +219,12 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     const ids = new Set();
 
     // DEBUG TEMPORÁRIO
-    console.log('[GRUPOS] etapas:', etapas.map(e => ({
-      id: e.id, tipo_id: typeof e.id,
-      etapa: e.etapa,
-      nivel: e.nivel,
-      parentId: e.parentId, tipo_parentId: typeof e.parentId,
-      isGroup: e.isGroup,
-    })));
+    if (etapas.length > 0) {
+      console.log('[DEBUG] total etapas:', etapas.length);
+      etapas.forEach((e, i) => {
+        console.log(`[DEBUG #${i}] "${e.etapa}" | id=${e.id} (${typeof e.id}) | nivel=${e.nivel} | parentId=${e.parentId} (${typeof e.parentId}) | isGroup=${e.isGroup}`);
+      });
+    }
 
     etapas.forEach(e => { if (e.parentId) ids.add(e.parentId); });
     etapas.forEach(e => { if (e.isGroup) ids.add(e.id); });
@@ -235,8 +234,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
       }
     });
 
-    console.log('[GRUPOS] grupoIds:', [...ids]);
-    console.log('[GRUPOS] disponiveis:', etapas.filter(et => !ids.has(et.id)).map(e => e.etapa));
+    if (etapas.length > 0) {
+      console.log('[DEBUG] grupoIds:', [...ids]);
+    }
 
     return ids;
   }, [etapas]);
