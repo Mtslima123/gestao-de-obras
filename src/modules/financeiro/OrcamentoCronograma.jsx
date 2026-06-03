@@ -133,7 +133,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
 
     // Bloqueia tarefas-resumo (grupos hierárquicos)
     const etapaObj = etapas.find(e => e.id === selEtapa);
-    if (etapaObj?.isGroup) {
+    if (etapaObj?.isGroup || grupoIds.has(selEtapa)) {
       toast('Tarefas-resumo não podem receber vínculos. Selecione uma tarefa executável.', { tone: 'warning', icon: 'alert-triangle' });
       return;
     }
@@ -179,7 +179,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const handleAddVinculoModal = async (itemId) => {
     if (!editandoEtapaId) return;
     const etapaObj = etapas.find(e => e.id === editandoEtapaId);
-    if (etapaObj?.isGroup) {
+    if (etapaObj?.isGroup || grupoIds.has(editandoEtapaId)) {
       toast('Tarefas-resumo não podem receber vínculos. Selecione uma tarefa executável.', { tone: 'warning', icon: 'alert-triangle' });
       return;
     }
@@ -214,8 +214,17 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const indentEtapa = (e) =>
     ' '.repeat((e.nivel || 0) * 3) + e.etapa;
 
+  // IDs de tarefas que são pais de outras — calculado diretamente via parentId
+  const grupoIds = React.useMemo(
+    () => new Set(etapas.map(e => e.parentId).filter(Boolean)),
+    [etapas]
+  );
+
   // Etapas disponíveis: exclui já vinculadas E tarefas-resumo (grupos)
-  const etapasDisponiveis = etapas.filter(et => !linkedEtapaIds.has(et.id) && !et.isGroup);
+  // Usa grupoIds (via parentId) como fonte de verdade, além do campo isGroup
+  const etapasDisponiveis = etapas.filter(et =>
+    !linkedEtapaIds.has(et.id) && !et.isGroup && !grupoIds.has(et.id)
+  );
 
   // Sugestões para autocomplete dos filtros
   const sugestoesItem = React.useMemo(
