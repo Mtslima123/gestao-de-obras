@@ -131,9 +131,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const handleAdd = async () => {
     if (!selItens.length || !selEtapa) return;
 
-    // Bloqueia tarefas-resumo (grupos hierárquicos)
-    const etapaObj = etapas.find(e => e.id === selEtapa);
-    if (etapaObj?.isGroup || grupoIds.has(selEtapa)) {
+    if (grupoIds.has(selEtapa)) {
       toast('Tarefas-resumo não podem receber vínculos. Selecione uma tarefa executável.', { tone: 'warning', icon: 'alert-triangle' });
       return;
     }
@@ -178,8 +176,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   // ── Adicionar vínculo via modal "Editar Itens Associados" ─────────────────
   const handleAddVinculoModal = async (itemId) => {
     if (!editandoEtapaId) return;
-    const etapaObj = etapas.find(e => e.id === editandoEtapaId);
-    if (etapaObj?.isGroup || grupoIds.has(editandoEtapaId)) {
+    if (grupoIds.has(editandoEtapaId)) {
       toast('Tarefas-resumo não podem receber vínculos. Selecione uma tarefa executável.', { tone: 'warning', icon: 'alert-triangle' });
       return;
     }
@@ -214,16 +211,25 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const indentEtapa = (e) =>
     ' '.repeat((e.nivel || 0) * 3) + e.etapa;
 
-  // IDs de tarefas que são pais de outras — calculado diretamente via parentId
-  const grupoIds = React.useMemo(
-    () => new Set(etapas.map(e => e.parentId).filter(Boolean)),
-    [etapas]
-  );
+  // Detecção de grupos por 3 sinais independentes — cobre todos os formatos de dados:
+  // Sinal 1: parentId (a tarefa aparece como pai de outra)
+  // Sinal 2: campo isGroup salvo no banco
+  // Sinal 3: nivel (próxima tarefa na lista tem nivel maior → atual é grupo)
+  const grupoIds = React.useMemo(() => {
+    const ids = new Set();
+    etapas.forEach(e => { if (e.parentId) ids.add(e.parentId); });
+    etapas.forEach(e => { if (e.isGroup) ids.add(e.id); });
+    etapas.forEach((e, i) => {
+      if (i < etapas.length - 1 && (etapas[i + 1].nivel || 0) > (e.nivel || 0)) {
+        ids.add(e.id);
+      }
+    });
+    return ids;
+  }, [etapas]);
 
-  // Etapas disponíveis: exclui já vinculadas E tarefas-resumo (grupos)
-  // Usa grupoIds (via parentId) como fonte de verdade, além do campo isGroup
+  // Etapas disponíveis: exclui já vinculadas E qualquer tarefa detectada como grupo
   const etapasDisponiveis = etapas.filter(et =>
-    !linkedEtapaIds.has(et.id) && !et.isGroup && !grupoIds.has(et.id)
+    !linkedEtapaIds.has(et.id) && !grupoIds.has(et.id)
   );
 
   // Sugestões para autocomplete dos filtros
