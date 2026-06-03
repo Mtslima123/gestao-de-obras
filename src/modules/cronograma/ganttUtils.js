@@ -85,6 +85,19 @@ export function migrateEtapas(raw) {
 
 // ─── WBS e hierarquia ────────────────────────────────────────────────────────
 
+// Quando parentId não está salvo no banco, deriva pelo campo nivel (tarefa anterior com nivel = atual - 1)
+export function inferParentIds(etapas) {
+  return etapas.map((e, i) => {
+    if (e.parentId || (e.nivel || 0) === 0) return e;
+    for (let j = i - 1; j >= 0; j--) {
+      if ((etapas[j].nivel || 0) === (e.nivel || 0) - 1) {
+        return { ...e, parentId: etapas[j].id };
+      }
+    }
+    return e;
+  });
+}
+
 export function computeAllWBS(etapas) {
   const result = {}, counters = {};
   etapas.forEach(e => {
