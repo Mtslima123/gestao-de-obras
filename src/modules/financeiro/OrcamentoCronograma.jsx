@@ -217,6 +217,16 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   // Sinal 3: nivel (próxima tarefa na lista tem nivel maior → atual é grupo)
   const grupoIds = React.useMemo(() => {
     const ids = new Set();
+
+    // DEBUG TEMPORÁRIO
+    console.log('[GRUPOS] etapas:', etapas.map(e => ({
+      id: e.id, tipo_id: typeof e.id,
+      etapa: e.etapa,
+      nivel: e.nivel,
+      parentId: e.parentId, tipo_parentId: typeof e.parentId,
+      isGroup: e.isGroup,
+    })));
+
     etapas.forEach(e => { if (e.parentId) ids.add(e.parentId); });
     etapas.forEach(e => { if (e.isGroup) ids.add(e.id); });
     etapas.forEach((e, i) => {
@@ -224,6 +234,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
         ids.add(e.id);
       }
     });
+
+    console.log('[GRUPOS] grupoIds:', [...ids]);
+    console.log('[GRUPOS] disponiveis:', etapas.filter(et => !ids.has(et.id)).map(e => e.etapa));
+
     return ids;
   }, [etapas]);
 
