@@ -4,7 +4,7 @@ import { useToast, Modal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
 import { vinculoService } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
-import { migrateEtapas, recomputeHierarchy, inferParentIds } from '../cronograma/ganttUtils';
+import { migrateEtapas } from '../cronograma/ganttUtils';
 
 const itemValor = (it) =>
   it?.valor_total || (it?.quantidade || 0) * (it?.valor_unitario || 0);
@@ -102,7 +102,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     ]).then(([vincRes, itensRes, cronRes]) => {
       setVinculos(vincRes.data || []);
       setItens(itensRes.data || []);
-      setEtapas(recomputeHierarchy(inferParentIds(migrateEtapas(cronRes.data?.etapas || []))));
+      setEtapas(migrateEtapas(cronRes.data?.etapas || []));
       setLoading(false);
     });
   }, [obraSel]);
@@ -119,23 +119,23 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     );
   };
 
+  // Itens folha: exclui resumos (qualquer item cujo codigo é prefixo de outro)
+  const itensAssociaveis = React.useMemo(
+    () => itens.filter(it => !itens.some(other => other.codigo?.startsWith(it.codigo + '.'))),
+    [itens]
+  );
+
   const itensFiltradosBusca = React.useMemo(() => {
-    if (!buscaItem) return itens;
+    if (!buscaItem) return itensAssociaveis;
     const q = buscaItem.toLowerCase();
-    return itens.filter(it =>
+    return itensAssociaveis.filter(it =>
       it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q)
     );
-  }, [itens, buscaItem]);
+  }, [itensAssociaveis, buscaItem]);
 
   // ── Adicionar vínculos (tela principal) ───────────────────────────────────
   const handleAdd = async () => {
     if (!selItens.length || !selEtapa) return;
-
-    if (grupoIds.has(selEtapa)) {
-      toast('Tarefas-resumo não podem receber vínculos. Selecione uma tarefa executável.', { tone: 'warning', icon: 'alert-triangle' });
-      return;
-    }
-
     setSaving(true);
     let criados = 0, erros = 0;
 
@@ -176,10 +176,6 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   // ── Adicionar vínculo via modal "Editar Itens Associados" ─────────────────
   const handleAddVinculoModal = async (itemId) => {
     if (!editandoEtapaId) return;
-    if (grupoIds.has(editandoEtapaId)) {
-      toast('Tarefas-resumo não podem receber vínculos. Selecione uma tarefa executável.', { tone: 'warning', icon: 'alert-triangle' });
-      return;
-    }
     const numId = Number(itemId);
     if (vinculos.some(v => v.orcamento_item_id === numId && v.etapa_id === editandoEtapaId)) return;
     setSaving(true);
@@ -211,28 +207,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const indentEtapa = (e) =>
     ' '.repeat((e.nivel || 0) * 3) + e.etapa;
 
-  // Detecção de grupos por 3 sinais independentes — cobre todos os formatos de dados:
-  // Sinal 1: parentId (a tarefa aparece como pai de outra)
-  // Sinal 2: campo isGroup salvo no banco
-  // Sinal 3: nivel (próxima tarefa na lista tem nivel maior → atual é grupo)
-  const grupoIds = React.useMemo(() => {
-    const ids = new Set();
-
-    etapas.forEach(e => { if (e.parentId) ids.add(e.parentId); });
-    etapas.forEach(e => { if (e.isGroup) ids.add(e.id); });
-    etapas.forEach((e, i) => {
-      if (i < etapas.length - 1 && (etapas[i + 1].nivel || 0) > (e.nivel || 0)) {
-        ids.add(e.id);
-      }
-    });
-
-    return ids;
-  }, [etapas]);
-
-  // Etapas disponíveis: exclui já vinculadas E qualquer tarefa detectada como grupo
-  const etapasDisponiveis = etapas.filter(et =>
-    !linkedEtapaIds.has(et.id) && !grupoIds.has(et.id)
-  );
+  // Etapas disponíveis: exclui apenas as já vinculadas (todas aparecem, incluindo resumos)
+  const etapasDisponiveis = etapas.filter(et => !linkedEtapaIds.has(et.id));
 
   // Sugestões para autocomplete dos filtros
   const sugestoesItem = React.useMemo(
@@ -248,7 +224,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const editandoEtapa     = etapas.find(e => e.id === editandoEtapaId);
   const vinculosEtapa     = vinculos.filter(v => v.etapa_id === editandoEtapaId);
   const vinculadosItemIds = new Set(vinculosEtapa.map(v => v.orcamento_item_id));
-  const itensNaoVinculados = itens.filter(it => {
+  const itensNaoVinculados = itensAssociaveis.filter(it => {
     if (vinculadosItemIds.has(it.id)) return false;
     if (!buscaModalItem) return true;
     const q = buscaModalItem.toLowerCase();
