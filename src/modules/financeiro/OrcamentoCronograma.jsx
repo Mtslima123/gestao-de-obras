@@ -4,6 +4,7 @@ import { useToast, Modal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
 import { vinculoService } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
+import { migrateEtapas, recomputeHierarchy } from '../cronograma/ganttUtils';
 
 const itemValor = (it) =>
   it?.valor_total || (it?.quantidade || 0) * (it?.valor_unitario || 0);
@@ -101,7 +102,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     ]).then(([vincRes, itensRes, cronRes]) => {
       setVinculos(vincRes.data || []);
       setItens(itensRes.data || []);
-      setEtapas(cronRes.data?.etapas || []);
+      setEtapas(recomputeHierarchy(migrateEtapas(cronRes.data?.etapas || [])));
       setLoading(false);
     });
   }, [obraSel]);
@@ -177,6 +178,11 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   // ── Adicionar vínculo via modal "Editar Itens Associados" ─────────────────
   const handleAddVinculoModal = async (itemId) => {
     if (!editandoEtapaId) return;
+    const etapaObj = etapas.find(e => e.id === editandoEtapaId);
+    if (etapaObj?.isGroup) {
+      toast('Tarefas-resumo não podem receber vínculos. Selecione uma tarefa executável.', { tone: 'warning', icon: 'alert-triangle' });
+      return;
+    }
     const numId = Number(itemId);
     if (vinculos.some(v => v.orcamento_item_id === numId && v.etapa_id === editandoEtapaId)) return;
     setSaving(true);
