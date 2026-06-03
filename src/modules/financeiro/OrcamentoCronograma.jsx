@@ -4,7 +4,7 @@ import { useToast, Modal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
 import { vinculoService } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
-import { migrateEtapas, recomputeHierarchy } from '../cronograma/ganttUtils';
+import { migrateEtapas } from '../cronograma/ganttUtils';
 
 const itemValor = (it) =>
   it?.valor_total || (it?.quantidade || 0) * (it?.valor_unitario || 0);
@@ -102,7 +102,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     ]).then(([vincRes, itensRes, cronRes]) => {
       setVinculos(vincRes.data || []);
       setItens(itensRes.data || []);
-      setEtapas(recomputeHierarchy(migrateEtapas(cronRes.data?.etapas || [])));
+      setEtapas(migrateEtapas(cronRes.data?.etapas || []));
       setLoading(false);
     });
   }, [obraSel]);
