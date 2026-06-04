@@ -302,10 +302,10 @@ const UsuariosScreen = ({ obras = [] }) => {
             {editando === 'novo' ? 'Cadastro de Usuário' : 'Edição de Usuário'}
           </h3>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 1fr 260px', gap: 20, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 1fr 260px', gridTemplateRows: 'auto auto', gap: 20 }}>
 
             {/* Coluna 1 — Dados Básicos */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px' }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', gridColumn: 1, gridRow: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>Dados Básicos</div>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Nome <span style={{ color: '#b91c1c' }}>*</span></label>
@@ -331,7 +331,7 @@ const UsuariosScreen = ({ obras = [] }) => {
             </div>
 
             {/* Coluna 2 — Perfil de Acesso */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px' }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', gridColumn: 2, gridRow: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>Perfil de Acesso</div>
               {[
                 { value: 'admin', icon: 'shield', label: 'Administrador', desc: 'Acesso total ao sistema. Visualiza todas as obras, módulos e configurações, poderá gerenciar usuários.' },
@@ -352,7 +352,7 @@ const UsuariosScreen = ({ obras = [] }) => {
             </div>
 
             {/* Coluna 3 — Obras Permitidas */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', opacity: form.perfil === 'admin' ? 0.45 : 1, pointerEvents: form.perfil === 'admin' ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', gridColumn: 3, gridRow: 1, opacity: form.perfil === 'admin' ? 0.45 : 1, pointerEvents: form.perfil === 'admin' ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                 Obras Permitidas
                 {form.perfil === 'admin' && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--brand)', textTransform: 'none' }}>— Todas (admin)</span>}
@@ -405,8 +405,8 @@ const UsuariosScreen = ({ obras = [] }) => {
               )}
             </div>
 
-            {/* Coluna 4 — Painel informativo */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Coluna 4 — Painel informativo — ocupa as 2 linhas */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, gridColumn: 4, gridRow: '1 / 3' }}>
               <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', background: '#f8fafc' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <Icon name="shield" size={16} style={{ color: 'var(--brand)' }} />
@@ -460,10 +460,9 @@ const UsuariosScreen = ({ obras = [] }) => {
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Módulos Permitidos */}
-          <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', marginTop: 20, opacity: form.perfil === 'admin' ? 0.45 : 1, pointerEvents: form.perfil === 'admin' ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+            {/* Módulos Permitidos — linha 2, colunas 1–3 */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', gridColumn: '1 / 4', gridRow: 2, opacity: form.perfil === 'admin' ? 0.45 : 1, pointerEvents: form.perfil === 'admin' ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 8 }}>
                 Módulos Permitidos
@@ -498,6 +497,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                 {form.modulosIds.length} de {TODOS_MODULOS.length} módulo{form.modulosIds.length !== 1 ? 's' : ''} liberado{form.modulosIds.length !== 1 ? 's' : ''}
               </div>
             )}
+            </div>
           </div>
 
           {/* Rodapé do formulário */}
