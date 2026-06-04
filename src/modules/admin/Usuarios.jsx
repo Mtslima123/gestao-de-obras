@@ -10,7 +10,27 @@ const MOCK_USUARIOS = [
   { id: 'USR-005', nome: 'Fernanda Lima', email: 'fernanda.lima@empresa.com.br', telefone: '(11) 99999-0004', perfil: 'usuario', obrasIds: ['OB-001', 'OB-002', 'OB-003', 'OB-005'], status: 'ativo', dataCadastro: '12/02/2024', ultimoAcesso: '24/05/2024 07:50' },
 ];
 
-const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [] };
+const TODOS_MODULOS = [
+  { id: 'dashboard',    label: 'Dashboard',          icon: 'dashboard' },
+  { id: 'obras',        label: 'Obras',               icon: 'building' },
+  { id: 'orcamentos',   label: 'Orçamentos',          icon: 'wallet' },
+  { id: 'cronograma',   label: 'Cronogramas',         icon: 'calendar' },
+  { id: 'orc-x-cron',  label: 'Orç. × Cronograma',  icon: 'link' },
+  { id: 'resumo',       label: 'Resumo de obras',     icon: 'chart' },
+  { id: 'controle',     label: 'Controle de obras',   icon: 'hard-hat' },
+  { id: 'efetivo',      label: 'Efetivo',             icon: 'users' },
+  { id: 'estimativas',  label: 'Estimativas',         icon: 'calculator' },
+  { id: 'planejamento', label: 'Planejamento',        icon: 'gantt' },
+  { id: 'contratos',    label: 'Contratos',           icon: 'file' },
+  { id: 'medicaobanco', label: 'Medição Banco',       icon: 'measure' },
+  { id: 'incc',         label: 'INCC',                icon: 'trending-up' },
+  { id: 'ia',           label: 'Assistente IA',       icon: 'sparkle' },
+  { id: 'incorporacao', label: 'Incorporação',        icon: 'briefcase' },
+  { id: 'relatorios',   label: 'Relatórios',          icon: 'chart' },
+];
+const TODOS_MODULOS_IDS = TODOS_MODULOS.map(m => m.id);
+
+const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS };
 const PER_PAGE = 10;
 
 const BadgePerfil = ({ perfil }) => (
@@ -72,7 +92,7 @@ const UsuariosScreen = ({ obras = [] }) => {
     if (usuario === 'novo') {
       setForm(FORM_VAZIO);
     } else {
-      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])] });
+      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)] });
     }
     setEditando(usuario);
     setObraSearch('');
@@ -103,6 +123,13 @@ const UsuariosScreen = ({ obras = [] }) => {
     setUsuarios(prev => prev.filter(x => x.id !== u.id));
     setConfirmDelete(null);
     if (editando && editando !== 'novo' && editando.id === u.id) fecharForm();
+  };
+
+  const toggleModulo = (id) => {
+    setForm(f => ({
+      ...f,
+      modulosIds: f.modulosIds.includes(id) ? f.modulosIds.filter(m => m !== id) : [...f.modulosIds, id],
+    }));
   };
 
   const toggleObra = (obraId) => {
@@ -389,6 +416,44 @@ const UsuariosScreen = ({ obras = [] }) => {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Módulos Permitidos */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', marginTop: 20, opacity: form.perfil === 'admin' ? 0.45 : 1, pointerEvents: form.perfil === 'admin' ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 8 }}>
+                Módulos Permitidos
+                {form.perfil === 'admin' && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--brand)', textTransform: 'none' }}>— Todos (admin)</span>}
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, cursor: 'pointer', padding: 0, fontWeight: 500 }}
+                  onClick={() => setForm(f => ({ ...f, modulosIds: TODOS_MODULOS_IDS }))}>
+                  Selecionar todos
+                </button>
+                <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12.5, cursor: 'pointer', padding: 0, fontWeight: 500 }}
+                  onClick={() => setForm(f => ({ ...f, modulosIds: [] }))}>
+                  Limpar seleção
+                </button>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              {TODOS_MODULOS.map(mod => {
+                const ativo = form.modulosIds.includes(mod.id);
+                return (
+                  <div key={mod.id} onClick={() => toggleModulo(mod.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: `1px solid ${ativo ? 'var(--brand)' : 'var(--border)'}`, borderRadius: 8, cursor: 'pointer', background: ativo ? 'var(--brand-tint)' : 'var(--surface)', transition: 'all 0.15s' }}>
+                    <input type="checkbox" checked={ativo} readOnly onClick={e => { e.stopPropagation(); toggleModulo(mod.id); }} style={{ accentColor: 'var(--brand)', cursor: 'pointer', flexShrink: 0 }} />
+                    <Icon name={mod.icon} size={14} style={{ color: ativo ? 'var(--brand)' : 'var(--text-muted)', flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, fontWeight: ativo ? 500 : 400, color: ativo ? 'var(--brand)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{mod.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+            {form.perfil !== 'admin' && (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
+                {form.modulosIds.length} de {TODOS_MODULOS.length} módulo{form.modulosIds.length !== 1 ? 's' : ''} liberado{form.modulosIds.length !== 1 ? 's' : ''}
+              </div>
+            )}
           </div>
 
           {/* Rodapé do formulário */}
