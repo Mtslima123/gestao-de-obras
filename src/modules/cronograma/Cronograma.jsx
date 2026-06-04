@@ -925,28 +925,30 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
     : e.status === 'upcoming' ? '#3d7fc9'
     : 'var(--brand)';
 
-  // Mapeia cada tarefa para a cor do seu grupo raiz WBS.
-  // Funciona com dados hierárquicos (isGroup/parentId) e com dados flat (todos nivel 0 sem grupos).
+  // Mapeia cada tarefa para a cor do seu ancestral raiz WBS.
+  // Usa travessia por parentId — robusto para qualquer estrutura (flat, hierárquica, sub-grupos).
   const groupColorMap = React.useMemo(() => {
-    const map = {};
+    const byId = {};
+    etapas.forEach(e => { byId[e.id] = e; });
+
+    const findRoot = (e, visited = new Set()) => {
+      if (!e.parentId || !byId[e.parentId] || visited.has(e.id)) return e;
+      visited.add(e.id);
+      return findRoot(byId[e.parentId], visited);
+    };
+
+    const rootColor = {};
     let colorIdx = 0;
-    let currentColor = GROUP_PALETTE[0];
-
     etapas.forEach(e => {
-      // É ponto de troca de cor quando:
-      //   — grupo raiz real: isGroup + (nivel 0 ou sem parent)
-      //   — tarefa raiz em dados flat: sem parent, nivel 0, sem grupo
-      const isColorRoot = e.isGroup
-        ? (e.nivel === 0 || !e.parentId)
-        : (!e.parentId && e.nivel === 0);
-
-      if (isColorRoot) {
-        currentColor = GROUP_PALETTE[colorIdx % GROUP_PALETTE.length];
+      const root = findRoot(e);
+      if (!(root.id in rootColor)) {
+        rootColor[root.id] = GROUP_PALETTE[colorIdx % GROUP_PALETTE.length];
         colorIdx++;
       }
-      map[e.id] = currentColor;
     });
 
+    const map = {};
+    etapas.forEach(e => { map[e.id] = rootColor[findRoot(e).id]; });
     return map;
   }, [etapas]);
 
