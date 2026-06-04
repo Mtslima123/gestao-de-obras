@@ -315,12 +315,6 @@ const UsuariosScreen = ({ obras = [] }) => {
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>E-mail <span style={{ color: '#b91c1c' }}>*</span></label>
                 <input className="input" style={{ width: '100%' }} type="email" placeholder="email@empresa.com.br" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
               </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>
-                  Telefone <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 11 }}>(opcional)</span>
-                </label>
-                <input className="input" style={{ width: '100%' }} placeholder="(00) 00000-0000" value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} />
-              </div>
               <div>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Status <span style={{ color: '#b91c1c' }}>*</span></label>
                 <select className="input" style={{ width: '100%' }} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
