@@ -1437,8 +1437,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
             height: GM_HEADER_H, borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
             display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
             padding: '0 14px 10px 18px',
-            background: 'var(--surface)',
-            position: 'sticky', left: 0, zIndex: 5, overflow: 'visible',
+            background: 'var(--surface, #fff)',
+            position: 'sticky', left: 0, top: 0, zIndex: 10, overflow: 'visible',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 4 }}>
               <span style={{ minWidth: 30, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-faint)', flexShrink: 0 }}>EAP</span>
@@ -1456,7 +1456,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
           </div>
 
           {/* ── Cabeçalho linha do tempo (Ano / Trimestre / Mês) ─────────── */}
-          <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface, #fff)', position: 'sticky', top: 0, zIndex: 6 }}>
             {/* Anos */}
             <div style={{ display: 'flex', height: 20, borderBottom: '1px solid var(--border)', background: 'rgba(1,67,134,0.018)' }}>
               {yearGroups.map((yg, yi) => (
@@ -1560,24 +1560,39 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                   {/* Nome da tarefa com indentação */}
                   <span style={{
                     flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    paddingLeft: (e.nivel || 0) * 10, fontSize: e.isGroup ? 12 : 12.5,
+                    paddingLeft: (e.nivel || 0) * 10,
+                    fontSize: e.isGroup ? 12 : e.nivel > 0 ? 11.5 : 12.5,
+                    color: isSel ? undefined : e.isGroup ? undefined : e.nivel > 0 ? 'var(--text-faint)' : '#111827',
                   }}>
                     {e.etapa}
                   </span>
                   {isLock && <Icon name="shield" size={10} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
-                  {/* Progresso e status — cor do grupo */}
+                  {/* Percentual de progresso */}
                   <span style={{ fontSize: 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: gc, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
-                    {e.avanco > 0 ? `${e.avanco}%` : '—'}
+                    {`${e.avanco}%`}
                   </span>
-                  {/* Indicador de status */}
-                  {!e.isGroup && (
-                    e.status === 'done'
-                      ? <svg viewBox="0 0 16 16" width={14} height={14} style={{ flexShrink: 0 }}>
-                          <circle cx="8" cy="8" r="8" fill={gc}/>
-                          <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      : <div style={{ width: 8, height: 8, borderRadius: '50%', background: gc, border: '1.5px solid rgba(0,0,0,0.1)', flexShrink: 0 }} />
-                  )}
+                  {/* Indicador circular de progresso */}
+                  {(() => {
+                    const r = 6, circ = 2 * Math.PI * r;
+                    const offset = circ * (1 - Math.min(100, e.avanco) / 100);
+                    if (e.avanco >= 100) return (
+                      <svg viewBox="0 0 16 16" width={16} height={16} style={{ flexShrink: 0 }}>
+                        <circle cx="8" cy="8" r="8" fill="#16a34a"/>
+                        <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8"
+                          fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    );
+                    return (
+                      <svg viewBox="0 0 16 16" width={16} height={16} style={{ flexShrink: 0 }}>
+                        <circle cx="8" cy="8" r={r} fill="none" stroke="rgba(0,0,0,0.10)" strokeWidth={2.5}/>
+                        {e.avanco > 0 && (
+                          <circle cx="8" cy="8" r={r} fill="none" stroke={gc} strokeWidth={2.5}
+                            strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+                            style={{ transform: 'rotate(-90deg)', transformOrigin: '8px 8px' }}/>
+                        )}
+                      </svg>
+                    );
+                  })()}
                 </div>
 
                 {/* Faixa da timeline */}
@@ -1628,7 +1643,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                         left: bar.inicio * zoomDayW + 3,
                         width: Math.max(bar.dur * zoomDayW - 6, 10),
                         top: '50%', transform: 'translateY(-50%)',
-                        height: e.isGroup ? GM_BAR_H - 6 : GM_BAR_H,
+                        height: e.isGroup ? GM_BAR_H - 6 : e.nivel > 0 ? GM_BAR_H - 10 : GM_BAR_H - 2,
                         backgroundColor: gcLight,
                         borderRadius: e.isGroup ? 6 : 10,
                         border: `1px solid ${gc}40`,
