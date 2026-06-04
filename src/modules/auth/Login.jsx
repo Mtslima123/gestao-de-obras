@@ -1,5 +1,5 @@
 import React from 'react';
-import { supabase } from '../../services/supabase';
+import { authService } from './auth.service';
 import { Icon } from '../../components/Icons';
 
 // Login screen — Gestão de Obras
@@ -17,9 +17,13 @@ const LoginScreen = ({ onLogin }) => {
     if (password.length < 1) { setError('Informe sua senha'); return; }
     setError(null);
     setLoading(true);
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: err } = await authService.signIn(email, password);
     setLoading(false);
-    if (err) { setError('E-mail ou senha incorretos.'); return; }
+    if (err) {
+      const isCredentialError = err.message?.toLowerCase().includes('invalid') || err.status === 400;
+      setError(isCredentialError ? 'E-mail ou senha incorretos.' : 'Erro de conexão. Tente novamente.');
+      return;
+    }
     onLogin();
   };
 

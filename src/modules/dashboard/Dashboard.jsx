@@ -7,7 +7,7 @@ import { RiskBadge } from '../../components/RiskBadge';
 const { brl } = AppData;
 
 // ----- Sparkline (mini chart in KPI cards) -----
-const Sparkline = ({ data, color = 'var(--brand)', area = true }) => {
+const Sparkline = React.memo(({ data, color = 'var(--brand)', area = true }) => {
   const w = 90, h = 36;
   const min = Math.min(...data), max = Math.max(...data);
   const range = max - min || 1;
@@ -29,10 +29,10 @@ const Sparkline = ({ data, color = 'var(--brand)', area = true }) => {
       {pts.slice(-1).map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r="2.4" fill={color} />)}
     </svg>
   );
-};
+});
 
 // ----- KPI card -----
-const KPI = ({ label, value, unit, trend, trendDir = 'up', trendText, icon, spark, sparkColor }) => (
+const KPI = React.memo(({ label, value, unit, trend, trendDir = 'up', trendText, icon, spark, sparkColor }) => (
   <div className="kpi">
     <div className="kpi-label">
       <div className="kpi-icon"><Icon name={icon} size={16} /></div>
@@ -51,10 +51,10 @@ const KPI = ({ label, value, unit, trend, trendDir = 'up', trendText, icon, spar
     </div>
     {spark && <Sparkline data={spark} color={sparkColor || 'var(--brand)'} />}
   </div>
-);
+));
 
 // ----- Area chart — Avanço Físico vs Financeiro -----
-const AreaChart = ({ series }) => {
+const AreaChart = React.memo(({ series }) => {
   const w = 720, h = 260;
   const pad = { l: 36, r: 16, t: 16, b: 28 };
   const innerW = w - pad.l - pad.r;
@@ -107,10 +107,10 @@ const AreaChart = ({ series }) => {
       <circle cx={xs[xs.length - 1]} cy={yOf(series[series.length - 1].fin)} r="4" fill="#1f8b5c" stroke="white" strokeWidth="2" />
     </svg>
   );
-};
+});
 
 // ----- Bar chart — Faturamento -----
-const BarChart = ({ series }) => {
+const BarChart = React.memo(({ series }) => {
   const w = 720, h = 220;
   const pad = { l: 36, r: 16, t: 16, b: 28 };
   const innerW = w - pad.l - pad.r;
@@ -145,7 +145,7 @@ const BarChart = ({ series }) => {
       })}
     </svg>
   );
-};
+});
 
 // ----- Donut -----
 const Donut = ({ data, size = 160 }) => {

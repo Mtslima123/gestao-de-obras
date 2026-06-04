@@ -8,7 +8,7 @@ export const obrasService = {
     supabase.from('obras').select('*').eq('id', id).single(),
 
   criar: (dados, userId) =>
-    supabase.from('obras').insert([{ ...dados, user_id: userId }]),
+    supabase.from('obras').insert([{ ...dados, user_id: userId }]).select().single(),
 
   atualizar: (id, dados) =>
     supabase.from('obras').update(dados).eq('id', id),

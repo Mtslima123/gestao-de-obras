@@ -46,6 +46,7 @@ async function callGemini(
       max_tokens: maxTokens,
       response_format: { type: 'json_object' },
     }),
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!res.ok) {
@@ -325,8 +326,9 @@ async function logInteracao(params: {
       sucesso:       params.sucesso,
       erro:          params.erro ?? null,
     });
-  } catch {
+  } catch (logErr) {
     // Falha no log nunca derruba a operação principal
+    console.error('[ia-assistente] Falha ao registrar interação:', (logErr as Error).message);
   }
 }
 

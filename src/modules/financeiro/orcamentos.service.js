@@ -18,7 +18,9 @@ export const orcamentosService = {
 
   itens: {
     listar: (orcamentoId) =>
-      supabase.from('orcamento_itens').select('*').eq('orcamento_id', orcamentoId).order('ordem').order('codigo'),
+      supabase.from('orcamento_itens').select('*').eq('orcamento_id', orcamentoId)
+        .order('ordem', { ascending: true, nullsFirst: false })
+        .order('codigo', { ascending: true }),
 
     criar: (itens) =>
       supabase.from('orcamento_itens').insert(itens),

@@ -653,6 +653,10 @@ const Fotos = ({ obra }) => {
   React.useEffect(() => { carregarFotos(); }, [obra.id]);
 
   const salvarFoto = async (metadados, file) => {
+    if (file.size > 5 * 1024 * 1024) {
+      toast('Imagem muito grande. Máximo: 5 MB', { tone: 'danger' });
+      return;
+    }
     const path = `obras/${obra.id}/fotos/${Date.now()}.jpg`;
     const blob = await compressImagem(file, 1200, 0.82);
     const { error: upErr } = await supabase.storage.from('obras-images').upload(path, blob, { contentType: 'image/jpeg' });
@@ -876,6 +880,10 @@ const HeroImage = ({ obra, onObraUpdate }) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowed.includes(file.type)) {
       toast('Formato não suportado. Use JPG, PNG ou WEBP.', { tone: 'error' });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast('Imagem muito grande. Máximo: 5 MB', { tone: 'danger' });
       return;
     }
     setUploading(true);

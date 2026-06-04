@@ -18,9 +18,12 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
 
   React.useEffect(() => { setInternalLayout(layout); }, [layout]);
 
-  const filtered = obras
-    .filter(o => filter === 'todos' ? true : filter === 'em_andamento' ? o.status === 'em_andamento' : o.status === filter)
-    .filter(o => !search || (o.nome + o.cliente + o.id).toLowerCase().includes(search.toLowerCase()));
+  const filtered = React.useMemo(() =>
+    obras
+      .filter(o => filter === 'todos' ? true : filter === 'em_andamento' ? o.status === 'em_andamento' : o.status === filter)
+      .filter(o => !search || (o.nome + o.cliente + o.id).toLowerCase().includes(search.toLowerCase())),
+    [obras, filter, search]
+  );
 
   const handleDeleteConfirm = () => {
     if (!deleteObra) return;
