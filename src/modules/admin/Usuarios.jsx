@@ -302,7 +302,7 @@ const UsuariosScreen = ({ obras = [] }) => {
             {editando === 'novo' ? 'Cadastro de Usuário' : 'Edição de Usuário'}
           </h3>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 1fr 260px', gridTemplateRows: 'auto auto', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 200px 260px', gridTemplateRows: 'auto auto', gap: 20 }}>
 
             {/* Coluna 1 — Dados Básicos */}
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', gridColumn: 1, gridRow: 1 }}>
@@ -375,7 +375,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                   <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
                       <th style={{ padding: '8px 10px', width: 36, textAlign: 'center', fontWeight: 600, color: 'var(--text-muted)', fontSize: 12 }}>Sel.</th>
-                      <th style={{ padding: '8px 10px', width: 80, fontWeight: 600, color: 'var(--text-muted)', fontSize: 12 }}>Código</th>
+                      <th style={{ padding: '8px 10px', width: 70, fontWeight: 600, color: 'var(--text-muted)', fontSize: 12, textAlign: 'center' }}>Código</th>
                       <th style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--text-muted)', fontSize: 12 }}>Obra</th>
                     </tr>
                   </thead>
@@ -390,7 +390,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                           <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                             <input type="checkbox" checked={sel} onChange={() => toggleObra(o.id)} onClick={e => e.stopPropagation()} style={{ cursor: 'pointer', accentColor: 'var(--brand)' }} />
                           </td>
-                          <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: 12 }}>{o.id}</td>
+                          <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: 12, textAlign: 'center' }}>{o.id}</td>
                           <td style={{ padding: '8px 10px', fontWeight: sel ? 500 : 400 }}>{o.nome}</td>
                         </tr>
                       );
