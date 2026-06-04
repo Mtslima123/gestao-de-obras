@@ -1511,10 +1511,13 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
             const gc      = isConf ? '#d97706' : (groupColorMap[e.id] || '#014386');
             const gcLight = gc + '2e'; // hex 8-dígitos ≈ 18% opacidade
             const rowBg   = isSel ? 'rgba(0,85,160,0.04)' : i % 2 === 0 ? 'transparent' : 'rgba(248,250,253,0.8)';
-            const lblBg   = isSel ? 'rgba(0,85,160,0.06)'
+            // Base sempre sólida (opaca) + tint via backgroundImage para não vazar timeline
+            const lblBase = i % 2 === 0 ? 'var(--surface)' : 'var(--surface-muted)';
+            const lblTint = isSel
+              ? 'linear-gradient(rgba(0,85,160,0.09),rgba(0,85,160,0.09))'
               : e.isGroup
-                ? gc + '0d'   // tint sutil da cor do grupo ≈ 5% opacidade
-                : (i % 2 === 0 ? 'var(--surface)' : 'var(--surface-muted)');
+                ? `linear-gradient(${gc}18,${gc}18)`
+                : 'none';
             const isSearchMatch = matchesSearch(e);
 
             return (
@@ -1530,8 +1533,9 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                     fontSize: 12.5, fontWeight: isSel ? 600 : (e.isGroup ? 600 : 500),
                     color: isSel ? 'var(--brand)' : 'var(--text)',
                     position: 'sticky', left: 0, zIndex: 2,
-                    background: lblBg, cursor: 'default',
-                    transition: 'background 0.12s, color 0.12s',
+                    backgroundColor: lblBase, backgroundImage: lblTint,
+                    cursor: 'default',
+                    transition: 'background-color 0.12s, color 0.12s',
                     opacity: isSearchMatch ? 1 : 0.3,
                   }}
                 >
@@ -1568,7 +1572,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                   </span>
                   {isLock && <Icon name="shield" size={10} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
                   {/* Percentual de progresso */}
-                  <span style={{ fontSize: 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: gc, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text)', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
                     {`${e.avanco}%`}
                   </span>
                   {/* Indicador circular de progresso */}
