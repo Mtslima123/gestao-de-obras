@@ -376,7 +376,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
                       <th style={{ padding: '8px 10px', width: 36, textAlign: 'center', fontWeight: 600, color: 'var(--text-muted)', fontSize: 12 }}>Sel.</th>
                       <th style={{ padding: '8px 10px', width: 70, fontWeight: 600, color: 'var(--text-muted)', fontSize: 12, textAlign: 'center' }}>Código</th>
-                      <th style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--text-muted)', fontSize: 12 }}>Obra</th>
+                      <th style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--text-muted)', fontSize: 12, textAlign: 'center' }}>Obra</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -391,7 +391,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                             <input type="checkbox" checked={sel} onChange={() => toggleObra(o.id)} onClick={e => e.stopPropagation()} style={{ cursor: 'pointer', accentColor: 'var(--brand)' }} />
                           </td>
                           <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: 12, textAlign: 'center' }}>{o.id}</td>
-                          <td style={{ padding: '8px 10px', fontWeight: sel ? 500 : 400 }}>{o.nome}</td>
+                          <td style={{ padding: '8px 10px', fontWeight: sel ? 500 : 400, textAlign: 'center' }}>{o.nome}</td>
                         </tr>
                       );
                     })}
