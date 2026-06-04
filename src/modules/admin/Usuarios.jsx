@@ -302,7 +302,7 @@ const UsuariosScreen = ({ obras = [] }) => {
             {editando === 'novo' ? 'Cadastro de Usuário' : 'Edição de Usuário'}
           </h3>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 200px 260px', gridTemplateRows: 'auto auto', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 300px 260px', gridTemplateRows: 'auto auto', gap: 20 }}>
 
             {/* Coluna 1 — Dados Básicos */}
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', gridColumn: 1, gridRow: 1 }}>
