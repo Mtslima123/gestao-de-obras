@@ -147,8 +147,8 @@ const UsuariosScreen = ({ obras = [] }) => {
       </div>
 
       {/* Lista */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 600 }}>Lista de Usuários</h3>
+      <div className="card" style={{ marginBottom: 24, padding: '24px 24px' }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>Lista de Usuários</h3>
         <div className="row" style={{ gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 220, maxWidth: 380 }}>
             <Icon name="search" size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
@@ -226,16 +226,16 @@ const UsuariosScreen = ({ obras = [] }) => {
 
       {/* Formulário Cadastro / Edição */}
       {editando && (
-        <div ref={formRef} className="card">
+        <div ref={formRef} className="card" style={{ padding: '24px 24px' }}>
           <h3 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 600 }}>
             {editando === 'novo' ? 'Cadastro de Usuário' : 'Edição de Usuário'}
           </h3>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 1fr 260px', gap: 24, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 1fr 260px', gap: 20, alignItems: 'start' }}>
 
             {/* Coluna 1 — Dados Básicos */}
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Dados Básicos</div>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>Dados Básicos</div>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Nome <span style={{ color: '#b91c1c' }}>*</span></label>
                 <input className="input" style={{ width: '100%' }} placeholder="Nome completo" value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
@@ -260,8 +260,8 @@ const UsuariosScreen = ({ obras = [] }) => {
             </div>
 
             {/* Coluna 2 — Perfil de Acesso */}
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Perfil de Acesso</div>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>Perfil de Acesso</div>
               {[
                 { value: 'admin', icon: 'shield', label: 'Administrador', desc: 'Acesso total ao sistema. Visualiza todas as obras, módulos e configurações, poderá gerenciar usuários.' },
                 { value: 'usuario', icon: 'user', label: 'Usuário', desc: 'Acesso restrito às obras liberadas. Selecione as obras que o usuário poderá acessar.' },
@@ -281,8 +281,8 @@ const UsuariosScreen = ({ obras = [] }) => {
             </div>
 
             {/* Coluna 3 — Obras Permitidas */}
-            <div style={{ opacity: form.perfil === 'admin' ? 0.45 : 1, pointerEvents: form.perfil === 'admin' ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', opacity: form.perfil === 'admin' ? 0.45 : 1, pointerEvents: form.perfil === 'admin' ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                 Obras Permitidas
                 {form.perfil === 'admin' && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--brand)', textTransform: 'none' }}>— Todas (admin)</span>}
               </div>
