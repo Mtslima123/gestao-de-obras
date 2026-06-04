@@ -346,16 +346,16 @@ const UsuariosScreen = ({ obras = [] }) => {
             </div>
 
             {/* Coluna 3 — Obras Permitidas */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', gridColumn: 3, gridRow: 1, opacity: form.perfil === 'admin' ? 0.45 : 1, pointerEvents: form.perfil === 'admin' ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', gridColumn: 3, gridRow: 1, opacity: form.perfil === 'admin' ? 0.45 : 1, pointerEvents: form.perfil === 'admin' ? 'none' : 'auto', transition: 'opacity 0.2s', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                 Obras Permitidas
                 {form.perfil === 'admin' && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--brand)', textTransform: 'none' }}>— Todas (admin)</span>}
               </div>
-              <div style={{ position: 'relative', marginBottom: 10 }}>
+              <div style={{ position: 'relative', marginBottom: 10, flexShrink: 0 }}>
                 <Icon name="search" size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                 <input className="input" style={{ paddingLeft: 28, width: '100%' }} placeholder="Buscar obra..." value={obraSearch} onChange={e => setObraSearch(e.target.value)} />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexShrink: 0 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
                   <input type="checkbox" checked={todasSelecionadas} onChange={toggleTodas} style={{ cursor: 'pointer', accentColor: 'var(--brand)' }} />
                   Selecionar todas
@@ -364,7 +364,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                   Limpar seleção
                 </button>
               </div>
-              <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflowX: 'hidden', maxHeight: 260, overflowY: 'auto' }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'auto', height: 220, flexShrink: 0 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
@@ -473,7 +473,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                 </button>
               </div>
             </div>
-            <div style={{ maxHeight: 200, overflowY: 'auto', paddingRight: 4 }}>
+            <div style={{ height: 210, overflowY: 'auto', paddingRight: 4 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {TODOS_MODULOS.map(mod => {
                 const ativo = form.modulosIds.includes(mod.id);
