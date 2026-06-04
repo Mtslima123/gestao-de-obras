@@ -925,31 +925,37 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
     : e.status === 'upcoming' ? '#3d7fc9'
     : 'var(--brand)';
 
-  // Mapeia cada tarefa para a cor do seu ancestral raiz WBS.
-  // Usa travessia por parentId — robusto para qualquer estrutura (flat, hierárquica, sub-grupos).
+  // Mapeia cada tarefa para a cor do seu grupo (isGroup=true) mais próximo.
+  // Grupos recebem cor própria; tarefas herdam do grupo pai; dados flat recebem cor por posição.
   const groupColorMap = React.useMemo(() => {
     const byId = {};
     etapas.forEach(e => { byId[e.id] = e; });
 
-    const findRoot = (e, visited = new Set()) => {
-      if (!e.parentId || !byId[e.parentId] || visited.has(e.id)) return e;
-      visited.add(e.id);
-      return findRoot(byId[e.parentId], visited);
-    };
-
-    const rootColor = {};
-    let colorIdx = 0;
+    // Passo 1: atribui cor distinta a cada grupo
+    const groupColor = {};
+    let ci = 0;
     etapas.forEach(e => {
-      const root = findRoot(e);
-      if (!(root.id in rootColor)) {
-        rootColor[root.id] = GROUP_PALETTE[colorIdx % GROUP_PALETTE.length];
-        colorIdx++;
+      if (e.isGroup) groupColor[e.id] = GROUP_PALETTE[ci++ % GROUP_PALETTE.length];
+    });
+
+    // Passo 2: cada tarefa herda do grupo pai mais próximo; sem grupo → cor própria
+    const result = {};
+    etapas.forEach(e => {
+      if (groupColor[e.id] !== undefined) {
+        result[e.id] = groupColor[e.id];
+      } else {
+        let cur = byId[e.parentId];
+        const seen = new Set([e.id]);
+        while (cur && !seen.has(cur.id)) {
+          seen.add(cur.id);
+          if (groupColor[cur.id] !== undefined) { result[e.id] = groupColor[cur.id]; break; }
+          cur = byId[cur.parentId];
+        }
+        if (result[e.id] === undefined) result[e.id] = GROUP_PALETTE[ci++ % GROUP_PALETTE.length];
       }
     });
 
-    const map = {};
-    etapas.forEach(e => { map[e.id] = rootColor[findRoot(e).id]; });
-    return map;
+    return result;
   }, [etapas]);
 
   const exportExcelGantt = () => {
