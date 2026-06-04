@@ -438,7 +438,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                 </ol>
               </div>
 
-              <div style={{ border: '1px solid #fde68a', borderRadius: 10, padding: '14px 16px', background: '#fffbeb' }}>
+              <div style={{ border: '1px solid #fde68a', borderRadius: 10, padding: '14px 16px', background: '#fffbeb', marginTop: 'auto' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <Icon name="alert" size={16} style={{ color: '#d97706' }} />
                   <strong style={{ fontSize: 13, color: '#92400e' }}>Auditoria</strong>
