@@ -783,7 +783,7 @@ a:hover { color: var(--brand-600); }
 }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .legend-swatch {
-  width: 10px; height: 10px; border-radius: 2px;
+  width: 12px; height: 8px; border-radius: 4px;
   background: var(--brand);
 }
 
@@ -1397,11 +1397,11 @@ a:hover { color: var(--brand-600); }
   position: absolute;
   top: -6px;
   transform: translateX(-50%);
-  padding: 1px 6px;
+  padding: 2px 8px;
   background: var(--danger);
   color: white;
-  border-radius: 4px;
-  font-size: 9.5px;
+  border-radius: 10px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   font-family: var(--font-mono);

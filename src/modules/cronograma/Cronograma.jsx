@@ -24,8 +24,20 @@ const GM_MONTH_W     = 64;              // px por mês (mantido para compatibili
 const GM_DAY_W       = GM_MONTH_W / 30; // px por dia ≈ 2.133
 const GM_LABEL_W     = 280;  // px da coluna de rótulos
 const GM_ROW_H       = 44;   // altura por linha
-const GM_HEADER_H    = 58;   // altura do cabeçalho
+const GM_HEADER_H    = 78;   // altura do cabeçalho (20 ano + 28 trimestre + 30 mês)
 const GM_BAR_H       = 24;   // altura das barras
+
+// Paleta de cores para grupos WBS — cores em hex de 6 dígitos (suportam sufixo alfa CSS Level 4)
+const GROUP_PALETTE = [
+  '#16a34a', // verde
+  '#2563eb', // azul
+  '#7c3aed', // roxo
+  '#ea580c', // laranja
+  '#d97706', // âmbar
+  '#0891b2', // ciano
+  '#be185d', // rosa
+  '#374151', // grafite
+];
 
 const GM_MN = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
@@ -704,13 +716,17 @@ function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
 }
 
 // ─── GanttInterativo ─────────────────────────────────────────────────────────
-const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId }) => {
+const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, onTaskSelect }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [editMode,    setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
   const [lockDone,    setLock]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; } catch { return true; } });
   const [replanAuto,  setReplan]   = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.replanAuto ?? true; } catch { return true; } });
   const [labelWidth,  setLabelW]   = React.useState(() => { try { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; } catch { return 220; } });
+  const [zoom,        setZoom]     = React.useState('mes');
+  const [search,      setSearch]   = React.useState('');
+  // Ref para uso em event handlers — sincronizado no render
+  const zoomDayWRef = React.useRef(GM_DAY_W);
 
   const saveGanttCfg = (patch) => {
     try {
@@ -761,7 +777,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     const folhas = etapas.filter(e => !e.isGroup);
     const minInicio = folhas.length ? Math.min(...folhas.map(e => e.inicio)) : today;
     const alvo = Math.min(today, minInicio);
-    const alvoPx = labelWidth + alvo * GM_DAY_W;
+    const alvoPx = labelWidth + alvo * zoomDayWRef.current;
     cRef.current.scrollLeft = Math.max(0, alvoPx - cRef.current.clientWidth * 0.15);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -811,7 +827,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
 
     const mv = (ev) => {
       // Snap a 1 dia
-      const delta = Math.round((ev.clientX - sx) / GM_DAY_W);
+      const delta = Math.round((ev.clientX - sx) / zoomDayWRef.current);
       if (delta !== 0) dragged.current = true;
       const nd = {};
       movedIds.forEach(mid => {
@@ -884,6 +900,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
       setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
     } else {
       setSel(s => (s.size === 1 && s.has(id)) ? new Set() : new Set([id]));
+      if (onTaskSelect) onTaskSelect(id);
     }
   };
 
@@ -907,6 +924,33 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     : e.status === 'late'     ? '#c0281f'
     : e.status === 'upcoming' ? '#3d7fc9'
     : 'var(--brand)';
+
+  // Mapeia cada tarefa para a cor do seu grupo raiz WBS
+  const groupColorMap = React.useMemo(() => {
+    const map = {};
+    let colorIdx = 0;
+
+    // Passo 1: atribui cor aos grupos raiz (nivel 0 + isGroup)
+    etapas.forEach(e => {
+      if (e.isGroup && (e.nivel === 0 || !e.parentId)) {
+        map[e.id] = GROUP_PALETTE[colorIdx % GROUP_PALETTE.length];
+        colorIdx++;
+      }
+    });
+
+    // Passo 2: propaga por posição na array — cada tarefa herda do último grupo raiz visto
+    // Robusto mesmo quando parentId não está populado (dados mock ou migrados)
+    let currentColor = GROUP_PALETTE[0];
+    etapas.forEach(e => {
+      if (map[e.id]) {
+        currentColor = map[e.id];
+      } else {
+        map[e.id] = currentColor;
+      }
+    });
+
+    return map;
+  }, [etapas]);
 
   const exportExcelGantt = () => {
     import('xlsx').then(XLSX => {
@@ -1211,18 +1255,82 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
     }
     return out;
   }, [dynTotal]);
-  const tlW = dynTotal * GM_MONTH_W;
+  // Agrupa meses por ano para o cabeçalho de 3 níveis (Ano / Trimestre / Mês)
+  const yearGroups = React.useMemo(() => {
+    const out = [];
+    dynMonths.forEach((m) => {
+      const last = out[out.length - 1];
+      if (last && last.year === m.year) { last.count++; }
+      else { out.push({ year: m.year, count: 1 }); }
+    });
+    return out;
+  }, [dynMonths]);
+
+  const zoomMonthW = zoom === 'dia' ? 30 : zoom === 'semana' ? 48 : zoom === 'mes' ? GM_MONTH_W : 192;
+  const zoomDayW   = zoomMonthW / 30;
+  zoomDayWRef.current = zoomDayW; // sincroniza o ref para event handlers
+  const tlW = dynTotal * zoomMonthW;
+
+  // Utilitário para verificar se uma tarefa é compatível com a busca atual
+  const matchesSearch = (e) => !search ||
+    e.etapa?.toLowerCase().includes(search.toLowerCase()) ||
+    String(e.displayId || '').toLowerCase().includes(search.toLowerCase()) ||
+    e.isGroup;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div ref={ganttRef} style={{ position: 'relative' }}>
 
-      {/* ── Toolbar ──────────────────────────────────────────────────────── */}
+      {/* ── Toolbar superior — zoom + busca ──────────────────────────────── */}
       <div style={{
-        display: 'flex', gap: 8, padding: '10px 16px', alignItems: 'center',
-        flexWrap: 'wrap', background: 'var(--surface-muted)',
-        borderBottom: '1px solid var(--border)', minHeight: 48,
+        display: 'flex', gap: 8, padding: '8px 20px', alignItems: 'center',
+        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+        minHeight: 48,
       }}>
+        {/* Busca */}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar tarefa…"
+            style={{
+              paddingLeft: 30, paddingRight: 10, height: 30, fontSize: 12,
+              border: '1px solid var(--border)', borderRadius: 8,
+              background: 'var(--surface-muted)', color: 'var(--text)',
+              outline: 'none', width: 160,
+            }}
+          />
+        </div>
+
+        {/* Zoom */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginRight: 2 }}>Zoom</span>
+          {[
+            { key: 'dia', label: 'Dia' },
+            { key: 'semana', label: 'Semana' },
+            { key: 'mes', label: 'Mês' },
+            { key: 'trimestre', label: 'Trimestre' },
+          ].map(z => (
+            <button key={z.key} onClick={() => setZoom(z.key)}
+              style={{
+                fontSize: 11.5, padding: '3px 10px', height: 28, border: 'none',
+                borderRadius: 6, cursor: 'pointer', fontWeight: zoom === z.key ? 600 : 400,
+                background: zoom === z.key ? 'var(--brand)' : 'transparent',
+                color: zoom === z.key ? 'white' : 'var(--text-muted)',
+                transition: 'background 0.15s, color 0.15s',
+              }}>
+              {z.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+
+        {/* Edição */}
         <button
           className={'btn ' + (editMode ? 'btn-primary' : 'btn-ghost')}
           style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5 }}
@@ -1318,15 +1426,19 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
           position: 'relative',
         }}>
 
-          {/* ── Cabeçalho rótulo ──────────────────────────────────────────── */}
+          {/* ── Cabeçalho rótulo (EAP / Tarefa / Progresso) ──────────────── */}
           <div style={{
             height: GM_HEADER_H, borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
-            display: 'flex', alignItems: 'flex-end', padding: '0 18px 12px',
-            fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em',
-            color: 'var(--text-soft)', background: 'var(--surface)',
+            display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+            padding: '0 14px 10px 18px',
+            background: 'var(--surface)',
             position: 'sticky', left: 0, zIndex: 5, overflow: 'visible',
           }}>
-            ETAPA
+            <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 4 }}>
+              <span style={{ minWidth: 30, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-faint)', flexShrink: 0 }}>EAP</span>
+              <span style={{ flex: 1, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-faint)', paddingLeft: 22 }}>Tarefa</span>
+              <span style={{ minWidth: 50, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-faint)', textAlign: 'right' }}>%</span>
+            </div>
             <div
               onMouseDown={onDividerDown}
               style={{
@@ -1337,17 +1449,30 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
             />
           </div>
 
-          {/* ── Cabeçalho linha do tempo ──────────────────────────────────── */}
+          {/* ── Cabeçalho linha do tempo (Ano / Trimestre / Mês) ─────────── */}
           <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+            {/* Anos */}
+            <div style={{ display: 'flex', height: 20, borderBottom: '1px solid var(--border)', background: 'rgba(1,67,134,0.018)' }}>
+              {yearGroups.map((yg, yi) => (
+                <div key={yi} style={{
+                  width: yg.count * zoomMonthW,
+                  fontSize: 10, fontWeight: 700, color: 'var(--brand-500)',
+                  letterSpacing: '0.05em', padding: '3px 10px',
+                  borderRight: '1px solid var(--border)',
+                }}>
+                  {yg.year}
+                </div>
+              ))}
+            </div>
             {/* Trimestres */}
             <div style={{ display: 'flex', height: 28, borderBottom: '1px solid var(--border)' }}>
               {dynQuarters.map((q, qi) => (
                 <div key={qi} style={{
-                  width: (q.end - q.start) * GM_MONTH_W,
-                  fontSize: 10.5, fontWeight: 600, color: 'var(--text-soft)',
-                  textTransform: 'uppercase', letterSpacing: '0.07em',
+                  width: (q.end - q.start) * zoomMonthW,
+                  fontSize: 10, fontWeight: 600, color: 'var(--text-soft)',
+                  textTransform: 'uppercase', letterSpacing: '0.06em',
                   padding: '7px 10px', borderRight: '1px solid var(--border)',
-                  background: qi % 2 === 0 ? 'rgba(0,0,0,0.02)' : 'transparent',
+                  background: qi % 2 === 0 ? 'rgba(1,67,134,0.025)' : 'transparent',
                 }}>
                   {q.label}
                 </div>
@@ -1357,11 +1482,11 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
             <div style={{ display: 'flex', height: 30 }}>
               {dynMonths.map((m, mi) => (
                 <div key={mi} style={{
-                  width: GM_MONTH_W, textAlign: 'center', padding: '8px 0', fontSize: 10,
+                  width: zoomMonthW, textAlign: 'center', padding: '8px 0', fontSize: 10,
                   borderRight: '1px solid var(--border)', fontFamily: 'var(--font-mono)',
-                  color: m.isQ ? 'var(--text-soft)' : 'var(--text-muted)',
+                  color: m.isQ ? 'var(--text-muted)' : 'var(--text-faint)',
                   fontWeight: m.isQ ? 600 : 400,
-                  background: m.isQ ? 'rgba(0,0,0,0.015)' : 'transparent',
+                  background: m.isQ ? 'rgba(1,67,134,0.018)' : 'transparent',
                 }}>
                   {m.short}
                 </div>
@@ -1375,73 +1500,107 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
             const isSel  = selected.has(e.id);
             const isConf = conflictIds.has(e.id);
             const isLock = lockDone && e.status === 'done';
-            const bc     = barColor(e, isConf);
-            const rowBg  = isSel ? 'rgba(0,85,160,0.04)' : i % 2 === 0 ? 'transparent' : 'var(--surface-muted)';
-            const lblBg  = isSel ? 'rgba(0,85,160,0.06)' : i % 2 === 0 ? 'var(--surface)' : 'var(--surface-muted)';
+            const bc      = barColor(e, isConf);
+            const gc      = isConf ? '#d97706' : (groupColorMap[e.id] || bc);
+            const gcLight = gc + '2e'; // hex 8-dígitos ≈ 18% opacidade
+            const rowBg   = isSel ? 'rgba(0,85,160,0.04)' : i % 2 === 0 ? 'transparent' : 'rgba(248,250,253,0.8)';
+            const lblBg   = isSel ? 'rgba(0,85,160,0.06)'
+              : e.isGroup
+                ? gc + '0d'   // tint sutil da cor do grupo ≈ 5% opacidade
+                : (i % 2 === 0 ? 'var(--surface)' : 'var(--surface-muted)');
+            const isSearchMatch = matchesSearch(e);
 
             return (
               <React.Fragment key={e.id}>
-                {/* Rótulo sticky */}
+                {/* Rótulo sticky — estrutura EAP / Tarefa / Progresso */}
                 <div
                   onClick={(ev) => onBarClick(ev, e.id)}
                   style={{
-                    height: GM_ROW_H, padding: '0 14px 0 18px',
+                    height: GM_ROW_H, padding: '0 10px 0 15px',
                     borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
-                    display: 'flex', alignItems: 'center', gap: 8,
+                    borderLeft: e.isGroup ? `3px solid ${gc}` : '3px solid transparent',
+                    display: 'flex', alignItems: 'center', gap: 6,
                     fontSize: 12.5, fontWeight: isSel ? 600 : (e.isGroup ? 600 : 500),
                     color: isSel ? 'var(--brand)' : 'var(--text)',
                     position: 'sticky', left: 0, zIndex: 2,
                     background: lblBg, cursor: 'default',
                     transition: 'background 0.12s, color 0.12s',
+                    opacity: isSearchMatch ? 1 : 0.3,
                   }}
                 >
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', minWidth: 26, flexShrink: 0 }}>
+                  {/* Coluna EAP */}
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', minWidth: 30, flexShrink: 0 }}>
                     {e.displayId ?? e.id}
                   </span>
+                  {/* Ícone de pasta colorido para grupos / espaço para tarefas */}
                   {e.isGroup
                     ? <button
                         onClick={ev => { ev.stopPropagation(); handleToggleCollapse(e.id); }}
                         style={{ width: 18, height: 18, flexShrink: 0, display: 'flex', alignItems: 'center',
                                  justifyContent: 'center', border: 'none', background: 'none',
-                                 cursor: 'pointer', color: 'var(--text-soft)', fontSize: 10, padding: 0 }}
-                      >{e.collapsed ? '▶' : '▼'}</button>
-                    : <span style={{ width: 18, flexShrink: 0 }} />
+                                 cursor: 'pointer', padding: 0 }}
+                      >
+                        <svg viewBox="0 0 20 16" width={15} height={13} fill={gc}>
+                          <path d="M0 3a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3z"/>
+                          {e.collapsed
+                            ? <path d="M7 8h6M10 5v6" stroke="rgba(255,255,255,0.85)" strokeWidth="1.7" strokeLinecap="round"/>
+                            : <path d="M7 9h6" stroke="rgba(255,255,255,0.85)" strokeWidth="1.7" strokeLinecap="round"/>
+                          }
+                        </svg>
+                      </button>
+                    : <span style={{ width: 16, flexShrink: 0 }} />
                   }
+                  {/* Nome da tarefa com indentação */}
                   <span style={{
                     flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    paddingLeft: (e.nivel || 0) * 12,
+                    paddingLeft: (e.nivel || 0) * 10, fontSize: e.isGroup ? 12 : 12.5,
                   }}>
                     {e.etapa}
                   </span>
-                  {isLock && <Icon name="shield" size={11} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
+                  {isLock && <Icon name="shield" size={10} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
+                  {/* Progresso e status — cor do grupo */}
+                  <span style={{ fontSize: 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: gc, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
+                    {e.avanco > 0 ? `${e.avanco}%` : '—'}
+                  </span>
+                  {/* Indicador de status */}
+                  {!e.isGroup && (
+                    e.status === 'done'
+                      ? <svg viewBox="0 0 16 16" width={14} height={14} style={{ flexShrink: 0 }}>
+                          <circle cx="8" cy="8" r="8" fill={gc}/>
+                          <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      : <div style={{ width: 8, height: 8, borderRadius: '50%', background: gc, border: '1.5px solid rgba(0,0,0,0.1)', flexShrink: 0 }} />
+                  )}
                 </div>
 
                 {/* Faixa da timeline */}
                 <div style={{
                   position: 'relative', height: GM_ROW_H,
                   borderBottom: '1px solid var(--border)', background: rowBg,
+                  opacity: isSearchMatch ? 1 : 0.25,
                 }}>
                   {/* Grade de meses */}
                   {dynMonths.map((m, mi) => (
                     <div key={mi} style={{
-                      position: 'absolute', left: mi * GM_MONTH_W, top: 0, bottom: 0, width: 1,
-                      background: 'var(--border)', opacity: m.isQ ? 0.8 : 0.35,
+                      position: 'absolute', left: mi * zoomMonthW, top: 0, bottom: 0, width: 1,
+                      background: m.isQ ? 'var(--border-strong)' : 'var(--border)',
+                      opacity: m.isQ ? 0.65 : 0.20,
                     }} />
                   ))}
 
                   {/* Sombreamento do passado */}
                   <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
-                    width: Math.min(today, dynTotal * 30) * GM_DAY_W,
-                    background: 'rgba(0,0,0,0.011)', pointerEvents: 'none',
+                    width: Math.min(today, dynTotal * 30) * zoomDayW,
+                    background: 'rgba(0,0,0,0.022)', pointerEvents: 'none',
                   }} />
 
                   {/* Barra de linha de base — fina, atrás da barra atual */}
                   {blMap[e.id] && !e.milestone && (
                     <div style={{
                       position: 'absolute',
-                      left: blMap[e.id].inicio * GM_DAY_W + 3,
-                      width: Math.max(blMap[e.id].dur * GM_DAY_W - 6, 10),
+                      left: blMap[e.id].inicio * zoomDayW + 3,
+                      width: Math.max(blMap[e.id].dur * zoomDayW - 6, 10),
                       top: '50%', transform: 'translateY(-50%)',
                       height: 6, borderRadius: 3,
                       background: 'rgba(107,120,144,0.45)',
@@ -1459,37 +1618,45 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                       onMouseLeave={() => setTip(null)}
                       style={{
                         position: 'absolute',
-                        left: bar.inicio * GM_DAY_W + 3,
-                        width: Math.max(bar.dur * GM_DAY_W - 6, 10),
+                        left: bar.inicio * zoomDayW + 3,
+                        width: Math.max(bar.dur * zoomDayW - 6, 10),
                         top: '50%', transform: 'translateY(-50%)',
-                        height: e.isGroup ? GM_BAR_H - 8 : GM_BAR_H,
-                        background: e.isGroup ? 'rgba(1,67,134,0.65)' : bc, borderRadius: e.isGroup ? 4 : 7,
+                        height: e.isGroup ? GM_BAR_H - 6 : GM_BAR_H,
+                        backgroundColor: gcLight,
+                        borderRadius: e.isGroup ? 6 : 10,
+                        border: `1px solid ${gc}40`,
                         boxShadow: isSel
-                          ? `0 0 0 2px white, 0 0 0 3.5px ${bc}, 0 3px 12px rgba(0,0,0,0.18)`
-                          : '0 1px 4px rgba(0,0,0,0.14)',
+                          ? `0 0 0 2px white, 0 0 0 3.5px ${gc}, 0 4px 14px rgba(0,0,0,0.18)`
+                          : '0 1px 4px rgba(0,0,0,0.10)',
                         display: 'flex', alignItems: 'center', overflow: 'hidden',
                         cursor: editMode && !isLock ? 'grab' : 'pointer',
                         transition: draft ? 'none' : 'left 0.15s ease, width 0.15s ease, box-shadow 0.12s',
                         zIndex: isSel ? 3 : 1,
                       }}
                     >
-                      {/* Overlay de progresso */}
-                      <div style={{
-                        position: 'absolute', left: 0, top: 0, bottom: 0,
-                        width: e.avanco + '%', background: 'rgba(255,255,255,0.22)', borderRadius: 7,
-                      }} />
+                      {/* Porção concluída — cor sólida do grupo com gradiente de luz */}
+                      {e.avanco > 0 && (
+                        <div style={{
+                          position: 'absolute', left: 0, top: 0, bottom: 0,
+                          width: e.avanco + '%',
+                          backgroundColor: gc,
+                          backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%, rgba(0,0,0,0.07) 100%)',
+                          borderRadius: e.isGroup ? 6 : 10,
+                        }} />
+                      )}
                       <span style={{
-                        position: 'relative', zIndex: 1, paddingLeft: 10, paddingRight: 6,
+                        position: 'relative', zIndex: 1, paddingLeft: 8, paddingRight: 6,
                         fontSize: 10.5, fontWeight: 700,
-                        color: 'rgba(255,255,255,0.95)',
-                        textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                        color: e.avanco > 15 ? 'rgba(255,255,255,0.95)' : gc,
+                        textShadow: e.avanco > 15 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none',
                         whiteSpace: 'nowrap',
                       }}>
                         {e.avanco > 0 ? `${e.avanco}%` : ''}
                       </span>
                       {/* Ícone de restrição */}
                       {e.restricaoTipo && e.restricaoTipo !== 'asap' && (
-                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2.5"
+                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none"
+                          stroke={e.avanco > 15 ? 'rgba(255,255,255,0.9)' : gc} strokeWidth="2.5"
                           style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', flexShrink: 0 }}>
                           <circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
                         </svg>
@@ -1498,14 +1665,14 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                       {editMode && !isLock && (
                         <div data-gb={e.id}
                           onMouseDown={(ev) => { ev.stopPropagation(); onBarDown(ev, e.id, 'resizeLeft'); }}
-                          style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: 'rgba(0,0,0,0.12)', borderRadius: '7px 0 0 7px' }}
+                          style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${gc}44`, borderRadius: '10px 0 0 10px' }}
                         />
                       )}
                       {/* Handle resize direita */}
                       {editMode && !isLock && (
                         <div data-gb={e.id}
                           onMouseDown={(ev) => { ev.stopPropagation(); onBarDown(ev, e.id, 'resizeRight'); }}
-                          style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: 'rgba(0,0,0,0.12)', borderRadius: '0 7px 7px 0' }}
+                          style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${gc}44`, borderRadius: '0 10px 10px 0' }}
                         />
                       )}
                     </div>
@@ -1519,11 +1686,14 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
                       onMouseLeave={() => setTip(null)}
                       style={{
                         position: 'absolute',
-                        left: bar.inicio * GM_DAY_W - 11,
+                        left: bar.inicio * zoomDayW - 11,
                         top: '50%', transform: 'translateY(-50%) rotate(45deg)',
-                        width: 20, height: 20,
-                        background: isConf ? '#d97706' : 'var(--brand)', borderRadius: 4,
-                        boxShadow: isSel ? `0 0 0 2px white, 0 0 0 4px var(--brand)` : '0 2px 6px rgba(0,0,0,0.18)',
+                        width: 22, height: 22,
+                        backgroundColor: isConf ? '#d97706' : gc,
+                        backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.18) 0%, transparent 100%)',
+                        borderRadius: 5,
+                        border: '2px solid rgba(255,255,255,0.5)',
+                        boxShadow: isSel ? `0 0 0 2px white, 0 0 0 4px ${gc}` : '0 3px 10px rgba(0,0,0,0.22)',
                         cursor: editMode ? 'grab' : 'pointer',
                         transition: draft ? 'none' : 'left 0.15s ease',
                         zIndex: 2,
@@ -1538,16 +1708,16 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
           {/* ── Linha HOJE ────────────────────────────────────────────────── */}
           <div style={{
             position: 'absolute',
-            left: labelWidth + Math.min(today, dynTotal * 30) * GM_DAY_W,
+            left: labelWidth + Math.min(today, dynTotal * 30) * zoomDayW,
             top: 0, bottom: 0, width: 0,
-            borderLeft: '2px solid #e53935',
+            borderLeft: '2px solid rgba(229,57,53,0.9)',
             zIndex: 10, pointerEvents: 'none',
           }}>
             <div style={{
               position: 'absolute', top: 5, left: 5,
               background: '#e53935', color: 'white',
-              fontSize: 9, fontWeight: 800, letterSpacing: '0.1em',
-              padding: '2px 6px', borderRadius: 3, whiteSpace: 'nowrap',
+              fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+              padding: '2px 8px', borderRadius: 10, whiteSpace: 'nowrap',
             }}>
               HOJE
             </div>
@@ -1580,10 +1750,10 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
 
                 // Âncoras por tipo de vínculo
                 let fx, tx;
-                if (tipo === 'TI') { fx = (dBar.inicio + dBar.dur) * GM_DAY_W; tx = eBar.inicio * GM_DAY_W + 4; }
-                else if (tipo === 'TT') { fx = (dBar.inicio + dBar.dur) * GM_DAY_W; tx = (eBar.inicio + eBar.dur) * GM_DAY_W - 4; }
-                else if (tipo === 'II') { fx = dBar.inicio * GM_DAY_W; tx = eBar.inicio * GM_DAY_W + 4; }
-                else /* IT */           { fx = dBar.inicio * GM_DAY_W; tx = (eBar.inicio + eBar.dur) * GM_DAY_W - 4; }
+                if (tipo === 'TI') { fx = (dBar.inicio + dBar.dur) * zoomDayW; tx = eBar.inicio * zoomDayW + 4; }
+                else if (tipo === 'TT') { fx = (dBar.inicio + dBar.dur) * zoomDayW; tx = (eBar.inicio + eBar.dur) * zoomDayW - 4; }
+                else if (tipo === 'II') { fx = dBar.inicio * zoomDayW; tx = eBar.inicio * zoomDayW + 4; }
+                else /* IT */           { fx = dBar.inicio * zoomDayW; tx = (eBar.inicio + eBar.dur) * zoomDayW - 4; }
 
                 const fy  = idxEt(dId) * GM_ROW_H + GM_ROW_H / 2;
                 const ty  = i * GM_ROW_H + GM_ROW_H / 2;
@@ -1643,10 +1813,14 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId 
         <div style={{
           position: 'fixed', left: tooltip.x + 16, top: Math.max(8, tooltip.y - 12),
           zIndex: 9999, background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.13)',
-          padding: '12px 16px', minWidth: 234, pointerEvents: 'none', fontSize: 12,
+          borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.07)',
+          padding: '12px 16px', minWidth: 240, pointerEvents: 'none', fontSize: 12,
         }}>
-          <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13, marginBottom: 9, paddingBottom: 9, borderBottom: '1px solid var(--border)' }}>
+          <div style={{
+            fontWeight: 700, color: 'var(--text)', fontSize: 13, marginBottom: 9, paddingBottom: 9,
+            borderBottom: '1px solid var(--border)', borderLeft: '3px solid var(--brand-400)',
+            paddingLeft: 8,
+          }}>
             {tooltip.etapa.etapa}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: '5px 8px' }}>
@@ -4603,6 +4777,9 @@ const CronogramaFull = ({ initialObraId }) => {
   const [showGerenciar, setShowGerenciar] = React.useState(false);
   const [outlineOpen,  setOutlineOpen]  = React.useState(false);
   const [loadedObraId, setLoadedObraId] = React.useState(null);
+  // Painel lateral de detalhes da tarefa selecionada
+  const [detailId,     setDetailId]    = React.useState(null);
+  const [detailTab,    setDetailTab]   = React.useState('detalhes');
   // Integração Orçamento × Cronograma
   const [vinculos,         setVinculos]         = React.useState([]);
   const [orcamentoItensMap, setOrcamentoItensMap] = React.useState({});
@@ -4980,32 +5157,190 @@ const CronogramaFull = ({ initialObraId }) => {
                 </div>
               </div>
 
-              {view === 'gantt' && (
-                <div className="card" style={{ marginTop: 'var(--gap)' }}>
-                  <div className="card-header">
-                    <div>
-                      <div className="card-title">{obra.nome} · Gantt interativo</div>
-                      <div className="card-subtitle">{etapas.length} etapas · {GM_TOTAL} meses · arraste as barras para replanejar</div>
-                    </div>
-                    <div className="card-actions">
-                      <div className="legend">
-                        <span className="legend-item"><span className="legend-swatch" style={{ background: '#1b8f5e' }}></span>Concluída</span>
-                        <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Em execução</span>
-                        <span className="legend-item"><span className="legend-swatch" style={{ background: '#c0281f' }}></span>Atrasada</span>
-                        <span className="legend-item"><span className="legend-swatch" style={{ background: '#3d7fc9' }}></span>Futura</span>
-                        <span className="legend-item"><span className="legend-swatch" style={{ background: '#d97706' }}></span>Conflito</span>
-                        <span className="legend-item"><span className="legend-swatch" style={{ width: 10, height: 10, background: 'var(--brand)', transform: 'rotate(45deg)', borderRadius: 0 }}></span>Marco</span>
-                        {baselineEtapas && (
-                          <span className="legend-item"><span className="legend-swatch" style={{ background: 'rgba(107,120,144,0.55)', height: 4 }}></span>Linha de base</span>
-                        )}
+              {view === 'gantt' && (() => {
+                const detailTask = detailId ? etapas.find(e => e.id === detailId) : null;
+                const dtColor = detailTask
+                  ? (detailTask.status === 'done' ? '#1b8f5e' : detailTask.status === 'late' ? '#c0281f' : detailTask.status === 'upcoming' ? '#3d7fc9' : 'var(--brand)')
+                  : 'var(--brand)';
+                return (
+                  <div style={{ display: 'flex', gap: 'var(--gap)', marginTop: 'var(--gap)', alignItems: 'flex-start' }}>
+                    {/* Card do Gantt */}
+                    <div className="card" style={{ flex: 1, minWidth: 0 }}>
+                      <div className="card-header">
+                        <div>
+                          <div className="card-title">{obra.nome} · Gantt interativo</div>
+                          <div className="card-subtitle">{etapas.length} etapas · {GM_TOTAL} meses · arraste as barras para replanejar</div>
+                        </div>
+                        <div className="card-actions">
+                          <div className="legend">
+                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#1b8f5e' }}></span>Concluída</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Em execução</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#c0281f' }}></span>Atrasada</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#3d7fc9' }}></span>Futura</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#d97706' }}></span>Conflito</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ width: 10, height: 10, background: 'var(--brand)', transform: 'rotate(45deg)', borderRadius: 0 }}></span>Marco</span>
+                            {baselineEtapas && (
+                              <span className="legend-item"><span className="legend-swatch" style={{ background: 'rgba(107,120,144,0.55)', height: 4 }}></span>Linha de base</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="card-body" style={{ padding: 0 }}>
+                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} />
                       </div>
                     </div>
+
+                    {/* Painel lateral de detalhes */}
+                    {detailTask && (
+                      <div style={{
+                        width: 360, flexShrink: 0, background: 'var(--surface)',
+                        border: '1px solid var(--border)', borderRadius: 'var(--r-lg)',
+                        boxShadow: 'var(--shadow-md)', overflow: 'hidden',
+                      }}>
+                        {/* Cabeçalho do painel */}
+                        <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)', lineHeight: 1.3, marginBottom: 4 }}>
+                              {detailTask.etapa}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>
+                              EAP {detailTask.displayId ?? detailTask.id}
+                            </div>
+                          </div>
+                          <button onClick={() => setDetailId(null)}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, borderRadius: 6, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>
+                            ×
+                          </button>
+                        </div>
+
+                        {/* Tabs */}
+                        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', padding: '0 20px' }}>
+                          {['detalhes', 'recursos', 'anexos', 'histórico'].map(tab => (
+                            <button key={tab} onClick={() => setDetailTab(tab)}
+                              style={{
+                                border: 'none', background: 'none', cursor: 'pointer',
+                                padding: '10px 12px 8px', fontSize: 12, fontWeight: detailTab === tab ? 600 : 400,
+                                color: detailTab === tab ? 'var(--brand)' : 'var(--text-muted)',
+                                borderBottom: detailTab === tab ? '2px solid var(--brand)' : '2px solid transparent',
+                                textTransform: 'capitalize', transition: 'color 0.12s',
+                              }}>
+                              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div style={{ padding: '16px 20px', overflowY: 'auto', maxHeight: 'calc(100vh - 320px)' }}>
+                          {detailTab !== 'detalhes' ? (
+                            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-faint)', fontSize: 13 }}>
+                              Em breve
+                            </div>
+                          ) : (
+                            <>
+                              {/* Datas e duração */}
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px', marginBottom: 16 }}>
+                                {[
+                                  ['Início', isoToBR(offsetToISO(detailTask.inicio))],
+                                  ['Término', isoToBR(offsetToISO(detailTask.inicio + detailTask.dur))],
+                                  ['Duração', `${detailTask.dur} dias`],
+                                  ['EAP', detailTask.displayId ?? detailTask.id],
+                                ].map(([label, val]) => (
+                                  <div key={label}>
+                                    <div style={{ fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{label}</div>
+                                    <div style={{ fontSize: 12.5, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>{val}</div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
+
+                              {/* Progresso físico */}
+                              <div style={{ marginBottom: 12 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                  <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontWeight: 500 }}>Progresso físico</span>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: dtColor, fontFamily: 'var(--font-mono)' }}>{detailTask.avanco}%</span>
+                                </div>
+                                <div style={{ height: 6, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${detailTask.avanco}%`, background: dtColor, borderRadius: 4, transition: 'width 0.3s' }} />
+                                </div>
+                              </div>
+
+                              <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
+
+                              {/* Custo */}
+                              {detailTask.custo > 0 && (
+                                <div style={{ marginBottom: 12 }}>
+                                  <div style={{ fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Custo orçado</div>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>
+                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(detailTask.custo)}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Responsável */}
+                              {detailTask.responsavel && (
+                                <div style={{ marginBottom: 12 }}>
+                                  <div style={{ fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Responsável</div>
+                                  <div style={{ fontSize: 12.5, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--brand-tint)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700 }}>
+                                      {detailTask.responsavel.split(' ').slice(0, 2).map(n => n[0]).join('')}
+                                    </div>
+                                    {detailTask.responsavel}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Status */}
+                              <div style={{ marginBottom: 16 }}>
+                                <div style={{ fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Status</div>
+                                <span style={{
+                                  display: 'inline-block', fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
+                                  background: detailTask.status === 'done' ? '#e5f3ec' : detailTask.status === 'late' ? '#fbe6e4' : 'var(--brand-tint)',
+                                  color: dtColor,
+                                }}>
+                                  {detailTask.status === 'done' ? 'Concluída' : detailTask.status === 'late' ? 'Atrasada' : detailTask.status === 'upcoming' ? 'Planejada' : 'Em execução'}
+                                </span>
+                              </div>
+
+                              {/* Dependências */}
+                              {(detailTask.dep || []).length > 0 && (
+                                <>
+                                  <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
+                                  <div style={{ fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Dependências</div>
+                                  {detailTask.dep.map((dep, di) => {
+                                    const depId = typeof dep === 'string' ? dep : dep.id;
+                                    const depTipo = typeof dep === 'string' ? 'TI' : (dep.tipo || 'TI');
+                                    const depTask = etapas.find(e => e.id === depId);
+                                    return (
+                                      <div key={di} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
+                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--brand)', background: 'var(--brand-tint)', padding: '2px 6px', borderRadius: 4 }}>{depId}</span>
+                                        <span style={{ flex: 1, color: 'var(--text-soft)', fontSize: 11.5 }}>{depTask?.etapa || depId}</span>
+                                        <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{depTipo}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </>
+                              )}
+
+                              {/* Botão Editar */}
+                              <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                                <button className="btn btn-ghost"
+                                  style={{ width: '100%', justifyContent: 'center', gap: 6, fontSize: 12.5 }}
+                                  onClick={() => { setView('lista'); setDetailId(null); }}>
+                                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                  </svg>
+                                  Editar tarefa
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="card-body" style={{ padding: 0 }}>
-                    <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} />
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {view === 'curva' && (
                 <CurvaFisicaView
