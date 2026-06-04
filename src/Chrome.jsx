@@ -27,6 +27,9 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
     { id: 'relatorios',    label: 'Relatórios',          icon: 'chart' },
     { id: 'admin',         label: 'Administração',       icon: 'shield' },
   ];
+  const navConfig = [
+    { id: 'usuarios',      label: 'Usuários',            icon: 'user' },
+  ];
 
   const renderItem = (item) => (
     <button
@@ -75,6 +78,9 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
 
         {!collapsed && <div className="nav-group-label">Gestão</div>}
         {navMgmt.map(renderItem)}
+
+        {!collapsed && <div className="nav-group-label">Configurações</div>}
+        {navConfig.map(renderItem)}
       </nav>
 
       <div className="sidebar-user">

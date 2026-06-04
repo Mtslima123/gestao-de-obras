@@ -20,6 +20,7 @@ import { CronogramaFull } from './modules/cronograma/Cronograma';
 import { ContratosScreen } from './modules/financeiro/Contratos';
 import { OrcamentoCronogramaScreen } from './modules/financeiro/OrcamentoCronograma';
 import { IaScreen } from './modules/ia/IA';
+import { UsuariosScreen } from './modules/admin/Usuarios';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
 // Captura erros de render e exibe mensagem em vez de tela branca
@@ -199,7 +200,7 @@ const AppInner = () => {
       obras: 'Obras', resumo: 'Resumo de obras', controle: 'Controle de obras', efetivo: 'Efetivo', estimativas: 'Estimativas',
       orcamentos: 'Orçamentos', planejamento: 'Planejamento',
       cronograma: 'Cronogramas', 'orc-x-cron': 'Orçamento × Cronograma', contratos: 'Contratos', medicaobanco: 'Medição Banco', incc: 'INCC',
-      incorporacao: 'Incorporação', relatorios: 'Relatórios', admin: 'Administração',
+      incorporacao: 'Incorporação', relatorios: 'Relatórios', admin: 'Administração', usuarios: 'Configurações / Usuários',
     };
     return [home, { label: map[view] || view }];
   };
@@ -250,9 +251,11 @@ const AppInner = () => {
             <OrcamentoCronogramaScreen obras={obras} user={user} />
           )}
           {view === 'ia' && <IaScreen obras={obras} user={user} />}
+          {view === 'usuarios' && <UsuariosScreen obras={obras} user={user} />}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
-           view !== 'cronograma' && view !== 'orc-x-cron' && view !== 'ia' && (
+           view !== 'cronograma' && view !== 'orc-x-cron' && view !== 'ia' &&
+           view !== 'usuarios' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </ErrorBoundary>
