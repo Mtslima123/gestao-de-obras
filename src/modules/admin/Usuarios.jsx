@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
+import { usuariosService } from './usuarios.service';
 
 const MOCK_USUARIOS = [
   { id: 'USR-001', nome: 'Administrador Sistema', email: 'admin@empresa.com.br', telefone: '', perfil: 'admin', obrasIds: [], status: 'ativo', dataCadastro: '10/01/2024', ultimoAcesso: '24/05/2024 09:15' },
@@ -54,10 +55,20 @@ const BadgeStatus = ({ status }) => (
   </span>
 );
 
+const transformar = (u) => ({
+  ...u,
+  obrasIds: (u.user_obras || []).map(uo => uo.obra_id),
+  modulosIds: u.modulos_ids?.length ? u.modulos_ids : TODOS_MODULOS_IDS,
+  dataCadastro: u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '—',
+  ultimoAcesso: u.ultimo_acesso ? new Date(u.ultimo_acesso).toLocaleString('pt-BR') : '—',
+});
+
 const UsuariosScreen = ({ obras = [] }) => {
   const listaObras = obras.length > 0 ? obras : AppData.obras;
 
-  const [usuarios, setUsuarios] = React.useState(MOCK_USUARIOS);
+  const [usuarios, setUsuarios] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [erroCarregar, setErroCarregar] = React.useState(null);
   const [editando, setEditando] = React.useState(null);
   const [search, setSearch] = React.useState('');
   const [filterStatus, setFilterStatus] = React.useState('todos');
@@ -67,6 +78,21 @@ const UsuariosScreen = ({ obras = [] }) => {
   const [salvando, setSalvando] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(null);
   const formRef = React.useRef(null);
+
+  const carregarUsuarios = React.useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await usuariosService.listar();
+    if (error) {
+      setErroCarregar(error.message);
+      setUsuarios(MOCK_USUARIOS);
+    } else {
+      setErroCarregar(null);
+      setUsuarios((data || []).map(transformar));
+    }
+    setLoading(false);
+  }, []);
+
+  React.useEffect(() => { carregarUsuarios(); }, [carregarUsuarios]);
 
   const filtrados = React.useMemo(() =>
     usuarios
@@ -104,25 +130,39 @@ const UsuariosScreen = ({ obras = [] }) => {
   const handleSalvar = async () => {
     if (!form.nome.trim() || !form.email.trim()) return;
     setSalvando(true);
-    await new Promise(r => setTimeout(r, 350));
-    if (editando === 'novo') {
-      setUsuarios(prev => [{
-        ...form,
-        id: 'USR-' + String(Date.now()).slice(-4),
-        dataCadastro: new Date().toLocaleDateString('pt-BR'),
-        ultimoAcesso: '—',
-      }, ...prev]);
-    } else {
-      setUsuarios(prev => prev.map(u => u.id === editando.id ? { ...u, ...form } : u));
+    const payload = {
+      nome: form.nome.trim(),
+      email: form.email.trim(),
+      telefone: form.telefone.trim() || null,
+      perfil: form.perfil,
+      status: form.status,
+      modulos_ids: form.modulosIds,
+    };
+    try {
+      if (editando === 'novo') {
+        const { data: novo, error } = await usuariosService.criar(payload);
+        if (error) throw error;
+        if (form.obrasIds.length > 0) await usuariosService.vincularObras(novo.id, form.obrasIds);
+      } else {
+        const { error } = await usuariosService.atualizar(editando.id, payload);
+        if (error) throw error;
+        await usuariosService.desvincularObras(editando.id);
+        if (form.obrasIds.length > 0) await usuariosService.vincularObras(editando.id, form.obrasIds);
+      }
+      await carregarUsuarios();
+      fecharForm();
+    } catch (err) {
+      alert('Erro ao salvar: ' + err.message);
     }
     setSalvando(false);
-    fecharForm();
   };
 
-  const handleExcluir = (u) => {
-    setUsuarios(prev => prev.filter(x => x.id !== u.id));
+  const handleExcluir = async (u) => {
+    const { error } = await usuariosService.excluir(u.id);
+    if (error) { alert('Erro ao excluir: ' + error.message); return; }
     setConfirmDelete(null);
     if (editando && editando !== 'novo' && editando.id === u.id) fecharForm();
+    await carregarUsuarios();
   };
 
   const toggleModulo = (id) => {
@@ -175,7 +215,11 @@ const UsuariosScreen = ({ obras = [] }) => {
 
       {/* Lista */}
       <div className="card" style={{ marginBottom: 24, padding: '24px 24px' }}>
-        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>Lista de Usuários</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Lista de Usuários</h3>
+          {loading && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Carregando...</span>}
+          {erroCarregar && <span style={{ fontSize: 12, color: '#b91c1c' }}>Usando dados locais — {erroCarregar}</span>}
+        </div>
         <div className="row" style={{ gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 220, maxWidth: 380 }}>
             <Icon name="search" size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
