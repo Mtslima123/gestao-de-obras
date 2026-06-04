@@ -364,7 +364,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                   Limpar seleção
                 </button>
               </div>
-              <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', maxHeight: 280, overflowY: 'auto' }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflowX: 'hidden', maxHeight: 260, overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
@@ -473,6 +473,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                 </button>
               </div>
             </div>
+            <div style={{ maxHeight: 200, overflowY: 'auto', paddingRight: 4 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {TODOS_MODULOS.map(mod => {
                 const ativo = form.modulosIds.includes(mod.id);
@@ -485,6 +486,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                   </div>
                 );
               })}
+            </div>
             </div>
             {form.perfil !== 'admin' && (
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
