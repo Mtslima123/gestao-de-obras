@@ -925,28 +925,26 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
     : e.status === 'upcoming' ? '#3d7fc9'
     : 'var(--brand)';
 
-  // Mapeia cada tarefa para a cor do seu grupo raiz WBS
+  // Mapeia cada tarefa para a cor do seu grupo raiz WBS.
+  // Funciona com dados hierárquicos (isGroup/parentId) e com dados flat (todos nivel 0 sem grupos).
   const groupColorMap = React.useMemo(() => {
     const map = {};
     let colorIdx = 0;
+    let currentColor = GROUP_PALETTE[0];
 
-    // Passo 1: atribui cor aos grupos raiz (nivel 0 + isGroup)
     etapas.forEach(e => {
-      if (e.isGroup && (e.nivel === 0 || !e.parentId)) {
-        map[e.id] = GROUP_PALETTE[colorIdx % GROUP_PALETTE.length];
+      // É ponto de troca de cor quando:
+      //   — grupo raiz real: isGroup + (nivel 0 ou sem parent)
+      //   — tarefa raiz em dados flat: sem parent, nivel 0, sem grupo
+      const isColorRoot = e.isGroup
+        ? (e.nivel === 0 || !e.parentId)
+        : (!e.parentId && e.nivel === 0);
+
+      if (isColorRoot) {
+        currentColor = GROUP_PALETTE[colorIdx % GROUP_PALETTE.length];
         colorIdx++;
       }
-    });
-
-    // Passo 2: propaga por posição na array — cada tarefa herda do último grupo raiz visto
-    // Robusto mesmo quando parentId não está populado (dados mock ou migrados)
-    let currentColor = GROUP_PALETTE[0];
-    etapas.forEach(e => {
-      if (map[e.id]) {
-        currentColor = map[e.id];
-      } else {
-        map[e.id] = currentColor;
-      }
+      map[e.id] = currentColor;
     });
 
     return map;
@@ -1501,7 +1499,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
             const isConf = conflictIds.has(e.id);
             const isLock = lockDone && e.status === 'done';
             const bc      = barColor(e, isConf);
-            const gc      = isConf ? '#d97706' : (groupColorMap[e.id] || bc);
+            // gc sempre em hex 6-dígitos para suportar sufixo alfa CSS (ex: gc+'2e')
+            const gc      = isConf ? '#d97706' : (groupColorMap[e.id] || '#014386');
             const gcLight = gc + '2e'; // hex 8-dígitos ≈ 18% opacidade
             const rowBg   = isSel ? 'rgba(0,85,160,0.04)' : i % 2 === 0 ? 'transparent' : 'rgba(248,250,253,0.8)';
             const lblBg   = isSel ? 'rgba(0,85,160,0.06)'
