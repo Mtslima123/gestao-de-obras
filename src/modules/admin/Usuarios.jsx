@@ -342,12 +342,18 @@ const UsuariosScreen = ({ obras = [] }) => {
                   <strong style={{ fontSize: 13 }}>Regras de Acesso</strong>
                 </div>
                 <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-muted)' }}>
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>Administrador</div>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>
+                      <Icon name="crown" size={14} style={{ color: '#d97706' }} />
+                      Administrador
+                    </div>
                     Acessa todas as obras e todos os módulos sem restrições.
                   </div>
                   <div>
-                    <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>Usuário</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>
+                      <Icon name="user" size={14} style={{ color: '#16a34a' }} />
+                      Usuário
+                    </div>
                     Acessa apenas as obras selecionadas. As obras não autorizadas não aparecerão em nenhum módulo.
                   </div>
                 </div>
