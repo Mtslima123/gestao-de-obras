@@ -587,7 +587,7 @@ const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, ref
 
   // Dark header style for item tables
   const darkTh = {
-    background: '#013466',
+    background: '#014386',
     color: 'rgba(255,255,255,0.85)',
     fontSize: 10.5,
     fontWeight: 600,
@@ -1676,7 +1676,7 @@ const FormModal = ({ title, fields, values, onChange, onSave, onCancel }) => {
         overflow:'hidden', resize:'both', display:'flex', flexDirection:'column',
       }}>
         <div onMouseDown={handleDown} style={{
-          padding:'13px 18px', background:'#013466', color:'#fff',
+          padding:'13px 18px', background:'#014386', color:'#fff',
           display:'flex', alignItems:'center', justifyContent:'space-between',
           cursor:'move', userSelect:'none', flexShrink:0,
           borderRadius:'var(--r-lg) var(--r-lg) 0 0',
@@ -1979,7 +1979,7 @@ const NovaObraModal = ({ onSave, onCancel, initialData }) => {
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',zIndex:1000}}>
       <div ref={nodeRef} style={{position:'fixed',left:pos.x,top:pos.y,background:'var(--surface)',borderRadius:'var(--r-lg)',width:'calc(100% - 32px)',maxWidth:760,boxShadow:'var(--shadow-lg)',border:'1px solid var(--border)',overflow:'hidden',maxHeight:'92vh',display:'flex',flexDirection:'column'}}>
 
-        <div onMouseDown={handleDown} style={{background:'#013466',color:'#fff',padding:'14px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'move',userSelect:'none',flexShrink:0}}>
+        <div onMouseDown={handleDown} style={{background:'#014386',color:'#fff',padding:'14px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'move',userSelect:'none',flexShrink:0}}>
           <div>
             <div style={{fontWeight:700,fontSize:15}}>{initialData ? 'Editar Obra' : 'Nova Obra'}</div>
             <div style={{fontSize:11.5,color:'rgba(255,255,255,0.65)',marginTop:2}}>Todos os custos em UNIDADES INCC (R$ ÷ INCC_base do período)</div>
@@ -2289,7 +2289,7 @@ const ImportModal = ({ tipo, onImportar, onCancel, onSuccess }) => {
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1100, display:'flex', alignItems:'center', justifyContent:'center' }}>
       <div style={{ background:'var(--surface)', borderRadius:'var(--r-lg)', width:'calc(100% - 32px)', maxWidth:720, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)', border:'1px solid var(--border)' }}>
 
-        <div style={{ padding:'13px 18px', background:'#013466', color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+        <div style={{ padding:'13px 18px', background:'#014386', color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <span style={{ fontSize:14, fontWeight:700 }}>Importar — {cfg.nome}</span>
           <button onClick={onCancel} style={{ background:'none', border:'none', color:'rgba(255,255,255,0.7)', cursor:'pointer', fontSize:20, lineHeight:1 }}>×</button>
         </div>
