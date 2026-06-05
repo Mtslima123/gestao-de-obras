@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
+import { FluxoExecutivo } from './FluxoExecutivo';
 import { Modal, useToast } from '../../components/Modals';
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
 import { vinculoService } from '../financeiro/vinculoService';
@@ -5101,6 +5102,7 @@ const CronogramaFull = ({ initialObraId }) => {
             <button className={view === 'lista' ? 'active' : ''} onClick={() => setView('lista')}>Lista</button>
             <button className={view === 'uso'   ? 'active' : ''} onClick={() => setView('uso')}>Uso da Tarefa</button>
             <button className={view === 'curva' ? 'active' : ''} onClick={() => setView('curva')}>Curva Física</button>
+            <button className={view === 'fluxo' ? 'active' : ''} onClick={() => setView('fluxo')}>Fluxo Executivo</button>
           </div>
           {baselines.length > 0 && (
             <select className="input" style={{ minWidth: 180 }}
@@ -5396,6 +5398,10 @@ const CronogramaFull = ({ initialObraId }) => {
 
               {view === 'uso' && (
                 <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} />
+              )}
+
+              {view === 'fluxo' && (
+                <FluxoExecutivo etapas={etapas} onCommit={commit} obraId={obraSel} />
               )}
             </>
           )

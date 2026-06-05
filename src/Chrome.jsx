@@ -28,7 +28,8 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
     { id: 'admin',         label: 'Administração',       icon: 'shield' },
   ];
   const navConfig = [
-    { id: 'usuarios',      label: 'Usuários',            icon: 'user' },
+    { id: 'usuarios',  label: 'Usuários',            icon: 'user'   },
+    { id: 'auditoria', label: 'Auditoria do Sistema', icon: 'shield' },
   ];
 
   const renderItem = (item) => (

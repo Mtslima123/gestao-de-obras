@@ -17,14 +17,14 @@ export const usuariosService = {
   criar: (dados) =>
     supabase
       .from('user_profiles')
-      .insert([{ ...dados, modulos_ids: dados.modulos_ids ?? [] }])
+      .insert([{ ...dados, modulos_ids: dados.modulos_ids ?? [], abas_ids: dados.abas_ids ?? [] }])
       .select()
       .single(),
 
   atualizar: (id, dados) =>
     supabase
       .from('user_profiles')
-      .update({ ...dados, modulos_ids: dados.modulos_ids ?? [], updated_at: new Date().toISOString() })
+      .update({ ...dados, modulos_ids: dados.modulos_ids ?? [], abas_ids: dados.abas_ids ?? [], updated_at: new Date().toISOString() })
       .eq('id', id),
 
   excluir: (id) =>

@@ -21,6 +21,7 @@ import { ContratosScreen } from './modules/financeiro/Contratos';
 import { OrcamentoCronogramaScreen } from './modules/financeiro/OrcamentoCronograma';
 import { IaScreen } from './modules/ia/IA';
 import { UsuariosScreen } from './modules/admin/Usuarios';
+import { AuditoriaScreen } from './modules/admin/Auditoria';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
 // Captura erros de render e exibe mensagem em vez de tela branca
@@ -185,7 +186,8 @@ const AppInner = () => {
     'orc-x-cron': '09 Orç. × Cronograma',
     'contratos': '10 Contratos',
     'incc': '11 INCC',
-    'ia':   '12 Assistente IA',
+    'ia':        '12 Assistente IA',
+    'auditoria': 'Auditoria do Sistema',
   };
 
   const buildBreadcrumb = () => {
@@ -200,7 +202,7 @@ const AppInner = () => {
       obras: 'Obras', resumo: 'Resumo de obras', controle: 'Controle de obras', efetivo: 'Efetivo', estimativas: 'Estimativas',
       orcamentos: 'Orçamentos', planejamento: 'Planejamento',
       cronograma: 'Cronogramas', 'orc-x-cron': 'Orçamento × Cronograma', contratos: 'Contratos', medicaobanco: 'Medição Banco', incc: 'INCC',
-      incorporacao: 'Incorporação', relatorios: 'Relatórios', admin: 'Administração', usuarios: 'Configurações / Usuários',
+      incorporacao: 'Incorporação', relatorios: 'Relatórios', admin: 'Administração', usuarios: 'Configurações / Usuários', auditoria: 'Configurações / Auditoria do Sistema',
     };
     return [home, { label: map[view] || view }];
   };
@@ -251,11 +253,12 @@ const AppInner = () => {
             <OrcamentoCronogramaScreen obras={obras} user={user} />
           )}
           {view === 'ia' && <IaScreen obras={obras} user={user} />}
-          {view === 'usuarios' && <UsuariosScreen obras={obras} user={user} />}
+          {view === 'usuarios'  && <UsuariosScreen  obras={obras} user={user} />}
+          {view === 'auditoria' && <AuditoriaScreen obras={obras} user={user} />}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
            view !== 'cronograma' && view !== 'orc-x-cron' && view !== 'ia' &&
-           view !== 'usuarios' && (
+           view !== 'usuarios' && view !== 'auditoria' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </ErrorBoundary>

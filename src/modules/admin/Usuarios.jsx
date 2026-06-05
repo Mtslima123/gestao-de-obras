@@ -31,7 +31,31 @@ const TODOS_MODULOS = [
 ];
 const TODOS_MODULOS_IDS = TODOS_MODULOS.map(m => m.id);
 
-const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS };
+// Abas configuráveis por módulo (apenas módulos com abas navegáveis)
+const MODULO_ABAS = {
+  cronograma:  [{ id: 'gantt',            label: 'Gantt' },
+                { id: 'fluxo-executivo',  label: 'Fluxo Executivo' }],
+  ia:          [{ id: 'gerar-cronograma', label: 'Gerar Cronograma' },
+                { id: 'gerar-eap',        label: 'EAP' },
+                { id: 'analisar-atraso',  label: 'Análise de Atraso' },
+                { id: 'replanejar',       label: 'Replanejamento' },
+                { id: 'otimizar',         label: 'Otimização' },
+                { id: 'gerar-relatorio',  label: 'Relatório Executivo' }],
+  estimativas: [{ id: 'nova',   label: 'Nova Estimativa' },
+                { id: 'salvas', label: 'Estimativas Salvas' }],
+  obras:       [{ id: 'visao-geral',   label: 'Visão Geral' },
+                { id: 'medicoes',      label: 'Medições' },
+                { id: 'insumos',       label: 'Insumos' },
+                { id: 'fornecedores',  label: 'Fornecedores' },
+                { id: 'equipe',        label: 'Equipe' }],
+  controle:    [{ id: 'rdo',        label: 'RDO' },
+                { id: 'frentes',    label: 'Frentes' },
+                { id: 'producao',   label: 'Produção' },
+                { id: 'equipe',     label: 'Equipe' },
+                { id: 'ocorrencias', label: 'Ocorrências' }],
+};
+
+const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [] };
 const PER_PAGE = 10;
 
 const BadgePerfil = ({ perfil }) => (
@@ -59,6 +83,7 @@ const transformar = (u) => ({
   ...u,
   obrasIds: (u.user_obras || []).map(uo => uo.obra_id),
   modulosIds: u.modulos_ids?.length ? u.modulos_ids : TODOS_MODULOS_IDS,
+  abasIds: u.abas_ids || [],
   dataCadastro: u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '—',
   ultimoAcesso: u.ultimo_acesso ? new Date(u.ultimo_acesso).toLocaleString('pt-BR') : '—',
 });
@@ -118,7 +143,7 @@ const UsuariosScreen = ({ obras = [] }) => {
     if (usuario === 'novo') {
       setForm(FORM_VAZIO);
     } else {
-      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)] });
+      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])] });
     }
     setEditando(usuario);
     setObraSearch('');
@@ -137,6 +162,7 @@ const UsuariosScreen = ({ obras = [] }) => {
       perfil: form.perfil,
       status: form.status,
       modulos_ids: form.modulosIds,
+      abas_ids: form.abasIds,
     };
     try {
       if (editando === 'novo') {
@@ -171,6 +197,36 @@ const UsuariosScreen = ({ obras = [] }) => {
       modulosIds: f.modulosIds.includes(id) ? f.modulosIds.filter(m => m !== id) : [...f.modulosIds, id],
     }));
   };
+
+  // Verifica se uma aba está habilitada para o usuário
+  const isAbaChecked = (modId, abaId) => {
+    const hasAnyForMod = form.abasIds.some(a => a.startsWith(`${modId}.`));
+    if (!hasAnyForMod) return true; // sem restrição → tudo habilitado
+    return form.abasIds.includes(`${modId}.${abaId}`);
+  };
+
+  // Alterna a restrição de uma aba específica
+  const toggleAba = (modId, abaId) => {
+    const key = `${modId}.${abaId}`;
+    const abas = MODULO_ABAS[modId] || [];
+    const hasAnyForMod = form.abasIds.some(a => a.startsWith(`${modId}.`));
+    if (!hasAnyForMod) {
+      // Primeira restrição neste módulo: inicializa com todas as abas exceto a desmarcada
+      const permitidas = abas.filter(a => a.id !== abaId).map(a => `${modId}.${a.id}`);
+      setForm(f => ({ ...f, abasIds: [...f.abasIds, ...permitidas] }));
+    } else {
+      setForm(f => ({
+        ...f,
+        abasIds: f.abasIds.includes(key)
+          ? f.abasIds.filter(a => a !== key)
+          : [...f.abasIds, key],
+      }));
+    }
+  };
+
+  // Remove todas as restrições de abas de um módulo (libera tudo)
+  const liberarTodasAbas = (modId) =>
+    setForm(f => ({ ...f, abasIds: f.abasIds.filter(a => !a.startsWith(`${modId}.`)) }));
 
   const toggleObra = (obraId) => {
     setForm(f => ({
@@ -495,6 +551,65 @@ const UsuariosScreen = ({ obras = [] }) => {
             )}
             </div>
           </div>
+
+          {/* Restrições de Abas por Módulo */}
+          {(() => {
+            const modulosComAbas = form.modulosIds.filter(id => MODULO_ABAS[id]);
+            if (form.perfil === 'admin' || modulosComAbas.length === 0) return null;
+            return (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '20px 18px', marginTop: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Restrições de Abas
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+                      Defina quais abas de cada módulo este usuário pode acessar. Abas marcadas = acesso liberado.
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {modulosComAbas.map(modId => {
+                    const mod = TODOS_MODULOS.find(m => m.id === modId);
+                    const abas = MODULO_ABAS[modId];
+                    const hasRestriction = form.abasIds.some(a => a.startsWith(`${modId}.`));
+                    const abasMarcadas = abas.filter(a => isAbaChecked(modId, a.id)).length;
+                    return (
+                      <div key={modId} style={{ border: `1px solid ${hasRestriction ? '#fde68a' : 'var(--border)'}`, borderRadius: 9, padding: '14px 16px', background: hasRestriction ? '#fffbeb' : 'var(--surface)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Icon name={mod?.icon || 'layers'} size={15} style={{ color: 'var(--brand)' }} />
+                            <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{mod?.label}</span>
+                            <span style={{ fontSize: 11.5, color: hasRestriction ? '#d97706' : 'var(--text-muted)', background: hasRestriction ? '#fef3c7' : 'var(--surface-muted)', border: `1px solid ${hasRestriction ? '#fde68a' : 'var(--border)'}`, borderRadius: 5, padding: '1px 7px', fontWeight: 500 }}>
+                              {hasRestriction ? `${abasMarcadas}/${abas.length} abas liberadas` : 'Todas as abas liberadas'}
+                            </span>
+                          </div>
+                          {hasRestriction && (
+                            <button style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12, cursor: 'pointer', padding: 0, fontWeight: 500 }}
+                              onClick={() => liberarTodasAbas(modId)}>
+                              Liberar todas
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {abas.map(aba => {
+                            const checked = isAbaChecked(modId, aba.id);
+                            return (
+                              <label key={aba.id}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: `1.5px solid ${checked ? 'var(--brand)' : 'var(--border)'}`, borderRadius: 8, cursor: 'pointer', background: checked ? 'var(--brand-tint)' : 'var(--surface)', fontSize: 12.5, fontWeight: checked ? 500 : 400, color: checked ? 'var(--brand)' : 'var(--text-muted)', transition: 'all 0.12s', userSelect: 'none' }}>
+                                <input type="checkbox" checked={checked} onChange={() => toggleAba(modId, aba.id)} style={{ accentColor: 'var(--brand)', cursor: 'pointer' }} />
+                                {aba.label}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Rodapé do formulário */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
