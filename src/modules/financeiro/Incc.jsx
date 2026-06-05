@@ -7,51 +7,29 @@ import { Icon } from '../../components/Icons';
 const INCC_SOURCE_URL = 'https://sindusconpr.com.br/incc-di-fgv-310-p';
 
 // Série histórica do INCC-DI (FGV) — base julho/94 = 100
+// Fonte: sindusconpr.com.br · dados exibidos no site (Mai/25 a Abr/26)
+// Série histórica completa disponível para download em XLSX na fonte oficial
 const INCC_SERIE = [
-  { m: 'Jan/24', v: 1126.408, var: 0.62 },
-  { m: 'Fev/24', v: 1131.252, var: 0.43 },
-  { m: 'Mar/24', v: 1136.241, var: 0.44 },
-  { m: 'Abr/24', v: 1145.864, var: 0.85 },
-  { m: 'Mai/24', v: 1158.182, var: 1.08 },
-  { m: 'Jun/24', v: 1182.450, var: 2.10 },
-  { m: 'Jul/24', v: 1192.612, var: 0.86 },
-  { m: 'Ago/24', v: 1199.580, var: 0.58 },
-  { m: 'Set/24', v: 1206.024, var: 0.54 },
-  { m: 'Out/24', v: 1210.512, var: 0.37 },
-  { m: 'Nov/24', v: 1217.084, var: 0.54 },
-  { m: 'Dez/24', v: 1223.560, var: 0.53 },
-  { m: 'Jan/25', v: 1230.840, var: 0.59 },
-  { m: 'Fev/25', v: 1234.962, var: 0.34 },
-  { m: 'Mar/25', v: 1238.821, var: 0.31 },
-  { m: 'Abr/25', v: 1243.518, var: 0.38 },
-  { m: 'Mai/25', v: 1247.142, var: 0.29 },
-  { m: 'Jun/25', v: 1249.880, var: 0.22 },
-  { m: 'Jul/25', v: 1252.420, var: 0.20 },
-  { m: 'Ago/25', v: 1253.998, var: 0.13 },
-  { m: 'Set/25', v: 1255.886, var: 0.15 },
-  { m: 'Out/25', v: 1257.118, var: 0.10 },
-  { m: 'Nov/25', v: 1258.490, var: 0.11 },
-  { m: 'Dez/25', v: 1260.084, var: 0.13 },
-  { m: 'Jan/26', v: 1262.214, var: 0.17 },
-  { m: 'Fev/26', v: 1264.832, var: 0.21 },
-  { m: 'Mar/26', v: 1268.418, var: 0.28 },
-  { m: 'Abr/26', v: 1272.880, var: 0.35 },
-  { m: 'Mai/26', v: 1279.520, var: 0.52 },
-];
-
-// Decomposição da última variação (Mai/26)
-const INCC_COMPONENTES = [
-  { nome: 'Materiais e equipamentos', peso: 0.50, var: 0.58, color: '#014386' },
-  { nome: 'Serviços',                 peso: 0.15, var: 0.41, color: '#1858a3' },
-  { nome: 'Mão de obra',              peso: 0.35, var: 0.50, color: '#3d7fc9' },
+  { m: 'Mai/25', v: 1191.327, var: 0.58 },
+  { m: 'Jun/25', v: 1199.509, var: 0.69 },
+  { m: 'Jul/25', v: 1210.471, var: 0.91 },
+  { m: 'Ago/25', v: 1216.706, var: 0.52 },
+  { m: 'Set/25', v: 1218.747, var: 0.17 },
+  { m: 'Out/25', v: 1222.356, var: 0.30 },
+  { m: 'Nov/25', v: 1225.633, var: 0.27 },
+  { m: 'Dez/25', v: 1228.161, var: 0.21 },
+  { m: 'Jan/26', v: 1237.036, var: 0.72 },
+  { m: 'Fev/26', v: 1240.481, var: 0.28 },
+  { m: 'Mar/26', v: 1247.181, var: 0.54 },
+  { m: 'Abr/26', v: 1259.652, var: 1.00 },
 ];
 
 const INCCScreen = () => {
   const atual = INCC_SERIE[INCC_SERIE.length - 1];
-  const ant = INCC_SERIE[INCC_SERIE.length - 2];
-  const var12m = ((atual.v / INCC_SERIE[INCC_SERIE.length - 13].v) - 1) * 100;
-  const varYTD = ((atual.v / INCC_SERIE[INCC_SERIE.length - 5].v) - 1) * 100; // aproximação para o ano corrente
-  const acumulado2025 = ((INCC_SERIE[23].v / INCC_SERIE[11].v) - 1) * 100;
+  // acumulado 12 meses: Mai/25 → Abr/26 (toda a série disponível)
+  const var12m = ((atual.v / INCC_SERIE[0].v) - 1) * 100;
+  // acumulado Mai/25 → Dez/25 (único período completo disponível no site)
+  const acumuladoPeriodo = ((INCC_SERIE[7].v / INCC_SERIE[0].v) - 1) * 100;
 
   // Calculadora
   const [valor, setValor] = React.useState(1000000);
@@ -70,21 +48,21 @@ const INCCScreen = () => {
         <div>
           <h1 className="page-title">INCC <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500, marginLeft: 8 }}>Índice Nacional de Custo da Construção</span></h1>
           <div className="page-subtitle">
-            Atualização vinculada a{' '}
+            Dados oficiais de{' '}
             <a href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 500 }}>
               Sinduscon-PR (FGV)
             </a>
-            {' '}· última coleta: hoje, 14:23
+            {' '}· exibindo Mai/25 – Abr/26 · próxima divulgação: 10/Jun/26
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost">
+          <a className="btn btn-ghost" href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer">
             <Icon name="download" size={15} />
-            Exportar série
-          </button>
+            Baixar série histórica (XLSX)
+          </a>
           <a className="btn btn-primary" href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer">
             <Icon name="arrow-right" size={15} />
-            Atualizar do Sinduscon-PR
+            Ver no Sinduscon-PR
           </a>
         </div>
       </div>
@@ -117,20 +95,20 @@ const INCCScreen = () => {
             {var12m.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
-            <span className="kpi-foot-text">Mai/25 → Mai/26</span>
+            <span className="kpi-foot-text">Mai/25 → Abr/26</span>
           </div>
         </div>
 
         <div className="kpi">
           <div className="kpi-label">
             <div className="kpi-icon"><Icon name="chart" size={16} /></div>
-            Acumulado 2025
+            Acumulado no período
           </div>
           <div className="kpi-value num" style={{ fontSize: 28, marginTop: 10 }}>
-            {acumulado2025.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
+            {acumuladoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
-            <span className="kpi-foot-text">Variação anual de Dez/24 a Dez/25</span>
+            <span className="kpi-foot-text">Mai/25 a Dez/25</span>
           </div>
         </div>
 
@@ -153,7 +131,7 @@ const INCCScreen = () => {
         <div className="card-header">
           <div>
             <div className="card-title">Variação mensal do INCC-DI</div>
-            <div className="card-subtitle">Percentual de variação mês a mês · últimos {INCC_SERIE.length} meses</div>
+            <div className="card-subtitle">Percentual de variação mês a mês · {INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</div>
           </div>
           <div className="card-actions">
             <div className="segmented">
@@ -174,8 +152,8 @@ const INCCScreen = () => {
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="card-title">Série mensal — últimos {INCC_SERIE.length} meses</div>
-              <div className="card-subtitle">Variação % e valor do índice</div>
+              <div className="card-title">Série mensal — {INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</div>
+              <div className="card-subtitle">Dados disponíveis no site · série histórica completa no XLSX</div>
             </div>
             <button className="btn btn-sm btn-ghost"><Icon name="download" size={13} />CSV</button>
           </div>
@@ -224,34 +202,22 @@ const INCCScreen = () => {
           <div className="card">
             <div className="card-header">
               <div>
-                <div className="card-title">Composição da variação</div>
-                <div className="card-subtitle">{atual.m} · contribuição por grupo</div>
+                <div className="card-title">Série histórica completa</div>
+                <div className="card-subtitle">Disponível para download na fonte oficial</div>
               </div>
             </div>
-            <div className="card-body">
-              <div className="stack" style={{ gap: 14 }}>
-                {INCC_COMPONENTES.map((c, i) => {
-                  const contrib = c.peso * c.var;
-                  return (
-                    <div key={i}>
-                      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span className="row" style={{ gap: 8 }}>
-                          <span style={{ width: 10, height: 10, borderRadius: 2, background: c.color }}></span>
-                          <span className="text-sm text-soft fw-600">{c.nome}</span>
-                          <span className="text-xs text-muted">· peso {(c.peso * 100).toFixed(0)}%</span>
-                        </span>
-                        <span className="mono num fw-700" style={{ fontSize: 13 }}>{c.var.toFixed(2)}%</span>
-                      </div>
-                      <div className="progress" style={{ height: 6 }}>
-                        <span style={{ width: (c.var / 1.2 * 100) + '%', background: c.color }}></span>
-                      </div>
-                      <div className="text-xs text-muted" style={{ marginTop: 3, fontFamily: 'var(--font-mono)' }}>
-                        Contribuição: +{contrib.toFixed(3)} p.p.
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            <div className="card-body" style={{ fontSize: 12.5, color: 'var(--text-soft)', lineHeight: 1.6 }}>
+              <p style={{ margin: 0, marginBottom: 12 }}>
+                Este módulo exibe apenas os <strong>{INCC_SERIE.length} meses</strong> disponíveis na página do Sinduscon-PR (<strong>{INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</strong>).
+              </p>
+              <p style={{ margin: 0, marginBottom: 16 }}>
+                Para acessar a série histórica completa desde a base (julho/94), baixe o arquivo XLSX disponibilizado pela FGV no site oficial.
+              </p>
+              <a href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer"
+                className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
+                <Icon name="download" size={14} />
+                Baixar série histórica (XLSX)
+              </a>
             </div>
           </div>
 
