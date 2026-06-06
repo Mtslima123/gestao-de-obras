@@ -146,6 +146,16 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
   const aplicarFiltros = () => { setAplicados({ ...filtros }); setPagina(1); };
   const limparFiltros  = () => { setFiltros(FILTROS_VAZIOS); setAplicados(FILTROS_VAZIOS); setPagina(1); };
 
+  const testarInsert = async () => {
+    const res = await auditoriaService.registrar({
+      modulo: 'teste', acao: 'criou',
+      descricao: 'Teste de inserção via JS — ' + new Date().toISOString(),
+      criticidade: 'baixa',
+    });
+    if (res?.error) alert('ERRO: ' + res.error.message + ' | code: ' + res.error.code);
+    else { alert('OK — inserido com sucesso!'); carregarLogs(); }
+  };
+
   const exportarCSV = () => {
     const headers = ['Data/Hora', 'Usuário', 'Perfil', 'Módulo', 'Ação', 'Entidade', 'ID', 'Descrição', 'Obra', 'IP', 'Criticidade'];
     const rows = logs.map(l => [
@@ -205,9 +215,14 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
             <Icon name="filter" size={15} style={{ color: 'var(--text-muted)' }} />
             <span style={{ fontWeight: 600, fontSize: 14 }}>Filtros</span>
           </div>
-          <button onClick={exportarCSV} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 500, color: 'var(--text)' }}>
-            <Icon name="download" size={13} /> Exportar CSV
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={testarInsert} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 7, border: '1px solid #fde68a', background: '#fef3c7', cursor: 'pointer', fontSize: 12.5, fontWeight: 500, color: '#d97706' }}>
+              Testar inserção JS
+            </button>
+            <button onClick={exportarCSV} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 500, color: 'var(--text)' }}>
+              <Icon name="download" size={13} /> Exportar CSV
+            </button>
+          </div>
         </div>
 
         {/* Linha 1 */}

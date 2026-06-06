@@ -25,7 +25,6 @@ export const auditoriaService = {
   // KPIs consolidados
   kpis: async () => {
     const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) + 'T00:00:00Z';
-    const hoje = new Date().toISOString().slice(0, 10);
 
     const [totalRes, criticosRes, ultimoRes] = await Promise.all([
       supabase.from('audit_logs').select('*', { count: 'exact', head: true }),
@@ -36,8 +35,8 @@ export const auditoriaService = {
     ]);
 
     return {
-      totalEventos:     totalRes.count   ?? 0,
-      eventosCriticos:  criticosRes.count ?? 0,
+      totalEventos:      totalRes.count   ?? 0,
+      eventosCriticos:   criticosRes.count ?? 0,
       ultimaAtualizacao: ultimoRes.data?.[0]?.created_at ?? null,
     };
   },
@@ -52,21 +51,25 @@ export const auditoriaService = {
       .order('created_at', { ascending: false }),
 
   // Registra um evento de auditoria (chamado pelos outros módulos)
-  registrar: (evento) =>
-    supabase.from('audit_logs').insert([{
-      user_id:       evento.userId       ?? null,
-      user_nome:     evento.userNome     ?? null,
-      user_perfil:   evento.userPerfil   ?? null,
-      obra_id:       evento.obraId       ?? null,
-      obra_nome:     evento.obraNome     ?? null,
-      modulo:        evento.modulo,
-      acao:          evento.acao,
-      entidade_tipo: evento.entidadeTipo ?? null,
-      entidade_id:   String(evento.entidadeId ?? ''),
-      descricao:     evento.descricao    ?? null,
+  registrar: async (evento) => {
+    const { data, error } = await supabase.from('audit_logs').insert([{
+      user_id:        evento.userId        ?? null,
+      user_nome:      evento.userNome      ?? null,
+      user_perfil:    evento.userPerfil    ?? null,
+      obra_id:        evento.obraId        ?? null,
+      obra_nome:      evento.obraNome      ?? null,
+      modulo:         evento.modulo,
+      acao:           evento.acao,
+      entidade_tipo:  evento.entidadeTipo  ?? null,
+      entidade_id:    String(evento.entidadeId ?? ''),
+      descricao:      evento.descricao     ?? null,
       valor_anterior: evento.valorAnterior ?? null,
-      valor_novo:    evento.valorNovo    ?? null,
-      criticidade:   evento.criticidade  ?? 'media',
-      origem:        'Web',
-    }]),
+      valor_novo:     evento.valorNovo     ?? null,
+      criticidade:    evento.criticidade   ?? 'media',
+      origem:         'Web',
+    }]);
+    if (error) console.error('[Auditoria] ERRO:', error.message, error.code, evento);
+    else console.log('[Auditoria] OK:', evento.modulo, evento.acao);
+    return { data, error };
+  },
 };
