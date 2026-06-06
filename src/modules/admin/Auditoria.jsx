@@ -324,7 +324,26 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
                         <td style={{ padding: '10px 12px' }}><AcaoBadge acao={l.acao} /></td>
                         <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
                           {l.entidade_tipo && <div>{l.entidade_tipo}</div>}
-                          {l.entidade_id  && <div style={{ fontSize: 11 }}>ID: {l.entidade_id}</div>}
+                          {l.entidade_id && (
+                            <div
+                              title="Clique para ver histórico completo desta entidade"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const tipo = l.entidade_tipo || '';
+                                const id   = l.entidade_id;
+                                setRegBusca({ tipo, id });
+                                setAba('registro');
+                                setRegLoading(true);
+                                auditoriaService.historicoPorRegistro(tipo, id).then(({ data }) => {
+                                  setRegLogs(data || []);
+                                  setRegLoading(false);
+                                });
+                              }}
+                              style={{ fontSize: 11, color: 'var(--brand)', cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              ID: {l.entidade_id.length > 8 ? l.entidade_id.slice(0, 8) + '…' : l.entidade_id}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '10px 12px', maxWidth: 240 }}>
                           <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.descricao || '—'}</div>
