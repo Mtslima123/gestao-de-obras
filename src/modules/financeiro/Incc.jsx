@@ -114,7 +114,6 @@ const INCCScreen = () => {
             09/Jun/26
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
-            <span className="kpi-foot-text">FGV divulga até o dia 10 de cada mês</span>
           </div>
         </div>
       </div>
