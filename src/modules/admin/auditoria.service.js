@@ -68,8 +68,6 @@ export const auditoriaService = {
       criticidade:    evento.criticidade   ?? 'media',
       origem:         'Web',
     }]);
-    if (error) console.error('[Auditoria] ERRO:', error.message, error.code, evento);
-    else console.log('[Auditoria] OK:', evento.modulo, evento.acao);
     return { data, error };
   },
 };
