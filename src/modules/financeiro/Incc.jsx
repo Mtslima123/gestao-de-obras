@@ -139,51 +139,84 @@ const INCCScreen = () => {
         </div>
       </div>
 
-      {/* Cards informativos */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap)', marginTop: 'var(--gap)' }}>
-          <div className="card">
-            <div className="card-header">
-              <div>
-                <div className="card-title">Série histórica completa</div>
-                <div className="card-subtitle">Disponível para download na fonte oficial</div>
-              </div>
+      {/* Série mensal + Sobre o índice */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--gap)', marginTop: 'var(--gap)' }}>
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <div className="card-title">Série mensal — {INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</div>
+              <div className="card-subtitle">Dados disponíveis no site · série histórica completa no XLSX</div>
             </div>
-            <div className="card-body" style={{ fontSize: 12.5, color: 'var(--text-soft)', lineHeight: 1.6 }}>
-              <p style={{ margin: 0, marginBottom: 12 }}>
-                Este módulo exibe apenas os <strong>{INCC_SERIE.length} meses</strong> disponíveis na página do Sinduscon-PR (<strong>{INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</strong>).
-              </p>
-              <p style={{ margin: 0, marginBottom: 16 }}>
-                Para acessar a série histórica completa desde a base (julho/94), baixe o arquivo XLSX disponibilizado pela FGV no site oficial.
-              </p>
-              <a href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer"
-                className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-                <Icon name="download" size={14} />
-                Baixar série histórica (XLSX)
-              </a>
-            </div>
+            <a className="btn btn-sm btn-ghost" href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer">
+              <Icon name="download" size={13} />XLSX
+            </a>
           </div>
-
-          <div className="card">
-            <div className="card-header">
-              <div>
-                <div className="card-title">Sobre o índice</div>
-              </div>
-            </div>
-            <div className="card-body" style={{ fontSize: 12.5, color: 'var(--text-soft)', lineHeight: 1.6 }}>
-              <p style={{ margin: 0, marginBottom: 8 }}>
-                O <strong>INCC-DI</strong> (Disponibilidade Interna) é calculado pela <strong>FGV</strong> e mede a variação dos custos da construção habitacional no Brasil — incluindo materiais, equipamentos, serviços e mão de obra.
-              </p>
-              <p style={{ margin: 0, marginBottom: 12 }}>
-                É a referência usada em <strong>reajustes contratuais</strong> da construção civil e na correção de orçamentos e financiamentos imobiliários durante a obra.
-              </p>
-              <a href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer"
-                className="row" style={{ gap: 6, fontWeight: 500, fontSize: 12.5, color: 'var(--brand)' }}>
-                <Icon name="arrow-right" size={13} />
-                Consultar fonte oficial — Sinduscon-PR
-              </a>
-            </div>
+          <div className="card-body flush">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Mês</th>
+                  <th className="right">INCC</th>
+                  <th className="right">Var % mês</th>
+                  <th className="right">Var % no ano</th>
+                  <th className="right">Var % 12m</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...INCC_SERIE].reverse().map((d, i) => {
+                  const isLatest = i === 0;
+                  const dez25 = INCC_SERIE[7];
+                  const vAno = d.m.includes('/26') ? ((d.v / dez25.v) - 1) * 100 : null;
+                  return (
+                    <tr key={i} style={isLatest ? { background: 'var(--brand-tint)' } : null}>
+                      <td className="strong" style={isLatest ? { color: 'var(--brand)' } : null}>{d.m}</td>
+                      <td className="right mono num strong" style={isLatest ? { color: 'var(--brand)' } : null}>
+                        {d.v.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
+                      </td>
+                      <td className="right">
+                        <span className={'badge ' + (d.var > 0.5 ? 'warning' : 'success')}>
+                          <Icon name="arrow-up" size={10} stroke={2.5} />
+                          {d.var.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                        </span>
+                      </td>
+                      <td className="right mono num" style={{ fontSize: 12 }}>
+                        {vAno !== null
+                          ? <span style={{ color: 'var(--text)' }}>+{vAno.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>
+                          : <span style={{ color: 'var(--text-muted)' }} title="Dez/24 não disponível na série online">—</span>
+                        }
+                      </td>
+                      <td className="right" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                        <span title="Dados do ano anterior não disponíveis na série online">—</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
+
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <div className="card-title">Sobre o índice</div>
+            </div>
+          </div>
+          <div className="card-body" style={{ fontSize: 12.5, color: 'var(--text-soft)', lineHeight: 1.6 }}>
+            <p style={{ margin: 0, marginBottom: 8 }}>
+              O <strong>INCC-DI</strong> (Disponibilidade Interna) é calculado pela <strong>FGV</strong> e mede a variação dos custos da construção habitacional no Brasil — incluindo materiais, equipamentos, serviços e mão de obra.
+            </p>
+            <p style={{ margin: 0, marginBottom: 12 }}>
+              É a referência usada em <strong>reajustes contratuais</strong> da construção civil e na correção de orçamentos e financiamentos imobiliários durante a obra.
+            </p>
+            <a href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer"
+              className="row" style={{ gap: 6, fontWeight: 500, fontSize: 12.5, color: 'var(--brand)' }}>
+              <Icon name="arrow-right" size={13} />
+              Consultar fonte oficial — Sinduscon-PR
+            </a>
+          </div>
+        </div>
+      </div>
 
       {/* CALCULADORA DE CORREÇÃO */}
       <div className="card" style={{ marginTop: 'var(--gap)' }}>
