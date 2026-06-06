@@ -209,7 +209,9 @@ const INCCScreen = () => {
             <div className="card-title">Calculadora de correção pelo INCC</div>
             <div className="card-subtitle">Aplique o reajuste a qualquer valor entre dois meses da série</div>
           </div>
-          <button className="btn btn-sm btn-ghost"><Icon name="edit" size={13} />Salvar simulação</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { setValor(1000000); setMesIni(0); setMesFim(INCC_SERIE.length - 1); }}>
+            <Icon name="x" size={13} />Limpar
+          </button>
         </div>
         <div className="card-body">
           <div className="form-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 18 }}>
