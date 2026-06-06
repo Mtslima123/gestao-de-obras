@@ -56,10 +56,6 @@ const INCCScreen = () => {
           </div>
         </div>
         <div className="page-actions">
-          <a className="btn btn-ghost" href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer">
-            <Icon name="download" size={15} />
-            Baixar série histórica (XLSX)
-          </a>
           <a className="btn btn-primary" href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer">
             <Icon name="arrow-right" size={15} />
             Ver no Sinduscon-PR
@@ -147,9 +143,6 @@ const INCCScreen = () => {
               <div className="card-title">Série mensal — {INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</div>
               <div className="card-subtitle">Dados disponíveis no site · série histórica completa no XLSX</div>
             </div>
-            <a className="btn btn-sm btn-ghost" href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer">
-              <Icon name="download" size={13} />XLSX
-            </a>
           </div>
           <div className="card-body flush">
             <table className="tbl">
