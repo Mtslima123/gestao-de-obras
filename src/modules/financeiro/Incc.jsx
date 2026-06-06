@@ -26,10 +26,7 @@ const INCC_SERIE = [
 
 const INCCScreen = () => {
   const atual = INCC_SERIE[INCC_SERIE.length - 1];
-  // acumulado 12 meses: Mai/25 → Abr/26 (toda a série disponível)
-  const var12m = ((atual.v / INCC_SERIE[0].v) - 1) * 100;
-  // acumulado Mai/25 → Dez/25 (único período completo disponível no site)
-  const acumuladoPeriodo = ((INCC_SERIE[7].v / INCC_SERIE[0].v) - 1) * 100;
+  const dez25 = INCC_SERIE[7]; // Dez/25
 
   // Calculadora
   const [valor, setValor] = React.useState(1000000);
@@ -88,23 +85,23 @@ const INCCScreen = () => {
             Acumulado 12 meses
           </div>
           <div className="kpi-value num" style={{ fontSize: 28, marginTop: 10 }}>
-            {var12m.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
+            {atual.var12m.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
-            <span className="kpi-foot-text">Mai/25 → Abr/26</span>
+            <span className="kpi-foot-text">Abr/25 → Abr/26</span>
           </div>
         </div>
 
         <div className="kpi">
           <div className="kpi-label">
             <div className="kpi-icon"><Icon name="chart" size={16} /></div>
-            Acumulado no período
+            Acumulado 2025
           </div>
           <div className="kpi-value num" style={{ fontSize: 28, marginTop: 10 }}>
-            {acumuladoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
+            {dez25.varAno.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
-            <span className="kpi-foot-text">Mai/25 a Dez/25</span>
+            <span className="kpi-foot-text">Jan/25 a Dez/25</span>
           </div>
         </div>
 
