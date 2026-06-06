@@ -10,18 +10,18 @@ const INCC_SOURCE_URL = 'https://sindusconpr.com.br/incc-di-fgv-310-p';
 // Fonte: sindusconpr.com.br · dados exibidos no site (Mai/25 a Abr/26)
 // Série histórica completa disponível para download em XLSX na fonte oficial
 const INCC_SERIE = [
-  { m: 'Mai/25', v: 1191.327, var: 0.58 },
-  { m: 'Jun/25', v: 1199.509, var: 0.69 },
-  { m: 'Jul/25', v: 1210.471, var: 0.91 },
-  { m: 'Ago/25', v: 1216.706, var: 0.52 },
-  { m: 'Set/25', v: 1218.747, var: 0.17 },
-  { m: 'Out/25', v: 1222.356, var: 0.30 },
-  { m: 'Nov/25', v: 1225.633, var: 0.27 },
-  { m: 'Dez/25', v: 1228.161, var: 0.21 },
-  { m: 'Jan/26', v: 1237.036, var: 0.72 },
-  { m: 'Fev/26', v: 1240.481, var: 0.28 },
-  { m: 'Mar/26', v: 1247.181, var: 0.54 },
-  { m: 'Abr/26', v: 1259.652, var: 1.00 },
+  { m: 'Mai/25', v: 1191.327, var: 0.58, varAno: 2.74, var12m: 7.24 },
+  { m: 'Jun/25', v: 1199.509, var: 0.69, varAno: 3.45, var12m: 7.21 },
+  { m: 'Jul/25', v: 1210.471, var: 0.91, varAno: 4.39, var12m: 7.41 },
+  { m: 'Ago/25', v: 1216.706, var: 0.52, varAno: 4.93, var12m: 7.22 },
+  { m: 'Set/25', v: 1218.747, var: 0.17, varAno: 5.11, var12m: 6.78 },
+  { m: 'Out/25', v: 1222.356, var: 0.30, varAno: 5.42, var12m: 6.37 },
+  { m: 'Nov/25', v: 1225.633, var: 0.27, varAno: 5.70, var12m: 6.23 },
+  { m: 'Dez/25', v: 1228.161, var: 0.21, varAno: 5.92, var12m: 5.92 },
+  { m: 'Jan/26', v: 1237.036, var: 0.72, varAno: 0.72, var12m: 5.81 },
+  { m: 'Fev/26', v: 1240.481, var: 0.28, varAno: 1.00, var12m: 5.68 },
+  { m: 'Mar/26', v: 1247.181, var: 0.54, varAno: 1.55, var12m: 5.84 },
+  { m: 'Abr/26', v: 1259.652, var: 1.00, varAno: 2.56, var12m: 6.35 },
 ];
 
 const INCCScreen = () => {
@@ -52,7 +52,7 @@ const INCCScreen = () => {
             <a href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 500 }}>
               Sinduscon-PR (FGV)
             </a>
-            {' '}· exibindo Mai/25 – Abr/26 · próxima divulgação: 10/Jun/26
+            {' '}· exibindo Mai/25 – Abr/26 · próxima divulgação: 09/Jun/26
           </div>
         </div>
         <div className="page-actions">
@@ -118,7 +118,7 @@ const INCCScreen = () => {
             Próxima divulgação
           </div>
           <div className="kpi-value num" style={{ fontSize: 22, marginTop: 10 }}>
-            10/Jun/26
+            09/Jun/26
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
             <span className="kpi-foot-text">FGV divulga até o dia 10 de cada mês</span>
@@ -165,8 +165,6 @@ const INCCScreen = () => {
               <tbody>
                 {[...INCC_SERIE].reverse().map((d, i) => {
                   const isLatest = i === 0;
-                  const dez25 = INCC_SERIE[7];
-                  const vAno = d.m.includes('/26') ? ((d.v / dez25.v) - 1) * 100 : null;
                   return (
                     <tr key={i} style={isLatest ? { background: 'var(--brand-tint)' } : null}>
                       <td className="strong" style={isLatest ? { color: 'var(--brand)' } : null}>{d.m}</td>
@@ -180,13 +178,10 @@ const INCCScreen = () => {
                         </span>
                       </td>
                       <td className="right mono num" style={{ fontSize: 12 }}>
-                        {vAno !== null
-                          ? <span style={{ color: 'var(--text)' }}>+{vAno.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>
-                          : <span style={{ color: 'var(--text-muted)' }} title="Dez/24 não disponível na série online">—</span>
-                        }
+                        +{d.varAno.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                       </td>
-                      <td className="right" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                        <span title="Dados do ano anterior não disponíveis na série online">—</span>
+                      <td className="right mono num" style={{ fontSize: 12 }}>
+                        +{d.var12m.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                       </td>
                     </tr>
                   );
