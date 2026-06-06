@@ -326,8 +326,8 @@ const CalcCell = ({ label, value, mono, highlight, tone }) => (
 
 // ===== INCC bar chart (variação %) =====
 const INCCChart = ({ serie }) => {
-  const w = 1080, h = 280;
-  const pad = { l: 56, r: 24, t: 24, b: 40 };
+  const w = 1080, h = 200;
+  const pad = { l: 56, r: 24, t: 16, b: 36 };
   const innerW = w - pad.l - pad.r;
   const innerH = h - pad.t - pad.b;
 
