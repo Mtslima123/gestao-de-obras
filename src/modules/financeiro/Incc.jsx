@@ -133,72 +133,14 @@ const INCCScreen = () => {
             <div className="card-title">Variação mensal do INCC-DI</div>
             <div className="card-subtitle">Percentual de variação mês a mês · {INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</div>
           </div>
-          <div className="card-actions">
-            <div className="segmented">
-              <button>12m</button>
-              <button className="active">24m</button>
-              <button>5a</button>
-            </div>
-            <button className="icon-btn"><Icon name="dots" size={16} /></button>
-          </div>
         </div>
         <div className="card-body">
           <INCCChart serie={INCC_SERIE} />
         </div>
       </div>
 
-      {/* Composição + Tabela */}
-      <div className="grid-cols-3-2" style={{ marginTop: 'var(--gap)' }}>
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Série mensal — {INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</div>
-              <div className="card-subtitle">Dados disponíveis no site · série histórica completa no XLSX</div>
-            </div>
-            <button className="btn btn-sm btn-ghost"><Icon name="download" size={13} />CSV</button>
-          </div>
-          <div className="card-body flush" style={{ maxHeight: 460, overflowY: 'auto' }}>
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>Mês</th>
-                  <th className="right">Índice</th>
-                  <th className="right">Variação %</th>
-                  <th>Tendência</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...INCC_SERIE].reverse().map((d, i) => {
-                  const isLatest = i === 0;
-                  return (
-                    <tr key={i} style={isLatest ? { background: 'var(--brand-tint)' } : null}>
-                      <td className="strong" style={isLatest ? { color: 'var(--brand)' } : null}>{d.m}</td>
-                      <td className="right mono num strong" style={isLatest ? { color: 'var(--brand)' } : null}>
-                        {d.v.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}
-                      </td>
-                      <td className="right">
-                        <span className={'badge ' + (d.var > 0.5 ? 'warning' : 'success')}>
-                          <Icon name="arrow-up" size={10} stroke={2.5} />
-                          {d.var.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{
-                          width: Math.min(100, d.var * 80),
-                          height: 4,
-                          borderRadius: 2,
-                          background: 'linear-gradient(90deg, var(--brand-100), var(--brand))',
-                        }}></div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="stack">
+      {/* Cards informativos */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap)', marginTop: 'var(--gap)' }}>
           <div className="card">
             <div className="card-header">
               <div>
@@ -242,7 +184,6 @@ const INCCScreen = () => {
             </div>
           </div>
         </div>
-      </div>
 
       {/* CALCULADORA DE CORREÇÃO */}
       <div className="card" style={{ marginTop: 'var(--gap)' }}>
@@ -326,44 +267,33 @@ const CalcCell = ({ label, value, mono, highlight, tone }) => (
 
 // ===== INCC bar chart (variação %) =====
 const INCCChart = ({ serie }) => {
-  const w = 1080, h = 200;
-  const pad = { l: 56, r: 24, t: 16, b: 36 };
+  const [sel, setSel] = React.useState(null);
+
+  const w = 1080, h = 210;
+  const pad = { l: 56, r: 16, t: 28, b: 44 };
   const innerW = w - pad.l - pad.r;
   const innerH = h - pad.t - pad.b;
 
   const maxVar = Math.max(...serie.map(d => d.var));
+  const minVar = Math.min(...serie.map(d => d.var));
   const niceMax = Math.ceil(maxVar / 0.5) * 0.5;
   const stepX = innerW / serie.length;
-  const barW = Math.max(8, stepX * 0.62);
+  const barW = Math.max(8, stepX * 0.58);
   const yOf = v => pad.t + innerH - (v / niceMax) * innerH;
   const xOf = i => pad.l + stepX * (i + 0.5);
 
   const mediaVar = serie.reduce((s, d) => s + d.var, 0) / serie.length;
   const yTicks = [0, niceMax / 4, niceMax / 2, (niceMax * 3) / 4, niceMax];
 
-  // colour bar based on level vs media
-  const barColor = (v) => {
-    if (v >= niceMax * 0.66) return '#b3711a';
-    if (v >= mediaVar) return 'var(--brand)';
-    return 'var(--brand-400)';
-  };
-
-  const lastIdx = serie.length - 1;
+  // intensidade proporcional ao valor: barras altas = mais opacas/escuras
+  const barOpacity = v => 0.40 + 0.60 * ((v - minVar) / (maxVar - minVar || 1));
 
   return (
     <svg className="chart-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
       <defs>
-        <linearGradient id="bar-grad-brand" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--brand-500)" stopOpacity="1" />
-          <stop offset="100%" stopColor="var(--brand)" stopOpacity="1" />
-        </linearGradient>
-        <linearGradient id="bar-grad-light" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--brand-400)" stopOpacity="0.95" />
-          <stop offset="100%" stopColor="var(--brand-400)" stopOpacity="0.75" />
-        </linearGradient>
-        <linearGradient id="bar-grad-warn" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#d18d2e" stopOpacity="1" />
-          <stop offset="100%" stopColor="#b3711a" stopOpacity="1" />
+        <linearGradient id="bar-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3d7fc9" />
+          <stop offset="100%" stopColor="#014386" />
         </linearGradient>
       </defs>
 
@@ -377,56 +307,34 @@ const INCCChart = ({ serie }) => {
         {yTicks.map((t, i) => (
           <text key={i} x={pad.l - 8} y={yOf(t) + 3} textAnchor="end">{t.toFixed(2).replace('.', ',')}%</text>
         ))}
-        {serie.map((d, i) => i % 2 === 0 && (
-          <text key={i} x={xOf(i)} y={h - pad.b + 16} textAnchor="middle">{d.m}</text>
+        {serie.map((d, i) => (
+          <text key={i} x={xOf(i)} y={h - pad.b + 14} textAnchor="middle" fontSize="10">{d.m}</text>
         ))}
       </g>
 
-      {/* Average line */}
-      <line
-        x1={pad.l} x2={w - pad.r}
-        y1={yOf(mediaVar)} y2={yOf(mediaVar)}
-        stroke="var(--danger)"
-        strokeWidth="1.4"
-        strokeDasharray="5 4" />
-      <rect x={w - pad.r - 86} y={yOf(mediaVar) - 21} width="82" height="16" rx="4" fill="var(--danger)" />
-      <text x={w - pad.r - 45} y={yOf(mediaVar) - 9} textAnchor="middle" fontSize="10" fontWeight="700" fill="#fff" letterSpacing="0.04em">
-        MÉDIA {mediaVar.toFixed(2).replace('.', ',')}%
-      </text>
-
       {/* Bars */}
       {serie.map((d, i) => {
-        const grad =
-          d.var >= niceMax * 0.66 ? 'url(#bar-grad-warn)' :
-          d.var >= mediaVar ? 'url(#bar-grad-brand)' :
-          'url(#bar-grad-light)';
         const y = yOf(d.var);
-        const isLast = i === lastIdx;
+        const isSelected = sel === i;
         return (
-          <g key={i}>
+          <g key={i} style={{ cursor: 'pointer' }} onClick={() => setSel(sel === i ? null : i)}>
             <rect
               x={xOf(i) - barW / 2}
               y={y}
               width={barW}
               height={pad.t + innerH - y}
               rx="3"
-              fill={grad}
-              stroke={isLast ? 'var(--text)' : 'none'}
-              strokeWidth={isLast ? '0' : 0}
+              fill="url(#bar-grad)"
+              fillOpacity={isSelected ? 1 : barOpacity(d.var)}
             />
-            {isLast && (
+            {isSelected && (
               <>
                 <rect
-                  x={xOf(i) - barW / 2 - 1.5}
-                  y={y - 1.5}
-                  width={barW + 3}
-                  height={pad.t + innerH - y + 1.5}
-                  rx="4"
-                  fill="none"
-                  stroke="var(--text)"
-                  strokeWidth="1.5"
+                  x={xOf(i) - 24} y={y - 22}
+                  width={48} height={18}
+                  rx="4" fill="#014386"
                 />
-                <text x={xOf(i)} y={y - 8} textAnchor="middle" fontSize="11.5" fontWeight="700" fill="var(--text)" fontFamily="var(--font-mono)">
+                <text x={xOf(i)} y={y - 9} textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff" fontFamily="var(--font-mono)">
                   {d.var.toFixed(2).replace('.', ',')}%
                 </text>
               </>
@@ -434,6 +342,18 @@ const INCCChart = ({ serie }) => {
           </g>
         );
       })}
+
+      {/* Average line — renderizada após as barras para ficar por cima */}
+      <line
+        x1={pad.l} x2={w - pad.r}
+        y1={yOf(mediaVar)} y2={yOf(mediaVar)}
+        stroke="var(--danger)"
+        strokeWidth="1.4"
+        strokeDasharray="5 4" />
+      <rect x={pad.l + 4} y={yOf(mediaVar) - 18} width={82} height={15} rx="3" fill="var(--danger)" />
+      <text x={pad.l + 45} y={yOf(mediaVar) - 7} textAnchor="middle" fontSize="9.5" fontWeight="700" fill="#fff" letterSpacing="0.04em">
+        MÉDIA {mediaVar.toFixed(2).replace('.', ',')}%
+      </text>
     </svg>
   );
 };
