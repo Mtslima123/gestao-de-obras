@@ -223,7 +223,7 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
 
               <div className="obra-card-head" style={{ paddingTop: 6 }}>
                 <div style={{ flex: 1 }}>
-                  {o.sigla && <div className="obra-card-id">{o.sigla}</div>}
+                  {o.sigla && o.sigla !== o.id && <div className="obra-card-id">{o.sigla}</div>}
                   <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)', marginBottom: 3 }}>
                     ID: {o.id.length > 12 ? o.id.slice(0, 12) + '…' : o.id}
                   </div>
