@@ -224,6 +224,9 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
               <div className="obra-card-head" style={{ paddingTop: 6 }}>
                 <div style={{ flex: 1 }}>
                   <div className="obra-card-id">{o.sigla || o.id}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'monospace', marginBottom: 2 }}>
+                    {o.id.length > 8 ? o.id.slice(0, 8) + '…' : o.id}
+                  </div>
                   <div className="obra-card-name">{o.nome}</div>
                   <div className="obra-card-meta">
                     <Icon name="building" size={12} />
