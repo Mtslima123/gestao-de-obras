@@ -3,11 +3,13 @@ import { supabase } from '../../services/supabase';
 export const auditoriaService = {
   // Busca logs paginados com filtros opcionais
   listar: async ({ dataInicio, dataFim, userId, obraId, modulo, acao, criticidade, busca, entidade, page = 1, perPage = 10 } = {}) => {
+    // 🔒 SEGURANÇA [VULN-8]: teto de 100 registros por página — previne dump completo (CWE-400)
+    const safePerPage = Math.min(Math.max(1, Number(perPage) || 10), 100);
     let q = supabase
       .from('audit_logs')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range((page - 1) * perPage, page * perPage - 1);
+      .range((page - 1) * safePerPage, page * safePerPage - 1);
 
     if (dataInicio) q = q.gte('created_at', dataInicio + 'T00:00:00Z');
     if (dataFim)    q = q.lte('created_at', dataFim   + 'T23:59:59Z');

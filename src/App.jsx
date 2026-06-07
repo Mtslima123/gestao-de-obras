@@ -5,6 +5,7 @@ import { ToastProvider, useToast, NovaObraModal, NovaMedicaoModal, SolicitarComp
 import { Sidebar, Topbar } from './Chrome';
 import { LoginScreen } from './modules/auth/Login';
 import { authService } from './modules/auth/auth.service';
+import { supabase } from './services/supabase';
 import { obrasService } from './modules/obras/obras.service';
 import { Dashboard } from './modules/dashboard/Dashboard';
 import { ObrasList } from './modules/obras/ObrasList';
@@ -64,8 +65,9 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 const AppInner = () => {
   const toast = useToast();
-  const [authed, setAuthed] = React.useState(false);
-  const [user,   setUser]   = React.useState(null);
+  const [authed, setAuthed]           = React.useState(false);
+  const [user,   setUser]             = React.useState(null);
+  const [userProfile, setUserProfile] = React.useState(null);
   const [view, setView] = React.useState(() => {
     const saved = sessionStorage.getItem('nav_view');
     return (saved && saved !== 'obra-detail') ? saved : 'dashboard';
@@ -125,13 +127,30 @@ const AppInner = () => {
     if (selectedObra?.id === id) { setSelectedObra(null); setView('obras'); sessionStorage.setItem('nav_view', 'obras'); }
   };
 
+  // Carrega perfil de permissões após autenticação
+  const loadUserProfile = async (email) => {
+    if (!email) return;
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('id, perfil, modulos_ids, abas_ids')
+      .eq('email', email)
+      .single();
+    setUserProfile(data ?? null);
+  };
+
   React.useEffect(() => {
     authService.getSession().then(({ data: { session } }) => {
-      if (session?.user) { setAuthed(true); setUser(session.user); }
+      if (session?.user) {
+        setAuthed(true);
+        setUser(session.user);
+        loadUserProfile(session.user.email);
+      }
     });
     const { data: { subscription } } = authService.onAuthStateChange((_, session) => {
       setAuthed(!!session);
       setUser(session?.user ?? null);
+      if (session?.user) loadUserProfile(session.user.email);
+      else setUserProfile(null);
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -253,8 +272,17 @@ const AppInner = () => {
             <OrcamentoCronogramaScreen obras={obras} user={user} />
           )}
           {view === 'ia' && <IaScreen obras={obras} user={user} />}
-          {view === 'usuarios'  && <UsuariosScreen  obras={obras} user={user} />}
-          {view === 'auditoria' && <AuditoriaScreen obras={obras} user={user} />}
+          {/* 🔒 SEGURANÇA [VULN-3]: telas admin bloqueadas para não-admin no frontend */}
+          {view === 'usuarios'  && (
+            userProfile?.perfil === 'admin'
+              ? <UsuariosScreen obras={obras} user={user} />
+              : <AcessoNegado onVoltar={() => handleNavigate('dashboard')} />
+          )}
+          {view === 'auditoria' && (
+            userProfile?.perfil === 'admin'
+              ? <AuditoriaScreen obras={obras} user={user} />
+              : <AcessoNegado onVoltar={() => handleNavigate('dashboard')} />
+          )}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
            view !== 'cronograma' && view !== 'orc-x-cron' && view !== 'ia' &&
@@ -365,5 +393,28 @@ const PlaceholderModule = ({ view, onOpenObra }) => {
     </>
   );
 };
+
+const AcessoNegado = ({ onVoltar }) => (
+  <div style={{ padding: '80px 24px', textAlign: 'center' }}>
+    <div style={{
+      width: 72, height: 72, borderRadius: 16,
+      background: '#fef2f2', color: '#b91c1c',
+      display: 'grid', placeItems: 'center', margin: '0 auto 18px',
+    }}>
+      <Icon name="shield" size={32} />
+    </div>
+    <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Acesso restrito</h2>
+    <p style={{ color: 'var(--text-muted)', maxWidth: 360, margin: '0 auto 24px', fontSize: 13.5 }}>
+      Esta área é exclusiva para administradores do sistema.
+    </p>
+    <button
+      onClick={onVoltar}
+      style={{ padding: '8px 20px', background: 'var(--brand,#014386)', color: '#fff',
+               border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}
+    >
+      Voltar ao Dashboard
+    </button>
+  </div>
+);
 
 export { App };
