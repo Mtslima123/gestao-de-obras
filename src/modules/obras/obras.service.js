@@ -1,6 +1,15 @@
 import { supabase } from '../../services/supabase';
 import { auditoriaService } from '../admin/auditoria.service';
 
+const gerarIdUnico = async () => {
+  for (let i = 0; i < 30; i++) {
+    const candidato = `OB-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+    const { data } = await supabase.from('obras').select('id').eq('id', candidato).maybeSingle();
+    if (!data) return candidato;
+  }
+  throw new Error('Não foi possível gerar um ID único para a obra');
+};
+
 const registrar = async (campos) => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.user) return;
@@ -16,7 +25,8 @@ export const obrasService = {
     supabase.from('obras').select('*').eq('id', id).single(),
 
   criar: async (dados, userId) => {
-    const res = await supabase.from('obras').insert([{ ...dados, user_id: userId }]).select().single();
+    const id = dados.id || await gerarIdUnico();
+    const res = await supabase.from('obras').insert([{ ...dados, id, user_id: userId }]).select().single();
     if (!res.error) registrar({
       modulo: 'obras', acao: 'criou',
       entidadeTipo: 'obra', entidadeId: String(res.data?.id || ''),
