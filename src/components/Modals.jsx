@@ -225,7 +225,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
       };
     } else {
       result = {
-        id:    crypto.randomUUID(),
+        id:    `OB-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
         sigla: form.sigla.trim() || '',
         nome:  form.nome,
         tipo:             'Incorporação Vertical',
