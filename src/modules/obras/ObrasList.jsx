@@ -108,7 +108,7 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
                   <tr key={o.id} onClick={() => onOpenObra(o)} style={{ cursor: 'pointer' }}>
                     <td>
                       <div className="strong" style={{ marginBottom: 2 }}>{o.nome}</div>
-                      <div className="text-xs text-muted mono">{o.id} · {o.tipo}</div>
+                      <div className="text-xs text-muted mono">{o.sigla || o.id} · {o.tipo}</div>
                     </td>
                     <td className="text-soft">{o.cliente}</td>
                     <td style={{ minWidth: 160 }}>
@@ -223,7 +223,7 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
 
               <div className="obra-card-head" style={{ paddingTop: 6 }}>
                 <div style={{ flex: 1 }}>
-                  <div className="obra-card-id">{o.id}</div>
+                  <div className="obra-card-id">{o.sigla || o.id}</div>
                   <div className="obra-card-name">{o.nome}</div>
                   <div className="obra-card-meta">
                     <Icon name="building" size={12} />

@@ -153,7 +153,7 @@ const ResumoObrasScreen = () => {
                   }}>{i + 1}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="strong" style={{ fontSize: 13 }}>{o.nome}</div>
-                    <div className="text-xs text-muted mono">{o.id}</div>
+                    <div className="text-xs text-muted mono">{o.sigla || o.id}</div>
                   </div>
                   <div className="mono num fw-700" style={{ fontSize: 14, color: 'var(--brand)' }}>{o.avancoFisico}%</div>
                 </div>
@@ -197,7 +197,7 @@ const ResumoObrasScreen = () => {
                   <tr key={o.id}>
                     <td>
                       <div className="strong" style={{ marginBottom: 2 }}>{o.nome}</div>
-                      <div className="text-xs text-muted mono">{o.id} · {o.tipo}</div>
+                      <div className="text-xs text-muted mono">{o.sigla || o.id} · {o.tipo}</div>
                     </td>
                     <td className="right strong num">{brlRS(o.orcamento, { compact: true })}</td>
                     <td className="right num">{brlRS(o.gasto, { compact: true })}</td>
@@ -283,7 +283,7 @@ const ComparativoRow = ({ obra }) => {
     }}>
       <div style={{ minWidth: 0 }}>
         <div className="row" style={{ gap: 8 }}>
-          <span className="mono text-xs text-muted">{obra.id}</span>
+          <span className="mono text-xs text-muted">{obra.sigla || obra.id}</span>
           <span className={'badge ' + (obra.risco === 'alto' ? 'danger' : obra.risco === 'medio' ? 'warning' : 'success')} style={{ fontSize: 10 }}>
             <span className="dot"></span>{obra.risco}
           </span>

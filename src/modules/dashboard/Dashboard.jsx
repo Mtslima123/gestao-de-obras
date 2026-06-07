@@ -345,7 +345,7 @@ const Dashboard = ({ onOpenObra, onAcao }) => {
                   <tr key={o.id} onClick={() => onOpenObra(o)}>
                     <td>
                       <div className="strong" style={{ marginBottom: 2 }}>{o.nome}</div>
-                      <div className="text-xs text-muted mono">{o.id} · {o.tipo}</div>
+                      <div className="text-xs text-muted mono">{o.sigla || o.id} · {o.tipo}</div>
                     </td>
                     <td style={{ minWidth: 160 }}>
                       <div className="progress-row">

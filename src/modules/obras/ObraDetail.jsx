@@ -991,7 +991,7 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
         <HeroImage obra={o} onObraUpdate={onObraUpdate} />
         <div className="hero-body">
           <div className="hero-meta">
-            <span className="code">{o.id}</span>
+            <span className="code">{o.sigla || o.id}</span>
             <span>·</span>
             <span>{o.tipo}</span>
             <span>·</span>
@@ -1135,7 +1135,7 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
         >
           {deleteStep === 1 ? (
             <p style={{ fontSize: 14 }}>
-              Tem certeza que deseja excluir a obra <strong>{o.nome}</strong> ({o.id})?
+              Tem certeza que deseja excluir a obra <strong>{o.nome}</strong> ({o.sigla || o.id})?
             </p>
           ) : (
             <div>

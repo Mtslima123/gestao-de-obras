@@ -201,7 +201,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
   const isEdit = obra !== null;
   const [form, setForm] = React.useState({
     nome:         obra?.nome        || '',
-    sigla:        obra?.id          || '',
+    sigla:        obra?.sigla || obra?.id || '',
     responsavel:  obra?.responsavel || '',
     endereco:     obra?.endereco    || '',
     dataPrevista: obra?.previsto    || '',
@@ -217,15 +217,17 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
       result = {
         ...obra,
         nome:        form.nome,
-        id:          form.sigla.trim() || obra.id,
+        sigla:       form.sigla.trim() || obra.sigla || obra.id,
         responsavel: form.responsavel,
         endereco:    form.endereco,
         previsto:    form.dataPrevista || obra.previsto,
+        // id não é sobrescrito — permanece imutável
       };
     } else {
       result = {
-        id:               form.sigla.trim() || `OB-${String(Date.now()).slice(-3)}`,
-        nome:             form.nome,
+        id:    crypto.randomUUID(),
+        sigla: form.sigla.trim() || '',
+        nome:  form.nome,
         tipo:             'Incorporação Vertical',
         cliente:          '',
         endereco:         form.endereco,
