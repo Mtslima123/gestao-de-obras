@@ -7,3 +7,6 @@ node_modules/
 dist/
 .env
 .env.local
+# 🔒 SEGURANÇA [VULN-4]: arquivo de teste usa credenciais via env — não commitar
+verify_test.mjs
+verify_test.cjs

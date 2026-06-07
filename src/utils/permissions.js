@@ -12,11 +12,13 @@
  * @returns {boolean}
  */
 export const podeVerAba = (userProfile, modId, abaId) => {
-  if (!userProfile) return true;
+  // 🔒 SEGURANÇA [VULN-3]: Fail-secure — sem perfil carregado nega acesso (CWE-636)
+  if (!userProfile) return false;
   if (userProfile.perfil === 'admin') return true;
   const abas = userProfile.abas_ids || [];
   const hasAnyForMod = abas.some(a => a.startsWith(`${modId}.`));
-  if (!hasAnyForMod) return true;
+  // 🔒 SEGURANÇA [VULN-3]: Sem restrições definidas para o módulo = sem acesso (não mais acesso total)
+  if (!hasAnyForMod) return false;
   return abas.includes(`${modId}.${abaId}`);
 };
 
