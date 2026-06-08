@@ -1,10 +1,75 @@
 import React from 'react';
 import { Icon } from './components/Icons';
 import { NotifPanel } from './components/Modals';
+import { authService } from './modules/auth/auth.service';
 
 // Sidebar + Topbar — shared app chrome
+const ModalAlterarSenha = ({ onClose }) => {
+  const [nova, setNova] = React.useState('');
+  const [confirma, setConfirma] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+  const [erro, setErro] = React.useState(null);
+  const [ok, setOk] = React.useState(false);
+
+  const handleSalvar = async (e) => {
+    e.preventDefault();
+    if (nova.length < 6) { setErro('A senha deve ter pelo menos 6 caracteres.'); return; }
+    if (nova !== confirma) { setErro('As senhas não coincidem.'); return; }
+    setErro(null);
+    setLoading(true);
+    const { error } = await authService.updatePassword(nova);
+    setLoading(false);
+    if (error) { setErro('Erro ao alterar senha: ' + error.message); return; }
+    setOk(true);
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '28px 32px', maxWidth: 380, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,0.25)' }}>
+        {ok ? (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#dcfce7', display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
+              <Icon name="check" size={22} style={{ color: '#15803d' }} />
+            </div>
+            <h3 style={{ margin: '0 0 8px', fontSize: 17 }}>Senha alterada!</h3>
+            <p style={{ margin: '0 0 22px', color: 'var(--text-muted)', fontSize: 14 }}>Sua nova senha já está ativa.</p>
+            <button className="btn btn-primary" onClick={onClose}>Fechar</button>
+          </div>
+        ) : (
+          <form onSubmit={handleSalvar}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 17 }}>Alterar senha</h3>
+            <p style={{ margin: '0 0 20px', color: 'var(--text-muted)', fontSize: 13.5 }}>Escolha uma nova senha para sua conta.</p>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Nova senha</label>
+              <input className="input" style={{ width: '100%' }} type="password"
+                placeholder="Mínimo 6 caracteres" value={nova} onChange={e => setNova(e.target.value)} autoFocus />
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Confirmar senha</label>
+              <input className="input" style={{ width: '100%' }} type="password"
+                placeholder="Repita a senha" value={confirma} onChange={e => setConfirma(e.target.value)} />
+            </div>
+            {erro && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 12px', marginBottom: 16, fontSize: 13, color: '#b91c1c' }}>
+                <Icon name="alert" size={14} />{erro}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? <span className="login-spinner" style={{ width: 14, height: 14 }} /> : 'Salvar senha'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
   const [expanded, setExpanded] = React.useState(false);
+  const [showAlterarSenha, setShowAlterarSenha] = React.useState(false);
   const collapsed = !expanded;
   const navItems = [
     { id: 'dashboard',     label: 'Dashboard',           icon: 'dashboard' },
@@ -92,12 +157,18 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
           </div>
         )}
         {!collapsed && (
-          <button className="icon-btn" title="Sair" onClick={onLogout}>
-            <Icon name="log-out" size={16} />
-          </button>
+          <>
+            <button className="icon-btn" title="Alterar senha" onClick={() => setShowAlterarSenha(true)}>
+              <Icon name="key" size={16} />
+            </button>
+            <button className="icon-btn" title="Sair" onClick={onLogout}>
+              <Icon name="log-out" size={16} />
+            </button>
+          </>
         )}
       </div>
     </aside>
+    {showAlterarSenha && <ModalAlterarSenha onClose={() => setShowAlterarSenha(false)} />}
     </>
   );
 };
