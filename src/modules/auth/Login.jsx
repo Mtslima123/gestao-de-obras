@@ -41,7 +41,7 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
     setLoading(true);
     const { error: err } = await authService.resetPassword(email);
     setLoading(false);
-    if (err) { setError('E-mail não encontrado ou erro de conexão.'); return; }
+    if (err) { setError(err.message || 'E-mail não encontrado ou erro de conexão.'); return; }
     setSuccess('Link enviado! Verifique sua caixa de entrada e clique no link para definir sua senha.');
   };
 
