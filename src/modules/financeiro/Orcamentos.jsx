@@ -1209,16 +1209,15 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
     // Só exibe skeleton quando não há cache (primeira visita ou após mutação)
     if (_orcamentosCache === null) setLoading(true);
     orcamentosService.listar().then(({ data, error }) => {
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         const enriched = data.map(o => ({
           ...o,
-          obra: obras.find(ob => ob.id === o.obra_id)?.nome || o.obra_id,
+          obra: obras.find(ob => ob.id === o.obra_id)?.nome || '—',
         }));
         _orcamentosCache = enriched;
         setOrcamentos(enriched);
       } else {
-        // Fallback para mock quando tabela vazia ou sem autenticação (devMode)
-        setOrcamentos(AppData.orcamentosLista);
+        setOrcamentos([]);
       }
       setLoading(false);
     });
