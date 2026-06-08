@@ -86,7 +86,7 @@ const AppInner = () => {
   React.useEffect(() => {
     if (!authed) return;
     obrasService.listar().then(({ data, error }) => {
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         AppData.obras = data;
         setObras(data);
       }
