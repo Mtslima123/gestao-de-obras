@@ -27,10 +27,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Envia convite por e-mail — cria conta em auth.users
+    // Cria conta em auth.users sem enviar e-mail (fluxo de primeiro acesso manual)
     const { data: authData, error: authError } =
-      await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        data: { nome, perfil: perfil ?? 'usuario' },
+      await supabaseAdmin.auth.admin.createUser({
+        email,
+        email_confirm: true,
+        user_metadata: { nome, perfil: perfil ?? 'usuario' },
       });
 
     if (authError) {

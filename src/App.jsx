@@ -68,6 +68,7 @@ const AppInner = () => {
   const [authed, setAuthed]           = React.useState(false);
   const [user,   setUser]             = React.useState(null);
   const [userProfile, setUserProfile] = React.useState(null);
+  const [passwordRecovery, setPasswordRecovery] = React.useState(false);
   const [view, setView] = React.useState(() => {
     const saved = sessionStorage.getItem('nav_view');
     return (saved && saved !== 'obra-detail') ? saved : 'dashboard';
@@ -146,7 +147,12 @@ const AppInner = () => {
         loadUserProfile(session.user.email);
       }
     });
-    const { data: { subscription } } = authService.onAuthStateChange((_, session) => {
+    const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecovery(true);
+        return;
+      }
+      setPasswordRecovery(false);
       setAuthed(!!session);
       setUser(session?.user ?? null);
       if (session?.user) loadUserProfile(session.user.email);
@@ -228,7 +234,13 @@ const AppInner = () => {
 
   return (
     <>
-      {!authed && <LoginScreen onLogin={() => {}} />}
+      {(!authed || passwordRecovery) && (
+        <LoginScreen
+          onLogin={() => {}}
+          passwordRecovery={passwordRecovery}
+          onPasswordSet={() => setPasswordRecovery(false)}
+        />
+      )}
       {authed && (
     <div className="app" data-screen-label={screenLabels[view] || view}>
       <Sidebar

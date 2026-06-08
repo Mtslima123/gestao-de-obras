@@ -258,9 +258,9 @@ const UsuariosScreen = ({ obras = [] }) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, padding: '14px 18px', marginBottom: 20 }}>
           <Icon name="mail" size={18} style={{ color: '#15803d', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
-            <strong style={{ fontSize: 14, color: '#14532d' }}>Convite enviado!</strong>
+            <strong style={{ fontSize: 14, color: '#14532d' }}>Usuário cadastrado!</strong>
             <div style={{ fontSize: 13, color: '#15803d', marginTop: 2 }}>
-              Um e-mail de convite foi enviado para <strong>{conviteEnviado}</strong>. O usuário deverá criar a senha no primeiro acesso.
+              <strong>{conviteEnviado}</strong> foi cadastrado. Oriente o usuário a acessar a tela de login e clicar em <strong>Primeiro acesso?</strong> para definir sua senha.
             </div>
           </div>
           <button onClick={() => setConviteEnviado(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: 4 }}>

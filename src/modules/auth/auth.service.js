@@ -43,4 +43,12 @@ export const authService = {
 
   onAuthStateChange: (callback) =>
     supabase.auth.onAuthStateChange(callback),
+
+  resetPassword: (email) =>
+    supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    }),
+
+  updatePassword: (newPassword) =>
+    supabase.auth.updateUser({ password: newPassword }),
 };
