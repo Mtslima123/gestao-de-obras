@@ -5,10 +5,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const ok  = (body: unknown) => new Response(JSON.stringify(body),        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+const err = (msg: string)   => new Response(JSON.stringify({ error: msg }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
     const supabaseAdmin = createClient(
@@ -20,42 +21,36 @@ Deno.serve(async (req) => {
     const { nome, email, telefone, perfil, status, modulos_ids, abas_ids, obra_ids, password } =
       await req.json();
 
-    if (!nome || !email) {
-      return new Response(JSON.stringify({ error: 'nome e email são obrigatórios' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (!nome || !email) return err('nome e email são obrigatórios');
+    if (!password || password.length < 6) return err('senha temporária deve ter pelo menos 6 caracteres');
 
-    if (!password || password.length < 6) {
-      return new Response(JSON.stringify({ error: 'senha temporária deve ter pelo menos 6 caracteres' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // Verifica se já existe um auth user com esse email
+    const { data: { users: existentes } } = await supabaseAdmin.auth.admin.listUsers();
+    const jaExiste = existentes?.find((u) => u.email === email);
 
-    // Cria conta com senha temporária definida pelo admin
-    const { data: authData, error: authError } =
-      await supabaseAdmin.auth.admin.createUser({
+    let authUserId: string;
+
+    if (jaExiste) {
+      // Atualiza a senha do usuário existente
+      const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(jaExiste.id, { password });
+      if (updateErr) return err(`Erro ao atualizar senha: ${updateErr.message}`);
+      authUserId = jaExiste.id;
+    } else {
+      // Cria novo auth user com senha temporária
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
         user_metadata: { nome, perfil: perfil ?? 'usuario' },
       });
-
-    if (authError) {
-      return new Response(JSON.stringify({ error: authError.message }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      if (authError) return err(`Erro ao criar usuário: ${authError.message}`);
+      authUserId = authData.user.id;
     }
 
-    const authUserId = authData.user.id;
-
-    // Cria perfil usando o mesmo ID do auth user (necessário para o RLS: auth.uid() = id)
+    // Upsert do perfil (cria ou atualiza)
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('user_profiles')
-      .insert([{
+      .upsert([{
         id: authUserId,
         nome,
         email,
@@ -64,34 +59,23 @@ Deno.serve(async (req) => {
         status: status ?? 'ativo',
         modulos_ids: modulos_ids ?? [],
         abas_ids: abas_ids ?? [],
-      }])
+        updated_at: new Date().toISOString(),
+      }], { onConflict: 'id' })
       .select()
       .single();
 
-    if (profileError) {
-      // Reverte o auth user se o perfil falhar para não deixar estado inconsistente
-      await supabaseAdmin.auth.admin.deleteUser(authUserId);
-      return new Response(JSON.stringify({ error: profileError.message }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (profileError) return err(`Erro ao salvar perfil: ${profileError.message}`);
 
-    // Vincula obras atomicamente junto com a criação
+    // Vincula obras
     if (obra_ids && obra_ids.length > 0) {
+      await supabaseAdmin.from('user_obras').delete().eq('user_id', authUserId);
       await supabaseAdmin
         .from('user_obras')
         .insert(obra_ids.map((obra_id: string) => ({ user_id: authUserId, obra_id })));
     }
 
-    return new Response(JSON.stringify({ data: profile }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return ok({ data: profile });
+  } catch (e) {
+    return err(e.message ?? 'Erro interno');
   }
 });
