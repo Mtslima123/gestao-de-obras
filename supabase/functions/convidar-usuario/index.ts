@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
       { auth: { autoRefreshToken: false, persistSession: false } },
     );
 
-    const { nome, email, telefone, perfil, status, modulos_ids, abas_ids, obra_ids } =
+    const { nome, email, telefone, perfil, status, modulos_ids, abas_ids, obra_ids, password } =
       await req.json();
 
     if (!nome || !email) {
@@ -27,10 +27,18 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Cria conta em auth.users sem enviar e-mail (fluxo de primeiro acesso manual)
+    if (!password || password.length < 6) {
+      return new Response(JSON.stringify({ error: 'senha temporária deve ter pelo menos 6 caracteres' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Cria conta com senha temporária definida pelo admin
     const { data: authData, error: authError } =
       await supabaseAdmin.auth.admin.createUser({
         email,
+        password,
         email_confirm: true,
         user_metadata: { nome, perfil: perfil ?? 'usuario' },
       });

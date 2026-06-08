@@ -55,7 +55,12 @@ const MODULO_ABAS = {
                 { id: 'ocorrencias', label: 'Ocorrências' }],
 };
 
-const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [] };
+const gerarSenha = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+};
+
+const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [], senha_temp: '' };
 const PER_PAGE = 10;
 
 const BadgePerfil = ({ perfil }) => (
@@ -142,7 +147,7 @@ const UsuariosScreen = ({ obras = [] }) => {
 
   const abrirForm = (usuario) => {
     if (usuario === 'novo') {
-      setForm(FORM_VAZIO);
+      setForm({ ...FORM_VAZIO, senha_temp: gerarSenha() });
     } else {
       setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])] });
     }
@@ -168,9 +173,9 @@ const UsuariosScreen = ({ obras = [] }) => {
     try {
       if (editando === 'novo') {
         // obra_ids passados direto para a Edge Function que cria tudo atomicamente
-        const { data: novo, error } = await usuariosService.criar(payload, form.obrasIds);
+        const { data: novo, error } = await usuariosService.criar({ ...payload, senha_temp: form.senha_temp }, form.obrasIds);
         if (error) throw error;
-        setConviteEnviado(novo?.email || payload.email);
+        setConviteEnviado({ email: novo?.email || payload.email, senha: form.senha_temp });
       } else {
         const { error } = await usuariosService.atualizar(editando.id, payload);
         if (error) throw error;
@@ -260,8 +265,19 @@ const UsuariosScreen = ({ obras = [] }) => {
           <div style={{ flex: 1 }}>
             <strong style={{ fontSize: 14, color: '#14532d' }}>Usuário cadastrado!</strong>
             <div style={{ fontSize: 13, color: '#15803d', marginTop: 2 }}>
-              <strong>{conviteEnviado}</strong> foi cadastrado. Oriente o usuário a acessar a tela de login e clicar em <strong>Primeiro acesso?</strong> para definir sua senha.
+              <strong>{conviteEnviado?.email}</strong> foi cadastrado. Repasse as credenciais abaixo ao usuário:
             </div>
+            <div style={{ marginTop: 10, background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>E-mail</div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#14532d', fontFamily: 'monospace', marginTop: 2 }}>{conviteEnviado?.email}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Senha temporária</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#14532d', fontFamily: 'monospace', marginTop: 2, letterSpacing: '0.08em' }}>{conviteEnviado?.senha}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: '#15803d', marginTop: 6, opacity: 0.8 }}>Esta senha não será exibida novamente.</div>
           </div>
           <button onClick={() => setConviteEnviado(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: 4 }}>
             <Icon name="x" size={16} />
@@ -396,6 +412,21 @@ const UsuariosScreen = ({ obras = [] }) => {
                   <option value="inativo">Inativo</option>
                 </select>
               </div>
+              {editando === 'novo' && (
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Senha temporária <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input className="input" style={{ flex: 1, fontFamily: 'monospace', letterSpacing: '0.06em' }}
+                      type="text" placeholder="Mín. 6 caracteres"
+                      value={form.senha_temp} onChange={e => setForm(f => ({ ...f, senha_temp: e.target.value }))} />
+                    <button type="button" className="btn btn-ghost" style={{ flexShrink: 0, fontSize: 12 }}
+                      onClick={() => setForm(f => ({ ...f, senha_temp: gerarSenha() }))}>
+                      Gerar
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 5 }}>Repasse ao usuário — ele poderá alterar depois.</div>
+                </div>
+              )}
             </div>
 
             {/* Coluna 2 — Perfil de Acesso */}
@@ -632,7 +663,7 @@ const UsuariosScreen = ({ obras = [] }) => {
           {/* Rodapé do formulário */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
             <button className="btn btn-ghost" onClick={fecharForm}>Cancelar</button>
-            <button className="btn btn-primary" onClick={handleSalvar} disabled={salvando || !form.nome.trim() || !form.email.trim()}>
+            <button className="btn btn-primary" onClick={handleSalvar} disabled={salvando || !form.nome.trim() || !form.email.trim() || (editando === 'novo' && form.senha_temp.length < 6)}>
               {salvando
                 ? <><span className="login-spinner" style={{ width: 14, height: 14 }} /> Salvando...</>
                 : <><Icon name="check" size={15} /> Salvar Usuário</>

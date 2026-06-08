@@ -23,7 +23,7 @@ export const usuariosService = {
       .single(),
 
   criar: async (dados, obraIds = []) => {
-    // Usa Edge Function para criar auth user + perfil atomicamente e enviar convite por e-mail
+    // Usa Edge Function para criar auth user + perfil atomicamente com senha temporária
     const { data: fnData, error: fnError } = await supabase.functions.invoke('convidar-usuario', {
       body: {
         nome: dados.nome,
@@ -34,6 +34,7 @@ export const usuariosService = {
         modulos_ids: dados.modulos_ids ?? [],
         abas_ids: dados.abas_ids ?? [],
         obra_ids: obraIds,
+        password: dados.senha_temp,
       },
     });
     if (fnError) return { data: null, error: fnError };
