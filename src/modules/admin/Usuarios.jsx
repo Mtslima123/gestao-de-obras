@@ -102,6 +102,7 @@ const UsuariosScreen = ({ obras = [] }) => {
   const [obraSearch, setObraSearch] = React.useState('');
   const [salvando, setSalvando] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(null);
+  const [conviteEnviado, setConviteEnviado] = React.useState(null);
   const formRef = React.useRef(null);
 
   const carregarUsuarios = React.useCallback(async () => {
@@ -166,9 +167,10 @@ const UsuariosScreen = ({ obras = [] }) => {
     };
     try {
       if (editando === 'novo') {
-        const { data: novo, error } = await usuariosService.criar(payload);
+        // obra_ids passados direto para a Edge Function que cria tudo atomicamente
+        const { data: novo, error } = await usuariosService.criar(payload, form.obrasIds);
         if (error) throw error;
-        if (form.obrasIds.length > 0) await usuariosService.vincularObras(novo.id, form.obrasIds);
+        setConviteEnviado(novo?.email || payload.email);
       } else {
         const { error } = await usuariosService.atualizar(editando.id, payload);
         if (error) throw error;
@@ -251,6 +253,22 @@ const UsuariosScreen = ({ obras = [] }) => {
 
   return (
     <div>
+      {/* Banner de convite enviado */}
+      {conviteEnviado && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, padding: '14px 18px', marginBottom: 20 }}>
+          <Icon name="mail" size={18} style={{ color: '#15803d', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <strong style={{ fontSize: 14, color: '#14532d' }}>Convite enviado!</strong>
+            <div style={{ fontSize: 13, color: '#15803d', marginTop: 2 }}>
+              Um e-mail de convite foi enviado para <strong>{conviteEnviado}</strong>. O usuário deverá criar a senha no primeiro acesso.
+            </div>
+          </div>
+          <button onClick={() => setConviteEnviado(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: 4 }}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Cabeçalho */}
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>

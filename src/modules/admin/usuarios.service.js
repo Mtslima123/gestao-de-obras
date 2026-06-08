@@ -22,20 +22,30 @@ export const usuariosService = {
       .eq('id', id)
       .single(),
 
-  criar: async (dados) => {
-    const res = await supabase
-      .from('user_profiles')
-      .insert([{ ...dados, modulos_ids: dados.modulos_ids ?? [], abas_ids: dados.abas_ids ?? [] }])
-      .select()
-      .single();
-    if (!res.error) registrar({
+  criar: async (dados, obraIds = []) => {
+    // Usa Edge Function para criar auth user + perfil atomicamente e enviar convite por e-mail
+    const { data: fnData, error: fnError } = await supabase.functions.invoke('convidar-usuario', {
+      body: {
+        nome: dados.nome,
+        email: dados.email,
+        telefone: dados.telefone,
+        perfil: dados.perfil,
+        status: dados.status,
+        modulos_ids: dados.modulos_ids ?? [],
+        abas_ids: dados.abas_ids ?? [],
+        obra_ids: obraIds,
+      },
+    });
+    if (fnError) return { data: null, error: fnError };
+    if (fnData?.error) return { data: null, error: { message: fnData.error } };
+    registrar({
       modulo: 'usuarios', acao: 'criou',
-      entidadeTipo: 'usuario', entidadeId: String(res.data?.id || ''),
-      descricao: `Criou o usuário "${dados.nome}" (${dados.perfil})`,
+      entidadeTipo: 'usuario', entidadeId: String(fnData?.data?.id || ''),
+      descricao: `Criou o usuário "${dados.nome}" (${dados.perfil}) e enviou convite por e-mail`,
       valorNovo: { nome: dados.nome, perfil: dados.perfil, status: dados.status },
       criticidade: 'alta',
     });
-    return res;
+    return { data: fnData?.data, error: null };
   },
 
   atualizar: async (id, dados) => {
