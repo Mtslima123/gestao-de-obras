@@ -133,7 +133,7 @@ const AppInner = () => {
     if (!email) return;
     const { data } = await supabase
       .from('user_profiles')
-      .select('id, perfil, modulos_ids, abas_ids')
+      .select('id, perfil, modulos_ids, abas_ids, deve_alterar_senha')
       .eq('email', email)
       .single();
     setUserProfile(data ?? null);
@@ -248,6 +248,8 @@ const AppInner = () => {
         onNavigate={handleNavigate}
         user={user}
         onLogout={handleLogout}
+        forcarAlterarSenha={userProfile?.deve_alterar_senha === true}
+        onPasswordChanged={() => setUserProfile(p => p ? { ...p, deve_alterar_senha: false } : p)}
       />
       <div className="main">
         <Topbar

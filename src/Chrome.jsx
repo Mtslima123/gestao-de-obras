@@ -4,12 +4,12 @@ import { NotifPanel } from './components/Modals';
 import { authService } from './modules/auth/auth.service';
 
 // Sidebar + Topbar — shared app chrome
-const ModalAlterarSenha = ({ onClose }) => {
+const ModalAlterarSenha = ({ onClose, forcar = false }) => {
   const [nova, setNova] = React.useState('');
   const [confirma, setConfirma] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [erro, setErro] = React.useState(null);
-  const [ok, setOk] = React.useState(false);
+  const [sucesso, setSucesso] = React.useState(false);
 
   const handleSalvar = async (e) => {
     e.preventDefault();
@@ -18,15 +18,17 @@ const ModalAlterarSenha = ({ onClose }) => {
     setErro(null);
     setLoading(true);
     const { error } = await authService.updatePassword(nova);
+    if (error) { setErro('Erro ao alterar senha: ' + error.message); setLoading(false); return; }
+    await authService.marcarSenhaAlterada();
     setLoading(false);
-    if (error) { setErro('Erro ao alterar senha: ' + error.message); return; }
-    setOk(true);
+    if (forcar) { onClose(); return; }
+    setSucesso(true);
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '28px 32px', maxWidth: 380, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,0.25)' }}>
-        {ok ? (
+        {sucesso ? (
           <div style={{ textAlign: 'center' }}>
             <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#dcfce7', display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
               <Icon name="check" size={22} style={{ color: '#15803d' }} />
@@ -37,8 +39,16 @@ const ModalAlterarSenha = ({ onClose }) => {
           </div>
         ) : (
           <form onSubmit={handleSalvar}>
-            <h3 style={{ margin: '0 0 6px', fontSize: 17 }}>Alterar senha</h3>
-            <p style={{ margin: '0 0 20px', color: 'var(--text-muted)', fontSize: 13.5 }}>Escolha uma nova senha para sua conta.</p>
+            {forcar && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fefce8', border: '1px solid #fde047', borderRadius: 9, padding: '10px 14px', marginBottom: 20 }}>
+                <Icon name="alert" size={15} style={{ color: '#ca8a04', flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: '#854d0e' }}>Por segurança, defina uma senha pessoal antes de continuar.</span>
+              </div>
+            )}
+            <h3 style={{ margin: '0 0 6px', fontSize: 17 }}>{forcar ? 'Defina sua nova senha' : 'Alterar senha'}</h3>
+            <p style={{ margin: '0 0 20px', color: 'var(--text-muted)', fontSize: 13.5 }}>
+              {forcar ? 'Sua senha temporária precisa ser substituída.' : 'Escolha uma nova senha para sua conta.'}
+            </p>
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Nova senha</label>
               <input className="input" style={{ width: '100%' }} type="password"
@@ -55,8 +65,8 @@ const ModalAlterarSenha = ({ onClose }) => {
               </div>
             )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-              <button type="submit" className="btn btn-primary" disabled={loading}>
+              {!forcar && <button type="button" className="btn btn-ghost" onClick={onClose}>Cancelar</button>}
+              <button type="submit" className="btn btn-primary" style={{ flex: forcar ? 1 : undefined }} disabled={loading}>
                 {loading ? <span className="login-spinner" style={{ width: 14, height: 14 }} /> : 'Salvar senha'}
               </button>
             </div>
@@ -67,9 +77,13 @@ const ModalAlterarSenha = ({ onClose }) => {
   );
 };
 
-const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
+const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha = false, onPasswordChanged }) => {
   const [expanded, setExpanded] = React.useState(false);
   const [showAlterarSenha, setShowAlterarSenha] = React.useState(false);
+
+  React.useEffect(() => {
+    if (forcarAlterarSenha) setShowAlterarSenha(true);
+  }, [forcarAlterarSenha]);
   const collapsed = !expanded;
   const navItems = [
     { id: 'dashboard',     label: 'Dashboard',           icon: 'dashboard' },
@@ -168,7 +182,15 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout }) => {
         )}
       </div>
     </aside>
-    {showAlterarSenha && <ModalAlterarSenha onClose={() => setShowAlterarSenha(false)} />}
+    {showAlterarSenha && (
+      <ModalAlterarSenha
+        forcar={forcarAlterarSenha}
+        onClose={() => {
+          setShowAlterarSenha(false);
+          if (forcarAlterarSenha && onPasswordChanged) onPasswordChanged();
+        }}
+      />
+    )}
     </>
   );
 };

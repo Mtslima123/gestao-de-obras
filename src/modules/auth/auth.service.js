@@ -51,4 +51,7 @@ export const authService = {
 
   updatePassword: (newPassword) =>
     supabase.auth.updateUser({ password: newPassword }),
+
+  marcarSenhaAlterada: () =>
+    supabase.functions.invoke('marcar-senha-alterada'),
 };

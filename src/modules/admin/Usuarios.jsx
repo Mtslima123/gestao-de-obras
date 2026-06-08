@@ -108,6 +108,9 @@ const UsuariosScreen = ({ obras = [] }) => {
   const [salvando, setSalvando] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(null);
   const [conviteEnviado, setConviteEnviado] = React.useState(null);
+  const [redefinindoSenha, setRedefinindoSenha] = React.useState(null);
+  const [novaSenhaAdmin, setNovaSenhaAdmin] = React.useState('');
+  const [salvandoSenha, setSalvandoSenha] = React.useState(false);
   const formRef = React.useRef(null);
 
   const carregarUsuarios = React.useCallback(async () => {
@@ -347,6 +350,9 @@ const UsuariosScreen = ({ obras = [] }) => {
                     <div className="row" style={{ gap: 4 }}>
                       <button className="icon-btn" title="Editar" onClick={() => abrirForm(u)}>
                         <Icon name="edit" size={15} style={{ color: 'var(--brand)' }} />
+                      </button>
+                      <button className="icon-btn" title="Redefinir senha" onClick={() => { setRedefinindoSenha(u); setNovaSenhaAdmin(gerarSenha()); }}>
+                        <Icon name="key" size={15} style={{ color: '#d97706' }} />
                       </button>
                       <button className="icon-btn" title="Excluir" onClick={() => setConfirmDelete(u)}>
                         <Icon name="trash" size={15} style={{ color: '#b91c1c' }} />
@@ -669,6 +675,45 @@ const UsuariosScreen = ({ obras = [] }) => {
                 : <><Icon name="check" size={15} /> Salvar Usuário</>
               }
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de redefinição de senha */}
+      {redefinindoSenha && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '28px 32px', maxWidth: 400, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 17 }}>Redefinir senha</h3>
+            <p style={{ margin: '0 0 18px', color: 'var(--text-muted)', fontSize: 13.5 }}>
+              Defina uma nova senha para <strong>{redefinindoSenha.nome}</strong>. O usuário deverá alterá-la no próximo acesso.
+            </p>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Nova senha</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input className="input" style={{ flex: 1, fontFamily: 'monospace', letterSpacing: '0.06em' }}
+                  type="text" placeholder="Mín. 6 caracteres"
+                  value={novaSenhaAdmin} onChange={e => setNovaSenhaAdmin(e.target.value)} autoFocus />
+                <button type="button" className="btn btn-ghost" style={{ flexShrink: 0, fontSize: 12 }}
+                  onClick={() => setNovaSenhaAdmin(gerarSenha())}>
+                  Gerar
+                </button>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 5 }}>Repasse esta senha ao usuário pelo WhatsApp ou outro canal seguro.</div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setRedefinindoSenha(null)}>Cancelar</button>
+              <button className="btn btn-primary" disabled={salvandoSenha || novaSenhaAdmin.length < 6}
+                onClick={async () => {
+                  setSalvandoSenha(true);
+                  const { error } = await usuariosService.redefinirSenha(redefinindoSenha.email, novaSenhaAdmin);
+                  setSalvandoSenha(false);
+                  if (error) { alert('Erro ao redefinir senha: ' + error.message); return; }
+                  setConviteEnviado({ email: redefinindoSenha.email, senha: novaSenhaAdmin });
+                  setRedefinindoSenha(null);
+                }}>
+                {salvandoSenha ? <span className="login-spinner" style={{ width: 14, height: 14 }} /> : <><Icon name="key" size={14} /> Redefinir senha</>}
+              </button>
+            </div>
           </div>
         </div>
       )}

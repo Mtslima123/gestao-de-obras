@@ -5,7 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const ok  = (body: unknown) => new Response(JSON.stringify(body),        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+const ok  = (body: unknown) => new Response(JSON.stringify(body),           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 const err = (msg: string)   => new Response(JSON.stringify({ error: msg }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
 Deno.serve(async (req) => {
@@ -18,25 +18,42 @@ Deno.serve(async (req) => {
       { auth: { autoRefreshToken: false, persistSession: false } },
     );
 
-    const { nome, email, telefone, perfil, status, modulos_ids, abas_ids, obra_ids, password } =
-      await req.json();
+    const body = await req.json();
+    const { modo, nome, email, telefone, perfil, status, modulos_ids, abas_ids, obra_ids, password } = body;
 
-    if (!nome || !email) return err('nome e email são obrigatórios');
-    if (!password || password.length < 6) return err('senha temporária deve ter pelo menos 6 caracteres');
+    if (!email) return err('email é obrigatório');
+    if (!password || password.length < 6) return err('senha deve ter pelo menos 6 caracteres');
 
-    // Verifica se já existe um auth user com esse email
+    // ── Modo: redefinir senha de usuário existente (pelo admin) ──
+    if (modo === 'redefinir-senha') {
+      const { data: { users } } = await supabaseAdmin.auth.admin.listUsers();
+      const user = users?.find((u) => u.email === email);
+      if (!user) return err('Usuário não encontrado');
+
+      const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(user.id, { password });
+      if (updateErr) return err(`Erro ao redefinir senha: ${updateErr.message}`);
+
+      await supabaseAdmin
+        .from('user_profiles')
+        .update({ deve_alterar_senha: true })
+        .eq('email', email);
+
+      return ok({ ok: true });
+    }
+
+    // ── Modo padrão: criar ou atualizar usuário completo ──
+    if (!nome) return err('nome é obrigatório');
+
     const { data: { users: existentes } } = await supabaseAdmin.auth.admin.listUsers();
     const jaExiste = existentes?.find((u) => u.email === email);
 
     let authUserId: string;
 
     if (jaExiste) {
-      // Atualiza a senha do usuário existente
       const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(jaExiste.id, { password });
       if (updateErr) return err(`Erro ao atualizar senha: ${updateErr.message}`);
       authUserId = jaExiste.id;
     } else {
-      // Cria novo auth user com senha temporária
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email,
         password,
@@ -47,7 +64,6 @@ Deno.serve(async (req) => {
       authUserId = authData.user.id;
     }
 
-    // Upsert do perfil (cria ou atualiza)
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('user_profiles')
       .upsert([{
@@ -59,6 +75,7 @@ Deno.serve(async (req) => {
         status: status ?? 'ativo',
         modulos_ids: modulos_ids ?? [],
         abas_ids: abas_ids ?? [],
+        deve_alterar_senha: true,
         updated_at: new Date().toISOString(),
       }], { onConflict: 'id' })
       .select()
@@ -66,7 +83,6 @@ Deno.serve(async (req) => {
 
     if (profileError) return err(`Erro ao salvar perfil: ${profileError.message}`);
 
-    // Vincula obras
     if (obra_ids && obra_ids.length > 0) {
       await supabaseAdmin.from('user_obras').delete().eq('user_id', authUserId);
       await supabaseAdmin

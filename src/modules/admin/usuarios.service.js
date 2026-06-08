@@ -82,4 +82,19 @@ export const usuariosService = {
 
   desvincularObras: (userId) =>
     supabase.from('user_obras').delete().eq('user_id', userId),
+
+  redefinirSenha: async (email, novaSenha) => {
+    const { data, error } = await supabase.functions.invoke('convidar-usuario', {
+      body: { modo: 'redefinir-senha', email, password: novaSenha },
+    });
+    if (error) return { error };
+    if (data?.error) return { error: { message: data.error } };
+    registrar({
+      modulo: 'usuarios', acao: 'editou',
+      entidadeTipo: 'usuario', entidadeId: email,
+      descricao: `Admin redefiniu a senha do usuário "${email}"`,
+      criticidade: 'critica',
+    });
+    return { error: null };
+  },
 };

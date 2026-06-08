@@ -2,7 +2,6 @@ import React from 'react';
 import { authService } from './auth.service';
 import { Icon } from '../../components/Icons';
 
-// Login screen — Gestão de Obras
 const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
   const [mode, setMode] = React.useState(passwordRecovery ? 'define-senha' : 'login');
   const [email, setEmail] = React.useState('');
@@ -11,7 +10,6 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
   const [remember, setRemember] = React.useState(true);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
-  const [success, setSuccess] = React.useState(null);
   const [showPass, setShowPass] = React.useState(false);
 
   React.useEffect(() => {
@@ -32,17 +30,6 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
       return;
     }
     onLogin();
-  };
-
-  const handlePrimeiroAcesso = async (e) => {
-    e.preventDefault();
-    if (!email.includes('@')) { setError('Informe um e-mail válido'); return; }
-    setError(null);
-    setLoading(true);
-    const { error: err } = await authService.resetPassword(email);
-    setLoading(false);
-    if (err) { setError(err.message || 'E-mail não encontrado ou erro de conexão.'); return; }
-    setSuccess('Link enviado! Verifique sua caixa de entrada e clique no link para definir sua senha.');
   };
 
   const handleDefinirSenha = async (e) => {
@@ -119,51 +106,6 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
     );
   }
 
-  // ── Modo: primeiro acesso ──
-  if (mode === 'primeiro-acesso') {
-    return (
-      <div className="login-shell" data-screen-label="00 Login">
-        <Brand />
-        <div className="login-form-wrap">
-          <div className="login-form-top">
-            <button className="btn btn-sm btn-ghost" onClick={() => { setMode('login'); setError(null); setSuccess(null); setEmail(''); }}>
-              <Icon name="chevron-left" size={14} /> Voltar
-            </button>
-          </div>
-          <div className="login-form">
-            {success ? (
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#dcfce7', display: 'grid', placeItems: 'center', margin: '0 auto 20px' }}>
-                  <Icon name="mail" size={24} style={{ color: '#15803d' }} />
-                </div>
-                <h2 className="login-title">E-mail enviado!</h2>
-                <p className="login-sub" style={{ maxWidth: 320, margin: '0 auto 24px' }}>{success}</p>
-                <button className="btn btn-ghost" onClick={() => { setMode('login'); setSuccess(null); setEmail(''); }}>
-                  Voltar ao login
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handlePrimeiroAcesso}>
-                <h2 className="login-title">Primeiro acesso</h2>
-                <p className="login-sub">Informe seu e-mail corporativo. Enviaremos um link para você criar sua senha.</p>
-                <div className="field full">
-                  <label>E-mail corporativo</label>
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                    placeholder="seu.nome@empresa.com.br" autoFocus />
-                </div>
-                {error && <div className="login-error" style={{ marginTop: 14 }}><Icon name="alert" size={13} />{error}</div>}
-                <button type="submit" className="btn btn-primary btn-lg login-submit" style={{ marginTop: 20 }} disabled={loading}>
-                  {loading ? <span className="login-spinner"></span> : <>Enviar link <Icon name="arrow-right" size={14} /></>}
-                </button>
-              </form>
-            )}
-          </div>
-          <Foot />
-        </div>
-      </div>
-    );
-  }
-
   // ── Modo: login normal ──
   return (
     <div className="login-shell" data-screen-label="00 Login">
@@ -194,15 +136,11 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
                 </button>
               </div>
             </div>
-            <div className="row" style={{ justifyContent: 'space-between', marginTop: 12, marginBottom: 20 }}>
+            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12, marginBottom: 20 }}>
               <label className="login-remember">
                 <div className={'switch' + (remember ? ' on' : '')} onClick={() => setRemember(r => !r)}></div>
                 <span>Manter-me conectado</span>
               </label>
-              <button type="button" style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 13, cursor: 'pointer', padding: 0, fontWeight: 500 }}
-                onClick={() => { setMode('primeiro-acesso'); setError(null); }}>
-                Primeiro acesso?
-              </button>
             </div>
             {error && <div className="login-error"><Icon name="alert" size={13} />{error}</div>}
             <button type="submit" className="btn btn-primary btn-lg login-submit" disabled={loading}>
