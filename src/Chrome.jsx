@@ -90,25 +90,13 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
     { id: 'obras',         label: 'Obras',               icon: 'building', badge: 14 },
     { id: 'orcamentos',    label: 'Orçamentos',          icon: 'wallet' },
     { id: 'cronograma',    label: 'Cronogramas',         icon: 'calendar' },
-    { id: 'orc-x-cron',   label: 'Orç. × Cronograma',  icon: 'link' },
-    { id: 'resumo',        label: 'Resumo de obras',     icon: 'chart' },
-    { id: 'controle',      label: 'Controle de obras',   icon: 'hard-hat' },
-    { id: 'efetivo',       label: 'Efetivo',             icon: 'users' },
     { id: 'estimativas',   label: 'Estimativas',         icon: 'calculator' },
-    { id: 'planejamento',  label: 'Planejamento',        icon: 'gantt' },
-    { id: 'contratos',     label: 'Contratos',           icon: 'file' },
     { id: 'medicaobanco',  label: 'Medição Banco',       icon: 'measure' },
     { id: 'incc',          label: 'INCC',                icon: 'trending-up' },
   ];
   const navMgmt = [
     { id: 'ia',            label: 'Assistente IA',       icon: 'sparkle' },
-    { id: 'incorporacao',  label: 'Incorporação',        icon: 'briefcase' },
-    { id: 'relatorios',    label: 'Relatórios',          icon: 'chart' },
     { id: 'admin',         label: 'Administração',       icon: 'shield' },
-  ];
-  const navConfig = [
-    { id: 'usuarios',  label: 'Usuários',            icon: 'user'   },
-    { id: 'auditoria', label: 'Auditoria do Sistema', icon: 'shield' },
   ];
 
   const renderItem = (item) => (
@@ -158,9 +146,6 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
 
         {!collapsed && <div className="nav-group-label">Gestão</div>}
         {navMgmt.map(renderItem)}
-
-        {!collapsed && <div className="nav-group-label">Configurações</div>}
-        {navConfig.map(renderItem)}
       </nav>
 
       <div className="sidebar-user">

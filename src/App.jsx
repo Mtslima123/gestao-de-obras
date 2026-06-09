@@ -12,13 +12,9 @@ import { ObrasList } from './modules/obras/ObrasList';
 import { ObraDetail } from './modules/obras/ObraDetail';
 import { OrcamentosScreen } from './modules/financeiro/Orcamentos';
 import { EstimativasScreen } from './modules/financeiro/Estimativas';
-import { ControleObrasScreen } from './modules/controle/Controle';
-import { EfetivoScreen } from './modules/controle/Efetivo';
-import { ResumoObrasScreen } from './modules/controle/Resumo';
 import { MedicaoBancoScreen } from './modules/financeiro/Medicao';
 import { INCCScreen } from './modules/financeiro/Incc';
 import { CronogramaFull } from './modules/cronograma/Cronograma';
-import { ContratosScreen } from './modules/financeiro/Contratos';
 import { OrcamentoCronogramaScreen } from './modules/financeiro/OrcamentoCronograma';
 import { IaScreen } from './modules/ia/IA';
 import { UsuariosScreen } from './modules/admin/Usuarios';
@@ -81,6 +77,8 @@ const AppInner = () => {
   const [refreshOrcamentos, setRefreshOrcamentos] = React.useState(0);
   const [cronogramaObraId, setCronogramaObraId] = React.useState(null);
   const [obrasLoaded,     setObrasLoaded]     = React.useState(false);
+  const [cronogramaTab,   setCronogramaTab]   = React.useState('gantt');
+  const [adminTab,        setAdminTab]        = React.useState('usuarios');
 
   // Carrega obras do Supabase ao autenticar; mantém mock como fallback se a tabela estiver vazia
   React.useEffect(() => {
@@ -200,19 +198,15 @@ const AppInner = () => {
   };
 
   const screenLabels = {
-    'dashboard': '01 Dashboard',
-    'obras': '02 Obras — Lista',
-    'obra-detail': '03 Obra — Detalhe',
-    'resumo': '04 Resumo de Obras',
-    'controle': '05 Controle de Obras',
-    'estimativas': '06 Estimativas',
-    'orcamentos': '07 Orçamentos',
-    'cronograma': '08 Cronograma',
-    'orc-x-cron': '09 Orç. × Cronograma',
-    'contratos': '10 Contratos',
-    'incc': '11 INCC',
-    'ia':        '12 Assistente IA',
-    'auditoria': 'Auditoria do Sistema',
+    'dashboard':  '01 Dashboard',
+    'obras':      '02 Obras — Lista',
+    'obra-detail':'03 Obra — Detalhe',
+    'estimativas':'04 Estimativas',
+    'orcamentos': '05 Orçamentos',
+    'cronograma': '06 Cronograma',
+    'incc':       '07 INCC',
+    'ia':         '08 Assistente IA',
+    'admin':      'Administração',
   };
 
   const buildBreadcrumb = () => {
@@ -224,10 +218,10 @@ const AppInner = () => {
       { label: selectedObra ? selectedObra.nome : AppData.obraAtual.nome },
     ];
     const map = {
-      obras: 'Obras', resumo: 'Resumo de obras', controle: 'Controle de obras', efetivo: 'Efetivo', estimativas: 'Estimativas',
-      orcamentos: 'Orçamentos', planejamento: 'Planejamento',
-      cronograma: 'Cronogramas', 'orc-x-cron': 'Orçamento × Cronograma', contratos: 'Contratos', medicaobanco: 'Medição Banco', incc: 'INCC',
-      incorporacao: 'Incorporação', relatorios: 'Relatórios', admin: 'Administração', usuarios: 'Configurações / Usuários', auditoria: 'Configurações / Auditoria do Sistema',
+      obras: 'Obras', estimativas: 'Estimativas',
+      orcamentos: 'Orçamentos', cronograma: 'Cronogramas',
+      medicaobanco: 'Medição Banco', incc: 'INCC',
+      admin: 'Administração',
     };
     return [home, { label: map[view] || view }];
   };
@@ -281,26 +275,33 @@ const AppInner = () => {
           )}
           {view === 'estimativas' && <EstimativasScreen />}
           {view === 'incc' && <INCCScreen />}
-          {view === 'cronograma' && obrasLoaded && <CronogramaFull initialObraId={cronogramaObraId} />}
-          {view === 'orc-x-cron' && (
-            <OrcamentoCronogramaScreen obras={obras} user={user} />
+          {view === 'cronograma' && obrasLoaded && (
+            <>
+              <div className="tabs" style={{ marginBottom: 0 }}>
+                <button className={'tab' + (cronogramaTab === 'gantt'      ? ' active' : '')} onClick={() => setCronogramaTab('gantt')}>Cronograma</button>
+                <button className={'tab' + (cronogramaTab === 'orc-x-cron' ? ' active' : '')} onClick={() => setCronogramaTab('orc-x-cron')}>Orç. × Cronograma</button>
+              </div>
+              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} />}
+              {cronogramaTab === 'orc-x-cron' && <OrcamentoCronogramaScreen obras={obras} user={user} />}
+            </>
           )}
           {view === 'ia' && <IaScreen obras={obras} user={user} />}
           {/* 🔒 SEGURANÇA [VULN-3]: telas admin bloqueadas para não-admin no frontend */}
-          {view === 'usuarios'  && (
-            userProfile?.perfil === 'admin'
-              ? <UsuariosScreen obras={obras} user={user} />
-              : <AcessoNegado onVoltar={() => handleNavigate('dashboard')} />
-          )}
-          {view === 'auditoria' && (
-            userProfile?.perfil === 'admin'
-              ? <AuditoriaScreen obras={obras} user={user} />
-              : <AcessoNegado onVoltar={() => handleNavigate('dashboard')} />
+          {view === 'admin' && (
+            userProfile?.perfil === 'admin' ? (
+              <>
+                <div className="tabs" style={{ marginBottom: 16 }}>
+                  <button className={'tab' + (adminTab === 'usuarios'  ? ' active' : '')} onClick={() => setAdminTab('usuarios')}>Usuários</button>
+                  <button className={'tab' + (adminTab === 'auditoria' ? ' active' : '')} onClick={() => setAdminTab('auditoria')}>Auditoria do Sistema</button>
+                </div>
+                {adminTab === 'usuarios'  && <UsuariosScreen obras={obras} user={user} />}
+                {adminTab === 'auditoria' && <AuditoriaScreen obras={obras} user={user} />}
+              </>
+            ) : <AcessoNegado onVoltar={() => handleNavigate('dashboard')} />
           )}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
-           view !== 'cronograma' && view !== 'orc-x-cron' && view !== 'ia' &&
-           view !== 'usuarios' && view !== 'auditoria' && (
+           view !== 'cronograma' && view !== 'ia' && view !== 'admin' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </ErrorBoundary>
@@ -343,14 +344,10 @@ const AppInner = () => {
         <TweakSection label="Navegação" />
         <TweakButton label="Dashboard" onClick={() => handleNavigate('dashboard')} />
         <TweakButton label="Obras" onClick={() => handleNavigate('obras')} />
-        <TweakButton label="Resumo de obras" onClick={() => handleNavigate('resumo')} />
-        <TweakButton label="Controle de obras" onClick={() => handleNavigate('controle')} />
         <TweakButton label="Detalhe da Obra A" onClick={() => handleOpenObra(AppData.obraAtual)} />
         <TweakButton label="Estimativas" onClick={() => handleNavigate('estimativas')} />
         <TweakButton label="Orçamentos" onClick={() => handleNavigate('orcamentos')} />
         <TweakButton label="Cronograma" onClick={() => handleNavigate('cronograma')} />
-        <TweakButton label="Orç. × Cronograma" onClick={() => handleNavigate('orc-x-cron')} />
-        <TweakButton label="Contratos" onClick={() => handleNavigate('contratos')} />
         <TweakButton label="INCC" onClick={() => handleNavigate('incc')} />
 
         <TweakSection label="Modais" />
@@ -373,15 +370,7 @@ const App = () => (
 // Placeholder for modules not yet built
 const PlaceholderModule = ({ view, onOpenObra }) => {
   const titles = {
-    planejamento: 'Planejamento físico-financeiro',
-    incorporacao: 'Incorporação',
-    relatorios: 'Relatórios',
-    admin: 'Administração',
-    controle: 'Controle de obras',
-    efetivo: 'Efetivo',
-    resumo: 'Resumo de obras',
     medicaobanco: 'Medição Banco',
-    contratos: 'Contratos',
   };
   return (
     <>
