@@ -77,33 +77,60 @@ const ModalAlterarSenha = ({ onClose, forcar = false }) => {
   );
 };
 
-const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha = false, onPasswordChanged }) => {
+const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha = false, onPasswordChanged, cronogramaTab, onCronogramaTabChange, adminTab, onAdminTabChange }) => {
   const [expanded, setExpanded] = React.useState(false);
   const [showAlterarSenha, setShowAlterarSenha] = React.useState(false);
+  const [expandedSection, setExpandedSection] = React.useState(null);
 
   React.useEffect(() => {
     if (forcarAlterarSenha) setShowAlterarSenha(true);
   }, [forcarAlterarSenha]);
+
+  // Abre accordion ao entrar na seção; fecha ao sair para outro módulo
+  React.useEffect(() => {
+    if (currentView === 'cronograma' || currentView === 'admin') {
+      setExpandedSection(currentView);
+    } else {
+      setExpandedSection(null);
+    }
+  }, [currentView]);
   const collapsed = !expanded;
   const navItems = [
     { id: 'dashboard',     label: 'Dashboard',           icon: 'dashboard' },
-    { id: 'obras',         label: 'Obras',               icon: 'building', badge: 14 },
+    { id: 'obras',         label: 'Obras',               icon: 'building' },
     { id: 'orcamentos',    label: 'Orçamentos',          icon: 'wallet' },
     { id: 'cronograma',    label: 'Cronogramas',         icon: 'calendar' },
-    { id: 'estimativas',   label: 'Estimativas',         icon: 'calculator' },
     { id: 'medicaobanco',  label: 'Medição Banco',       icon: 'measure' },
+    { id: 'estimativas',   label: 'Estimativas',         icon: 'calculator' },
     { id: 'incc',          label: 'INCC',                icon: 'trending-up' },
+  ];
+  const cronogramaSubItems = [
+    { id: 'gantt',       label: 'Cronograma' },
+    { id: 'orc-x-cron',  label: 'Orç. × Cronograma' },
+  ];
+  const adminSubItems = [
+    { id: 'usuarios',  label: 'Usuários' },
+    { id: 'auditoria', label: 'Auditoria do Sistema' },
   ];
   const navMgmt = [
     { id: 'ia',            label: 'Assistente IA',       icon: 'sparkle' },
     { id: 'admin',         label: 'Administração',       icon: 'shield' },
   ];
 
-  const renderItem = (item) => (
+  const handleSectionClick = (id) => {
+    if (expandedSection === id) {
+      setExpandedSection(null);
+    } else {
+      onNavigate(id);
+      setExpandedSection(id);
+    }
+  };
+
+  const renderItem = (item, onClick) => (
     <button
       key={item.id}
       className={'nav-item' + (currentView === item.id ? ' active' : '') + (item.subtle ? ' subtle' : '')}
-      onClick={() => onNavigate(item.id)}
+      onClick={onClick ?? (() => onNavigate(item.id))}
       title={collapsed ? item.label : undefined}
     >
       <Icon name={item.icon} size={17} className="nav-icon" />
@@ -122,7 +149,7 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
       >
         <div className="sidebar-header">
         <div className="brand-logo">
-          <img src="/assets/soter-icon.png" alt="Soter" style={{ width: 40, height: 40, objectFit: 'contain' }} />
+          <img src="/assets/soter-icon.png" alt="Soter" style={{ width: 52, height: 52, objectFit: 'contain' }} />
         </div>
         {!collapsed && (
           <div style={{ minWidth: 0, flex: 1 }}>
@@ -142,10 +169,50 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
 
       <nav className="sidebar-nav">
         {!collapsed && <div className="nav-group-label">Principal</div>}
-        {navItems.map(renderItem)}
+        {navItems.map(item => {
+          const isCronograma = item.id === 'cronograma';
+          return (
+            <React.Fragment key={item.id}>
+              {renderItem(item, isCronograma ? () => handleSectionClick('cronograma') : null)}
+              {isCronograma && !collapsed && expandedSection === 'cronograma' && (
+                <div className="nav-sub-group">
+                  {cronogramaSubItems.map(sub => (
+                    <button
+                      key={sub.id}
+                      className={'nav-sub-item' + (cronogramaTab === sub.id ? ' active' : '')}
+                      onClick={() => { onNavigate('cronograma'); onCronogramaTabChange && onCronogramaTabChange(sub.id); }}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
 
         {!collapsed && <div className="nav-group-label">Gestão</div>}
-        {navMgmt.map(renderItem)}
+        {navMgmt.map(item => {
+          const isAdmin = item.id === 'admin';
+          return (
+            <React.Fragment key={item.id}>
+              {renderItem(item, isAdmin ? () => handleSectionClick('admin') : null)}
+              {isAdmin && !collapsed && expandedSection === 'admin' && (
+                <div className="nav-sub-group">
+                  {adminSubItems.map(sub => (
+                    <button
+                      key={sub.id}
+                      className={'nav-sub-item' + (adminTab === sub.id ? ' active' : '')}
+                      onClick={() => { onNavigate('admin'); onAdminTabChange && onAdminTabChange(sub.id); }}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
       </nav>
 
       <div className="sidebar-user">

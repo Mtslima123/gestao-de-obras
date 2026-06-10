@@ -189,8 +189,8 @@ a:hover { color: var(--brand-600); }
   border-bottom: 1px solid var(--sb-border);
 }
 .brand-logo {
-  width: 46px;
-  height: 46px;
+  width: 52px;
+  height: 52px;
   border-radius: 11px;
   background: rgba(255,255,255,0.10);
   display: grid;
@@ -311,6 +311,35 @@ a:hover { color: var(--brand-600); }
 }
 .nav-item.subtle .nav-badge { background: rgba(255,255,255,0.06); color: var(--sb-text-muted); }
 .nav-item.active .nav-badge { background: #ffffff; color: var(--brand); }
+
+.nav-sub-group {
+  margin: 2px 0 4px 0;
+}
+.nav-sub-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px 6px 40px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--sb-text-muted);
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 0 6px 6px 0;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.nav-sub-item:hover {
+  background: var(--sb-hover);
+  color: var(--sb-text-strong);
+}
+.nav-sub-item.active {
+  color: #ffffff;
+  font-weight: 500;
+  border-left-color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.06);
+}
 
 .sidebar-user {
   border-top: 1px solid var(--sb-border);

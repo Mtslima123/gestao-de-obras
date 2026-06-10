@@ -244,6 +244,10 @@ const AppInner = () => {
         onLogout={handleLogout}
         forcarAlterarSenha={userProfile?.deve_alterar_senha === true}
         onPasswordChanged={() => setUserProfile(p => p ? { ...p, deve_alterar_senha: false } : p)}
+        cronogramaTab={cronogramaTab}
+        onCronogramaTabChange={setCronogramaTab}
+        adminTab={adminTab}
+        onAdminTabChange={setAdminTab}
       />
       <div className="main">
         <Topbar
@@ -277,10 +281,6 @@ const AppInner = () => {
           {view === 'incc' && <INCCScreen />}
           {view === 'cronograma' && obrasLoaded && (
             <>
-              <div className="tabs" style={{ marginBottom: 0 }}>
-                <button className={'tab' + (cronogramaTab === 'gantt'      ? ' active' : '')} onClick={() => setCronogramaTab('gantt')}>Cronograma</button>
-                <button className={'tab' + (cronogramaTab === 'orc-x-cron' ? ' active' : '')} onClick={() => setCronogramaTab('orc-x-cron')}>Orç. × Cronograma</button>
-              </div>
               {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} />}
               {cronogramaTab === 'orc-x-cron' && <OrcamentoCronogramaScreen obras={obras} user={user} />}
             </>
