@@ -202,7 +202,6 @@ const Dashboard = ({ onOpenObra, onAcao }) => {
             ))}
           </div>
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
-          <button className="btn btn-primary" onClick={() => onAcao && onAcao('nova-obra')}><Icon name="plus" size={15} />Nova obra</button>
         </div>
       </div>
 

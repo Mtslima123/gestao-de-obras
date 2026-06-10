@@ -252,7 +252,6 @@ const AppInner = () => {
       <div className="main">
         <Topbar
           breadcrumb={buildBreadcrumb()}
-          onNovaObra={view === 'dashboard' ? () => setModal('nova-obra') : null}
         />
         <div className="content">
           <ErrorBoundary key={view}>
