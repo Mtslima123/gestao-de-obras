@@ -228,8 +228,19 @@ function indentTasks(etapas, selectedIds) {
   const novas = etapas.map((e, idx) => {
     if (!selSet.has(e.id)) return e;
     if (idx === 0) return e;
-    const above = etapas[idx - 1];
-    if (above.id === e.parentId) return e; // já é filho da tarefa acima
+
+    const nivelAtual = e.nivel || 0;
+    // pai correto = tarefa-irmã imediatamente acima (mesmo nível atual);
+    // sobe a lista parando se encontrar um ancestral (nível menor) antes de uma irmã
+    let above = null;
+    for (let i = idx - 1; i >= 0; i--) {
+      const n = etapas[i].nivel || 0;
+      if (n < nivelAtual) break;            // chegou ao pai sem achar irmã -> não recua
+      if (n === nivelAtual) { above = etapas[i]; break; }
+      // n > nivelAtual: descendente de uma irmã anterior -> continua subindo
+    }
+    if (!above) return e;                   // sem irmã acima -> recuo inválido
+    if (above.id === e.parentId) return e;  // já é filho da tarefa acima
     if (isDescendant(above.id, e.id)) return e; // evita ciclo
     return { ...e, parentId: above.id };
   });
