@@ -6,7 +6,12 @@ import { orcamentosService } from '../modules/financeiro/orcamentos.service';
 // Modals, toasts, dropdowns — shared interactive components
 
 // ----- Modal shell -----
-const Modal = ({ title, subtitle, onClose, footer, children, size = 'md' }) => {
+const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false }) => {
+  const nodeRef  = React.useRef(null);
+  const dragging = React.useRef(false);
+  const offset   = React.useRef({ x: 0, y: 0 });
+  const [pos, setPos] = React.useState(null);
+
   React.useEffect(() => {
     const onEsc = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onEsc);
@@ -16,10 +21,53 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md' }) => {
       document.body.style.overflow = '';
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!draggable || !nodeRef.current) return;
+    const el = nodeRef.current;
+    setPos({
+      x: Math.max(0, Math.round((window.innerWidth  - el.offsetWidth)  / 2)),
+      y: Math.max(0, Math.round((window.innerHeight - el.offsetHeight) / 4)),
+    });
+  }, [draggable]);
+
+  React.useEffect(() => {
+    if (!draggable) return;
+    const move = (e) => {
+      if (!dragging.current) return;
+      const el = nodeRef.current;
+      const w = el ? el.offsetWidth  : 600;
+      const h = el ? el.offsetHeight : 400;
+      setPos({
+        x: Math.max(0, Math.min(window.innerWidth  - w,       e.clientX - offset.current.x)),
+        y: Math.max(0, Math.min(window.innerHeight - h - 8,   e.clientY - offset.current.y)),
+      });
+    };
+    const up = () => { dragging.current = false; };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup',   up);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup',   up);
+    };
+  }, [draggable]);
+
+  const handleHeaderDown = (e) => {
+    if (!draggable || e.target.closest('button')) return;
+    dragging.current = true;
+    const r = nodeRef.current?.getBoundingClientRect() ?? { left: pos?.x ?? 0, top: pos?.y ?? 0 };
+    offset.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+    e.preventDefault();
+  };
+
+  const sizeClass = size === 'lg' ? 'lg' : size === 'xl' ? 'xl' : '';
+  const modalStyle = draggable && pos ? { position: 'fixed', left: pos.x, top: pos.y, margin: 0 } : {};
+  const headerStyle = draggable ? { cursor: 'grab', userSelect: 'none' } : {};
+
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={'modal ' + (size === 'lg' ? 'lg' : size === 'xl' ? 'xl' : '')}>
-        <div className="modal-header">
+      <div ref={nodeRef} className={'modal ' + sizeClass} style={modalStyle}>
+        <div className="modal-header" style={headerStyle} onMouseDown={handleHeaderDown}>
           <div>
             <div className="modal-title">{title}</div>
             {subtitle && <div className="modal-sub">{subtitle}</div>}
@@ -514,16 +562,13 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
   const toast = useToast();
   const [form, setForm] = React.useState({
     obra_id: obras[0]?.id || '',
-    cliente: obras[0]?.cliente || '',
     versao: 'v1',
-    bdi: '26,0',
     status: 'rascunho',
   });
   const [loading, setLoading] = React.useState(false);
 
   const handleObraChange = (obraId) => {
-    const obra = obras.find(o => o.id === obraId);
-    setForm(f => ({ ...f, obra_id: obraId, cliente: obra?.cliente || f.cliente }));
+    setForm(f => ({ ...f, obra_id: obraId }));
   };
 
   const onSave = async () => {
@@ -531,19 +576,14 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
       toast('Selecione uma obra', { tone: 'error', icon: 'alert' });
       return;
     }
-    if (!form.cliente.trim()) {
-      toast('Preencha o nome do cliente', { tone: 'error', icon: 'alert' });
-      return;
-    }
     const novoId = 'OR-' + String(Date.now()).slice(-4);
-    const bdiNum = parseFloat(form.bdi.replace(',', '.')) || 0;
     setLoading(true);
     const { error } = await orcamentosService.criar({
       id: novoId,
       obra_id: form.obra_id,
-      cliente: form.cliente,
+      cliente: '',
       versao: form.versao || 'v1',
-      bdi: bdiNum,
+      bdi: 26,
       status: form.status,
       valor: 0,
       data: new Date().toISOString().slice(0, 10),
@@ -583,6 +623,7 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
       title="Novo orçamento"
       subtitle="Preencha os dados iniciais do orçamento"
       onClose={onClose}
+      draggable
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
@@ -598,19 +639,11 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
       }
     >
       <div className="form-grid">
-        <div className="field">
+        <div className="field full">
           <label>Obra <span className="req">*</span></label>
           <select value={form.obra_id} onChange={e => handleObraChange(e.target.value)}>
             {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
           </select>
-        </div>
-        <div className="field">
-          <label>Cliente <span className="req">*</span></label>
-          <input
-            placeholder="Nome do cliente"
-            value={form.cliente}
-            onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))}
-          />
         </div>
         <div className="field">
           <label>Versão</label>
@@ -621,14 +654,6 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
           />
         </div>
         <div className="field">
-          <label>BDI (%)</label>
-          <input
-            placeholder="0,0"
-            value={form.bdi}
-            onChange={e => setForm(f => ({ ...f, bdi: e.target.value }))}
-          />
-        </div>
-        <div className="field full">
           <label>Status inicial</label>
           <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
             <option value="rascunho">Rascunho</option>
