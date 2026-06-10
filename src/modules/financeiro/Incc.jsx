@@ -5,9 +5,10 @@ import { Icon } from '../../components/Icons';
 // Fonte vinculada: https://sindusconpr.com.br/incc-di-fgv-310-p
 
 const INCC_SOURCE_URL = 'https://sindusconpr.com.br/incc-di-fgv-310-p';
-// Série 7447 = INCC-DI FGV (variação % mensal) no SGS do Banco Central
-const BCB_INCC_URL    = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.7447/dados/ultimos/25?formato=json';
-const INCC_CACHE_KEY  = 'incc_cache_v2'; // bump para invalidar cache com código antigo
+// Série 192 = INCC (FGV) variação % mensal no SGS do Banco Central
+// Usa endpoint por período (mais estável que /ultimos)
+const BCB_INCC_URL    = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.192/dados?dataInicial=01/01/2024&formato=json';
+const INCC_CACHE_KEY  = 'incc_cache_v3';
 const INCC_CACHE_TTL  = 6 * 60 * 60 * 1000; // 6 horas
 
 // Série histórica do INCC-DI (FGV) — base julho/94 = 100 — usada como âncora e fallback
