@@ -5,10 +5,11 @@ import { Icon } from '../../components/Icons';
 // Fonte vinculada: https://sindusconpr.com.br/incc-di-fgv-310-p
 
 const INCC_SOURCE_URL = 'https://sindusconpr.com.br/incc-di-fgv-310-p';
+const BCB_INCC_URL    = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.192/dados/ultimos/25?formato=json';
+const INCC_CACHE_KEY  = 'incc_cache_v1';
+const INCC_CACHE_TTL  = 6 * 60 * 60 * 1000; // 6 horas
 
-// Série histórica do INCC-DI (FGV) — base julho/94 = 100
-// Fonte: sindusconpr.com.br · dados exibidos no site (Mai/25 a Abr/26)
-// Série histórica completa disponível para download em XLSX na fonte oficial
+// Série histórica do INCC-DI (FGV) — base julho/94 = 100 — usada como âncora e fallback
 const INCC_SERIE = [
   { m: 'Mai/25', v: 1191.327, var: 0.58, varAno: 2.74, var12m: 7.24 },
   { m: 'Jun/25', v: 1199.509, var: 0.69, varAno: 3.45, var12m: 7.21 },
@@ -24,20 +25,112 @@ const INCC_SERIE = [
   { m: 'Abr/26', v: 1259.652, var: 1.00, varAno: 2.56, var12m: 6.35 },
 ];
 
+const MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+// Converte "01/05/2025" (BCB) → "Mai/25"
+function bcbDateToLabel(dateStr) {
+  const [, m, y] = dateStr.split('/');
+  return MESES_PT[parseInt(m, 10) - 1] + '/' + y.slice(2);
+}
+
+// Reconstrói série completa mesclando dados do BCB com a série hardcoded.
+// Usa o último valor absoluto conhecido como âncora para encadear meses novos.
+function buildSerieFromBCB(bcbData, hardcoded) {
+  const labelSet = new Set(hardcoded.map(e => e.m));
+  const novosMeses = bcbData.filter(e => !labelSet.has(bcbDateToLabel(e.data)));
+  if (novosMeses.length === 0) return hardcoded;
+
+  const extended = [...hardcoded];
+
+  novosMeses.forEach(entry => {
+    const varPct  = parseFloat(entry.valor);
+    const ultimo  = extended[extended.length - 1];
+    const novoV   = parseFloat((ultimo.v * (1 + varPct / 100)).toFixed(3));
+    const label   = bcbDateToLabel(entry.data);
+    const ano     = label.slice(4); // "26", "27"...
+
+    // varAno: produto encadeado de todos os meses do mesmo ano até este
+    const mesesAno = extended.filter(e => e.m.endsWith('/' + ano)).concat([{ var: varPct }]);
+    const varAno = parseFloat(
+      ((mesesAno.reduce((acc, e) => acc * (1 + e.var / 100), 1) - 1) * 100).toFixed(2)
+    );
+
+    // var12m: produto encadeado dos 12 meses anteriores + este
+    const historia = extended.slice(-11).map(e => e.var).concat(varPct);
+    const var12m = parseFloat(
+      ((historia.reduce((acc, v) => acc * (1 + v / 100), 1) - 1) * 100).toFixed(2)
+    );
+
+    extended.push({ m: label, v: novoV, var: varPct, varAno, var12m });
+  });
+
+  return extended;
+}
+
 const INCCScreen = () => {
-  const atual = INCC_SERIE[INCC_SERIE.length - 1];
-  const dez25 = INCC_SERIE[7]; // Dez/25
+  const [serie, setSerie]     = React.useState(INCC_SERIE);
+  const [loading, setLoading] = React.useState(false);
+  const [lastSync, setLastSync] = React.useState(null);
+
+  const fetchBCB = React.useCallback((force = false) => {
+    if (!force) {
+      try {
+        const cached = localStorage.getItem(INCC_CACHE_KEY);
+        if (cached) {
+          const { ts, data } = JSON.parse(cached);
+          if (Date.now() - ts < INCC_CACHE_TTL) {
+            setSerie(data);
+            setLastSync(new Date(ts));
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+
+    setLoading(true);
+    fetch(BCB_INCC_URL)
+      .then(r => r.json())
+      .then(bcbData => {
+        const nova = buildSerieFromBCB(bcbData, INCC_SERIE);
+        if (nova.length >= INCC_SERIE.length) {
+          setSerie(nova);
+          const now = Date.now();
+          try {
+            localStorage.setItem(INCC_CACHE_KEY, JSON.stringify({ ts: now, data: nova }));
+          } catch (_) {}
+          setLastSync(new Date(now));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { fetchBCB(false); }, [fetchBCB]);
+
+  const atual = serie[serie.length - 1];
+  const dez   = serie.find(e => e.m.startsWith('Dez')) || serie[serie.length - 1];
 
   // Calculadora
-  const [valor, setValor] = React.useState(1000000);
-  const [mesIni, setMesIni] = React.useState(0);  // índice na série
-  const [mesFim, setMesFim] = React.useState(INCC_SERIE.length - 1);
-  const iniVal = INCC_SERIE[mesIni].v;
-  const fimVal = INCC_SERIE[mesFim].v;
-  const fator = fimVal / iniVal;
-  const corrigido = valor * fator;
-  const correcao = corrigido - valor;
+  const [valor, setValor]   = React.useState(1000000);
+  const [mesIni, setMesIni] = React.useState(0);
+  const [mesFim, setMesFim] = React.useState(serie.length - 1);
+
+  React.useEffect(() => {
+    setMesFim(serie.length - 1);
+  }, [serie.length]);
+
+  const safeIni = Math.min(mesIni, serie.length - 1);
+  const safeFim = Math.min(mesFim, serie.length - 1);
+  const iniVal  = serie[safeIni].v;
+  const fimVal  = serie[safeFim].v;
+  const fator   = fimVal / iniVal;
+  const corrigido   = valor * fator;
+  const correcao    = corrigido - valor;
   const pctVariacao = (fator - 1) * 100;
+
+  const syncLabel = loading
+    ? 'Buscando dados atualizados…'
+    : `Exibindo ${serie[0]?.m} – ${serie[serie.length - 1]?.m}${lastSync ? ' · atualizado ' + lastSync.toLocaleDateString('pt-BR') : ''}`;
 
   return (
     <>
@@ -49,10 +142,14 @@ const INCCScreen = () => {
             <a href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 500 }}>
               Sinduscon-PR (FGV)
             </a>
-            {' '}· exibindo Mai/25 – Abr/26 · próxima divulgação: 09/Jun/26
+            {' · '}{syncLabel}
           </div>
         </div>
         <div className="page-actions">
+          <button className="btn btn-ghost" onClick={() => fetchBCB(true)} disabled={loading} title="Forçar atualização">
+            <Icon name="refresh-cw" size={14} />
+            {loading ? 'Buscando…' : 'Atualizar'}
+          </button>
           <a className="btn btn-primary" href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer">
             <Icon name="arrow-right" size={15} />
             Ver no Sinduscon-PR
@@ -88,32 +185,33 @@ const INCCScreen = () => {
             {atual.var12m.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
-            <span className="kpi-foot-text">Abr/25 → Abr/26</span>
+            <span className="kpi-foot-text">{serie.length >= 12 ? serie[serie.length - 12].m : serie[0].m} → {atual.m}</span>
           </div>
         </div>
 
         <div className="kpi">
           <div className="kpi-label">
             <div className="kpi-icon"><Icon name="chart" size={16} /></div>
-            Acumulado 2025
+            Acumulado {dez.m.slice(4) === atual.m.slice(4) ? atual.m.slice(4) : dez.m.slice(4)}
           </div>
           <div className="kpi-value num" style={{ fontSize: 28, marginTop: 10 }}>
-            {dez25.varAno.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
+            {(dez.m.slice(4) === atual.m.slice(4) ? atual : dez).varAno.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<span className="unit">%</span>
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
-            <span className="kpi-foot-text">Jan/25 a Dez/25</span>
+            <span className="kpi-foot-text">Jan/{dez.m.slice(4)} a {dez.m.slice(4) === atual.m.slice(4) ? atual.m : dez.m}</span>
           </div>
         </div>
 
         <div className="kpi">
           <div className="kpi-label">
             <div className="kpi-icon"><Icon name="check-circle" size={16} /></div>
-            Próxima divulgação
+            Fonte de dados
           </div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 10 }}>
-            09/Jun/26
+          <div className="kpi-value num" style={{ fontSize: 14, marginTop: 10, lineHeight: 1.4 }}>
+            BCB · SGS 192
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
+            <span className="kpi-foot-text">{loading ? 'Atualizando…' : lastSync ? 'Auto · ' + lastSync.toLocaleDateString('pt-BR') : 'Dados locais'}</span>
           </div>
         </div>
       </div>
@@ -123,11 +221,11 @@ const INCCScreen = () => {
         <div className="card-header">
           <div>
             <div className="card-title">Variação mensal do INCC-DI</div>
-            <div className="card-subtitle">Percentual de variação mês a mês · {INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</div>
+            <div className="card-subtitle">Percentual de variação mês a mês · {serie[0].m} a {serie[serie.length - 1].m}</div>
           </div>
         </div>
         <div className="card-body">
-          <INCCChart serie={INCC_SERIE} />
+          <INCCChart serie={serie} />
         </div>
       </div>
 
@@ -136,8 +234,8 @@ const INCCScreen = () => {
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="card-title">Série mensal — {INCC_SERIE[0].m} a {INCC_SERIE[INCC_SERIE.length - 1].m}</div>
-              <div className="card-subtitle">Dados disponíveis no site · série histórica completa no XLSX</div>
+              <div className="card-title">Série mensal — {serie[0].m} a {serie[serie.length - 1].m}</div>
+              <div className="card-subtitle">Atualizado automaticamente via API do Banco Central (SGS 192)</div>
             </div>
           </div>
           <div className="card-body flush">
@@ -152,7 +250,7 @@ const INCCScreen = () => {
                 </tr>
               </thead>
               <tbody>
-                {[...INCC_SERIE].reverse().map((d, i) => {
+                {[...serie].reverse().map((d, i) => {
                   const isLatest = i === 0;
                   return (
                     <tr key={i} style={isLatest ? { background: 'var(--brand-tint)' } : null}>
@@ -226,16 +324,16 @@ const INCCScreen = () => {
             </div>
             <div className="field">
               <label>Mês inicial</label>
-              <select value={mesIni} onChange={e => setMesIni(+e.target.value)}>
-                {INCC_SERIE.map((d, i) => (
+              <select value={safeIni} onChange={e => setMesIni(+e.target.value)}>
+                {serie.map((d, i) => (
                   <option key={i} value={i}>{d.m} — {d.v.toFixed(3)}</option>
                 ))}
               </select>
             </div>
             <div className="field">
               <label>Mês final</label>
-              <select value={mesFim} onChange={e => setMesFim(+e.target.value)}>
-                {INCC_SERIE.map((d, i) => (
+              <select value={safeFim} onChange={e => setMesFim(+e.target.value)}>
+                {serie.map((d, i) => (
                   <option key={i} value={i}>{d.m} — {d.v.toFixed(3)}</option>
                 ))}
               </select>
@@ -258,10 +356,10 @@ const INCCScreen = () => {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
             <div className="text-xs text-muted" style={{ fontFamily: 'var(--font-mono)' }}>
-              {INCC_SERIE[mesIni].m} ({INCC_SERIE[mesIni].v.toFixed(3)}) → {INCC_SERIE[mesFim].m} ({INCC_SERIE[mesFim].v.toFixed(3)}) ·
+              {serie[safeIni].m} ({serie[safeIni].v.toFixed(3)}) → {serie[safeFim].m} ({serie[safeFim].v.toFixed(3)}) ·
               correção bruta: <span style={{ color: 'var(--brand)', fontWeight: 600 }}>R$ {correcao.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
-            <button className="btn btn-sm btn-primary" onClick={() => { setValor(1000000); setMesIni(0); setMesFim(INCC_SERIE.length - 1); }}>
+            <button className="btn btn-sm btn-primary" onClick={() => { setValor(1000000); setMesIni(0); setMesFim(serie.length - 1); }}>
               <Icon name="x" size={13} />Limpar simulação
             </button>
           </div>
@@ -306,7 +404,6 @@ const INCCChart = ({ serie }) => {
   const mediaVar = serie.reduce((s, d) => s + d.var, 0) / serie.length;
   const yTicks = [0, niceMax / 4, niceMax / 2, (niceMax * 3) / 4, niceMax];
 
-  // intensidade proporcional ao valor: barras altas = mais opacas/escuras
   const barOpacity = v => 0.40 + 0.60 * ((v - minVar) / (maxVar - minVar || 1));
 
   return (
@@ -364,7 +461,7 @@ const INCCChart = ({ serie }) => {
         );
       })}
 
-      {/* Average line — renderizada após as barras para ficar por cima */}
+      {/* Average line */}
       <line
         x1={pad.l} x2={w - pad.r}
         y1={yOf(mediaVar)} y2={yOf(mediaVar)}
