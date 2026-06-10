@@ -5,8 +5,9 @@ import { Icon } from '../../components/Icons';
 // Fonte vinculada: https://sindusconpr.com.br/incc-di-fgv-310-p
 
 const INCC_SOURCE_URL = 'https://sindusconpr.com.br/incc-di-fgv-310-p';
-const BCB_INCC_URL    = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.192/dados/ultimos/25?formato=json';
-const INCC_CACHE_KEY  = 'incc_cache_v1';
+// Série 7447 = INCC-DI FGV (variação % mensal) no SGS do Banco Central
+const BCB_INCC_URL    = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.7447/dados/ultimos/25?formato=json';
+const INCC_CACHE_KEY  = 'incc_cache_v2'; // bump para invalidar cache com código antigo
 const INCC_CACHE_TTL  = 6 * 60 * 60 * 1000; // 6 horas
 
 // Série histórica do INCC-DI (FGV) — base julho/94 = 100 — usada como âncora e fallback
@@ -68,9 +69,10 @@ function buildSerieFromBCB(bcbData, hardcoded) {
 }
 
 const INCCScreen = () => {
-  const [serie, setSerie]     = React.useState(INCC_SERIE);
-  const [loading, setLoading] = React.useState(false);
+  const [serie, setSerie]       = React.useState(INCC_SERIE);
+  const [loading, setLoading]   = React.useState(false);
   const [lastSync, setLastSync] = React.useState(null);
+  const [syncError, setSyncError] = React.useState(null);
 
   const fetchBCB = React.useCallback((force = false) => {
     if (!force) {
@@ -81,6 +83,7 @@ const INCCScreen = () => {
           if (Date.now() - ts < INCC_CACHE_TTL) {
             setSerie(data);
             setLastSync(new Date(ts));
+            setSyncError(null);
             return;
           }
         }
@@ -88,9 +91,14 @@ const INCCScreen = () => {
     }
 
     setLoading(true);
+    setSyncError(null);
     fetch(BCB_INCC_URL)
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(bcbData => {
+        if (!Array.isArray(bcbData) || bcbData.length === 0) throw new Error('Resposta vazia');
         const nova = buildSerieFromBCB(bcbData, INCC_SERIE);
         if (nova.length >= INCC_SERIE.length) {
           setSerie(nova);
@@ -101,7 +109,7 @@ const INCCScreen = () => {
           setLastSync(new Date(now));
         }
       })
-      .catch(() => {})
+      .catch(err => setSyncError(err.message || 'Falha na API'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -208,10 +216,12 @@ const INCCScreen = () => {
             Fonte de dados
           </div>
           <div className="kpi-value num" style={{ fontSize: 14, marginTop: 10, lineHeight: 1.4 }}>
-            BCB · SGS 192
+            BCB · SGS 7447
           </div>
           <div className="kpi-foot" style={{ marginTop: 10 }}>
-            <span className="kpi-foot-text">{loading ? 'Atualizando…' : lastSync ? 'Auto · ' + lastSync.toLocaleDateString('pt-BR') : 'Dados locais'}</span>
+            <span className="kpi-foot-text" style={syncError ? { color: 'var(--danger)' } : {}}>
+              {loading ? 'Atualizando…' : syncError ? 'Erro: ' + syncError : lastSync ? 'Auto · ' + lastSync.toLocaleDateString('pt-BR') : 'Dados locais'}
+            </span>
           </div>
         </div>
       </div>
