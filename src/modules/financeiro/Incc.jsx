@@ -5,7 +5,7 @@ import { Icon } from '../../components/Icons';
 // Fonte: https://sindusconpr.com.br/incc-di-fgv-310-p
 
 const INCC_SOURCE_URL = 'https://sindusconpr.com.br/incc-di-fgv-310-p';
-const INCC_CACHE_KEY  = 'incc_cache_v4';
+const INCC_CACHE_KEY  = 'incc_cache_v5';
 const INCC_CACHE_TTL  = 6 * 60 * 60 * 1000; // 6 horas
 
 // Série histórica do INCC-DI (FGV) — base julho/94 = 100 — fallback e âncora
@@ -32,8 +32,20 @@ function bcbDateToLabel(dateStr) {
 }
 
 function buildSerieFromBCB(bcbData, hardcoded) {
-  const labelSet = new Set(hardcoded.map(e => e.m));
-  const novos = bcbData.filter(e => !labelSet.has(bcbDateToLabel(e.data)));
+  const lastLabel = hardcoded[hardcoded.length - 1].m;
+  const lastMes   = MESES_PT.indexOf(lastLabel.slice(0, 3)) + 1;
+  const lastAno   = '20' + lastLabel.slice(4);
+  const cutoff    = lastAno + '-' + String(lastMes).padStart(2, '0');
+
+  function toSortable(dateStr) {
+    const [, m, y] = dateStr.split('/');
+    return y + '-' + m.padStart(2, '0');
+  }
+
+  const novos = bcbData
+    .filter(e => toSortable(e.data) > cutoff)
+    .sort((a, b) => toSortable(a.data).localeCompare(toSortable(b.data)));
+
   if (novos.length === 0) return hardcoded;
 
   const extended = [...hardcoded];
