@@ -256,7 +256,6 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
     const newItems = validos.map((r, i) => ({
       id:             'tmp-' + Math.random().toString(36).slice(2),
       orcamento_id:   orcamento.id,
-      user_id:        user?.id ?? null,
       codigo:         r.codigo,
       nome:           r.nome,
       quantidade:     r.quantidade,
@@ -612,7 +611,6 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   const makeNewRow = (codigo, ordem) => ({
     id: 'tmp-' + Math.random().toString(36).slice(2),
     orcamento_id: orcamento.id,
-    user_id: user?.id ?? null,
     codigo,
     nome: '',
     quantidade: 0,
@@ -722,73 +720,145 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
     setDirty(false);
   };
 
-  const handleImport = (newItems, modo) => {
-    if (modo === 'substituir') {
-      // Marca itens existentes no banco para deletar no próximo save
-      const toDelete = items.filter(it => !it._new).map(it => it.id);
-      if (toDelete.length) setDeletedIds(prev => [...prev, ...toDelete]);
-      setItems(newItems);
-    } else {
-      setItems(prev => [...prev, ...newItems]);
+  // Importação grava direto no banco — não exige clicar em "Salvar alterações"
+  const handleImport = async (newItems, modo) => {
+    // Em "substituir", remove os itens já persistidos antes de inserir os novos
+    const idsToDelete = modo === 'substituir'
+      ? items.filter(it => !it._new).map(it => it.id)
+      : [];
+    // Omitir id (DB gera) e user_id (coluna inexistente em orcamento_itens)
+    const toInsert = newItems.map(({ _new, _dirty, id, user_id, ...rest }) => rest);
+
+    setSaving(true);
+    try {
+      // 1) Substituir: deleta os antigos primeiro (evita conflito de código duplicado)
+      if (idsToDelete.length) {
+        const { error } = await orcamentosService.itens.excluirVarios(idsToDelete);
+        if (error) {
+          console.error('[orcamento] erro ao substituir itens na importação', error);
+          toast('Erro ao substituir itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          setSaving(false);
+          return; // nada foi alterado no banco
+        }
+        setDeletedIds([]);
+      }
+
+      // 2) Insere os itens importados
+      if (toInsert.length) {
+        const { error } = await orcamentosService.itens.criar(toInsert);
+        if (error) {
+          console.error('[orcamento] erro ao inserir itens na importação', error);
+          toast('Erro ao importar itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          // Mantém os novos itens em memória (pendentes) para retry via "Salvar alterações"
+          if (modo === 'substituir') setItems(newItems);
+          else setItems(prev => [...prev, ...newItems]);
+          setDirty(true);
+          setSaving(false);
+          return;
+        }
+      }
+
+      // 3) Recarrega do banco para refletir os IDs reais
+      const { data } = await orcamentosService.itens.listar(orcamento.id);
+      const loaded = data && data.length > 0 ? data : [];
+      setItems(loaded);
+      setDeletedIds([]);
+      setDirty(false);
+
+      // 4) Atualiza o valor total no cabeçalho do orçamento
+      const grandTotal = calcTotals(loaded)
+        .filter(it => getNivel(it.codigo) === 0)
+        .reduce((s, it) => s + it.valor_total, 0);
+      const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: grandTotal });
+      if (errHeader) console.error('[orcamento] erro ao atualizar total do orçamento', errHeader);
+
+      toast(`${toInsert.length} itens importados e salvos`, { tone: 'success', icon: 'check' });
+    } catch (e) {
+      console.error('[orcamento] falha inesperada na importação', e);
+      toast('Erro ao importar: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
+    } finally {
+      setSaving(false);
     }
-    setDirty(true);
   };
 
   // ── Salvar no DB ───────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
+    try {
+      // Itens novos: omitir `id` (DB gera) e `user_id` (orcamento_itens não tem essa coluna)
+      const toInsert = items
+        .filter(it => it._new)
+        .map(({ _new, _dirty, id, user_id, ...rest }) => rest);
 
-    // Deleta do banco itens removidos localmente
-    if (deletedIds.length) {
-      const { error } = await orcamentosService.itens.excluirVarios(deletedIds);
-      if (error) {
-        toast('Erro ao excluir itens: ' + error.message, { tone: 'error', icon: 'alert' });
+      // Itens existentes editados: UPDATE individual por id
+      // (upsert falha com colunas GENERATED ALWAYS AS IDENTITY)
+      const toUpdate = items
+        .filter(it => !it._new && it._dirty)
+        .map(({ _new, _dirty, user_id, ...rest }) => rest);
+
+      // 1) Insere os novos itens ANTES de qualquer exclusão — assim uma falha
+      //    aqui não deixa o orçamento vazio (a exclusão só roda após sucesso).
+      if (toInsert.length) {
+        const { error } = await orcamentosService.itens.criar(toInsert);
+        if (error) {
+          console.error('[orcamento] erro ao inserir itens', error);
+          toast('Erro ao inserir itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          setSaving(false);
+          return;
+        }
+      }
+
+      // 2) Atualiza os itens editados
+      if (toUpdate.length) {
+        const resultados = await Promise.all(
+          toUpdate.map(({ id, ...dados }) => orcamentosService.itens.atualizar(id, dados))
+        );
+        const falha = resultados.find(r => r.error);
+        if (falha) {
+          console.error('[orcamento] erro ao atualizar itens', falha.error);
+          toast('Erro ao atualizar itens: ' + falha.error.message, { tone: 'error', icon: 'alert' });
+          setSaving(false);
+          return;
+        }
+      }
+
+      // 3) Só agora exclui do banco os itens removidos localmente
+      if (deletedIds.length) {
+        const { error } = await orcamentosService.itens.excluirVarios(deletedIds);
+        if (error) {
+          console.error('[orcamento] erro ao excluir itens', error);
+          toast('Erro ao excluir itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          setSaving(false);
+          return;
+        }
+        setDeletedIds([]);
+      }
+
+      // 4) Atualiza valor total do cabeçalho do orçamento
+      const grandTotal = withTotals
+        .filter(it => getNivel(it.codigo) === 0)
+        .reduce((s, it) => s + it.valor_total, 0);
+      const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: grandTotal });
+      if (errHeader) {
+        console.error('[orcamento] erro ao atualizar total do orçamento', errHeader);
+        toast('Erro ao atualizar total do orçamento: ' + errHeader.message, { tone: 'error', icon: 'alert' });
         setSaving(false);
         return;
       }
-      setDeletedIds([]);
-    }
 
-    // Itens novos: omitir `id` para o DB gerar o UUID automaticamente
-    const toInsert = items
-      .filter(it => it._new)
-      .map(({ _new, _dirty, id, ...rest }) => rest);
+      // 5) Recarrega do banco para refletir os IDs reais (substitui os tmp-…)
+      const { data } = await orcamentosService.itens.listar(orcamento.id);
+      if (data && data.length > 0) setItems(data);
+      else setItems(prev => prev.map(({ _new, _dirty, ...rest }) => rest));
 
-    // Itens existentes editados: UPDATE individual por id
-    // (upsert falha com colunas GENERATED ALWAYS AS IDENTITY)
-    const toUpdate = items
-      .filter(it => !it._new && it._dirty)
-      .map(({ _new, _dirty, ...rest }) => rest);
-
-    if (toInsert.length) {
-      const { error } = await orcamentosService.itens.criar(toInsert);
-      if (error) {
-        toast('Erro ao inserir itens: ' + error.message, { tone: 'error', icon: 'alert' });
-        setSaving(false);
-        return;
-      }
+      setDirty(false);
+      toast('Itens salvos com sucesso', { tone: 'success', icon: 'check' });
+    } catch (e) {
+      console.error('[orcamento] falha inesperada ao salvar', e);
+      toast('Erro ao salvar: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
+    } finally {
+      setSaving(false);
     }
-    if (toUpdate.length) {
-      const resultados = await Promise.all(
-        toUpdate.map(({ id, ...dados }) => orcamentosService.itens.atualizar(id, dados))
-      );
-      const falha = resultados.find(r => r.error);
-      if (falha) {
-        toast('Erro ao atualizar itens: ' + falha.error.message, { tone: 'error', icon: 'alert' });
-        setSaving(false);
-        return;
-      }
-    }
-    // Atualiza valor total do cabeçalho do orçamento
-    const grandTotal = withTotals
-      .filter(it => getNivel(it.codigo) === 0)
-      .reduce((s, it) => s + it.valor_total, 0);
-    await orcamentosService.atualizar(orcamento.id, { valor: grandTotal });
-    // Limpa flags localmente — não recarrega do DB para evitar que RLS vazio apague a UI
-    setItems(prev => prev.map(({ _new, _dirty, ...rest }) => rest));
-    setSaving(false);
-    setDirty(false);
-    toast('Itens salvos com sucesso', { tone: 'success', icon: 'check' });
   };
 
   // ── Excluir / Revisão ──────────────────────────────────────────────────────
