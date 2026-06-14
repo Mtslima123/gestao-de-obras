@@ -112,6 +112,12 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     [vinculos]
   );
 
+  // IDs de itens já vinculados a qualquer tarefa — cada item pode pertencer a uma só tarefa
+  const itensVinculadosIds = React.useMemo(
+    () => new Set(vinculos.map(v => v.orcamento_item_id)),
+    [vinculos]
+  );
+
   const toggleItem = (id) => {
     const sid = String(id);
     setSelItens(prev =>
@@ -126,12 +132,13 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   );
 
   const itensFiltradosBusca = React.useMemo(() => {
-    if (!buscaItem) return itens;
+    const disponiveis = itens.filter(it => !itensVinculadosIds.has(it.id));
+    if (!buscaItem) return disponiveis;
     const q = buscaItem.toLowerCase();
-    return itens.filter(it =>
+    return disponiveis.filter(it =>
       it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q)
     );
-  }, [itens, buscaItem]);
+  }, [itens, buscaItem, itensVinculadosIds]);
 
   // ── Adicionar vínculos (tela principal) ───────────────────────────────────
   const handleAdd = async () => {
@@ -223,9 +230,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   // ── Dados do modal de edição ───────────────────────────────────────────────
   const editandoEtapa     = etapas.find(e => e.id === editandoEtapaId);
   const vinculosEtapa     = vinculos.filter(v => v.etapa_id === editandoEtapaId);
-  const vinculadosItemIds = new Set(vinculosEtapa.map(v => v.orcamento_item_id));
   const itensNaoVinculados = itens.filter(it => {
-    if (vinculadosItemIds.has(it.id)) return false;
+    if (itensVinculadosIds.has(it.id)) return false; // já vinculado a alguma tarefa
     if (!buscaModalItem) return true;
     const q = buscaModalItem.toLowerCase();
     return it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q);
@@ -327,7 +333,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                   }}>
                     {itensFiltradosBusca.length === 0 && (
                       <div style={{ padding: '10px 12px', fontSize: 13, color: 'var(--text-faint)' }}>
-                        Nenhum item encontrado.
+                        {!buscaItem && itens.length > 0
+                          ? 'Todos os itens já foram vinculados.'
+                          : 'Nenhum item encontrado.'}
                       </div>
                     )}
                     {itensFiltradosBusca.map(it => {
@@ -639,7 +647,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
             <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 260, overflowY: 'auto' }}>
               {itensNaoVinculados.length === 0 ? (
                 <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>
-                  {buscaModalItem ? 'Nenhum item encontrado para essa busca.' : 'Todos os itens já estão vinculados a esta tarefa.'}
+                  {buscaModalItem ? 'Nenhum item encontrado para essa busca.' : 'Todos os itens já foram vinculados.'}
                 </div>
               ) : (
                 itensNaoVinculados.map(it => {
