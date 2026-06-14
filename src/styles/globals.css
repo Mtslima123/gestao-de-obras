@@ -63,7 +63,9 @@
 
   /* Type */
   --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  /* IBM Plex Mono usa zero pontilhado (0) como glifo padrão; usamos a fonte
+     normal (sans) para todos os números/códigos ficarem com o zero limpo, igual ao cronograma */
+  --font-mono: var(--font-sans);
 
   /* Sidebar (dark by default per brief) */
   --sb-bg: #014386;
@@ -137,7 +139,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 input, select, textarea { font-family: inherit; color: inherit; }
 a { color: var(--brand); text-decoration: none; }
 a:hover { color: var(--brand-600); }
-.mono { font-family: var(--font-mono); font-feature-settings: "ss01"; }
+.mono { font-family: var(--font-mono); }
 .num { font-variant-numeric: tabular-nums; }
 
 /* ============================================
