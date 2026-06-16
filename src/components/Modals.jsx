@@ -87,11 +87,13 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
 const ToastContext = React.createContext(null);
 const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = React.useState([]);
-  const push = (msg, opts = {}) => {
+  // Referência estável: evita que cada toast (entrada e auto-remoção após 3s) mude o valor
+  // do contexto e force re-render de todo o app. setToasts já é funcional, então deps = [].
+  const push = React.useCallback((msg, opts = {}) => {
     const id = Math.random().toString(36).slice(2);
     setToasts(ts => [...ts, { id, msg, tone: opts.tone || 'success', icon: opts.icon || 'check' }]);
     setTimeout(() => setToasts(ts => ts.filter(t => t.id !== id)), opts.duration || 3000);
-  };
+  }, []);
   return (
     <ToastContext.Provider value={push}>
       {children}
