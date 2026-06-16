@@ -2,12 +2,9 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { useToast, Modal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
-import { vinculoService } from './vinculoService';
+import { vinculoService, itemValor } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas } from '../cronograma/ganttUtils';
-
-const itemValor = (it) =>
-  it?.valor_total || (it?.quantidade || 0) * (it?.valor_unitario || 0);
 
 // ─── AutocompleteInput ────────────────────────────────────────────────────────
 const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
@@ -212,7 +209,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const totalVinculado = filtrados.reduce((s, v) => s + itemValor(v.orcamento_itens), 0);
 
   const indentEtapa = (e) =>
-    ' '.repeat((e.nivel || 0) * 3) + e.etapa;
+    ' '.repeat((e.nivel || 0) * 3) + (e.isGroup ? '▸ ' : '') + e.etapa;
 
   // Etapas disponíveis: exclui apenas as já vinculadas (todas aparecem, incluindo resumos)
   const etapasDisponiveis = etapas.filter(et => !linkedEtapaIds.has(et.id));
@@ -408,7 +405,14 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                   >
                     <option value="">— Selecione uma tarefa —</option>
                     {etapasDisponiveis.map(et => (
-                      <option key={et.id} value={et.id}>{indentEtapa(et)}</option>
+                      <option
+                        key={et.id}
+                        value={et.id}
+                        // Destaca tarefas principais (grupos/etapas-pai) na lista
+                        style={et.isGroup ? { fontWeight: 700, background: 'var(--brand-tint)' } : undefined}
+                      >
+                        {indentEtapa(et)}
+                      </option>
                     ))}
                   </select>
 

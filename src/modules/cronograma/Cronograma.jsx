@@ -5,7 +5,7 @@ import { supabase } from '../../services/supabase';
 import { FluxoExecutivo } from './FluxoExecutivo';
 import { Modal, useToast } from '../../components/Modals';
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
-import { vinculoService } from '../financeiro/vinculoService';
+import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap as _computeValorVinculadoMap } from './ganttUtils';
 // ganttUtils exporta as funções puras do Gantt — disponíveis para testes e reutilização
 export { gmConflicts, computeAllWBS, recomputeHierarchy, computeSuccessors, getVisibleEtapas,
@@ -576,12 +576,13 @@ function getMonthRange(etapas) {
   });
 }
 
-// Distribui o custo de cada tarefa folha proporcionalmente pelos dias em cada mês
-function computeMonthlyDist(etapas) {
+// Distribui o custo de cada tarefa folha proporcionalmente pelos dias em cada mês.
+// weightOverride: { [etapaId]: valor } — quando há vínculos, substitui e.custo (peso do orçamento).
+function computeMonthlyDist(etapas, weightOverride = null) {
   const result = {};
   etapas.forEach(e => {
     if (e.isGroup) return;
-    const custo = e.custo || 0;
+    const custo = weightOverride ? (weightOverride[e.id] ?? 0) : (e.custo || 0);
     const s = offsetToDate(e.inicio);
     const f = offsetToDate(e.inicio + Math.max(e.dur, 1));
     const totalDays = Math.max(1, (f - s) / 86400000);
@@ -602,13 +603,14 @@ function computeMonthlyDist(etapas) {
   return result;
 }
 
-// Distribui o custo realizado (avanco × custo) de cada tarefa pelos meses passados até hoje
-function computeRealizedDist(etapas) {
+// Distribui o custo realizado (avanco × custo) de cada tarefa pelos meses passados até hoje.
+// weightOverride: usa o valor vinculado como peso quando há vínculos (consistente com o planejado).
+function computeRealizedDist(etapas, weightOverride = null) {
   const todayDate = new Date();
   const result = {};
   etapas.forEach(e => {
     if (e.isGroup) return;
-    const custo = e.custo || 0;
+    const custo = weightOverride ? (weightOverride[e.id] ?? 0) : (e.custo || 0);
     const avanco = e.avanco || 0;
     if (custo === 0 || avanco === 0) return;
     const realized = (avanco / 100) * custo;
@@ -2257,6 +2259,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     [etapas, valorVinculadoMap]
   );
 
+  // Custo efetivo: quando há vínculos, o custo de cada etapa é o valor vinculado distribuído
+  // (valorVinculadoMap já cobre folhas e grupos via bubble-up). Nunca grava no dado — só exibe.
+  const custoEf = (e, gv) => hasVinculos
+    ? (valorVinculadoMap[e.id] || 0)
+    : (e.isGroup ? (gv?.custo || 0) : (e.custo || 0));
+  const totalCustoEf = hasVinculos ? totalValorVinculado : totalCusto;
+
   // Avisa quando há vínculos mas a soma dos fatores impediu a distribuição (RN003)
   React.useEffect(() => {
     if (hasVinculos && totalValorVinculado === 0) {
@@ -2618,7 +2627,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         const ini     = gv ? gv.inicio : e.inicio;
         const dur     = gv ? gv.dur    : e.dur;
         const av      = gv ? gv.avanco : e.avanco;
-        const cst     = gv ? (gv.custo || 0) : (e.custo || 0);
+        const cst     = custoEf(e, gv);
         const realCst = e.isGroup
           ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
           : (e.custoRealizado || 0);
@@ -2653,9 +2662,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         ...filtrada.map(e => visCols.map(cid => getCellVal(e, cid))),
         visCols.map(cid => {
           if (cid === 'etapa')    return 'Total';
-          if (cid === 'custo')    return totalCusto;
+          if (cid === 'custo')    return totalCustoEf;
           if (cid === 'custoReal') return totalReal;
-          if (cid === 'saldo')    return totalSaldo;
+          if (cid === 'saldo')    return totalCustoEf - totalReal;
           return '';
         }),
       ];
@@ -2695,7 +2704,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         const ini     = gv ? gv.inicio : e.inicio;
         const dur     = gv ? gv.dur    : e.dur;
         const av      = gv ? gv.avanco : e.avanco;
-        const cst     = gv ? (gv.custo || 0) : (e.custo || 0);
+        const cst     = custoEf(e, gv);
         const realCst = e.isGroup
           ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
           : (e.custoRealizado || 0);
@@ -2730,9 +2739,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       }));
       const totRow = visCols.map(cid => {
         if (cid === 'etapa')     return 'Total';
-        if (cid === 'custo')     return fmtBRL(totalCusto);
+        if (cid === 'custo')     return fmtBRL(totalCustoEf);
         if (cid === 'custoReal') return fmtBRL(totalReal);
-        if (cid === 'saldo')     return fmtBRL(totalSaldo);
+        if (cid === 'saldo')     return fmtBRL(totalCustoEf - totalReal);
         return '';
       });
       const colStyles = Object.fromEntries(visCols.map((cid, i) => [i, {
@@ -3125,7 +3134,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 ),
                 custo: (
                   <td key="custo" className="num" style={{ textAlign: 'right' }} onClick={ev => ev.stopPropagation()}>
-                    {e.isGroup ? (
+                    {hasVinculos ? (
+                      <span className="mono" style={{ fontSize: 12, color: 'var(--text)' }}
+                        title="Derivado do orçamento vinculado">{fmtBRL(valorVinculadoMap[e.id] || 0)}</span>
+                    ) : e.isGroup ? (
                       <span className="text-muted mono" style={{ fontSize: 12 }}>{fmtBRL(gv?.custo || 0)}</span>
                     ) : editingCusto === e.id + '_custo' ? (
                       <input autoFocus type="number" min="0" defaultValue={e.custo || 0}
@@ -3194,7 +3206,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 saldo: (
                   <td key="saldo" className="num mono" style={{ textAlign: 'right', fontSize: 12 }}>
                     {(() => {
-                      const prev = e.isGroup ? (gv?.custo || 0) : (e.custo || 0);
+                      const prev = custoEf(e, gv);
                       const real = e.isGroup
                         ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
                         : (e.custoRealizado || 0);
@@ -3377,11 +3389,11 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
           <tfoot>
             <tr style={{ fontWeight: 600, borderTop: '2px solid var(--border)', background: 'var(--surface-raised)' }}>
               <td colSpan={7} style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-soft)', padding: '8px 8px 8px 0' }}>Total</td>
-              <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>{fmtBRL(totalCusto)}</td>
+              <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>{fmtBRL(totalCustoEf)}</td>
               <td className="num mono text-muted" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>100%</td>
               <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>{fmtBRL(totalReal)}</td>
               <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>
-                <span style={{ color: totalSaldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalSaldo)}</span>
+                <span style={{ color: (totalCustoEf - totalReal) < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalCustoEf - totalReal)}</span>
               </td>
               <td colSpan={5 + customCols.length + 1}></td>
             </tr>
@@ -3785,7 +3797,12 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
 };
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
-const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, onCommit }) => {
+const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, valorVinculadoMap = {}, onCommit }) => {
+  // Custo efetivo: com vínculos, usa o valor vinculado distribuído (cobre folhas e grupos)
+  const hasVinc  = Object.keys(valorVinculadoMap).length > 0;
+  const custoEf  = (e, gv) => hasVinc
+    ? (valorVinculadoMap[e.id] || 0)
+    : (e.isGroup ? (gv?.custo || 0) : (e.custo || 0));
   // Totais planejados — soma de todas as tarefas (sem filtro de grupo)
   const filteredPlanned = React.useMemo(() => {
     const agg = {};
@@ -3876,15 +3893,15 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       const groupValsExp = computeGroupValues(etapas);
       const distRows = etapas.filter(e => e.isGroup || e.showInDist === true);
       const folhas = etapas.filter(e => !e.isGroup);
-      const totalCusto = folhas.reduce((s, e) => s + (e.custo || 0), 0);
+      const totalCusto = folhas.reduce((s, e) => s + custoEf(e), 0);
       const avancoGeral = totalCusto > 0
-        ? folhas.reduce((s, e) => s + (e.avanco || 0) * (e.custo || 0), 0) / totalCusto : 0;
+        ? folhas.reduce((s, e) => s + (e.avanco || 0) * custoEf(e), 0) / totalCusto : 0;
 
       const cabDist = ['Atividade', 'Valor (R$)', 'Peso %', 'Conc. %', ...cabMeses, 'Total'];
       const dist = [cabDist];
       distRows.forEach(e => {
         const gv = e.isGroup ? (groupValsExp[e.id] || {}) : {};
-        const taskCusto  = e.isGroup ? (gv.custo || 0) : (e.custo || 0);
+        const taskCusto  = custoEf(e, gv);
         const taskAvanco = e.isGroup ? (gv.avanco || 0) : (e.avanco || 0);
         const peso = totalCusto > 0 ? taskCusto / totalCusto * 100 : 0;
         const mDist = monthlyDist[e.id] || {};
@@ -4434,9 +4451,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
         // Avanco médio ponderado geral (para o rodapé)
         const folhas = etapas.filter(e => !e.isGroup);
-        const totalCustoFolha = folhas.reduce((s, e) => s + (e.custo || 0), 0);
+        const totalCustoFolha = folhas.reduce((s, e) => s + custoEf(e), 0);
         const avancoGeral = totalCustoFolha > 0
-          ? folhas.reduce((s, e) => s + (e.avanco || 0) * (e.custo || 0), 0) / totalCustoFolha
+          ? folhas.reduce((s, e) => s + (e.avanco || 0) * custoEf(e), 0) / totalCustoFolha
           : 0;
 
         return (
@@ -4492,7 +4509,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                     const taskDist = e.isGroup
                       ? getGroupMonthlyDist(e.id, etapas, monthlyDist)
                       : (monthlyDist[e.id] || {});
-                    const taskCusto  = e.isGroup ? (gv?.custo || 0) : (e.custo || 0);
+                    const taskCusto  = custoEf(e, gv);
                     const taskAvanco = e.isGroup ? (gv?.avanco || 0) : (e.avanco || 0);
                     const rowBg = e.isGroup ? 'var(--surface-muted)' : (ri % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)');
                     return (
@@ -4840,7 +4857,7 @@ const CronogramaFull = ({ initialObraId }) => {
       setVinculos(data);
       const m = {};
       data.forEach(v => {
-        if (v.orcamento_itens) m[v.orcamento_item_id] = v.orcamento_itens.valor_total || 0;
+        if (v.orcamento_itens) m[v.orcamento_item_id] = itemValor(v.orcamento_itens);
       });
       setOrcamentoItensMap(m);
     });
@@ -4952,21 +4969,22 @@ const CronogramaFull = ({ initialObraId }) => {
   const concluidas = etapas.filter(e => e.status === 'done').length;
   const atrasadas  = etapas.filter(e => e.status === 'late').length;
 
-  // Avanço ponderado pelo custo de cada etapa (folhas, não grupos)
-  const avancoTotal = React.useMemo(() => {
-    const folhas    = etapas.filter(e => !e.isGroup);
-    if (!folhas.length) return 0;
-    const totalCusto = folhas.reduce((s, e) => s + (e.custo || 0), 0);
-    if (!totalCusto) return Math.round(folhas.reduce((s, e) => s + e.avanco, 0) / folhas.length);
-    return Math.round(folhas.reduce((s, e) => s + e.avanco * (e.custo || 0), 0) / totalCusto);
-  }, [etapas]);
-
-  // Pesos vinculados ao orçamento — quando existem, substituem custo na Curva S
+  // Pesos vinculados ao orçamento — quando existem, substituem custo na Curva S e no avanço
   const valorVinculadoMapFull = React.useMemo(
     () => computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap),
     [etapas, vinculos, orcamentoItensMap]
   );
   const weightOverride = vinculos.length > 0 ? valorVinculadoMapFull : null;
+
+  // Avanço ponderado pelo custo de cada etapa (folhas). Com vínculos, usa o valor vinculado.
+  const avancoTotal = React.useMemo(() => {
+    const folhas    = etapas.filter(e => !e.isGroup);
+    if (!folhas.length) return 0;
+    const peso = (e) => vinculos.length ? (valorVinculadoMapFull[e.id] || 0) : (e.custo || 0);
+    const totalPeso = folhas.reduce((s, e) => s + peso(e), 0);
+    if (!totalPeso) return Math.round(folhas.reduce((s, e) => s + e.avanco, 0) / folhas.length);
+    return Math.round(folhas.reduce((s, e) => s + e.avanco * peso(e), 0) / totalPeso);
+  }, [etapas, vinculos, valorVinculadoMapFull]);
 
   // Distribuição mensal de custos — alimenta Uso da Tarefa e Curva S
   const months      = React.useMemo(() => getMonthRange(etapas),                           [etapas]);
@@ -4978,7 +4996,7 @@ const CronogramaFull = ({ initialObraId }) => {
     );
     return t;
   }, [monthlyDist]);
-  const realizedTotals = React.useMemo(() => computeRealizedDist(etapas), [etapas]);
+  const realizedTotals = React.useMemo(() => computeRealizedDist(etapas, weightOverride), [etapas, weightOverride]);
 
   // ── Commit (fonte única de verdade) ────────────────────────────────────────
   const commit = (novas, opts = {}) => {
@@ -5389,6 +5407,7 @@ const CronogramaFull = ({ initialObraId }) => {
                   realizedTotals={realizedTotals}
                   baselines={baselines}
                   blVisivelId={blVisivelId}
+                  valorVinculadoMap={valorVinculadoMapFull}
                   onCommit={commit}
                 />
               )}

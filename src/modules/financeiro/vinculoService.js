@@ -1,5 +1,10 @@
 import { supabase } from '../../services/supabase';
 
+// Valor de um item de orçamento. Fonte única: valor_total persistido costuma ser 0,
+// pois é calculado em tela (quantidade × valor_unitário) no módulo de Orçamentos.
+export const itemValor = (it) =>
+  it?.valor_total || (it?.quantidade || 0) * (it?.valor_unitario || 0);
+
 export const vinculoService = {
   // Busca todos os vínculos de uma obra com dados do item do orçamento
   listarPorObra: (obraId) =>
