@@ -10,3 +10,5 @@ dist/
 # 🔒 SEGURANÇA [VULN-4]: arquivo de teste usa credenciais via env — não commitar
 verify_test.mjs
 verify_test.cjs
+# Screenshots gerados por verificações locais
+verify_*.png
