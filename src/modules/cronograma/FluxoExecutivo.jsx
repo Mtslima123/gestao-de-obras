@@ -1,8 +1,17 @@
 import React from 'react';
+import { fluxoService } from './fluxo.service';
 
 const GROUP_PALETTE = [
   '#2563eb', '#ef4444', '#16a34a', '#7c3aed',
   '#d97706', '#0891b2', '#ec4899', '#374151',
+];
+
+const BRAND = '#014386'; // azul institucional (alinhado ao var(--brand) do app)
+const DEP_TIPOS = [
+  { v: 'TI', l: 'Término → Início (TI)' },
+  { v: 'II', l: 'Início → Início (II)' },
+  { v: 'TT', l: 'Término → Término (TT)' },
+  { v: 'IT', l: 'Início → Término (IT)' },
 ];
 
 const CARD_W   = 280;
@@ -123,11 +132,35 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
     catch { return {}; }
   });
   const [draggingLink, setDraggingLink] = React.useState(null); // { key, sx, sy, odx, ody }
+  const [autoLinkSel,  setAutoLinkSel]  = React.useState(() => new Set()); // subtarefas marcadas p/ vínculo
 
-  // Resetar aba ao trocar o card selecionado
-  React.useEffect(() => { setSelTab('resumo'); }, [selCard]);
+  // Resetar aba e seleção de subtarefas ao trocar o card selecionado
+  React.useEffect(() => {
+    setSelTab('resumo');
+    setAutoLinkSel(new Set(etapas.filter(e => e.parentId === selCard).map(e => e.id)));
+  }, [selCard]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const containerRef = React.useRef(null);
+
+  // Refs com os valores atuais: deixam os listeners globais (mousemove/up) com deps
+  // estáveis, evitando re-subscrever a cada frame durante drag/pan.
+  const zoomRef         = React.useRef(zoom);
+  const panRef          = React.useRef(pan);
+  const cardsRef        = React.useRef(cards);
+  const etapasRef       = React.useRef(etapas);
+  const draggingRef     = React.useRef(dragging);
+  const panningRef      = React.useRef(panning);
+  const connectingRef   = React.useRef(connecting);
+  const draggingLinkRef = React.useRef(draggingLink);
+  const createLinkRef   = React.useRef(null);
+  zoomRef.current         = zoom;
+  panRef.current          = pan;
+  cardsRef.current        = cards;
+  etapasRef.current       = etapas;
+  draggingRef.current     = dragging;
+  panningRef.current      = panning;
+  connectingRef.current   = connecting;
+  draggingLinkRef.current = draggingLink;
 
   // Persiste offsets de curva e portas no localStorage
   React.useEffect(() => {
@@ -145,6 +178,33 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
     catch {}
   }, [cards, obraId]);
 
+  // ── Persistência no banco (Supabase); localStorage segue como cache/fallback ──
+  // Se a tabela ainda não existir (migration não aplicada pelo TI), os erros são
+  // ignorados e tudo continua funcionando só no localStorage.
+  const dbLoadedRef = React.useRef(false);
+  React.useEffect(() => {
+    dbLoadedRef.current = false;
+    let cancel = false;
+    fluxoService.carregar(obraId).then(({ data, error }) => {
+      if (cancel) return;
+      if (!error && data) {
+        if (Array.isArray(data.cards)) setCards(data.cards);
+        if (data.link_offsets) setLinkOffsets(data.link_offsets);
+        if (data.link_ports) setLinkPorts(data.link_ports);
+      }
+      dbLoadedRef.current = true;
+    }).catch(() => { dbLoadedRef.current = true; });
+    return () => { cancel = true; };
+  }, [obraId]);
+
+  React.useEffect(() => {
+    if (!dbLoadedRef.current) return; // não grava antes de carregar do banco
+    const t = setTimeout(() => {
+      fluxoService.salvar(obraId, { cards, linkOffsets, linkPorts }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [cards, linkOffsets, linkPorts, obraId]);
+
   React.useEffect(() => {
     const ids = new Set(etapas.map(e => e.id));
     setCards(prev => prev.filter(c => ids.has(c.taskId)));
@@ -154,8 +214,8 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
   React.useEffect(() => {
     if (!cardMenu) return;
     const close = () => setCardMenu(null);
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
   }, [cardMenu]);
 
   // Delete/Backspace remove link selecionado
@@ -205,8 +265,10 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
     return result;
   }, [etapas, cardIds]);
 
-  const getCard = (id) => cards.find(c => c.taskId === id);
-  const getTask = (id) => etapas.find(e => e.id === id);
+  const cardById = React.useMemo(() => new Map(cards.map(c => [c.taskId, c])), [cards]);
+  const taskById = React.useMemo(() => new Map(etapas.map(e => [e.id, e])), [etapas]);
+  const getCard = (id) => cardById.get(id);
+  const getTask = (id) => taskById.get(id);
 
   const clientToCanvas = (cx, cy) => {
     const rect = containerRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
@@ -259,13 +321,15 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
 
   const createLink = (sourceId, targetId) => {
     if (sourceId === targetId) return;
-    const target = etapas.find(e => e.id === targetId);
+    const eps = etapasRef.current;
+    const target = eps.find(e => e.id === targetId);
     if (!target) return;
     if ((target.dep || []).some(d => d.id === sourceId)) return;
-    onCommit(etapas.map(e =>
+    onCommit(eps.map(e =>
       e.id === targetId ? { ...e, dep: [...(e.dep || []), { id: sourceId, tipo: 'TI', lag: 0 }] } : e
     ));
   };
+  createLinkRef.current = createLink;
 
   const removeLink = (sourceId, targetId) => {
     const key = `${sourceId}→${targetId}`;
@@ -278,8 +342,25 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
 
   const lkKey = (sourceId, targetId) => `${sourceId}→${targetId}`;
 
+  // Geometria de cada link calculada uma vez e reaproveitada pelas duas camadas SVG.
+  const linkGeoms = React.useMemo(() => links.map(lk => {
+    const sc = cardById.get(lk.sourceId), tc = cardById.get(lk.targetId);
+    if (!sc || !tc) return null;
+    const key = lkKey(lk.sourceId, lk.targetId);
+    const { sp, tp } = linkPorts[key] || getBestPorts(sc, tc);
+    const sr = getConnPoint(sc, sp), tl = getConnPoint(tc, tp);
+    const bend = linkOffsets[key] || { dx: 0, dy: 0 };
+    return { lk, key, d: makeBezierD(getBezierPoints(sp, sr, tp, tl, bend)) };
+  }).filter(Boolean), [links, cardById, linkPorts, linkOffsets]);
+
   React.useEffect(() => {
-    const onMove = (ev) => {
+    let raf = null, lastEv = null;
+    const apply = () => {
+      raf = null;
+      const ev = lastEv; if (!ev) return;
+      const zoom = zoomRef.current;
+      const dragging = draggingRef.current, panning = panningRef.current;
+      const connecting = connectingRef.current, draggingLink = draggingLinkRef.current;
       if (dragging) {
         const dx = (ev.clientX - dragging.sx) / zoom;
         const dy = (ev.clientY - dragging.sy) / zoom;
@@ -295,18 +376,24 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
         setLinkOffsets(prev => ({ ...prev, [draggingLink.key]: { dx: draggingLink.odx + dx, dy: draggingLink.ody + dy } }));
       }
     };
+    const onMove = (ev) => {
+      if (!draggingRef.current && !panningRef.current && !connectingRef.current && !draggingLinkRef.current) return;
+      lastEv = ev;
+      if (raf == null) raf = requestAnimationFrame(apply);
+    };
     const onUp = (ev) => {
-      setDragging(null);
-      setPanning(null);
-      setDraggingLink(null);
+      if (raf != null) { cancelAnimationFrame(raf); raf = null; }
+      const connecting = connectingRef.current;
+      draggingRef.current = null; panningRef.current = null; draggingLinkRef.current = null;
+      setDragging(null); setPanning(null); setDraggingLink(null);
       if (connecting) {
         // Snap-to-card: converte posição do mouse para coordenadas do canvas
+        const zoom = zoomRef.current, pan = panRef.current, cards = cardsRef.current;
         const rect = containerRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
         const cx = (ev.clientX - rect.left - pan.x) / zoom;
         const cy = (ev.clientY - rect.top  - pan.y) / zoom;
         const PAD = 40; // pixels de tolerância além da borda do card
-        let snapTarget = null;
-        let minDist = Infinity;
+        let snapTarget = null, minDist = Infinity;
         cards.forEach(c => {
           if (c.taskId === connecting.sourceId) return;
           if (cx >= c.x - PAD && cx <= c.x + CARD_W + PAD && cy >= c.y - PAD && cy <= c.y + CARD_H + PAD) {
@@ -320,20 +407,26 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
           const sp = connecting.sourcePort || 'right';
           const key = lkKey(connecting.sourceId, snapTarget);
           setLinkPorts(prev => ({ ...prev, [key]: { sp, tp } }));
-          createLink(connecting.sourceId, snapTarget);
+          createLinkRef.current(connecting.sourceId, snapTarget);
         } else {
-          // Fallback: portaN exata se o usuário acertou o ponto de conexão diretamente
+          // Fallback: porta exata se o usuário acertou o ponto de conexão diretamente
           const el = document.elementFromPoint(ev.clientX, ev.clientY);
           const target = el?.closest('[data-conn-in]');
-          if (target) createLink(connecting.sourceId, target.getAttribute('data-conn-in'));
+          if (target) createLinkRef.current(connecting.sourceId, target.getAttribute('data-conn-in'));
         }
         setConnecting(null);
       }
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-  }, [dragging, panning, connecting, draggingLink, zoom, pan, cards, etapas]);
+    window.addEventListener('pointermove',   onMove);
+    window.addEventListener('pointerup',     onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove',   onMove);
+      window.removeEventListener('pointerup',     onUp);
+      window.removeEventListener('pointercancel', onUp);
+      if (raf != null) cancelAnimationFrame(raf);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onWheel = React.useCallback((ev) => {
     ev.preventDefault();
@@ -355,10 +448,40 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
   }, [onWheel]);
 
   const autoLayout = (dir) => {
+    if (dir === 'dep') { autoLayoutDeps(); return; }
     const gap = dir === 'h' ? CARD_W + 80 : CARD_H + 60;
     setCards(prev => prev.map((c, i) => ({
       ...c, x: dir === 'h' ? 80 + i * gap : 80, y: dir === 'h' ? 80 : 80 + i * gap,
     })));
+  };
+
+  // Layout em camadas: nível = caminho mais longo a partir das raízes (topológico),
+  // x por nível e y por ordem dentro do nível. Protegido contra ciclos.
+  const autoLayoutDeps = () => {
+    const ids = cards.map(c => c.taskId);
+    const idSet = new Set(ids);
+    const preds = {};
+    ids.forEach(id => { preds[id] = []; });
+    links.forEach(l => { if (idSet.has(l.sourceId) && idSet.has(l.targetId)) preds[l.targetId].push(l.sourceId); });
+    const level = {}, visiting = new Set();
+    const calcLevel = (id) => {
+      if (level[id] !== undefined) return level[id];
+      if (visiting.has(id)) return 0; // ciclo: corta
+      visiting.add(id);
+      const ps = preds[id] || [];
+      const lv = ps.length ? Math.max(...ps.map(p => calcLevel(p) + 1)) : 0;
+      visiting.delete(id);
+      level[id] = lv;
+      return lv;
+    };
+    ids.forEach(calcLevel);
+    const byLevel = {};
+    ids.forEach(id => { (byLevel[level[id]] = byLevel[level[id]] || []).push(id); });
+    const COL = CARD_W + 90, ROW = CARD_H + 50, pos = {};
+    Object.keys(byLevel).map(Number).sort((a, b) => a - b).forEach(lv => {
+      byLevel[lv].forEach((id, row) => { pos[id] = { x: 80 + lv * COL, y: 60 + row * ROW }; });
+    });
+    setCards(prev => prev.map(c => pos[c.taskId] ? { ...c, x: pos[c.taskId].x, y: pos[c.taskId].y } : c));
   };
 
   const fitToScreen = () => {
@@ -375,6 +498,32 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
   const subtasks = selTask ? etapas.filter(e => e.parentId === selTask.id) : [];
   const outLinks = selTask ? links.filter(l => l.sourceId === selTask.id) : [];
   const inLinks  = selTask ? links.filter(l => l.targetId === selTask.id) : [];
+
+  // Cria dependências TI encadeando as subtarefas selecionadas na ordem da lista
+  const vincularSequencia = () => {
+    const ordered = subtasks.filter(s => autoLinkSel.has(s.id));
+    if (ordered.length < 2) return;
+    let novas = etapas, count = 0;
+    for (let i = 1; i < ordered.length; i++) {
+      const src = ordered[i - 1].id, tgt = ordered[i].id;
+      const t = novas.find(e => e.id === tgt);
+      if ((t.dep || []).some(d => d.id === src)) continue;
+      novas = novas.map(e => e.id === tgt ? { ...e, dep: [...(e.dep || []), { id: src, tipo: 'TI', lag: 0 }] } : e);
+      count++;
+    }
+    if (count > 0) onCommit(novas);
+  };
+
+  // Lê / atualiza tipo e folga (lag) de uma dependência existente
+  const getDep = (sourceId, targetId) => {
+    const t = taskById.get(targetId);
+    return (t?.dep || []).find(d => d.id === sourceId) || { tipo: 'TI', lag: 0 };
+  };
+  const updateLink = (sourceId, targetId, patch) => {
+    onCommit(etapasRef.current.map(e =>
+      e.id === targetId ? { ...e, dep: (e.dep || []).map(d => d.id === sourceId ? { ...d, ...patch } : d) } : e
+    ));
+  };
 
   const tempArrow = (() => {
     if (!connecting) return null;
@@ -441,9 +590,9 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
             <div style={{ padding: '24px 14px', fontSize: 12, color: 'var(--text-faint)', textAlign: 'center' }}>Nenhuma tarefa encontrada</div>
           )}
         </div>
-        <div style={{ padding: '9px 12px', borderTop: '1px solid var(--border)', background: '#eff6ff', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-          <span style={{ color: '#2563eb', fontSize: 12, flexShrink: 0 }}>ℹ</span>
-          <span style={{ fontSize: 11, color: '#3b82f6', lineHeight: 1.4 }}>Selecione uma tarefa resumo para adicionar ao fluxo</span>
+        <div style={{ padding: '9px 12px', borderTop: '1px solid var(--border)', background: 'var(--surface-muted)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <span style={{ color: '#014386', fontSize: 12, flexShrink: 0 }}>ℹ</span>
+          <span style={{ fontSize: 11, color: '#014386', lineHeight: 1.4 }}>Selecione uma tarefa resumo para adicionar ao fluxo</span>
         </div>
       </div>
 
@@ -455,6 +604,7 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
           <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 600 }}>Organizar:</span>
           <button className="btn btn-ghost" style={{ fontSize: 12, height: 28 }} onClick={() => autoLayout('h')}>→ Horizontal</button>
           <button className="btn btn-ghost" style={{ fontSize: 12, height: 28 }} onClick={() => autoLayout('v')}>↓ Vertical</button>
+          <button className="btn btn-ghost" style={{ fontSize: 12, height: 28 }} onClick={() => autoLayout('dep')}>⤳ Por dependências</button>
           <div style={{ flex: 1 }} />
           {cards.length > 0 && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{cards.length} cards · {links.length} conexões</span>}
           {selLink && <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>Conexão selecionada — pressione Delete para remover</span>}
@@ -468,15 +618,17 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
 
         {/* Canvas */}
         <div ref={containerRef}
-          style={{ flex: 1, overflow: 'hidden', position: 'relative', background: '#f0f4f9', cursor: panning ? 'grabbing' : connecting ? 'crosshair' : 'grab' }}
-          onMouseDown={(ev) => {
+          style={{ flex: 1, overflow: 'hidden', position: 'relative', background: '#f0f4f9', cursor: panning ? 'grabbing' : connecting ? 'crosshair' : 'grab', touchAction: 'none' }}
+          onPointerDown={(ev) => {
             if (ev.button !== 0 || connecting) return;
             const tag = ev.target.tagName;
             if (ev.target === containerRef.current || tag === 'svg' || tag === 'rect') {
               setSelCard(null);
               setSelLink(null);
               setCardMenu(null);
-              setPanning({ sx: ev.clientX, sy: ev.clientY, opx: pan.x, opy: pan.y });
+              const p = { sx: ev.clientX, sy: ev.clientY, opx: pan.x, opy: pan.y };
+              panningRef.current = p;
+              setPanning(p);
             }
           }}
         >
@@ -508,60 +660,44 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                   <path d="M0,0 L0,7 L9,3.5 z" fill="#9ca3af" />
                 </marker>
                 <marker id="fe-arrow-sel" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
-                  <path d="M0,0 L0,7 L9,3.5 z" fill="#2563eb" />
+                  <path d="M0,0 L0,7 L9,3.5 z" fill="#014386" />
                 </marker>
                 <marker id="fe-arrow-del" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
                   <path d="M0,0 L0,7 L9,3.5 z" fill="#ef4444" />
                 </marker>
               </defs>
-              {links.map((lk, i) => {
-                const sc = getCard(lk.sourceId), tc = getCard(lk.targetId);
-                if (!sc || !tc) return null;
-                const stored = linkPorts[lkKey(lk.sourceId, lk.targetId)];
-                const { sp, tp } = stored || getBestPorts(sc, tc);
-                const sr = getConnPoint(sc, sp), tl = getConnPoint(tc, tp);
-                const bend = linkOffsets[lkKey(lk.sourceId, lk.targetId)] || { dx: 0, dy: 0 };
-                const pts = getBezierPoints(sp, sr, tp, tl, bend);
+              {linkGeoms.map(({ lk, key, d }) => {
                 const isLinkSel = selLink?.sourceId === lk.sourceId && selLink?.targetId === lk.targetId;
                 const isCardSel = selCard === lk.sourceId || selCard === lk.targetId;
-                const stroke = isLinkSel ? '#ef4444' : isCardSel ? '#2563eb' : '#9ca3af';
+                const stroke = isLinkSel ? '#ef4444' : isCardSel ? '#014386' : '#9ca3af';
                 const marker = isLinkSel ? 'url(#fe-arrow-del)' : isCardSel ? 'url(#fe-arrow-sel)' : 'url(#fe-arrow)';
                 return (
-                  <path key={i} d={makeBezierD(pts)} fill="none"
+                  <path key={key} d={d} fill="none"
                     stroke={stroke} strokeWidth={isLinkSel || isCardSel ? 2.5 : 2}
                     markerEnd={marker} />
                 );
               })}
               {tempArrow && (
-                <path d={tempArrow} fill="none" stroke="#2563eb"
+                <path d={tempArrow} fill="none" stroke="#014386"
                   strokeWidth={2} strokeDasharray="7 4" markerEnd="url(#fe-arrow-sel)" />
               )}
             </svg>
 
             {/* SVG hitbox (setas clicáveis, área ampla transparente) */}
             <svg style={{ position: 'absolute', top: 0, left: 0, width: CANVAS_W, height: CANVAS_H, overflow: 'visible' }}>
-              {links.map((lk, i) => {
-                const sc = getCard(lk.sourceId), tc = getCard(lk.targetId);
-                if (!sc || !tc) return null;
-                const stored = linkPorts[lkKey(lk.sourceId, lk.targetId)];
-                const { sp, tp } = stored || getBestPorts(sc, tc);
-                const sr = getConnPoint(sc, sp), tl = getConnPoint(tc, tp);
-                const bend = linkOffsets[lkKey(lk.sourceId, lk.targetId)] || { dx: 0, dy: 0 };
-                const pts = getBezierPoints(sp, sr, tp, tl, bend);
-                return (
-                  <path key={i} d={makeBezierD(pts)} fill="none"
-                    stroke="rgba(0,0,0,0)" strokeWidth={18}
-                    style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
-                    onMouseDown={(ev) => { ev.stopPropagation(); }}
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      const isAlreadySel = selLink?.sourceId === lk.sourceId && selLink?.targetId === lk.targetId;
-                      setSelLink(isAlreadySel ? null : { sourceId: lk.sourceId, targetId: lk.targetId });
-                      setSelCard(null);
-                    }}
-                  />
-                );
-              })}
+              {linkGeoms.map(({ lk, key, d }) => (
+                <path key={key} d={d} fill="none"
+                  stroke="rgba(0,0,0,0)" strokeWidth={18}
+                  style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+                  onPointerDown={(ev) => { ev.stopPropagation(); }}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    const isAlreadySel = selLink?.sourceId === lk.sourceId && selLink?.targetId === lk.targetId;
+                    setSelLink(isAlreadySel ? null : { sourceId: lk.sourceId, targetId: lk.targetId });
+                    setSelCard(null);
+                  }}
+                />
+              ))}
             </svg>
 
             {/* Handle de ajuste de curva + botão X (visíveis quando seta está selecionada) */}
@@ -581,10 +717,12 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                   {/* Handle azul arrastável para ajustar a curva */}
                   <div
                     title="Arraste para ajustar a curva"
-                    style={{ position: 'absolute', left: mid.x - 11, top: mid.y - 11, width: 22, height: 22, borderRadius: '50%', background: '#2563eb', border: '2.5px solid #fff', cursor: 'move', zIndex: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(37,99,235,0.45)', userSelect: 'none' }}
-                    onMouseDown={(ev) => {
+                    style={{ position: 'absolute', left: mid.x - 11, top: mid.y - 11, width: 22, height: 22, borderRadius: '50%', background: '#014386', border: '2.5px solid #fff', cursor: 'move', zIndex: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(1,67,134,0.45)', userSelect: 'none', touchAction: 'none' }}
+                    onPointerDown={(ev) => {
                       ev.stopPropagation();
-                      setDraggingLink({ key, sx: ev.clientX, sy: ev.clientY, odx: bend.dx, ody: bend.dy });
+                      const dl = { key, sx: ev.clientX, sy: ev.clientY, odx: bend.dx, ody: bend.dy };
+                      draggingLinkRef.current = dl;
+                      setDraggingLink(dl);
                     }}
                     onDoubleClick={(ev) => {
                       // Duplo clique reseta a curva para o padrão
@@ -600,14 +738,14 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                   <div
                     title="Remover conexão"
                     style={{ position: 'absolute', left: mid.x + 14, top: mid.y - 22, width: 20, height: 20, borderRadius: '50%', background: '#ef4444', cursor: 'pointer', zIndex: 23, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 13, boxShadow: '0 2px 6px rgba(239,68,68,0.4)', userSelect: 'none' }}
-                    onMouseDown={(ev) => ev.stopPropagation()}
+                    onPointerDown={(ev) => ev.stopPropagation()}
                     onClick={(ev) => { ev.stopPropagation(); removeLink(selLink.sourceId, selLink.targetId); setSelLink(null); }}
                   >×</div>
                   {/* Indicador visual de que a curva foi ajustada */}
                   {hasBend && (
                     <div
                       title="Duplo clique no handle para resetar"
-                      style={{ position: 'absolute', left: mid.x - 4, top: mid.y + 15, fontSize: 9, color: '#2563eb', background: '#eff6ff', borderRadius: 4, padding: '1px 4px', pointerEvents: 'none', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                      style={{ position: 'absolute', left: mid.x - 4, top: mid.y + 15, fontSize: 9, color: '#014386', background: 'var(--surface-muted)', borderRadius: 4, padding: '1px 4px', pointerEvents: 'none', whiteSpace: 'nowrap', fontWeight: 600 }}>
                       ajustado
                     </div>
                   )}
@@ -630,15 +768,17 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
 
               return (
                 <div key={card.taskId}
-                  style={{ position: 'absolute', left: card.x, top: card.y, width: CARD_W, height: CARD_H, background: '#fff', borderRadius: 14, border: `1.5px solid ${isSel ? gc : `${gc}50`}`, boxShadow: isSel ? `0 0 0 3px ${gc}20, 0 6px 20px rgba(0,0,0,0.10)` : '0 2px 12px rgba(0,0,0,0.07)', userSelect: 'none', cursor: 'grab', overflow: 'visible', transition: 'border-color 0.15s, box-shadow 0.15s' }}
+                  style={{ position: 'absolute', left: card.x, top: card.y, width: CARD_W, height: CARD_H, background: '#fff', borderRadius: 14, border: `1.5px solid ${isSel ? gc : `${gc}50`}`, boxShadow: isSel ? `0 0 0 3px ${gc}20, 0 6px 20px rgba(0,0,0,0.10)` : '0 2px 12px rgba(0,0,0,0.07)', userSelect: 'none', cursor: 'grab', overflow: 'visible', transition: 'border-color 0.15s, box-shadow 0.15s', touchAction: 'none' }}
                   onMouseEnter={() => setHoveredCard(card.taskId)}
                   onMouseLeave={() => setHoveredCard(null)}
-                  onMouseDown={(ev) => {
+                  onPointerDown={(ev) => {
                     if (ev.button !== 0) return;
                     ev.stopPropagation();
                     setSelLink(null);
                     const c = getCard(card.taskId);
-                    setDragging({ cardId: card.taskId, sx: ev.clientX, sy: ev.clientY, ox: c.x, oy: c.y });
+                    const d = { cardId: card.taskId, sx: ev.clientX, sy: ev.clientY, ox: c.x, oy: c.y };
+                    draggingRef.current = d;
+                    setDragging(d);
                     setSelCard(card.taskId);
                   }}
                   onClick={(ev) => { ev.stopPropagation(); setSelCard(card.taskId); }}
@@ -655,13 +795,13 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                     {/* Menu suspenso ⋮ */}
                     <div style={{ position: 'relative', flexShrink: 0 }}>
                       <button
-                        onMouseDown={(ev) => ev.stopPropagation()}
+                        onPointerDown={(ev) => ev.stopPropagation()}
                         onClick={(ev) => { ev.stopPropagation(); setCardMenu(isMenuOpen ? null : card.taskId); }}
                         style={{ border: 'none', background: isMenuOpen ? `${gc}20` : 'none', cursor: 'pointer', padding: '3px 5px', color: `${gc}cc`, fontSize: 16, lineHeight: 1, borderRadius: 5 }}
                         title="Opções">⋮</button>
                       {isMenuOpen && (
                         <div
-                          onMouseDown={(ev) => ev.stopPropagation()}
+                          onPointerDown={(ev) => ev.stopPropagation()}
                           style={{ position: 'absolute', right: 0, top: '110%', background: '#fff', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 6px 18px rgba(0,0,0,0.13)', zIndex: 50, minWidth: 170, padding: '4px 0', overflow: 'hidden' }}>
                           {/* --- Ações de edição --- */}
                           <div style={{ padding: '4px 12px 2px', fontSize: 10, color: 'var(--text-faint)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Editar</div>
@@ -748,10 +888,12 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                   {/* 4 pontos de conexão */}
                   {PORTS.map(port => (
                     <div key={port} data-conn-in={card.taskId}
-                      style={{ position: 'absolute', ...portStyle(port), width: 14, height: 14, borderRadius: '50%', background: '#fff', border: `2.5px solid ${gc}`, zIndex: 5, cursor: 'crosshair', boxShadow: `0 1px 5px ${gc}44`, opacity: showPorts ? 1 : 0, transform: showPorts ? 'scale(1)' : 'scale(0.4)', transition: 'opacity 0.15s, transform 0.15s', pointerEvents: showPorts ? 'auto' : 'none' }}
-                      onMouseDown={(ev) => {
+                      style={{ position: 'absolute', ...portStyle(port), width: 14, height: 14, borderRadius: '50%', background: '#fff', border: `2.5px solid ${gc}`, zIndex: 5, cursor: 'crosshair', boxShadow: `0 1px 5px ${gc}44`, opacity: showPorts ? 1 : 0, transform: showPorts ? 'scale(1)' : 'scale(0.4)', transition: 'opacity 0.15s, transform 0.15s', pointerEvents: showPorts ? 'auto' : 'none', touchAction: 'none' }}
+                      onPointerDown={(ev) => {
                         ev.stopPropagation();
-                        setConnecting({ sourceId: card.taskId, sourcePort: port, cx: ev.clientX, cy: ev.clientY });
+                        const c = { sourceId: card.taskId, sourcePort: port, cx: ev.clientX, cy: ev.clientY };
+                        connectingRef.current = c;
+                        setConnecting(c);
                       }}
                     />
                   ))}
@@ -780,9 +922,9 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
         return (
           <div
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.38)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            onMouseDown={() => setCardEdit(null)}>
+            onPointerDown={() => setCardEdit(null)}>
             <div
-              onMouseDown={ev => ev.stopPropagation()}
+              onPointerDown={ev => ev.stopPropagation()}
               style={{ background: '#fff', borderRadius: 16, boxShadow: '0 8px 40px rgba(0,0,0,0.18)', width: 360, overflow: 'hidden' }}>
               {/* Header do modal */}
               <div style={{ background: `${gc}14`, borderBottom: `2px solid ${gc}30`, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -790,7 +932,7 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                   {summaryTasks.findIndex(t => t.id === cardEdit.taskId) + 1}
                 </div>
                 <span style={{ fontWeight: 700, fontSize: 14, color: gc, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Editar Tarefa</span>
-                <button onMouseDown={ev => ev.stopPropagation()} onClick={() => setCardEdit(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 20, color: 'var(--text-faint)', lineHeight: 1, padding: 0 }}>×</button>
+                <button onPointerDown={ev => ev.stopPropagation()} onClick={() => setCardEdit(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 20, color: 'var(--text-faint)', lineHeight: 1, padding: 0 }}>×</button>
               </div>
               {/* Campos */}
               <div style={{ padding: '18px 18px 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -798,6 +940,7 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                   <label style={labelStyle}>Nome da tarefa</label>
                   <input
                     style={fieldStyle}
+                    autoFocus={!cardEdit._focusField}
                     value={cardEdit.etapa}
                     onChange={ev => setCardEdit(p => ({ ...p, etapa: ev.target.value }))}
                     onFocus={ev => ev.target.style.borderColor = gc}
@@ -810,6 +953,7 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                     <input
                       type="number" min={0} max={100}
                       style={fieldStyle}
+                      autoFocus={cardEdit._focusField === 'avanco'}
                       value={cardEdit.avanco}
                       onChange={ev => setCardEdit(p => ({ ...p, avanco: ev.target.value }))}
                       onFocus={ev => ev.target.style.borderColor = gc}
@@ -832,6 +976,7 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                   <label style={labelStyle}>Status</label>
                   <select
                     style={{ ...fieldStyle, cursor: 'pointer' }}
+                    autoFocus={cardEdit._focusField === 'status'}
                     value={cardEdit.status}
                     onChange={ev => setCardEdit(p => ({ ...p, status: ev.target.value }))}>
                     {STATUS_OPTS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
@@ -864,8 +1009,8 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
       {selTask && (() => {
         const gc       = groupColorMap[selCard] || '#014386';
         const groupNum = summaryTasks.findIndex(t => t.id === selCard) + 1;
-        const STATUS_COLORS = { done: '#16a34a', late: '#ef4444', upcoming: '#9ca3af', ongoing: '#2563eb' };
-        const sColor   = STATUS_COLORS[selTask.status] || '#2563eb';
+        const STATUS_COLORS = { done: '#16a34a', late: '#ef4444', upcoming: '#9ca3af', ongoing: '#014386' };
+        const sColor   = STATUS_COLORS[selTask.status] || '#014386';
         const TABS     = [{ id: 'resumo', label: 'Resumo' }, { id: 'subtarefas', label: 'Subtarefas' }, { id: 'dependencias', label: 'Dependências' }];
         const statRow  = (label, value, valueColor) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', padding: '8px 14px', borderBottom: '1px solid var(--border)' }}>
@@ -916,36 +1061,42 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                   </div>
 
                   {/* Subtarefas para vínculo automático */}
-                  {subtasks.length > 0 && (
+                  {subtasks.length > 0 && (() => {
+                    const allSel = autoLinkSel.size === subtasks.length && subtasks.length > 0;
+                    const toggleAll = () => setAutoLinkSel(allSel ? new Set() : new Set(subtasks.map(s => s.id)));
+                    const toggleOne = (id) => setAutoLinkSel(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+                    const box = (on) => (
+                      <div style={{ width: 16, height: 16, borderRadius: 4, background: on ? gc : 'transparent', border: `1.5px solid ${on ? gc : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {on && <svg width={10} height={10} viewBox="0 0 10 10" fill="none" style={{ pointerEvents: 'none' }}><path d="M1.5 5l2.5 2.5 5-5" stroke="#fff" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                      </div>
+                    );
+                    return (
                     <div style={{ padding: '10px 14px 4px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>Subtarefas para vínculo automático</span>
                       </div>
                       {/* Selecionar todas */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
-                        <div style={{ width: 16, height: 16, borderRadius: 4, background: gc, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <svg width={10} height={10} viewBox="0 0 10 10" fill="none" style={{ pointerEvents: 'none' }}>
-                            <path d="M1.5 5l2.5 2.5 5-5" stroke="#fff" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </div>
+                      <div onClick={toggleAll} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)', marginBottom: 4, cursor: 'pointer' }}>
+                        {box(allSel)}
                         <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Selecionar todas</span>
-                        <span style={{ fontSize: 11.5, color: 'var(--text-faint)', background: 'var(--surface-muted)', borderRadius: 5, padding: '1px 6px' }}>{subtasks.length}/{subtasks.length}</span>
+                        <span style={{ fontSize: 11.5, color: 'var(--text-faint)', background: 'var(--surface-muted)', borderRadius: 5, padding: '1px 6px' }}>{autoLinkSel.size}/{subtasks.length}</span>
                       </div>
                       {subtasks.slice(0, 10).map(s => (
-                        <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0' }}>
-                          <div style={{ width: 16, height: 16, borderRadius: 4, background: gc, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <svg width={10} height={10} viewBox="0 0 10 10" fill="none" style={{ pointerEvents: 'none' }}>
-                              <path d="M1.5 5l2.5 2.5 5-5" stroke="#fff" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </div>
+                        <div key={s.id} onClick={() => toggleOne(s.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', cursor: 'pointer' }}>
+                          {box(autoLinkSel.has(s.id))}
                           <span style={{ flex: 1, fontSize: 12, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.etapa}</span>
                         </div>
                       ))}
                       {subtasks.length > 10 && (
                         <div style={{ fontSize: 11.5, color: 'var(--text-faint)', padding: '4px 0 2px', textAlign: 'center' }}>... +{subtasks.length - 10} mais</div>
                       )}
+                      <button onClick={vincularSequencia} disabled={autoLinkSel.size < 2}
+                        style={{ width: '100%', marginTop: 8, padding: '8px', borderRadius: 8, border: 'none', background: autoLinkSel.size < 2 ? 'var(--surface-muted)' : gc, color: autoLinkSel.size < 2 ? 'var(--text-faint)' : '#fff', cursor: autoLinkSel.size < 2 ? 'default' : 'pointer', fontSize: 12, fontWeight: 700 }}>
+                        Vincular selecionadas em sequência
+                      </button>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Dependências resumo */}
                   <div style={{ padding: '10px 14px 4px', marginTop: 4 }}>
@@ -990,13 +1141,25 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
                   <div>
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '4px 2px 6px' }}>Geradas ({outLinks.length})</div>
                     {outLinks.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-faint)', padding: '4px 2px' }}>Nenhuma dependência gerada</div>}
-                    {outLinks.map(l => { const t = getTask(l.targetId); return t ? (
-                      <div key={l.targetId} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', borderRadius: 8, background: 'var(--surface-muted)', border: '1px solid var(--border)', marginBottom: 4 }}>
-                        <span style={{ color: '#2563eb', fontSize: 13, fontWeight: 700 }}>→</span>
-                        <span style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.etapa}</span>
-                        <button onClick={() => removeLink(l.sourceId, l.targetId)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
+                    {outLinks.map(l => { const t = getTask(l.targetId); if (!t) return null; const dep = getDep(l.sourceId, l.targetId); return (
+                      <div key={l.targetId} style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--surface-muted)', border: '1px solid var(--border)', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ color: '#014386', fontSize: 13, fontWeight: 700 }}>→</span>
+                          <span style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.etapa}</span>
+                          <button onClick={() => removeLink(l.sourceId, l.targetId)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                          <select value={dep.tipo || 'TI'} onChange={e => updateLink(l.sourceId, l.targetId, { tipo: e.target.value })}
+                            style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                            {DEP_TIPOS.map(o => <option key={o.v} value={o.v}>{o.v}</option>)}
+                          </select>
+                          <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>folga</span>
+                          <input type="number" value={dep.lag ?? 0} onChange={e => updateLink(l.sourceId, l.targetId, { lag: parseInt(e.target.value) || 0 })}
+                            style={{ width: 54, fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' }} />
+                          <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>dias</span>
+                        </div>
                       </div>
-                    ) : null; })}
+                    ); })}
                   </div>
                   <div>
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '4px 2px 6px' }}>Recebidas ({inLinks.length})</div>
