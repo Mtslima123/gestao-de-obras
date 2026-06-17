@@ -7,7 +7,6 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
-  const [remember, setRemember] = React.useState(true);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [showPass, setShowPass] = React.useState(false);
@@ -136,14 +135,8 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
                 </button>
               </div>
             </div>
-            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12, marginBottom: 20 }}>
-              <label className="login-remember">
-                <div className={'switch' + (remember ? ' on' : '')} onClick={() => setRemember(r => !r)}></div>
-                <span>Manter-me conectado</span>
-              </label>
-            </div>
-            {error && <div className="login-error"><Icon name="alert" size={13} />{error}</div>}
-            <button type="submit" className="btn btn-primary btn-lg login-submit" disabled={loading}>
+            {error && <div className="login-error" style={{ marginTop: 16 }}><Icon name="alert" size={13} />{error}</div>}
+            <button type="submit" className="btn btn-primary btn-lg login-submit" style={{ marginTop: 20 }} disabled={loading}>
               {loading ? <span className="login-spinner"></span> : <>Acessar plataforma <Icon name="arrow-right" size={14} /></>}
             </button>
           </form>
