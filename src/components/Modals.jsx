@@ -215,10 +215,6 @@ const NovaObraModal = ({ onClose }) => {
               </div>
             </div>
             <div className="field">
-              <label>BDI (%)</label>
-              <input placeholder="0,0" defaultValue="25,5" />
-            </div>
-            <div className="field">
               <label>Responsável técnico</label>
               <select defaultValue="01">
                 <option value="01">Responsável 01</option>
@@ -255,7 +251,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     responsavel:  obra?.responsavel || '',
     endereco:     obra?.endereco    || '',
     dataPrevista: obra?.previsto    || '',
-    // Campos futuros: cliente, tipo, area, orcamento, bdi, risco, observacoes
+    // Campos futuros: cliente, tipo, area, orcamento, risco, observacoes
   });
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -358,7 +354,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
             onChange={e => set('dataPrevista', e.target.value)}
           />
         </div>
-        {/* Campos futuros: cliente, tipo, área, orçamento, BDI, risco, observações */}
+        {/* Campos futuros: cliente, tipo, área, orçamento, risco, observações */}
       </div>
     </Modal>
   );
@@ -562,12 +558,32 @@ const NotifPanel = ({ onClose }) => {
 // ----- Novo Orçamento modal -----
 const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
   const toast = useToast();
+  const [usedObraIds, setUsedObraIds] = React.useState(null); // null = carregando
   const [form, setForm] = React.useState({
-    obra_id: obras[0]?.id || '',
+    obra_id: '',
     versao: 'v1',
     status: 'rascunho',
   });
   const [loading, setLoading] = React.useState(false);
+
+  // Obras que já têm orçamento são ocultadas (1 orçamento por obra; novas versões via "Criar revisão")
+  React.useEffect(() => {
+    orcamentosService.listar().then(({ data }) => {
+      setUsedObraIds(new Set((data || []).map(o => String(o.obra_id))));
+    });
+  }, []);
+
+  const obrasDisponiveis = React.useMemo(
+    () => usedObraIds ? obras.filter(o => !usedObraIds.has(String(o.id))) : [],
+    [obras, usedObraIds]
+  );
+
+  // Seleciona a primeira obra disponível quando a lista fica pronta / muda
+  React.useEffect(() => {
+    if (obrasDisponiveis.length && !obrasDisponiveis.some(o => o.id === form.obra_id)) {
+      setForm(f => ({ ...f, obra_id: obrasDisponiveis[0].id }));
+    }
+  }, [obrasDisponiveis]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleObraChange = (obraId) => {
     setForm(f => ({ ...f, obra_id: obraId }));
@@ -585,7 +601,6 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
       obra_id: form.obra_id,
       cliente: '',
       versao: form.versao || 'v1',
-      bdi: 26,
       status: form.status,
       valor: 0,
       data: new Date().toISOString().slice(0, 10),
@@ -600,20 +615,41 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
     onClose();
   };
 
-  // Estado vazio: nenhuma obra cadastrada ainda
-  if (obras.length === 0) {
+  // Carregando a lista de obras já usadas (evita piscar o estado vazio durante a busca)
+  if (usedObraIds === null) {
     return (
       <Modal
         title="Novo orçamento"
-        subtitle="Nenhuma obra disponível"
+        subtitle="Carregando obras…"
+        onClose={onClose}
+        footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
+      >
+        <div className="text-muted" style={{ textAlign: 'center', padding: '32px 0', fontSize: 13 }}>
+          Carregando obras disponíveis…
+        </div>
+      </Modal>
+    );
+  }
+
+  // Estado vazio: nenhuma obra cadastrada, ou todas já têm orçamento
+  if (obrasDisponiveis.length === 0) {
+    const semObras = obras.length === 0;
+    return (
+      <Modal
+        title="Novo orçamento"
+        subtitle={semObras ? 'Nenhuma obra disponível' : 'Todas as obras já têm orçamento'}
         onClose={onClose}
         footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
       >
         <div style={{ textAlign: 'center', padding: '32px 0' }}>
           <Icon name="hard-hat" size={36} style={{ color: 'var(--text-faint)' }} />
-          <div style={{ marginTop: 12, fontWeight: 600 }}>Cadastre uma obra primeiro</div>
+          <div style={{ marginTop: 12, fontWeight: 600 }}>
+            {semObras ? 'Cadastre uma obra primeiro' : 'Nenhuma obra sem orçamento'}
+          </div>
           <div className="text-muted" style={{ marginTop: 6, fontSize: 13 }}>
-            Todo orçamento precisa estar vinculado a uma obra.
+            {semObras
+              ? 'Todo orçamento precisa estar vinculado a uma obra.'
+              : 'Cada obra já possui um orçamento. Para criar outra versão, use "Criar revisão" no orçamento existente.'}
           </div>
         </div>
       </Modal>
@@ -644,7 +680,7 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
         <div className="field full">
           <label>Obra <span className="req">*</span></label>
           <select value={form.obra_id} onChange={e => handleObraChange(e.target.value)}>
-            {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+            {obrasDisponiveis.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
           </select>
         </div>
         <div className="field">

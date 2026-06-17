@@ -37,7 +37,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
         </div>
       </div>
 
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Aprovados</div>
           <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{brlOR(totalAprovado, { compact: true })}</div>
@@ -50,20 +50,6 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
           <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{brlOR(totalPendente, { compact: true })}</div>
           <div className="kpi-foot" style={{ marginTop: 6 }}>
             <span className="kpi-foot-text">{orcamentos.filter(o => o.status === 'pendente').length} aguardando cliente</span>
-          </div>
-        </div>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">BDI médio</div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>26,4<span className="unit">%</span></div>
-          <div className="kpi-foot" style={{ marginTop: 6 }}>
-            <span className="kpi-foot-text">Faixa típica: 24% – 28%</span>
-          </div>
-        </div>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">Taxa de conversão (90d)</div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>72<span className="unit">%</span></div>
-          <div className="kpi-foot" style={{ marginTop: 6 }}>
-            <span className="kpi-foot-text"><Icon name="arrow-up" size={11} stroke={2.5} />+8 p.p. vs trimestre anterior</span>
           </div>
         </div>
       </div>
@@ -95,7 +81,6 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
                 <th>Obra / Cliente</th>
                 <th className="center">Versão</th>
                 <th className="right">Valor</th>
-                <th className="right">BDI</th>
                 <th>Status</th>
                 <th>Data</th>
                 <th></th>
@@ -105,7 +90,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
               {loading ? (
                 Array.from({ length: 4 }).map((_, i) => (
                   <tr key={i} style={{ pointerEvents: 'none' }}>
-                    {Array.from({ length: 8 }).map((__, j) => (
+                    {Array.from({ length: 7 }).map((__, j) => (
                       <td key={j}><div className="skeleton" style={{ height: 14 }} /></td>
                     ))}
                   </tr>
@@ -120,7 +105,6 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
                     </td>
                     <td className="center mono text-muted">{o.versao}</td>
                     <td className="right strong num">{brlOR(o.valor, { compact: true })}</td>
-                    <td className="right mono num">{Number(o.bdi).toFixed(1)}%</td>
                     <td><StatusBadge status={o.status} /></td>
                     <td className="mono text-sm text-muted">{o.data}</td>
                     <td>
@@ -488,18 +472,22 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
   );
 };
 
-// Célula editável isolada com memo — evita re-render de todas as linhas ao digitar
-const NumericCell = React.memo(({ id, field, rawValue, displayValue, isActive, onFocus, onChange, onBlur, placeholder }) => (
-  <input
-    className="orca-cell-input right"
-    inputMode="decimal"
-    value={isActive ? rawValue : displayValue}
-    onFocus={onFocus}
-    onChange={onChange}
-    onBlur={onBlur}
-    placeholder={placeholder}
-  />
-));
+// Célula numérica isolada: mantém o texto em edição em estado LOCAL, então digitar
+// não re-renderiza a tabela inteira. Só comunica o pai (onCommit) ao sair do campo.
+const NumericCell = React.memo(({ value, displayValue, onCommit, placeholder }) => {
+  const [draft, setDraft] = React.useState(null); // null = não está em edição
+  return (
+    <input
+      className="orca-cell-input right"
+      inputMode="decimal"
+      value={draft != null ? draft : displayValue}
+      onFocus={() => setDraft(value ? String(value).replace('.', ',') : '')}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => { onCommit(draft ?? ''); setDraft(null); }}
+      placeholder={placeholder}
+    />
+  );
+});
 
 const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user }) => {
   const toast         = useToast();
@@ -507,7 +495,6 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   const [deletedIds, setDeletedIds] = React.useState([]);
   const [dirty, setDirty]           = React.useState(false);
   const [showImport, setShowImport] = React.useState(false);
-  const [activeCell, setActiveCell] = React.useState(null); // { id, field, raw }
 
   // Formata número com separadores pt-BR (ex: 1.234,56)
   const fmtNum = (n, dec = 2) =>
@@ -531,8 +518,16 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   // ── Utilitários de hierarquia ──────────────────────────────────────────────
   const getNivel = (codigo) => (codigo.match(/\./g) || []).length;
 
-  const isParent = (codigo, list) =>
-    list.some(it => it.codigo !== codigo && it.codigo.startsWith(codigo + '.'));
+  // Conjunto de códigos que são "pais" (têm filhos), pré-computado em O(n).
+  // Substitui isParent() O(n)-por-linha, que tornava o render O(n²).
+  const parentSet = React.useMemo(() => {
+    const s = new Set();
+    for (const it of items) {
+      const parts = it.codigo.split('.');
+      for (let i = 1; i < parts.length; i++) s.add(parts.slice(0, i).join('.'));
+    }
+    return s;
+  }, [items]);
 
   // Calcula totais bottom-up: folha = qty × unit; grupo = soma dos filhos diretos
   const calcTotals = (list) => {
@@ -540,7 +535,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
     [...list]
       .sort((a, b) => getNivel(b.codigo) - getNivel(a.codigo))
       .forEach(it => {
-        if (isParent(it.codigo, list)) {
+        if (parentSet.has(it.codigo)) {
           const children = list.filter(ch =>
             ch.codigo.startsWith(it.codigo + '.') &&
             getNivel(ch.codigo) === getNivel(it.codigo) + 1
@@ -553,7 +548,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
     return list.map(it => ({ ...it, valor_total: map[it.codigo] ?? it.valor_total ?? 0 }));
   };
 
-  const withTotals = React.useMemo(() => calcTotals(items), [items]);
+  const withTotals = React.useMemo(() => calcTotals(items), [items, parentSet]);
 
   // Próximo código de mesmo nível (irmão seguinte)
   const nextCode = (refCodigo, list) => {
@@ -594,7 +589,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
     if (maxNivel < 0) { setCollapsed(new Set()); return; }
     const next = new Set();
     items.forEach(it => {
-      if (getNivel(it.codigo) === maxNivel && isParent(it.codigo, items))
+      if (getNivel(it.codigo) === maxNivel && parentSet.has(it.codigo))
         next.add(it.codigo);
     });
     setCollapsed(next);
@@ -880,10 +875,6 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
 
   // ── KPIs ───────────────────────────────────────────────────────────────────
   const grandTotal  = React.useMemo(() => withTotals.filter(it => getNivel(it.codigo) === 0).reduce((s, it) => s + it.valor_total, 0), [withTotals]);
-  const bdiNum      = React.useMemo(() => parseFloat(String(orcamento.bdi).replace(',', '.')) || 0, [orcamento.bdi]);
-  const totalDireto = React.useMemo(() => bdiNum > 0 ? grandTotal / (1 + bdiNum / 100) : grandTotal, [grandTotal, bdiNum]);
-  const totalBdi    = React.useMemo(() => grandTotal - totalDireto, [grandTotal, totalDireto]);
-  const bdiPct      = React.useMemo(() => bdiNum > 0 ? bdiNum.toFixed(1) : '0.0', [bdiNum]);
 
   // Seções de nível 1 para Curva ABC
   const secoes        = React.useMemo(() => withTotals.filter(it => getNivel(it.codigo) === 1), [withTotals]);
@@ -926,22 +917,14 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
       </div>
 
       {/* KPIs */}
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">Custo direto</div>
-          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{brlFull(totalDireto)}</div>
-        </div>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">BDI ({bdiPct}%)</div>
-          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{brlFull(totalBdi)}</div>
-        </div>
+      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Valor total</div>
           <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6, color: 'var(--brand)' }}>{brlFull(grandTotal)}</div>
         </div>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Itens cadastrados</div>
-          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{items.filter(it => !isParent(it.codigo, items)).length}</div>
+          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{items.filter(it => !parentSet.has(it.codigo)).length}</div>
           <div className="kpi-foot" style={{ marginTop: 4 }}>
             <span className="kpi-foot-text">{items.length} total (incluindo grupos)</span>
           </div>
@@ -1032,7 +1015,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
               <tbody>
                 {visibleItems.map((it) => {
                     const nivel     = getNivel(it.codigo);
-                    const hasKids   = isParent(it.codigo, items);
+                    const hasKids   = parentSet.has(it.codigo);
                     const isOpen    = !collapsed.has(it.codigo);
                     const indent    = nivel * 18;
 
@@ -1081,14 +1064,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                         <td className="right">
                           {!hasKids ? (
                             <NumericCell
-                              id={it.id}
-                              field="quantidade"
-                              rawValue={activeCell?.id === it.id && activeCell?.field === 'quantidade' ? activeCell.raw : ''}
+                              value={it.quantidade}
                               displayValue={fmtNum(it.quantidade)}
-                              isActive={activeCell?.id === it.id && activeCell?.field === 'quantidade'}
-                              onFocus={() => setActiveCell({ id: it.id, field: 'quantidade', raw: it.quantidade || '' })}
-                              onChange={e => setActiveCell(prev => ({ ...prev, raw: e.target.value }))}
-                              onBlur={e => { editCell(it.id, 'quantidade', parseNum(e.target.value)); setActiveCell(null); }}
+                              onCommit={(raw) => editCell(it.id, 'quantidade', parseNum(raw))}
                               placeholder="0,00"
                             />
                           ) : <span className="text-muted" style={{ fontSize: 11 }}>—</span>}
@@ -1112,14 +1090,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                         <td className="right">
                           {!hasKids ? (
                             <NumericCell
-                              id={it.id}
-                              field="valor_unitario"
-                              rawValue={activeCell?.id === it.id && activeCell?.field === 'valor_unitario' ? activeCell.raw : ''}
+                              value={it.valor_unitario}
                               displayValue={fmtNum(it.valor_unitario)}
-                              isActive={activeCell?.id === it.id && activeCell?.field === 'valor_unitario'}
-                              onFocus={() => setActiveCell({ id: it.id, field: 'valor_unitario', raw: it.valor_unitario || '' })}
-                              onChange={e => setActiveCell(prev => ({ ...prev, raw: e.target.value }))}
-                              onBlur={e => { editCell(it.id, 'valor_unitario', parseNum(e.target.value)); setActiveCell(null); }}
+                              onCommit={(raw) => editCell(it.id, 'valor_unitario', parseNum(raw))}
                               placeholder="0,00"
                             />
                           ) : <span className="text-muted" style={{ fontSize: 11 }}>—</span>}
@@ -1218,36 +1191,6 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
             </div>
           </div>
 
-          {/* Composição do BDI */}
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title">Composição do BDI</div>
-            </div>
-            <div className="card-body">
-              <div className="stack" style={{ gap: 9, fontSize: 13 }}>
-                {[
-                  { label: 'Administração central',     value: '4,2%' },
-                  { label: 'Despesas financeiras',      value: '1,1%' },
-                  { label: 'Seguros e garantias',       value: '0,8%' },
-                  { label: 'Risco do empreendimento',   value: '2,0%' },
-                  { label: 'Lucro bruto',               value: '8,0%' },
-                  { label: 'Tributos (PIS/COFINS/ISS)', value: '6,4%' },
-                  { label: 'CPRB',                      value: '4,5%' },
-                ].map((b, i) => (
-                  <div key={i} className="row" style={{ justifyContent: 'space-between' }}>
-                    <span className="text-soft">{b.label}</span>
-                    <span className="mono num fw-600">{b.value}</span>
-                  </div>
-                ))}
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 9, marginTop: 4 }}>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span style={{ fontWeight: 600 }}>Total BDI</span>
-                    <span className="mono num" style={{ fontWeight: 700, color: 'var(--brand)' }}>{bdiPct}%</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1326,7 +1269,6 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
       obra_id: orcamento.obra_id,
       cliente: orcamento.cliente,
       versao:  novaVersao,
-      bdi:     orcamento.bdi,
       status:  'rascunho',
       valor:   orcamento.valor,
       data:    new Date().toISOString().slice(0, 10),
