@@ -4816,14 +4816,20 @@ const CronogramaFull = ({ initialObraId }) => {
   const D    = AppData;
   const toast = useToast();
 
-  // Escolhe a obra inicial sem usar OB-001 hardcoded
+  // Escolhe a obra inicial sem usar OB-001 hardcoded.
+  // Após F5 o initialObraId vem null; cai na obra salva na sessão para não
+  // voltar à obra padrão. Navegação explícita (initialObraId) tem prioridade.
   const defaultObraId = initialObraId
+    || sessionStorage.getItem('cronograma_obra')
     || D.obras.find(o => o.status === 'em_andamento')?.id
     || D.obras[0]?.id
     || null;
 
   const [obraSel,      setObraSel]      = React.useState(defaultObraId);
-  const [view,         setView]         = React.useState('gantt');
+  const [view,         setView]         = React.useState(() => sessionStorage.getItem('cronograma_view') || 'gantt');
+  // Persistem a sub-aba e a obra na sessão para o F5 reabrir onde o usuário estava
+  React.useEffect(() => { sessionStorage.setItem('cronograma_view', view); }, [view]);
+  React.useEffect(() => { if (obraSel) sessionStorage.setItem('cronograma_obra', obraSel); }, [obraSel]);
   const [etapas,       setEtapas]       = React.useState([]);
   const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
   const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(defaultObraId || ''));

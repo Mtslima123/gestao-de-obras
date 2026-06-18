@@ -77,8 +77,11 @@ const AppInner = () => {
   const [refreshOrcamentos, setRefreshOrcamentos] = React.useState(0);
   const [cronogramaObraId, setCronogramaObraId] = React.useState(null);
   const [obrasLoaded,     setObrasLoaded]     = React.useState(false);
-  const [cronogramaTab,   setCronogramaTab]   = React.useState('gantt');
-  const [adminTab,        setAdminTab]        = React.useState('usuarios');
+  const [cronogramaTab,   setCronogramaTab]   = React.useState(() => sessionStorage.getItem('nav_cronograma_tab') || 'gantt');
+  const [adminTab,        setAdminTab]        = React.useState(() => sessionStorage.getItem('nav_admin_tab') || 'usuarios');
+  // Sub-abas persistem na sessão para o F5 reabrir na mesma aba
+  React.useEffect(() => { sessionStorage.setItem('nav_cronograma_tab', cronogramaTab); }, [cronogramaTab]);
+  React.useEffect(() => { sessionStorage.setItem('nav_admin_tab', adminTab); }, [adminTab]);
 
   // Carrega obras do Supabase ao autenticar; mantém mock como fallback se a tabela estiver vazia
   React.useEffect(() => {

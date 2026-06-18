@@ -943,7 +943,8 @@ const HeroImage = ({ obra, onObraUpdate }) => {
 
 // ----- Main ObraDetail -----
 const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpdate, onObraDelete, onOpenCronograma }) => {
-  const [tab, setTab] = React.useState('visao');
+  const [tab, setTab] = React.useState(() => sessionStorage.getItem('obra_tab') || 'visao');
+  React.useEffect(() => { sessionStorage.setItem('obra_tab', tab); }, [tab]);
   const [cronoView, setCronoView] = React.useState('gantt');
   const [showEdit,   setShowEdit]   = React.useState(false);
   const [deleteStep, setDeleteStep] = React.useState(0);
