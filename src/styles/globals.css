@@ -150,7 +150,11 @@ a:hover { color: var(--brand-600); }
   padding-left: 72px;
   min-height: 100vh;
   background: var(--bg-app);
+  transition: padding-left 0.22s cubic-bezier(.32,.72,.34,1);
 }
+/* Menu fixado: vira barra permanente e empurra o conteúdo */
+.app.sidebar-pinned { padding-left: 248px; }
+.app.sidebar-pinned .sidebar { box-shadow: none; }
 
 /* ============================================
    SIDEBAR (dark blue — hover expand)
@@ -228,6 +232,7 @@ a:hover { color: var(--brand-600); }
   color: var(--sb-text-muted);
 }
 .sidebar-toggle:hover { background: var(--sb-hover); color: var(--sb-text-strong); }
+.sidebar-toggle.pinned { background: var(--sb-active-bg); color: var(--sb-text-strong); }
 .sidebar-search {
   margin: 14px 14px 6px;
   display: flex;
@@ -674,6 +679,11 @@ a:hover { color: var(--brand-600); }
 .tbl .strong { color: var(--text); font-weight: 600; }
 .tbl .right { text-align: right; }
 .tbl .center { text-align: center; }
+
+/* Tabelas simples dos cards (Orçamento × Cronograma) */
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table thead th { padding: 10px var(--card-pad); }
+.table tbody td { padding: 8px var(--card-pad); }
 
 /* ============================================
    PROGRESS
@@ -1892,6 +1902,22 @@ a:hover { color: var(--brand-600); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Loading da área de conteúdo (evita flash de dados mock no F5) */
+.content-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+}
+.content-loading .spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
 .login-error {
   display: flex;
   align-items: center;
@@ -1952,7 +1978,7 @@ a:hover { color: var(--brand-600); }
 
 /* ─── Lista interativa (MS Project-like) ─────────────────────────── */
 .lista-row-selected td {
-  background: color-mix(in srgb, var(--brand) 8%, transparent) !important;
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface)) !important;
 }
 .lista-row-group td {
   background: var(--surface-muted);
@@ -2004,7 +2030,7 @@ a:hover { color: var(--brand-600); }
 }
 .tbl-lista tbody tr:nth-child(even).lista-row-selected td,
 .tbl-lista tbody tr:nth-child(odd).lista-row-selected td {
-  background: color-mix(in srgb, var(--brand) 8%, transparent) !important;
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface)) !important;
 }
 
 /* Badge numérico de ordem na multi-seleção (Ctrl+clique) */

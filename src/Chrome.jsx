@@ -77,7 +77,7 @@ const ModalAlterarSenha = ({ onClose, forcar = false }) => {
   );
 };
 
-const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha = false, onPasswordChanged, cronogramaTab, onCronogramaTabChange, adminTab, onAdminTabChange }) => {
+const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha = false, onPasswordChanged, cronogramaTab, onCronogramaTabChange, adminTab, onAdminTabChange, pinned = false, onPinChange }) => {
   const [expanded, setExpanded] = React.useState(false);
   const [showAlterarSenha, setShowAlterarSenha] = React.useState(false);
   const [expandedSection, setExpandedSection] = React.useState(null);
@@ -94,7 +94,8 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
       setExpandedSection(null);
     }
   }, [currentView]);
-  const collapsed = !expanded;
+  const open = expanded || pinned;   // aberto por hover OU por fixação
+  const collapsed = !open;
   const navItems = [
     { id: 'dashboard',     label: 'Dashboard',           icon: 'dashboard' },
     { id: 'obras',         label: 'Obras',               icon: 'building' },
@@ -141,9 +142,9 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
 
   return (
     <>
-      {expanded && <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.3)',zIndex:199,pointerEvents:'none'}}/>}
+      {open && !pinned && <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.3)',zIndex:199,pointerEvents:'none'}}/>}
       <aside
-        className={'sidebar' + (expanded ? ' expanded' : '')}
+        className={'sidebar' + (open ? ' expanded' : '')}
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
       >
@@ -157,15 +158,16 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
             <div className="brand-sub">Gestão de Obras</div>
           </div>
         )}
+        {!collapsed && (
+          <button
+            className={'sidebar-toggle' + (pinned ? ' pinned' : '')}
+            title={pinned ? 'Desafixar menu' : 'Fixar menu'}
+            onClick={() => onPinChange?.(!pinned)}
+          >
+            <Icon name={pinned ? 'pin-off' : 'pin'} size={16} />
+          </button>
+        )}
       </div>
-
-      {!collapsed && (
-        <div className="sidebar-search">
-          <Icon name="search" size={14} style={{ color: 'var(--sb-text-muted)' }} />
-          <input placeholder="Buscar no sistema…" />
-          <kbd>⌘K</kbd>
-        </div>
-      )}
 
       <nav className="sidebar-nav">
         {!collapsed && <div className="nav-group-label">Principal</div>}

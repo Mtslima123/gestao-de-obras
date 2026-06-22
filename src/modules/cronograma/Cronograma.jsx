@@ -3056,7 +3056,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 
               // Background explícito para células sticky (colunas congeladas)
               const frozenBg = isSelected
-                ? 'color-mix(in srgb, var(--brand) 8%, transparent)'
+                ? 'color-mix(in srgb, var(--brand) 8%, var(--surface))'
                 : e.isGroup ? 'var(--surface-muted)' : 'var(--surface)';
               const stickyStyle = (colId) => ({
                 position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: frozenBg,
@@ -4646,6 +4646,9 @@ async function carregarCronogramaDB(obraId) {
   return error ? null : data;
 }
 
+// Cache por obra (espelha o estado em memória), evita rebuscar/reprocessar ao voltar; resetado no F5
+const _cronCache = {};
+
 // ─── Modal: Salvar Linha de Base ─────────────────────────────────────────────
 const CriarLinhaModal = ({ baselines, totalEtapas, onClose, onCreate, onUpdate }) => {
   const temExistentes = baselines.length > 0;
@@ -4858,6 +4861,7 @@ const CronogramaFull = ({ initialObraId }) => {
   // Carrega vínculos orçamento × cronograma para a obra selecionada
   React.useEffect(() => {
     if (!obraSel) { setVinculos([]); setOrcamentoItensMap({}); return; }
+    if (_cronCache[obraSel]) return; // restaurado pelo efeito de carga (cache)
     vinculoService.listarPorObra(obraSel).then(({ data }) => {
       if (!data?.length) { setVinculos([]); setOrcamentoItensMap({}); return; }
       setVinculos(data);
@@ -4874,6 +4878,20 @@ const CronogramaFull = ({ initialObraId }) => {
     let cancelled = false;
     async function carregar() {
       if (!obraSel) { setLoadedObraId(null); return; }
+      // Cache da sessão: restaura na hora, sem rede nem reprocessamento
+      const cached = _cronCache[obraSel];
+      if (cached) {
+        setEtapas(cached.etapas);
+        setCustomCols(cached.customCols);
+        setBaselines(cached.baselines);
+        setVinculos(cached.vinculos);
+        setOrcamentoItensMap(cached.orcamentoItensMap);
+        histRef.current = [cached.etapas.map(e => ({ ...e }))];
+        hidxRef.current = 0;
+        setBlVisivelId(null);
+        setLoadedObraId(obraSel);
+        return;
+      }
       // isLoading já é true sincronamente quando obraSel muda — sem necessidade de setState extra
       const db = await carregarCronogramaDB(obraSel);
       if (cancelled) return;
@@ -4914,6 +4932,13 @@ const CronogramaFull = ({ initialObraId }) => {
     carregar();
     return () => { cancelled = true; };
   }, [obraSel]);
+
+  // Mantém o cache da obra espelhando o estado atual (inclui edições), para voltar instantâneo
+  React.useEffect(() => {
+    if (loadedObraId && loadedObraId === obraSel) {
+      _cronCache[loadedObraId] = { etapas, customCols, baselines, vinculos, orcamentoItensMap };
+    }
+  }, [etapas, customCols, baselines, vinculos, orcamentoItensMap, loadedObraId, obraSel]);
 
   // Handlers de linha de base
   const criarLinha = (nome) => {

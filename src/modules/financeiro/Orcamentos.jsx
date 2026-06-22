@@ -495,6 +495,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   const [deletedIds, setDeletedIds] = React.useState([]);
   const [dirty, setDirty]           = React.useState(false);
   const [showImport, setShowImport] = React.useState(false);
+  const [pendingDelete, setPendingDelete] = React.useState(null); // item aguardando confirmação de exclusão
 
   // Formata número com separadores pt-BR (ex: 1.234,56)
   const fmtNum = (n, dec = 2) =>
@@ -510,8 +511,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   const [revisando, setRevisando]   = React.useState(false);
 
   React.useEffect(() => {
+    if (_itensCache[orcamento.id]) { setItems(_itensCache[orcamento.id]); return; }
     orcamentosService.itens.listar(orcamento.id).then(({ data, error }) => {
-      if (!error && data && data.length > 0) setItems(data);
+      if (!error && data && data.length > 0) { _itensCache[orcamento.id] = data; setItems(data); }
     });
   }, [orcamento.id]);
 
@@ -693,6 +695,24 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
     setDirty(true);
   };
 
+  // Pede confirmação antes de excluir quando o item (ou seus filhos) tem quantidade lançada
+  const requestRemove = (codigo) => {
+    const afetados = items.filter(it => it.codigo === codigo || it.codigo.startsWith(codigo + '.'));
+    const temQuantidade = afetados.some(it => Number(it.quantidade) > 0);
+    if (!temQuantidade) {
+      removeRow(codigo); // sem quantidade: exclui direto, como antes
+      return;
+    }
+    const item = items.find(it => it.codigo === codigo);
+    setPendingDelete({
+      codigo,
+      nome: item?.nome || '',
+      quantidade: item?.quantidade,
+      unidade: item?.unidade,
+      isGrupo: afetados.length > 1,
+    });
+  };
+
   const removeRow = (codigo) => {
     // Rastreia IDs de itens já salvos no banco para deletar no próximo save
     const toDelete = items
@@ -709,7 +729,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
 
   const discardChanges = () => {
     orcamentosService.itens.listar(orcamento.id).then(({ data }) => {
-      if (data && data.length > 0) setItems(data);
+      if (data && data.length > 0) { _itensCache[orcamento.id] = data; setItems(data); }
     });
     setDeletedIds([]);
     setDirty(false);
@@ -756,6 +776,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
       // 3) Recarrega do banco para refletir os IDs reais
       const { data } = await orcamentosService.itens.listar(orcamento.id);
       const loaded = data && data.length > 0 ? data : [];
+      _itensCache[orcamento.id] = loaded;
       setItems(loaded);
       setDeletedIds([]);
       setDirty(false);
@@ -843,8 +864,8 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
 
       // 5) Recarrega do banco para refletir os IDs reais (substitui os tmp-…)
       const { data } = await orcamentosService.itens.listar(orcamento.id);
-      if (data && data.length > 0) setItems(data);
-      else setItems(prev => prev.map(({ _new, _dirty, ...rest }) => rest));
+      if (data && data.length > 0) { _itensCache[orcamento.id] = data; setItems(data); }
+      else { delete _itensCache[orcamento.id]; setItems(prev => prev.map(({ _new, _dirty, ...rest }) => rest)); }
 
       setDirty(false);
       toast('Itens salvos com sucesso', { tone: 'success', icon: 'check' });
@@ -1041,12 +1062,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                             ) : (
                               <span style={{ width: 16, flexShrink: 0 }} />
                             )}
-                            <input
-                              className="orca-cell-input"
-                              value={it.codigo}
-                              onChange={e => editCell(it.id, 'codigo', e.target.value)}
-                              style={{ width: 90, fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5 }}
-                            />
+                            {/* Código é gerado pelo sistema (novo item / sub-itens), não editável manualmente */}
+                            <span
+                              className="orca-cell-code"
+                              style={{ width: 90, padding: 2, fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5, color: 'var(--text-soft)' }}
+                            >
+                              {it.codigo}
+                            </span>
                           </div>
                         </td>
 
@@ -1128,7 +1150,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                             <button
                               className="orca-row-btn danger"
                               title="Remover linha (e filhos)"
-                              onClick={() => removeRow(it.codigo)}
+                              onClick={() => requestRemove(it.codigo)}
                             >×</button>
                           </div>
                         </td>
@@ -1203,12 +1225,42 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
           onClose={() => setShowImport(false)}
         />
       )}
+
+      {pendingDelete && (
+        <Modal
+          title="Excluir item"
+          onClose={() => setPendingDelete(null)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setPendingDelete(null)}>Cancelar</button>
+              <button
+                className="btn"
+                style={{ background: 'var(--danger)', color: 'white', fontWeight: 600 }}
+                onClick={() => { removeRow(pendingDelete.codigo); setPendingDelete(null); }}
+              >
+                Sim, excluir
+              </button>
+            </>
+          }
+        >
+          <p style={{ fontSize: 14 }}>
+            {pendingDelete.isGrupo ? (
+              <>O grupo <strong>{pendingDelete.codigo}{pendingDelete.nome ? ` · ${pendingDelete.nome}` : ''}</strong> contém itens com quantidade lançada, que também serão removidos.</>
+            ) : (
+              <>O item <strong>{pendingDelete.codigo}{pendingDelete.nome ? ` · ${pendingDelete.nome}` : ''}</strong> tem <strong>{fmtNum(pendingDelete.quantidade)} {pendingDelete.unidade || ''}</strong> lançado.</>
+            )}
+            {' '}Tem certeza que deseja excluir?
+          </p>
+        </Modal>
+      )}
     </>
   );
 };
 
 // Cache module-level: sobrevive a desmontagens do componente, resetado no F5
 let _orcamentosCache = null;
+// Cache dos itens da composição por orçamento (evita rebuscar ao reabrir o mesmo)
+const _itensCache = {};
 
 // OrcamentosScreen gerencia o estado da lista e os handlers de ação
 const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user }) => {

@@ -73,26 +73,30 @@ const AppInner = () => {
   const [modal, setModal] = React.useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
-  const [obras, setObras] = React.useState(() => [...AppData.obras]);
+  const [obras, setObras] = React.useState(() => []);
   const [refreshOrcamentos, setRefreshOrcamentos] = React.useState(0);
   const [cronogramaObraId, setCronogramaObraId] = React.useState(null);
   const [obrasLoaded,     setObrasLoaded]     = React.useState(false);
   const [cronogramaTab,   setCronogramaTab]   = React.useState(() => sessionStorage.getItem('nav_cronograma_tab') || 'gantt');
   const [adminTab,        setAdminTab]        = React.useState(() => sessionStorage.getItem('nav_admin_tab') || 'usuarios');
+  const [sidebarPinned,   setSidebarPinned]   = React.useState(false); // menu fixado aberto (sem persistir)
   // Sub-abas persistem na sessão para o F5 reabrir na mesma aba
   React.useEffect(() => { sessionStorage.setItem('nav_cronograma_tab', cronogramaTab); }, [cronogramaTab]);
   React.useEffect(() => { sessionStorage.setItem('nav_admin_tab', adminTab); }, [adminTab]);
 
-  // Carrega obras do Supabase ao autenticar; mantém mock como fallback se a tabela estiver vazia
+  // Carrega obras do Supabase ao autenticar; mock serve só de fallback se a consulta falhar
   React.useEffect(() => {
     if (!authed) return;
-    obrasService.listar().then(({ data, error }) => {
-      if (!error && data) {
-        AppData.obras = data;
-        setObras(data);
-      }
-      setObrasLoaded(true); // garante que CronogramaFull só monta com obras reais
-    });
+    obrasService.listar()
+      .then(({ data, error }) => {
+        if (!error && data) {
+          AppData.obras = data;
+          setObras(data);
+        } else {
+          setObras([...AppData.obras]); // fallback ao mock apenas em caso de erro
+        }
+      })
+      .finally(() => setObrasLoaded(true)); // libera o gate mesmo se a consulta falhar
   }, [authed]);
 
   const handleObraCreate = async (nova) => {
@@ -239,7 +243,7 @@ const AppInner = () => {
         />
       )}
       {authed && (
-    <div className="app" data-screen-label={screenLabels[view] || view}>
+    <div className={'app' + (sidebarPinned ? ' sidebar-pinned' : '')} data-screen-label={screenLabels[view] || view}>
       <Sidebar
         currentView={view === 'obra-detail' ? 'obras' : view}
         onNavigate={handleNavigate}
@@ -251,6 +255,8 @@ const AppInner = () => {
         onCronogramaTabChange={setCronogramaTab}
         adminTab={adminTab}
         onAdminTabChange={setAdminTab}
+        pinned={sidebarPinned}
+        onPinChange={setSidebarPinned}
       />
       <div className="main">
         <Topbar
@@ -258,6 +264,10 @@ const AppInner = () => {
         />
         <div className="content">
           <ErrorBoundary key={view}>
+          {!obrasLoaded ? (
+            <div className="content-loading"><span className="spinner" /></div>
+          ) : (
+          <>
           {view === 'dashboard' && <Dashboard onOpenObra={handleOpenObra} onAcao={(a) => setModal(a)} />}
           {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} layout={tweaks.obrasLayout} obras={obras} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} />}
           {view === 'obra-detail' && (
@@ -281,7 +291,7 @@ const AppInner = () => {
           )}
           {view === 'estimativas' && <EstimativasScreen />}
           {view === 'incc' && <INCCScreen />}
-          {view === 'cronograma' && obrasLoaded && (
+          {view === 'cronograma' && (
             <>
               {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} />}
               {cronogramaTab === 'orc-x-cron' && <OrcamentoCronogramaScreen obras={obras} user={user} />}
@@ -305,6 +315,8 @@ const AppInner = () => {
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
            view !== 'cronograma' && view !== 'ia' && view !== 'admin' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
+          )}
+          </>
           )}
           </ErrorBoundary>
         </div>

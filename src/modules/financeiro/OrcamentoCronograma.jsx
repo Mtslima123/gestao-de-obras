@@ -64,6 +64,109 @@ const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style })
   );
 };
 
+// Cache por obra (vínculos + itens + etapas), evita rebuscar ao voltar; resetado no F5
+const _ocCache = {};
+
+// ─── ItensOrcamentoSelect ─────────────────────────────────────────────────────
+// Multi-select com busca isolado: digitar só re-renderiza este componente, não a tela toda
+const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds, selItens, onToggle, onClearSel }) => {
+  const [buscaItem, setBuscaItem] = React.useState('');
+  const buscaDef = React.useDeferredValue(buscaItem);
+  const itensFiltradosBusca = React.useMemo(() => {
+    const disponiveis = itens.filter(it => !itensVinculadosIds.has(it.id));
+    if (!buscaDef) return disponiveis;
+    const q = buscaDef.toLowerCase();
+    return disponiveis.filter(it =>
+      it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q)
+    );
+  }, [itens, buscaDef, itensVinculadosIds]);
+
+  return (
+    <>
+      <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+        Itens do Orçamento
+        {selItens.length > 0 && (
+          <span style={{ marginLeft: 6, color: 'var(--brand)', fontWeight: 600 }}>
+            ({selItens.length} selecionado{selItens.length > 1 ? 's' : ''})
+          </span>
+        )}
+      </label>
+      <input
+        className="input"
+        placeholder="Buscar item…"
+        value={buscaItem}
+        onChange={e => setBuscaItem(e.target.value)}
+        style={{ width: '100%', marginBottom: 6 }}
+      />
+      <div style={{
+        maxHeight: 220,
+        overflowY: 'auto',
+        border: '1px solid var(--border)',
+        borderRadius: 6,
+        background: 'var(--surface)',
+      }}>
+        {itensFiltradosBusca.length === 0 && (
+          <div style={{ padding: '10px 12px', fontSize: 13, color: 'var(--text-faint)' }}>
+            {!buscaItem && itens.length > 0
+              ? 'Todos os itens já foram vinculados.'
+              : 'Nenhum item encontrado.'}
+          </div>
+        )}
+        {itensFiltradosBusca.map(it => {
+          const val = itemValor(it);
+          const sid = String(it.id);
+          const checked = selItens.includes(sid);
+          const resumo = resumoIds.has(it.id);
+          return (
+            <label
+              key={it.id}
+              title={resumo ? 'Item-resumo não pode ser vinculado diretamente' : undefined}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+                padding: '8px 12px',
+                cursor: resumo ? 'not-allowed' : 'pointer',
+                borderBottom: '1px solid var(--border-subtle)',
+                background: checked ? 'var(--brand-tint)' : 'transparent',
+                opacity: resumo ? 0.45 : 1,
+                transition: 'background 0.1s',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={resumo}
+                onChange={() => !resumo && onToggle(it.id)}
+                style={{ marginTop: 2, accentColor: 'var(--brand)', flexShrink: 0 }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: checked ? 600 : 400 }}>
+                  <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{it.codigo}</span>
+                  {it.nome}
+                  {resumo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>resumo</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
+                  {formatBRL(val)}
+                </div>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+      {selItens.length > 0 && (
+        <button
+          className="btn btn-ghost"
+          style={{ marginTop: 6, fontSize: 12 }}
+          onClick={onClearSel}
+        >
+          Limpar seleção
+        </button>
+      )}
+    </>
+  );
+});
+
 // ─── OrcamentoCronogramaScreen ────────────────────────────────────────────────
 const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const toast = useToast();
@@ -80,7 +183,6 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
 
   const [selItens, setSelItens] = React.useState([]);
   const [selEtapa, setSelEtapa] = React.useState('');
-  const [buscaItem, setBuscaItem] = React.useState('');
 
   // Estado do modal de edição de vínculos por tarefa
   const [editandoEtapaId,  setEditandoEtapaId]  = React.useState(null);
@@ -91,15 +193,17 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
       setVinculos([]); setItens([]); setEtapas([]);
       return;
     }
+    const c = _ocCache[obraSel];
+    if (c) { setVinculos(c.vinculos); setItens(c.itens); setEtapas(c.etapas); return; }
     setLoading(true);
     Promise.all([
       vinculoService.listarPorObra(obraSel),
       vinculoService.itensPorObra(obraSel),
       supabase.from('cronogramas').select('etapas').eq('obra_id', obraSel).single(),
     ]).then(([vincRes, itensRes, cronRes]) => {
-      setVinculos(vincRes.data || []);
-      setItens(itensRes.data || []);
-      setEtapas(migrateEtapas(cronRes.data?.etapas || []));
+      const v = vincRes.data || [], it = itensRes.data || [], et = migrateEtapas(cronRes.data?.etapas || []);
+      setVinculos(v); setItens(it); setEtapas(et);
+      _ocCache[obraSel] = { vinculos: v, itens: it, etapas: et };
       setLoading(false);
     });
   }, [obraSel]);
@@ -115,27 +219,20 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     [vinculos]
   );
 
-  const toggleItem = (id) => {
+  const toggleItem = React.useCallback((id) => {
     const sid = String(id);
     setSelItens(prev =>
       prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]
     );
-  };
+  }, []);
+
+  const limparSelecao = React.useCallback(() => setSelItens([]), []);
 
   // IDs dos itens-resumo: qualquer item cujo codigo é prefixo de outro não pode ser vinculado
   const resumoIds = React.useMemo(
     () => new Set(itens.filter(it => itens.some(other => other.codigo?.startsWith(it.codigo + '.'))).map(it => it.id)),
     [itens]
   );
-
-  const itensFiltradosBusca = React.useMemo(() => {
-    const disponiveis = itens.filter(it => !itensVinculadosIds.has(it.id));
-    if (!buscaItem) return disponiveis;
-    const q = buscaItem.toLowerCase();
-    return disponiveis.filter(it =>
-      it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q)
-    );
-  }, [itens, buscaItem, itensVinculadosIds]);
 
   // ── Adicionar vínculos (tela principal) ───────────────────────────────────
   const handleAdd = async () => {
@@ -157,7 +254,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     if (criados > 0) {
       const { data } = await vinculoService.listarPorObra(obraSel);
       setVinculos(data || []);
-      setSelItens([]); setSelEtapa(''); setBuscaItem('');
+      if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = data || [];
+      setSelItens([]); setSelEtapa('');
       toast(
         criados === 1 ? 'Vínculo criado com sucesso' : `${criados} vínculos criados`,
         { tone: 'success', icon: 'check' }
@@ -174,6 +272,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
       return;
     }
     setVinculos(v => v.filter(x => x.id !== id));
+    if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = _ocCache[obraSel].vinculos.filter(x => x.id !== id);
     toast('Vínculo removido', { tone: 'neutral', icon: 'check' });
   };
 
@@ -191,6 +290,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     } else {
       const { data } = await vinculoService.listarPorObra(obraSel);
       setVinculos(data || []);
+      if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = data || [];
       toast('Item associado com sucesso', { tone: 'success', icon: 'check' });
     }
     setSaving(false);
@@ -304,88 +404,16 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
               )}
 
               <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                {/* Multi-select de itens de orçamento */}
+                {/* Multi-select de itens de orçamento (busca isolada — ver ItensOrcamentoSelect) */}
                 <div style={{ flex: '1 1 300px', minWidth: 240 }}>
-                  <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
-                    Itens do Orçamento
-                    {selItens.length > 0 && (
-                      <span style={{ marginLeft: 6, color: 'var(--brand)', fontWeight: 600 }}>
-                        ({selItens.length} selecionado{selItens.length > 1 ? 's' : ''})
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    className="input"
-                    placeholder="Buscar item…"
-                    value={buscaItem}
-                    onChange={e => setBuscaItem(e.target.value)}
-                    style={{ width: '100%', marginBottom: 6 }}
+                  <ItensOrcamentoSelect
+                    itens={itens}
+                    itensVinculadosIds={itensVinculadosIds}
+                    resumoIds={resumoIds}
+                    selItens={selItens}
+                    onToggle={toggleItem}
+                    onClearSel={limparSelecao}
                   />
-                  <div style={{
-                    maxHeight: 220,
-                    overflowY: 'auto',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                    background: 'var(--surface)',
-                  }}>
-                    {itensFiltradosBusca.length === 0 && (
-                      <div style={{ padding: '10px 12px', fontSize: 13, color: 'var(--text-faint)' }}>
-                        {!buscaItem && itens.length > 0
-                          ? 'Todos os itens já foram vinculados.'
-                          : 'Nenhum item encontrado.'}
-                      </div>
-                    )}
-                    {itensFiltradosBusca.map(it => {
-                      const val = itemValor(it);
-                      const sid = String(it.id);
-                      const checked = selItens.includes(sid);
-                      const resumo = resumoIds.has(it.id);
-                      return (
-                        <label
-                          key={it.id}
-                          title={resumo ? 'Item-resumo não pode ser vinculado diretamente' : undefined}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: 10,
-                            padding: '8px 12px',
-                            cursor: resumo ? 'not-allowed' : 'pointer',
-                            borderBottom: '1px solid var(--border-subtle)',
-                            background: checked ? 'var(--brand-tint)' : 'transparent',
-                            opacity: resumo ? 0.45 : 1,
-                            transition: 'background 0.1s',
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={resumo}
-                            onChange={() => !resumo && toggleItem(it.id)}
-                            style={{ marginTop: 2, accentColor: 'var(--brand)', flexShrink: 0 }}
-                          />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12.5, fontWeight: checked ? 600 : 400 }}>
-                              <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{it.codigo}</span>
-                              {it.nome}
-                              {resumo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>resumo</span>}
-                            </div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
-                              {formatBRL(val)}
-                            </div>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  {selItens.length > 0 && (
-                    <button
-                      className="btn btn-ghost"
-                      style={{ marginTop: 6, fontSize: 12 }}
-                      onClick={() => setSelItens([])}
-                    >
-                      Limpar seleção
-                    </button>
-                  )}
                 </div>
 
                 {/* Select de tarefa do cronograma */}
@@ -453,9 +481,11 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
             </div>
           </div>
 
-          {/* ── Tabela de vínculos ────────────────────────────────────────────── */}
-          <div className="card" style={{ marginTop: 'var(--gap)' }}>
-            <div className="card-header" style={{ overflow: 'visible' }}>
+          {/* ── Vínculos cadastrados + Resumo lado a lado ─────────────────────── */}
+          <div style={{ display: 'flex', gap: 'var(--gap)', alignItems: 'flex-start', flexWrap: 'wrap', marginTop: 'var(--gap)' }}>
+          <div style={{ flex: '2 1 480px', minWidth: 0 }}>
+          <div className="card">
+            <div className="card-header" style={{ overflow: 'visible', minHeight: 69 }}>
               <div>
                 <div className="card-title">
                   Vínculos cadastrados
@@ -577,14 +607,19 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
             </div>
           </div>
 
+          </div>{/* fim coluna Vínculos */}
+
           {/* ── Resumo por tarefa ─────────────────────────────────────────────── */}
           {vinculos.length > 0 && (
-            <ResumoVinculos
-              vinculos={vinculos}
-              etapas={etapas}
-              onEditarVinculos={setEditandoEtapaId}
-            />
+            <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+              <ResumoVinculos
+                vinculos={vinculos}
+                etapas={etapas}
+                onEditarVinculos={setEditandoEtapaId}
+              />
+            </div>
           )}
+          </div>{/* fim container 2 colunas */}
         </>
       )}
 
@@ -694,7 +729,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
 };
 
 // ─── ResumoVinculos ───────────────────────────────────────────────────────────
-const ResumoVinculos = ({ vinculos, etapas, onEditarVinculos }) => {
+const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos }) => {
   const porEtapa = {};
   vinculos.forEach(v => {
     if (!porEtapa[v.etapa_id]) porEtapa[v.etapa_id] = { itens: [], total: 0 };
@@ -706,10 +741,12 @@ const ResumoVinculos = ({ vinculos, etapas, onEditarVinculos }) => {
   if (etapasComVinculo.length === 0) return null;
 
   return (
-    <div className="card" style={{ marginTop: 'var(--gap)' }}>
-      <div className="card-header">
-        <div className="card-title">Resumo por tarefa</div>
-        <div className="card-subtitle">Valor total recebido do orçamento por tarefa vinculada</div>
+    <div className="card">
+      <div className="card-header" style={{ minHeight: 69 }}>
+        <div>
+          <div className="card-title">Resumo por tarefa</div>
+          <div className="card-subtitle">Valor total recebido do orçamento por tarefa vinculada</div>
+        </div>
       </div>
       <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
         <table className="table">
@@ -752,6 +789,6 @@ const ResumoVinculos = ({ vinculos, etapas, onEditarVinculos }) => {
       </div>
     </div>
   );
-};
+});
 
 export { OrcamentoCronogramaScreen };
