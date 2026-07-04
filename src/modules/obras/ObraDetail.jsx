@@ -4,6 +4,7 @@ import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { RiskBadge } from '../../components/RiskBadge';
+import { migrateEtapas } from '../cronograma/ganttUtils';
 
 // Obra Detail Page
 const { brl: brlD } = AppData;
@@ -43,12 +44,10 @@ const Gantt = ({ etapas }) => {
 };
 
 // ----- Visão Geral tab -----
-const VisaoGeral = ({ obra }) => {
+const VisaoGeral = ({ etapas, etapasLoaded }) => {
   const D = AppData;
-  const o = obra || D.obraAtual;
   return (
     <div className="stack">
-      <div className="grid-cols-3-2">
         <div className="card">
           <div className="card-header">
             <div>
@@ -70,89 +69,24 @@ const VisaoGeral = ({ obra }) => {
 
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Indicadores chave</div>
-            <button className="icon-btn"><Icon name="dots" size={16} /></button>
-          </div>
-          <div className="card-body">
-            <div className="stack" style={{ gap: 14 }}>
-              <MiniIndicator label="SPI — Índice de prazo" value="0,94" detail="4% atrasada" tone="warning" />
-              <MiniIndicator label="CPI — Índice de custo" value="1,02" detail="2% abaixo do orçado" tone="success" />
-              <MiniIndicator label="Desvio do orçamento" value="-R$ 1,2 mi" detail="Tendência: estabilizada" tone="success" />
-              <MiniIndicator label="Acidentes (LTI)" value="0" detail="412 dias sem afastamento" tone="success" />
-              <MiniIndicator label="Não-conformidades abertas" value="7" detail="3 críticas" tone="warning" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid-cols-3-2">
-        <div className="card">
-          <div className="card-header">
             <div>
               <div className="card-title">Cronograma resumido</div>
               <div className="card-subtitle">10 etapas principais</div>
             </div>
           </div>
           <div className="card-body" style={{ padding: '4px 0 0' }}>
-            <Gantt etapas={D.cronograma[o.id] || []} />
+            {!etapasLoaded ? (
+              <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>
+                Carregando cronograma…
+              </div>
+            ) : (
+              <Gantt etapas={etapas} />
+            )}
           </div>
         </div>
-
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">Atividades recentes</div>
-            <button className="icon-btn"><Icon name="dots" size={16} /></button>
-          </div>
-          <div className="card-body" style={{ padding: '4px 20px' }}>
-            <div className="activity">
-              {[
-                { icon: 'check', tone: 'success', title: 'Medição 12 aprovada por Vértice', meta: 'R$ 4,86 mi liberados', time: '2h' },
-                { icon: 'alert-triangle', tone: 'danger', title: 'Atraso em alvenaria — pavimento 6', meta: '4 dias atrás do cronograma', time: '5h' },
-                { icon: 'box', tone: 'warning', title: 'Brita 1 abaixo do estoque mínimo', meta: '38 m³ disponíveis · pedido sugerido: 120 m³', time: '8h' },
-                { icon: 'file', tone: 'info', title: 'Aditivo 03 anexado ao contrato', meta: 'Concretix Suprimentos · R$ 240 mil', time: 'ontem' },
-                { icon: 'users', tone: 'info', title: '12 novos colaboradores integrados', meta: 'Equipe de revestimento', time: 'ontem' },
-                { icon: 'shield', tone: 'success', title: 'DDS realizado — 47 presentes', meta: 'Tema: trabalho em altura', time: '2d' },
-              ].map((a, i) => (
-                <div className="activity-item" key={i}>
-                  <div className={'activity-dot ' + a.tone}><Icon name={a.icon} size={14} /></div>
-                  <div>
-                    <div className="activity-title">{a.title}</div>
-                    <div className="activity-meta">{a.meta}</div>
-                  </div>
-                  <div className="activity-time">{a.time}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
-
-const MiniIndicator = ({ label, value, detail, tone }) => (
-  <div>
-    <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
-      <span className="text-sm text-muted fw-600">{label}</span>
-      <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--text)' }} className="num">{value}</span>
-    </div>
-    <div className="row" style={{ gap: 8 }}>
-      <div style={{
-        height: 4, flex: 1, borderRadius: 2,
-        background: tone === 'success' ? 'var(--success-bg)' : tone === 'warning' ? 'var(--warning-bg)' : 'var(--danger-bg)',
-        position: 'relative', overflow: 'hidden',
-      }}>
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: tone === 'success' ? 'var(--success)' : tone === 'warning' ? 'var(--warning)' : 'var(--danger)',
-          width: tone === 'success' ? '88%' : tone === 'warning' ? '62%' : '42%',
-          borderRadius: 2,
-        }}></div>
-      </div>
-      <span className="text-xs text-muted">{detail}</span>
-    </div>
-  </div>
-);
 
 // ----- Curve S chart with planned baseline -----
 const CurveS = ({ series }) => {
@@ -390,81 +324,6 @@ const Fornecedores = () => {
             ))}
           </tbody>
         </table>
-      </div>
-    </div>
-  );
-};
-
-// ----- Equipe tab -----
-const Equipe = () => {
-  const D = AppData;
-  return (
-    <div className="stack">
-      <div className="kpi-grid">
-        <KPISmall label="Mão de obra total" value="142" sub="Diretos + terceirizados" />
-        <KPISmall label="Funcionários diretos" value="68" sub="48% do total" />
-        <KPISmall label="HH trabalhadas (mês)" value="22.460" sub="-3% vs mês anterior" />
-        <KPISmall label="Dias sem afastamento" value="412" sub="Meta: 500 dias" tone="success" />
-      </div>
-
-      <div className="grid-cols-3-2">
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">Equipe técnica</div>
-            <button className="btn btn-sm btn-primary"><Icon name="plus" size={13} />Adicionar</button>
-          </div>
-          <div className="card-body flush">
-            <table className="tbl">
-              <thead>
-                <tr><th>Membro</th><th>Cargo</th><th>HH (mês)</th><th></th></tr>
-              </thead>
-              <tbody>
-                {D.equipe.map((p, i) => (
-                  <tr key={i}>
-                    <td>
-                      <div className="row" style={{ gap: 10 }}>
-                        <div className={'avatar md ' + p.cor}>{p.iniciais}</div>
-                        <span className="strong">{p.nome}</span>
-                      </div>
-                    </td>
-                    <td className="text-soft">{p.cargo}</td>
-                    <td className="mono num">{(160 + i * 8).toString()}</td>
-                    <td><button className="icon-btn" style={{ width: 28, height: 28 }}><Icon name="dots" size={14} /></button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">Distribuição por especialidade</div>
-            <button className="icon-btn"><Icon name="dots" size={16} /></button>
-          </div>
-          <div className="card-body">
-            <div className="stack" style={{ gap: 14 }}>
-              {[
-                { label: 'Estrutura / Armação', value: 38, color: 'var(--brand)' },
-                { label: 'Alvenaria', value: 32, color: 'var(--brand-500)' },
-                { label: 'Instalações elétricas', value: 22, color: '#1f8b5c' },
-                { label: 'Instalações hidráulicas', value: 18, color: '#3d7fc9' },
-                { label: 'Acabamento', value: 16, color: '#b3711a' },
-                { label: 'Apoio e administração', value: 16, color: '#8a95ad' },
-              ].map((d, i) => (
-                <div key={i}>
-                  <div className="row" style={{ justifyContent: 'space-between', marginBottom: 5 }}>
-                    <span className="text-sm text-soft">{d.label}</span>
-                    <span className="mono num text-sm fw-600">{d.value}</span>
-                  </div>
-                  <div style={{ height: 6, borderRadius: 3, background: 'var(--surface-muted)' }}>
-                    <div style={{ height: '100%', width: (d.value / 38 * 100) + '%', background: d.color, borderRadius: 3 }}></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -943,7 +802,10 @@ const HeroImage = ({ obra, onObraUpdate }) => {
 
 // ----- Main ObraDetail -----
 const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpdate, onObraDelete, onOpenCronograma }) => {
-  const [tab, setTab] = React.useState(() => sessionStorage.getItem('obra_tab') || 'visao');
+  const [tab, setTab] = React.useState(() => {
+    const saved = sessionStorage.getItem('obra_tab');
+    return ['visao', 'cronograma', 'fotos'].includes(saved) ? saved : 'visao';
+  });
   React.useEffect(() => { sessionStorage.setItem('obra_tab', tab); }, [tab]);
   const [cronoView, setCronoView] = React.useState('gantt');
   const [showEdit,   setShowEdit]   = React.useState(false);
@@ -952,10 +814,27 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
   const o = obra || D.obraAtual;
   const margem = ((o.orcamento - o.gasto) / o.orcamento * 100).toFixed(1);
 
+  // Busca as etapas do cronograma da obra — não depende de o usuário já ter aberto o módulo Cronograma
+  const [etapasObra, setEtapasObra] = React.useState(() => AppData.cronograma[o.id] || []);
+  const [etapasLoaded, setEtapasLoaded] = React.useState(!!AppData.cronograma[o.id]?.length);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (AppData.cronograma[o.id]?.length) { setEtapasObra(AppData.cronograma[o.id]); setEtapasLoaded(true); return; }
+    setEtapasLoaded(false);
+    supabase.from('cronogramas').select('etapas').eq('obra_id', o.id).single().then(({ data, error }) => {
+      if (cancelled) return;
+      const etapas = !error && data?.etapas ? migrateEtapas(data.etapas) : (AppData.cronograma[o.id] || []);
+      AppData.cronograma[o.id] = etapas; // mantém o cache compartilhado com o módulo Cronograma
+      setEtapasObra(etapas);
+      setEtapasLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [o.id]);
+
   const tabs = [
     { id: 'visao',      label: 'Visão geral' },
     { id: 'cronograma', label: 'Cronograma'  },
-    { id: 'equipe',     label: 'Equipe'      },
     { id: 'fotos',      label: 'Fotos'       },
   ];
 
@@ -1041,13 +920,13 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
         ))}
       </div>
 
-      {tab === 'visao' && <VisaoGeral obra={o} />}
+      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} />}
       {tab === 'cronograma' && (
         <div className="card">
           <div className="card-header">
             <div>
               <div className="card-title">Cronograma físico</div>
-              <div className="card-subtitle">{(D.cronograma[o.id] || []).length} etapas · 28 meses</div>
+              <div className="card-subtitle">{etapasObra.length} etapas · 28 meses</div>
             </div>
             <div className="card-actions">
               <button className={'chip' + (cronoView === 'gantt' ? ' active' : '')} onClick={() => setCronoView('gantt')}>Gantt</button>
@@ -1058,7 +937,7 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
             </div>
           </div>
           <div className="card-body" style={{ padding: '4px 0 0' }}>
-            {cronoView === 'gantt' && <Gantt etapas={D.cronograma[o.id] || []} />}
+            {cronoView === 'gantt' && <Gantt etapas={etapasObra} />}
             {cronoView === 'lista' && (() => {
               const statusLabel = { done: 'Concluído', late: 'Atrasado', upcoming: 'Planejado' };
               const thS = { padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600,
@@ -1078,7 +957,7 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
                       </tr>
                     </thead>
                     <tbody>
-                      {(D.cronograma[o.id] || []).map((e, i) => (
+                      {etapasObra.map((e, i) => (
                         <tr key={i}>
                           <td style={tdS}>{e.etapa}</td>
                           <td style={tdS}>Mês {Math.floor(e.inicio / 30) + 1}</td>
@@ -1103,7 +982,6 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
           </div>
         </div>
       )}
-      {tab === 'equipe' && <Equipe />}
       {tab === 'fotos' && <Fotos obra={o} />}
 
       {showEdit && (

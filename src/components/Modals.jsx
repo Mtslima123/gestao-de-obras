@@ -243,8 +243,8 @@ const NovaObraModal = ({ onClose }) => {
 
 // ----- ObraFormModal (criar ou editar obra) -----
 const ObraFormModal = ({ obra = null, onClose, onSave }) => {
-  const toast = useToast();
   const isEdit = obra !== null;
+  const [saving, setSaving] = React.useState(false);
   const [form, setForm] = React.useState({
     nome:         obra?.nome        || '',
     sigla:        obra?.sigla || obra?.id || '',
@@ -256,8 +256,8 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSave = () => {
-    if (!form.nome.trim()) return;
+  const handleSave = async () => {
+    if (!form.nome.trim() || saving) return;
     let result;
     if (isEdit) {
       result = {
@@ -292,8 +292,9 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         contrato:         '',
       };
     }
-    onSave(result);
-    toast(isEdit ? 'Obra atualizada com sucesso' : 'Obra criada com sucesso', { tone: 'success', icon: 'check' });
+    setSaving(true);
+    await onSave(result); // erro/sucesso reais são tratados e sinalizados por quem chama (toast + fechamento do modal)
+    setSaving(false);
   };
 
   return (
@@ -304,9 +305,9 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
       footer={
         <>
           <div className="spacer"></div>
-          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={!form.nome.trim()}>
-            <Icon name="check" size={14} />{isEdit ? 'Salvar alterações' : 'Criar obra'}
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={!form.nome.trim() || saving}>
+            <Icon name="check" size={14} />{saving ? 'Salvando…' : isEdit ? 'Salvar alterações' : 'Criar obra'}
           </button>
         </>
       }

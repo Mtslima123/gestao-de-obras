@@ -103,23 +103,27 @@ const AppInner = () => {
     const { data, error } = await obrasService.criar(nova, user?.id);
     if (error) {
       toast('Erro ao criar obra: ' + error.message, { tone: 'danger' });
-      return;
+      return false;
     }
     const novaComId = (Array.isArray(data) ? data[0] : data) || nova;
     const novas = [...obras, novaComId];
     AppData.obras = novas;
     setObras(novas);
+    toast('Obra criada com sucesso', { tone: 'success', icon: 'check' });
+    return true;
   };
   const handleObraUpdate = async (updated) => {
     const { error } = await obrasService.atualizar(updated.id, updated);
     if (error) {
       toast('Erro ao atualizar obra: ' + error.message, { tone: 'danger' });
-      return;
+      return false;
     }
     const novas = obras.map(o => o.id === updated.id ? updated : o);
     AppData.obras = novas;
     setObras(novas);
     if (selectedObra?.id === updated.id) setSelectedObra(updated);
+    toast('Obra atualizada com sucesso', { tone: 'success', icon: 'check' });
+    return true;
   };
   const handleObraDelete = async (id) => {
     const { error } = await obrasService.excluir(id);

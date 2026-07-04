@@ -158,14 +158,14 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
         <ObraFormModal
           obra={null}
           onClose={() => setShowNovaObra(false)}
-          onSave={(nova) => { onObraCreate(nova); setShowNovaObra(false); }}
+          onSave={async (nova) => { if (await onObraCreate(nova)) setShowNovaObra(false); }}
         />
       )}
       {showEditObra && (
         <ObraFormModal
           obra={showEditObra}
           onClose={() => setShowEditObra(null)}
-          onSave={(updated) => { onObraUpdate(updated); setShowEditObra(null); }}
+          onSave={async (updated) => { if (await onObraUpdate(updated)) setShowEditObra(null); }}
         />
       )}
 
