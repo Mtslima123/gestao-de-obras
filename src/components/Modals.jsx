@@ -248,7 +248,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
   const [form, setForm] = React.useState({
     nome:         obra?.nome        || '',
     sigla:        obra?.sigla || obra?.id || '',
-    responsavel:  obra?.responsavel || '',
+    status:       obra?.status      || 'em_andamento',
     endereco:     obra?.endereco    || '',
     dataPrevista: obra?.previsto    || '',
     // Campos futuros: cliente, tipo, area, orcamento, risco, observacoes
@@ -264,7 +264,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         ...obra,
         nome:        form.nome,
         sigla:       form.sigla.trim() || obra.sigla || obra.id,
-        responsavel: form.responsavel,
+        status:      form.status,
         endereco:    form.endereco,
         previsto:    form.dataPrevista || obra.previsto,
         // id não é sobrescrito — permanece imutável
@@ -286,7 +286,6 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         status:           'em_andamento',
         risco:            'baixo',
         etapaAtual:       'Em planejamento',
-        responsavel:      form.responsavel,
         equipe:           0,
         alertas:          0,
         contrato:         '',
@@ -331,14 +330,15 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
             maxLength={12}
           />
         </div>
-        <div className="field">
-          <label>Responsável</label>
-          <input
-            placeholder="Nome do responsável"
-            value={form.responsavel}
-            onChange={e => set('responsavel', e.target.value)}
-          />
-        </div>
+        {isEdit && (
+          <div className="field">
+            <label>Status</label>
+            <select value={form.status} onChange={e => set('status', e.target.value)}>
+              <option value="em_andamento">Em execução</option>
+              <option value="concluida">Concluída</option>
+            </select>
+          </div>
+        )}
         <div className="field full">
           <label>Endereço</label>
           <input

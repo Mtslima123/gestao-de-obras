@@ -55,8 +55,7 @@ class ErrorBoundary extends React.Component {
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "light",
   "density": "default",
-  "accent": "#014386",
-  "obrasLayout": "cards"
+  "accent": "#014386"
 }/*EDITMODE-END*/;
 
 const AppInner = () => {
@@ -273,7 +272,7 @@ const AppInner = () => {
           ) : (
           <>
           {view === 'dashboard' && <Dashboard onOpenObra={handleOpenObra} onAcao={(a) => setModal(a)} />}
-          {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} layout={tweaks.obrasLayout} obras={obras} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} />}
+          {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} obras={obras} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} />}
           {view === 'obra-detail' && (
             <ObraDetail
               obra={selectedObra}
@@ -354,10 +353,6 @@ const AppInner = () => {
           ]} />
         <TweakColor label="Cor principal" value={tweaks.accent} onChange={v => setTweak('accent', v)}
           options={['#014386', '#0b5e8c', '#1d4ed8', '#0f766e', '#7c2d12']} />
-
-        <TweakSection label="Layout" />
-        <TweakRadio label="Lista de obras" value={tweaks.obrasLayout} onChange={v => setTweak('obrasLayout', v)}
-          options={[{ value: 'tabela', label: 'Tabela' }, { value: 'cards', label: 'Cards' }]} />
 
         <TweakSection label="Navegação" />
         <TweakButton label="Dashboard" onClick={() => handleNavigate('dashboard')} />

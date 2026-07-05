@@ -2,21 +2,36 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { Modal, ObraFormModal } from '../../components/Modals';
-import { RiskBadge } from '../../components/RiskBadge';
+import { supabase } from '../../services/supabase';
+import { offsetToISO } from '../cronograma/ganttUtils';
 
-// Obras — lista completa com variação de layout (cards x tabela)
-const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraUpdate, onObraDelete }) => {
+// Obras — lista completa em cards
+const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete }) => {
   const D = AppData;
   const { brl } = D;
   const [filter,         setFilter]        = React.useState('todos');
   const [search,         setSearch]        = React.useState('');
-  const [internalLayout, setInternalLayout] = React.useState(layout);
   const [showNovaObra,   setShowNovaObra]  = React.useState(false);
   const [showEditObra,   setShowEditObra]  = React.useState(null);
   const [deleteObra,     setDeleteObra]    = React.useState(null);
   const [deleteStep,     setDeleteStep]    = React.useState(1);
+  const [cronFinal,      setCronFinal]     = React.useState({}); // { [obraId]: 'YYYY-MM-DD' | null } — data final do cronograma, sempre calculada das etapas reais
 
-  React.useEffect(() => { setInternalLayout(layout); }, [layout]);
+  // Recalcula a data final do cronograma de cada obra a cada vez que a lista é aberta/atualizada
+  React.useEffect(() => {
+    const ids = obras.map(o => o.id);
+    if (ids.length === 0) { setCronFinal({}); return; }
+    supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids).then(({ data }) => {
+      const map = {};
+      (data || []).forEach(row => {
+        const etapas = row.etapas || [];
+        if (!etapas.length) { map[row.obra_id] = null; return; }
+        const fimMax = Math.max(...etapas.map(e => (e.inicio || 0) + (e.dur || 0)));
+        map[row.obra_id] = offsetToISO(fimMax);
+      });
+      setCronFinal(map);
+    });
+  }, [obras]);
 
   const filtered = React.useMemo(() =>
     obras
@@ -41,20 +56,10 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
         <div>
           <h1 className="page-title">Obras</h1>
           <div className="page-subtitle">
-            {obras.length} obras cadastradas · {brl(obras.filter(o => o.status === 'em_andamento').reduce((a, b) => a + b.orcamento, 0), { compact: true })} em valor contratado
+            {obras.length} obras cadastradas
           </div>
         </div>
         <div className="page-actions">
-          <div className="segmented">
-            <button className={internalLayout === 'tabela' ? 'active' : ''} onClick={() => setInternalLayout('tabela')}>
-              <Icon name="dashboard" size={13} style={{ transform: 'rotate(90deg)' }} />
-            </button>
-            <button className={internalLayout === 'cards' ? 'active' : ''} onClick={() => setInternalLayout('cards')}>
-              <Icon name="box" size={13} />
-            </button>
-          </div>
-          <button className="btn btn-ghost"><Icon name="filter" size={15} />Filtros</button>
-          <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
           <button className="btn btn-primary" onClick={() => setShowNovaObra(true)}>
             <Icon name="plus" size={15} /> Nova Obra
           </button>
@@ -73,8 +78,6 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
                 {f.label} <span style={{ color: 'var(--text-faint)' }}>·</span> {f.count}
               </button>
             ))}
-            <button className="chip">Tipo <Icon name="chevron-down" size={12} className="caret" /></button>
-            <button className="chip">Risco <Icon name="chevron-down" size={12} className="caret" /></button>
           </div>
           <input
             className="input input-search"
@@ -85,74 +88,6 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
           />
         </div>
       </div>
-
-      {internalLayout === 'tabela' && (
-        <div className="card">
-          <div className="card-body flush" style={{ overflow: 'auto' }}>
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>Obra</th>
-                  <th>Cliente</th>
-                  <th>Avanço</th>
-                  <th className="right">Orçamento</th>
-                  <th className="right">Realizado</th>
-                  <th>Risco</th>
-                  <th>Etapa atual</th>
-                  <th>Entrega</th>
-                  <th style={{ width: 40 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((o) => (
-                  <tr key={o.id} onClick={() => onOpenObra(o)} style={{ cursor: 'pointer' }}>
-                    <td>
-                      <div className="strong" style={{ marginBottom: 2 }}>{o.nome}</div>
-                      <div className="text-xs text-muted mono">{o.sigla || o.id} · {o.tipo}</div>
-                    </td>
-                    <td className="text-soft">{o.cliente}</td>
-                    <td style={{ minWidth: 160 }}>
-                      <div className="progress-row">
-                        <div className={'progress' + (o.risco === 'alto' ? ' danger' : o.avancoFisico >= 95 ? ' success' : '')}>
-                          <span style={{ width: o.avancoFisico + '%' }}></span>
-                        </div>
-                        <span className="pct">{o.avancoFisico}%</span>
-                      </div>
-                    </td>
-                    <td className="right strong num">{brl(o.orcamento, { compact: true })}</td>
-                    <td className="right num">{brl(o.gasto, { compact: true })}</td>
-                    <td><RiskBadge risk={o.risco} /></td>
-                    <td className="text-sm text-soft">{o.etapaAtual}</td>
-                    <td className="mono text-sm text-soft">{o.previsto.split('-').reverse().join('/')}</td>
-                    <td onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                      <button
-                        className="obras-row-actions btn btn-ghost"
-                        style={{ width: 28, height: 28, padding: 0 }}
-                        title={`Editar ${o.nome}`}
-                        onClick={() => setShowEditObra(o)}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                      </button>
-                      <button
-                        className="obras-row-actions btn btn-ghost"
-                        style={{ width: 28, height: 28, padding: 0, color: 'var(--danger)' }}
-                        title={`Excluir ${o.nome}`}
-                        onClick={() => { setDeleteObra(o); setDeleteStep(1); }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {showNovaObra && (
         <ObraFormModal
@@ -204,8 +139,7 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
         </Modal>
       )}
 
-      {internalLayout === 'cards' && (
-        <div className="obra-card-grid">
+      <div className="obra-card-grid">
           {filtered.map((o) => (
             <div key={o.id} className="obra-card" onClick={() => onOpenObra(o)}>
               <div className="obra-card-img">
@@ -228,24 +162,11 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
                     ID: {o.id.length > 12 ? o.id.slice(0, 12) + '…' : o.id}
                   </div>
                   <div className="obra-card-name">{o.nome}</div>
-                  <div className="obra-card-meta">
-                    <Icon name="building" size={12} />
-                    {o.tipo}
-                  </div>
                 </div>
-                <RiskBadge risk={o.risco} />
+                <span className={'badge ' + (o.status === 'concluida' ? 'success' : 'info')} style={{ flexShrink: 0 }}>
+                  {o.status === 'concluida' ? 'Concluída' : 'Em execução'}
+                </span>
               </div>
-
-              <div className="text-xs text-muted row" style={{ gap: 5 }}>
-                <Icon name="users" size={12} />
-                <span>{o.cliente}</span>
-              </div>
-              {o.responsavel && (
-                <div className="text-xs text-muted row" style={{ gap: 5 }}>
-                  <Icon name="user" size={12} />
-                  <span>{o.responsavel}</span>
-                </div>
-              )}
 
               <div>
                 <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
@@ -257,38 +178,27 @@ const ObrasList = ({ onOpenObra, layout = 'tabela', obras, onObraCreate, onObraU
                 </div>
               </div>
 
-              <div className="obra-card-stats">
-                <div className="obra-card-stat">
-                  <div className="lbl">Orçamento</div>
-                  <div className="val num">{brl(o.orcamento, { compact: true })}</div>
-                </div>
-                <div className="obra-card-stat">
-                  <div className="lbl">Realizado</div>
-                  <div className="val num">{brl(o.gasto, { compact: true })}</div>
-                </div>
-              </div>
-
               <div className="obra-card-foot">
-                <div className="row" style={{ gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
-                  <Icon name="calendar" size={12} />
-                  <span className="mono">{o.previsto.split('-').reverse().join('/')}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Entrega ao cliente">
+                    <Icon name="calendar" size={12} />
+                    <span className="mono">{o.previsto.split('-').reverse().join('/')}</span>
+                  </span>
+                  <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Término previsto do cronograma">
+                    <Icon name="flag" size={12} />
+                    <span className="mono">{cronFinal[o.id] ? cronFinal[o.id].split('-').reverse().join('/') : '—'}</span>
+                  </span>
                 </div>
-                <div className="row" style={{ gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
-                  <Icon name="users" size={12} />
-                  <span className="mono num">{o.equipe}</span>
-                  {o.alertas > 0 && (
-                    <>
-                      <span style={{ color: 'var(--text-faint)' }}>·</span>
-                      <Icon name="alert" size={12} style={{ color: 'var(--danger)' }} />
-                      <span className="mono num" style={{ color: 'var(--danger)' }}>{o.alertas}</span>
-                    </>
-                  )}
-                </div>
+                {o.alertas > 0 && (
+                  <div className="row" style={{ gap: 6, fontSize: 12, color: 'var(--danger)' }}>
+                    <Icon name="alert" size={12} />
+                    <span className="mono num">{o.alertas}</span>
+                  </div>
+                )}
               </div>
             </div>
           ))}
         </div>
-      )}
     </>
   );
 };

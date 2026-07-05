@@ -3,42 +3,95 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
-import { RiskBadge } from '../../components/RiskBadge';
-import { migrateEtapas } from '../cronograma/ganttUtils';
+import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset } from '../cronograma/ganttUtils';
 
 // Obra Detail Page
 const { brl: brlD } = AppData;
 
 // ----- Gantt -----
-const Gantt = ({ etapas }) => {
-  const totalMonths = 26;
-  const months = ['Mar/24','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez','Jan/25','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez','Jan/26','Fev','Mar','Abr'];
+const MES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+// Calcula a janela de meses (rótulos + referencial em dias) a partir do período real das linhas exibidas.
+// inicio/dur das etapas estão em dias (mesmo referencial de ganttUtils.js/Cronograma.jsx) — nunca em "meses".
+function computeJanela(rows) {
+  if (!rows.length) return null;
+  const inicioMin = Math.min(...rows.map(e => e.inicio || 0));
+  const fimMax    = Math.max(...rows.map(e => (e.inicio || 0) + (e.dur || 0)));
+  const dIni = offsetToDate(inicioMin);
+  const dFim = offsetToDate(fimMax);
+  const totalMeses = (dFim.getFullYear() * 12 + dFim.getMonth()) - (dIni.getFullYear() * 12 + dIni.getMonth()) + 1;
+
+  const primeiroDia = (y, m) => `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  const inicioDias = dateToOffset(primeiroDia(dIni.getFullYear(), dIni.getMonth()));
+  const fimDias    = dateToOffset(primeiroDia(dFim.getFullYear(), dFim.getMonth() + 1));
+
+  const meses = Array.from({ length: totalMeses }, (_, i) => {
+    const d = new Date(dIni.getFullYear(), dIni.getMonth() + i, 1);
+    const nome = MES_ABREV[d.getMonth()];
+    return (i === 0 || d.getMonth() === 0) ? `${nome}/${String(d.getFullYear()).slice(-2)}` : nome;
+  });
+
+  return { meses, inicioDias, spanDias: fimDias - inicioDias, totalMeses };
+}
+
+const Gantt = ({ etapas, resumoOnly = false }) => {
+  const rows = resumoOnly && etapas.some(e => e.isGroup)
+    ? etapas.filter(e => e.isGroup)
+    : etapas; // sem grupos definidos: mostra tudo, evita card vazio
+
+  const janela = computeJanela(rows);
+  if (!janela) {
+    return <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Nenhuma etapa cadastrada.</div>;
+  }
+  const { meses: janelaMeses, inicioDias: janelaInicioDias, spanDias: janelaSpanDias } = janela;
+  const totalMonths = janelaMeses.length;
+
+  const barLeftPct  = (e) => ((e.inicio - janelaInicioDias) / janelaSpanDias) * 100;
+  const barWidthPct = (e) => (e.dur / janelaSpanDias) * 100;
+
+  const hojeDias = dateToOffset(new Date().toISOString().slice(0, 10));
+  const hojePct  = ((hojeDias - janelaInicioDias) / janelaSpanDias) * 100;
+  const mostrarHoje = hojePct >= 0 && hojePct <= 100;
+
   return (
-    <div className="gantt">
-      <div className="gantt-head">
-        <div style={{ padding: '8px 14px', fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>ETAPA</div>
-        <div className="gantt-month-row" style={{ gridTemplateColumns: `repeat(${totalMonths}, 1fr)` }}>
-          {months.slice(0, totalMonths).map((m, i) => <div key={i} className="gantt-month">{m}</div>)}
-        </div>
-      </div>
-      {etapas.map((e, i) => (
-        <div className="gantt-row" key={i}>
-          <div className="gantt-label">{e.etapa}</div>
-          <div className="gantt-track">
-            <div
-              className={'gantt-bar ' + e.status}
-              style={{
-                left: `calc(${(e.inicio / totalMonths) * 100}% + 2px)`,
-                width: `calc(${(e.dur / totalMonths) * 100}% - 4px)`,
-              }}
-            >
-              <div className="fill" style={{ width: e.avanco + '%' }}></div>
-              <span style={{ position: 'relative', zIndex: 1 }}>{e.avanco > 0 ? e.avanco + '%' : ''}</span>
-            </div>
+    <div className="gantt" style={{ overflowX: 'auto' }}>
+      <div style={{ minWidth: 220 + totalMonths * 70, position: 'relative' }}>
+        <div className="gantt-head">
+          <div style={{ padding: '8px 14px', fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>ETAPA</div>
+          <div className="gantt-month-row" style={{ gridTemplateColumns: `repeat(${totalMonths}, 1fr)` }}>
+            {janelaMeses.map((m, i) => <div key={i} className="gantt-month">{m}</div>)}
           </div>
         </div>
-      ))}
-      {/* hoje line */}
+        {rows.map((e, i) => (
+          <div className="gantt-row" key={i}>
+            <div className="gantt-label">{e.etapa}</div>
+            <div className="gantt-track">
+              <div
+                className={'gantt-bar ' + e.status}
+                style={{
+                  left: `calc(${barLeftPct(e)}% + 2px)`,
+                  width: `calc(${barWidthPct(e)}% - 4px)`,
+                }}
+              >
+                <div className="fill" style={{ width: e.avanco + '%' }}></div>
+                <span style={{ position: 'relative', zIndex: 1 }}>{e.avanco > 0 ? e.avanco + '%' : ''}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+        {!resumoOnly && mostrarHoje && (
+          <div className="gantt-today-line" style={{ left: `calc(220px + (100% - 220px) * ${hojePct / 100})` }}>
+            <span className="gantt-today-label">Hoje</span>
+          </div>
+        )}
+      </div>
+      {!resumoOnly && (
+        <div className="row" style={{ gap: 14, padding: '10px 14px', fontSize: 11.5, color: 'var(--text-muted)' }}>
+          <span className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--success)', display: 'inline-block' }} />Concluído</span>
+          <span className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--danger)', display: 'inline-block' }} />Atrasado</span>
+          <span className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--brand-400)', display: 'inline-block' }} />Planejado</span>
+        </div>
+      )}
     </div>
   );
 };
@@ -80,7 +133,7 @@ const VisaoGeral = ({ etapas, etapasLoaded }) => {
                 Carregando cronograma…
               </div>
             ) : (
-              <Gantt etapas={etapas} />
+              <Gantt etapas={etapas} resumoOnly />
             )}
           </div>
         </div>
@@ -812,7 +865,6 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
   const [deleteStep, setDeleteStep] = React.useState(0);
   const D = AppData;
   const o = obra || D.obraAtual;
-  const margem = ((o.orcamento - o.gasto) / o.orcamento * 100).toFixed(1);
 
   // Busca as etapas do cronograma da obra — não depende de o usuário já ter aberto o módulo Cronograma
   const [etapasObra, setEtapasObra] = React.useState(() => AppData.cronograma[o.id] || []);
@@ -832,6 +884,10 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
     return () => { cancelled = true; };
   }, [o.id]);
 
+  const cronFinalISO = etapasObra.length
+    ? offsetToISO(Math.max(...etapasObra.map(e => (e.inicio || 0) + (e.dur || 0))))
+    : null;
+
   const tabs = [
     { id: 'visao',      label: 'Visão geral' },
     { id: 'cronograma', label: 'Cronograma'  },
@@ -844,8 +900,9 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
         <div>
           <div className="row" style={{ gap: 8, marginBottom: 6 }}>
             <button className="btn btn-sm btn-ghost" onClick={onBack}><Icon name="chevron-left" size={13} />Voltar</button>
-            <span className="badge info"><span className="dot"></span>Em execução</span>
-            <RiskBadge risk={o.risco} />
+            <span className={'badge ' + (o.status === 'concluida' ? 'success' : 'info')}>
+              <span className="dot"></span>{o.status === 'concluida' ? 'Concluída' : 'Em execução'}
+            </span>
           </div>
         </div>
         {onObraUpdate && onObraDelete && (
@@ -856,7 +913,7 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
               </svg>
               Editar
             </button>
-            <button className="btn btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setDeleteStep(1)}>
+            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setDeleteStep(1)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
               </svg>
@@ -873,19 +930,9 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
           <div className="hero-meta">
             <span className="code">{o.sigla || o.id}</span>
             <span>·</span>
-            <span>{o.tipo}</span>
-            <span>·</span>
             <span className="row" style={{ gap: 4 }}><Icon name="map-pin" size={12} /> {o.endereco}</span>
           </div>
           <h1 className="hero-title">{o.nome}</h1>
-          <div className="hero-sub">
-            <span className="row" style={{ gap: 6 }}>
-              <span className="avatar av-1 sm">CM</span>
-              <span style={{ color: 'var(--text-soft)' }}>{o.responsavel}</span>
-            </span>
-            <span>·</span>
-            <span>Cliente: <span style={{ color: 'var(--text-soft)', fontWeight: 600 }}>{o.cliente}</span></span>
-          </div>
           <div className="hero-stats">
             <div className="hero-stat">
               <div className="label">Avanço físico</div>
@@ -893,19 +940,15 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
               <div className="meta">vs planejado 65%</div>
             </div>
             <div className="hero-stat">
-              <div className="label">Orçamento</div>
-              <div className="value num">{brlD(o.orcamento, { compact: true })}</div>
-              <div className="meta">Realizado {brlD(o.gasto, { compact: true })}</div>
-            </div>
-            <div className="hero-stat">
-              <div className="label">Margem prevista</div>
-              <div className="value num" style={{ color: 'var(--success)' }}>{margem}%</div>
-              <div className="meta">{brlD(o.orcamento - o.gasto, { compact: true })} a executar</div>
-            </div>
-            <div className="hero-stat">
               <div className="label">Entrega</div>
-              <div className="value num">30/09/26</div>
-              <div className="meta">128 dias para conclusão</div>
+              <div className="value num">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</div>
+            </div>
+            <div className="hero-stat">
+              <div className="label">Fim do cronograma</div>
+              <div className="value num">{cronFinalISO ? cronFinalISO.split('-').reverse().join('/') : '—'}</div>
+              {(!etapasLoaded || !cronFinalISO) && (
+                <div className="meta">{!etapasLoaded ? 'Carregando…' : 'Sem cronograma'}</div>
+              )}
             </div>
           </div>
         </div>
@@ -926,7 +969,9 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
           <div className="card-header">
             <div>
               <div className="card-title">Cronograma físico</div>
-              <div className="card-subtitle">{etapasObra.length} etapas · 28 meses</div>
+              <div className="card-subtitle">
+                {etapasObra.length} etapas{etapasObra.length ? ` · ${computeJanela(etapasObra)?.totalMeses ?? 0} meses` : ''}
+              </div>
             </div>
             <div className="card-actions">
               <button className={'chip' + (cronoView === 'gantt' ? ' active' : '')} onClick={() => setCronoView('gantt')}>Gantt</button>
