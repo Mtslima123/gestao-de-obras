@@ -101,7 +101,6 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
     { id: 'obras',         label: 'Obras',               icon: 'building' },
     { id: 'orcamentos',    label: 'Orçamentos',          icon: 'wallet' },
     { id: 'cronograma',    label: 'Cronogramas',         icon: 'calendar' },
-    { id: 'medicaobanco',  label: 'Medição Banco',       icon: 'measure' },
     { id: 'estimativas',   label: 'Estimativas',         icon: 'calculator' },
     { id: 'incc',          label: 'INCC',                icon: 'trending-up' },
   ];
@@ -114,7 +113,6 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
     { id: 'auditoria', label: 'Auditoria do Sistema' },
   ];
   const navMgmt = [
-    { id: 'ia',            label: 'Assistente IA',       icon: 'sparkle' },
     { id: 'admin',         label: 'Administração',       icon: 'shield' },
   ];
 
@@ -225,14 +223,9 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
           </div>
         )}
         {!collapsed && (
-          <>
-            <button className="icon-btn" title="Alterar senha" onClick={() => setShowAlterarSenha(true)}>
-              <Icon name="key" size={16} />
-            </button>
-            <button className="icon-btn" title="Sair" onClick={onLogout}>
-              <Icon name="log-out" size={16} />
-            </button>
-          </>
+          <button className="icon-btn" title="Sair" onClick={onLogout}>
+            <Icon name="log-out" size={16} />
+          </button>
         )}
       </div>
     </aside>

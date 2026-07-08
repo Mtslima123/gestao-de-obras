@@ -23,9 +23,12 @@ export const usuariosService = {
       .single(),
 
   criar: async (dados, obraIds = []) => {
-    // Usa Edge Function para criar auth user + perfil atomicamente com senha temporária
-    const { data: fnData, error: fnError } = await supabase.functions.invoke('convidar-usuario', {
-      body: {
+    // Login é 100% SSO (Microsoft): não há senha. Aqui apenas autorizamos o e-mail
+    // gravando o perfil. A conta de auth é criada pela Microsoft no 1º login e o
+    // vínculo é feito por e-mail. O RLS profiles_admin_write permite ao admin inserir.
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .insert({
         nome: dados.nome,
         email: dados.email,
         telefone: dados.telefone,
@@ -33,20 +36,24 @@ export const usuariosService = {
         status: dados.status,
         modulos_ids: dados.modulos_ids ?? [],
         abas_ids: dados.abas_ids ?? [],
-        obra_ids: obraIds,
-        password: dados.senha_temp,
-      },
-    });
-    if (fnError) return { data: null, error: fnError };
-    if (fnData?.error) return { data: null, error: { message: fnData.error } };
+        deve_alterar_senha: false,
+      })
+      .select()
+      .single();
+    if (error) return { data: null, error };
+    // Vincula as obras autorizadas (usa o id gerado do novo perfil)
+    if (obraIds.length) {
+      const { error: vincErr } = await usuariosService.vincularObras(data.id, obraIds);
+      if (vincErr) return { data, error: vincErr };
+    }
     registrar({
       modulo: 'usuarios', acao: 'criou',
-      entidadeTipo: 'usuario', entidadeId: String(fnData?.data?.id || ''),
-      descricao: `Criou o usuário "${dados.nome}" (${dados.perfil}) e enviou convite por e-mail`,
+      entidadeTipo: 'usuario', entidadeId: String(data?.id || ''),
+      descricao: `Autorizou o acesso de "${dados.nome}" (${dados.perfil}) via SSO`,
       valorNovo: { nome: dados.nome, perfil: dados.perfil, status: dados.status },
       criticidade: 'alta',
     });
-    return { data: fnData?.data, error: null };
+    return { data, error: null };
   },
 
   atualizar: async (id, dados) => {

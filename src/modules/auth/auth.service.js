@@ -23,6 +23,18 @@ export const authService = {
     return res;
   },
 
+  // Login SSO via Microsoft Entra ID (email corporativo @soter.com.br).
+  // As credenciais (Client ID/Secret/Tenant) ficam só no painel do Supabase,
+  // nunca no código. Aqui apenas iniciamos o fluxo OAuth com o provider 'azure'.
+  signInWithSSO: () =>
+    supabase.auth.signInWithOAuth({
+      provider: 'azure',
+      options: {
+        scopes: 'email openid profile',
+        redirectTo: window.location.origin,
+      },
+    }),
+
   signOut: async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {

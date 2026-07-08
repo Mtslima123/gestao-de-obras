@@ -4,6 +4,7 @@ import { Icon } from './components/Icons';
 import { ToastProvider, useToast, NovaObraModal, NovaMedicaoModal, SolicitarCompraModal, NovoOrcamentoModal } from './components/Modals';
 import { Sidebar, Topbar } from './Chrome';
 import { LoginScreen } from './modules/auth/Login';
+import { AcessoNaoAutorizado } from './modules/auth/AcessoNaoAutorizado';
 import { authService } from './modules/auth/auth.service';
 import { supabase } from './services/supabase';
 import { obrasService } from './modules/obras/obras.service';
@@ -12,11 +13,9 @@ import { ObrasList } from './modules/obras/ObrasList';
 import { ObraDetail } from './modules/obras/ObraDetail';
 import { OrcamentosScreen } from './modules/financeiro/Orcamentos';
 import { EstimativasScreen } from './modules/financeiro/Estimativas';
-import { MedicaoBancoScreen } from './modules/financeiro/Medicao';
 import { INCCScreen } from './modules/financeiro/Incc';
 import { CronogramaFull } from './modules/cronograma/Cronograma';
 import { OrcamentoCronogramaScreen } from './modules/financeiro/OrcamentoCronograma';
-import { IaScreen } from './modules/ia/IA';
 import { UsuariosScreen } from './modules/admin/Usuarios';
 import { AuditoriaScreen } from './modules/admin/Auditoria';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
@@ -61,6 +60,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 const AppInner = () => {
   const toast = useToast();
   const [authed, setAuthed]           = React.useState(false);
+  const [acessoNegado, setAcessoNegado] = React.useState(false); // sessão válida, mas e-mail não autorizado
   const [user,   setUser]             = React.useState(null);
   const [userProfile, setUserProfile] = React.useState(null);
   const [passwordRecovery, setPasswordRecovery] = React.useState(false);
@@ -136,24 +136,39 @@ const AppInner = () => {
     if (selectedObra?.id === id) { setSelectedObra(null); setView('obras'); sessionStorage.setItem('nav_view', 'obras'); }
   };
 
-  // Carrega perfil de permissões após autenticação
+  // Carrega perfil de permissões após autenticação. Retorna o perfil (ou null)
+  // para o portão de acesso decidir se libera a entrada.
   const loadUserProfile = async (email) => {
-    if (!email) return;
+    if (!email) return null;
     const { data } = await supabase
       .from('user_profiles')
-      .select('id, perfil, modulos_ids, abas_ids, deve_alterar_senha')
+      .select('id, perfil, status, modulos_ids, abas_ids, deve_alterar_senha')
       .eq('email', email)
       .single();
     setUserProfile(data ?? null);
+    return data ?? null;
+  };
+
+  // Portão de acesso app-wide: só entra quem tem perfil cadastrado e ativo.
+  // Centraliza a regra para valer tanto no restore de sessão quanto no login SSO.
+  const aplicarSessao = async (session) => {
+    if (!session?.user) {
+      setAuthed(false);
+      setAcessoNegado(false);
+      setUser(null);
+      setUserProfile(null);
+      return;
+    }
+    setUser(session.user);
+    const perfil = await loadUserProfile(session.user.email);
+    const autorizado = !!perfil && perfil.status === 'ativo';
+    setAuthed(autorizado);
+    setAcessoNegado(!autorizado); // mantém a sessão para exibir o e-mail na tela de bloqueio
   };
 
   React.useEffect(() => {
     authService.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setAuthed(true);
-        setUser(session.user);
-        loadUserProfile(session.user.email);
-      }
+      if (session?.user) aplicarSessao(session);
     });
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
@@ -161,10 +176,7 @@ const AppInner = () => {
         return;
       }
       setPasswordRecovery(false);
-      setAuthed(!!session);
-      setUser(session?.user ?? null);
-      if (session?.user) loadUserProfile(session.user.email);
-      else setUserProfile(null);
+      aplicarSessao(session);
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -215,7 +227,6 @@ const AppInner = () => {
     'orcamentos': '05 Orçamentos',
     'cronograma': '06 Cronograma',
     'incc':       '07 INCC',
-    'ia':         '08 Assistente IA',
     'admin':      'Administração',
   };
 
@@ -230,7 +241,7 @@ const AppInner = () => {
     const map = {
       obras: 'Obras', estimativas: 'Estimativas',
       orcamentos: 'Orçamentos', cronograma: 'Cronogramas',
-      medicaobanco: 'Medição Banco', incc: 'INCC',
+      incc: 'INCC',
       admin: 'Administração',
     };
     return [home, { label: map[view] || view }];
@@ -238,14 +249,17 @@ const AppInner = () => {
 
   return (
     <>
-      {(!authed || passwordRecovery) && (
+      {((!authed && !acessoNegado) || passwordRecovery) && (
         <LoginScreen
           onLogin={() => {}}
           passwordRecovery={passwordRecovery}
           onPasswordSet={() => setPasswordRecovery(false)}
         />
       )}
-      {authed && (
+      {acessoNegado && !passwordRecovery && (
+        <AcessoNaoAutorizado email={user?.email} onSair={handleLogout} />
+      )}
+      {authed && !acessoNegado && (
     <div className={'app' + (sidebarPinned ? ' sidebar-pinned' : '')} data-screen-label={screenLabels[view] || view}>
       <Sidebar
         currentView={view === 'obra-detail' ? 'obras' : view}
@@ -300,7 +314,6 @@ const AppInner = () => {
               {cronogramaTab === 'orc-x-cron' && <OrcamentoCronogramaScreen obras={obras} user={user} />}
             </>
           )}
-          {view === 'ia' && <IaScreen obras={obras} user={user} />}
           {/* 🔒 SEGURANÇA [VULN-3]: telas admin bloqueadas para não-admin no frontend */}
           {view === 'admin' && (
             userProfile?.perfil === 'admin' ? (
@@ -316,7 +329,7 @@ const AppInner = () => {
           )}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
-           view !== 'cronograma' && view !== 'ia' && view !== 'admin' && (
+           view !== 'cronograma' && view !== 'admin' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </>
@@ -382,9 +395,7 @@ const App = () => (
 
 // Placeholder for modules not yet built
 const PlaceholderModule = ({ view, onOpenObra }) => {
-  const titles = {
-    medicaobanco: 'Medição Banco',
-  };
+  const titles = {};
   return (
     <>
       <div className="page-header">

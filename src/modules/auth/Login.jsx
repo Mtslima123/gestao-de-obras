@@ -4,7 +4,6 @@ import { Icon } from '../../components/Icons';
 
 const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
   const [mode, setMode] = React.useState(passwordRecovery ? 'define-senha' : 'login');
-  const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
   const [loading, setLoading] = React.useState(false);
@@ -15,20 +14,16 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
     if (passwordRecovery) setMode('define-senha');
   }, [passwordRecovery]);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    if (!email.includes('@')) { setError('Informe um e-mail válido'); return; }
-    if (password.length < 1) { setError('Informe sua senha'); return; }
+  // Inicia o login SSO (Microsoft Entra ID). Em caso de sucesso o navegador
+  // é redirecionado para a Microsoft, então não resetamos loading no fluxo feliz.
+  const handleSSO = async () => {
     setError(null);
     setLoading(true);
-    const { error: err } = await authService.signIn(email, password);
-    setLoading(false);
+    const { error: err } = await authService.signInWithSSO();
     if (err) {
-      const isCredentialError = err.message?.toLowerCase().includes('invalid') || err.status === 400;
-      setError(isCredentialError ? 'E-mail ou senha incorretos.' : 'Erro de conexão. Tente novamente.');
-      return;
+      setLoading(false);
+      setError('Não foi possível iniciar o login corporativo. Tente novamente.');
     }
-    onLogin();
   };
 
   const handleDefinirSenha = async (e) => {
@@ -105,41 +100,21 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
     );
   }
 
-  // ── Modo: login normal ──
+  // ── Modo: login normal (somente SSO Microsoft) ──
   return (
     <div className="login-shell" data-screen-label="00 Login">
       <Brand />
       <div className="login-form-wrap">
-        <div className="login-form-top">
-          <button className="btn btn-sm btn-ghost">
-            <Icon name="help" size={14} />
-            Suporte
-          </button>
-        </div>
+        <div className="login-form-top" />
         <div className="login-form">
-          <form onSubmit={handleLogin}>
-            <h2 className="login-title">Bem-vindo de volta</h2>
-            <p className="login-sub">Acesse com seu e-mail e senha corporativa.</p>
-            <div className="field full">
-              <label>E-mail corporativo</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                placeholder="seu.nome@empresa.com.br" autoFocus />
-            </div>
-            <div className="field full" style={{ marginTop: 14, width: '100%' }}>
-              <label>Senha</label>
-              <div className="login-password-wrap">
-                <input type={showPass ? 'text' : 'password'} value={password}
-                  onChange={e => setPassword(e.target.value)} placeholder="Digite sua senha" />
-                <button type="button" className="login-pass-toggle" onClick={() => setShowPass(s => !s)}>
-                  <Icon name="eye" size={15} />
-                </button>
-              </div>
-            </div>
-            {error && <div className="login-error" style={{ marginTop: 16 }}><Icon name="alert" size={13} />{error}</div>}
-            <button type="submit" className="btn btn-primary btn-lg login-submit" style={{ marginTop: 20 }} disabled={loading}>
-              {loading ? <span className="login-spinner"></span> : <>Acessar plataforma <Icon name="arrow-right" size={14} /></>}
-            </button>
-          </form>
+          <h2 className="login-title">Bem-vindo de volta</h2>
+          <p className="login-sub">Acesse com sua conta corporativa Microsoft.</p>
+          {error && <div className="login-error" style={{ marginTop: 16 }}><Icon name="alert" size={13} />{error}</div>}
+          {/* Login SSO com email corporativo (Microsoft Entra ID) */}
+          <button type="button" className="btn btn-primary btn-lg login-submit" style={{ marginTop: 24, width: '100%' }}
+            onClick={handleSSO} disabled={loading}>
+            {loading ? <span className="login-spinner"></span> : <>Entrar com e-mail corporativo (Microsoft) <Icon name="arrow-right" size={14} /></>}
+          </button>
         </div>
         <Foot />
       </div>

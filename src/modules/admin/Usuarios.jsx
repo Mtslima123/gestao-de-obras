@@ -23,9 +23,7 @@ const TODOS_MODULOS = [
   { id: 'estimativas',  label: 'Estimativas',         icon: 'calculator' },
   { id: 'planejamento', label: 'Planejamento',        icon: 'gantt' },
   { id: 'contratos',    label: 'Contratos',           icon: 'file' },
-  { id: 'medicaobanco', label: 'Medição Banco',       icon: 'measure' },
   { id: 'incc',         label: 'INCC',                icon: 'trending-up' },
-  { id: 'ia',           label: 'Assistente IA',       icon: 'sparkle' },
   { id: 'incorporacao', label: 'Incorporação',        icon: 'briefcase' },
   { id: 'relatorios',   label: 'Relatórios',          icon: 'chart' },
 ];
@@ -35,12 +33,6 @@ const TODOS_MODULOS_IDS = TODOS_MODULOS.map(m => m.id);
 const MODULO_ABAS = {
   cronograma:  [{ id: 'gantt',            label: 'Gantt' },
                 { id: 'fluxo-executivo',  label: 'Fluxo Executivo' }],
-  ia:          [{ id: 'gerar-cronograma', label: 'Gerar Cronograma' },
-                { id: 'gerar-eap',        label: 'EAP' },
-                { id: 'analisar-atraso',  label: 'Análise de Atraso' },
-                { id: 'replanejar',       label: 'Replanejamento' },
-                { id: 'otimizar',         label: 'Otimização' },
-                { id: 'gerar-relatorio',  label: 'Relatório Executivo' }],
   estimativas: [{ id: 'nova',   label: 'Nova Estimativa' },
                 { id: 'salvas', label: 'Estimativas Salvas' }],
   obras:       [{ id: 'visao-geral',   label: 'Visão Geral' },
@@ -55,12 +47,7 @@ const MODULO_ABAS = {
                 { id: 'ocorrencias', label: 'Ocorrências' }],
 };
 
-const gerarSenha = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-};
-
-const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [], senha_temp: '' };
+const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [] };
 const PER_PAGE = 10;
 
 const BadgePerfil = ({ perfil }) => (
@@ -108,9 +95,6 @@ const UsuariosScreen = ({ obras = [] }) => {
   const [salvando, setSalvando] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(null);
   const [conviteEnviado, setConviteEnviado] = React.useState(null);
-  const [redefinindoSenha, setRedefinindoSenha] = React.useState(null);
-  const [novaSenhaAdmin, setNovaSenhaAdmin] = React.useState('');
-  const [salvandoSenha, setSalvandoSenha] = React.useState(false);
   const formRef = React.useRef(null);
 
   const carregarUsuarios = React.useCallback(async () => {
@@ -150,7 +134,7 @@ const UsuariosScreen = ({ obras = [] }) => {
 
   const abrirForm = (usuario) => {
     if (usuario === 'novo') {
-      setForm({ ...FORM_VAZIO, senha_temp: gerarSenha() });
+      setForm({ ...FORM_VAZIO });
     } else {
       setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])] });
     }
@@ -175,10 +159,10 @@ const UsuariosScreen = ({ obras = [] }) => {
     };
     try {
       if (editando === 'novo') {
-        // obra_ids passados direto para a Edge Function que cria tudo atomicamente
-        const { data: novo, error } = await usuariosService.criar({ ...payload, senha_temp: form.senha_temp }, form.obrasIds);
+        // SSO: apenas autoriza o e-mail (perfil + obras). Conta criada no 1º login Microsoft.
+        const { data: novo, error } = await usuariosService.criar(payload, form.obrasIds);
         if (error) throw error;
-        setConviteEnviado({ email: novo?.email || payload.email, senha: form.senha_temp });
+        setConviteEnviado({ email: novo?.email || payload.email });
       } else {
         const { error } = await usuariosService.atualizar(editando.id, payload);
         if (error) throw error;
@@ -261,26 +245,15 @@ const UsuariosScreen = ({ obras = [] }) => {
 
   return (
     <div>
-      {/* Banner de convite enviado */}
+      {/* Banner de acesso autorizado */}
       {conviteEnviado && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, padding: '14px 18px', marginBottom: 20 }}>
-          <Icon name="mail" size={18} style={{ color: '#15803d', flexShrink: 0 }} />
+          <Icon name="check" size={18} style={{ color: '#15803d', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
-            <strong style={{ fontSize: 14, color: '#14532d' }}>Usuário cadastrado!</strong>
+            <strong style={{ fontSize: 14, color: '#14532d' }}>Acesso autorizado!</strong>
             <div style={{ fontSize: 13, color: '#15803d', marginTop: 2 }}>
-              <strong>{conviteEnviado?.email}</strong> foi cadastrado. Repasse as credenciais abaixo ao usuário:
+              <strong>{conviteEnviado?.email}</strong> já pode entrar pelo login corporativo Microsoft. Não é necessária senha.
             </div>
-            <div style={{ marginTop: 10, background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>E-mail</div>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#14532d', fontFamily: 'monospace', marginTop: 2 }}>{conviteEnviado?.email}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Senha temporária</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#14532d', fontFamily: 'monospace', marginTop: 2, letterSpacing: '0.08em' }}>{conviteEnviado?.senha}</div>
-              </div>
-            </div>
-            <div style={{ fontSize: 12, color: '#15803d', marginTop: 6, opacity: 0.8 }}>Esta senha não será exibida novamente.</div>
           </div>
           <button onClick={() => setConviteEnviado(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', padding: 4 }}>
             <Icon name="x" size={16} />
@@ -351,9 +324,6 @@ const UsuariosScreen = ({ obras = [] }) => {
                       <button className="icon-btn" title="Editar" onClick={() => abrirForm(u)}>
                         <Icon name="edit" size={15} style={{ color: 'var(--brand)' }} />
                       </button>
-                      <button className="icon-btn" title="Redefinir senha" onClick={() => { setRedefinindoSenha(u); setNovaSenhaAdmin(gerarSenha()); }}>
-                        <Icon name="key" size={15} style={{ color: '#d97706' }} />
-                      </button>
                       <button className="icon-btn" title="Excluir" onClick={() => setConfirmDelete(u)}>
                         <Icon name="trash" size={15} style={{ color: '#b91c1c' }} />
                       </button>
@@ -419,18 +389,9 @@ const UsuariosScreen = ({ obras = [] }) => {
                 </select>
               </div>
               {editando === 'novo' && (
-                <div style={{ marginTop: 12 }}>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Senha temporária <span style={{ color: '#b91c1c' }}>*</span></label>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input className="input" style={{ flex: 1, fontFamily: 'monospace', letterSpacing: '0.06em' }}
-                      type="text" placeholder="Mín. 6 caracteres"
-                      value={form.senha_temp} onChange={e => setForm(f => ({ ...f, senha_temp: e.target.value }))} />
-                    <button type="button" className="btn btn-ghost" style={{ flexShrink: 0, fontSize: 12 }}
-                      onClick={() => setForm(f => ({ ...f, senha_temp: gerarSenha() }))}>
-                      Gerar
-                    </button>
-                  </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 5 }}>Repasse ao usuário — ele poderá alterar depois.</div>
+                <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  O acesso é feito pela conta Microsoft da organização. Ao autorizar o e-mail,
+                  o usuário entra direto pelo login corporativo, sem senha.
                 </div>
               )}
             </div>
@@ -669,51 +630,12 @@ const UsuariosScreen = ({ obras = [] }) => {
           {/* Rodapé do formulário */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
             <button className="btn btn-ghost" onClick={fecharForm}>Cancelar</button>
-            <button className="btn btn-primary" onClick={handleSalvar} disabled={salvando || !form.nome.trim() || !form.email.trim() || (editando === 'novo' && form.senha_temp.length < 6)}>
+            <button className="btn btn-primary" onClick={handleSalvar} disabled={salvando || !form.nome.trim() || !form.email.trim()}>
               {salvando
                 ? <><span className="login-spinner" style={{ width: 14, height: 14 }} /> Salvando...</>
                 : <><Icon name="check" size={15} /> Salvar Usuário</>
               }
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de redefinição de senha */}
-      {redefinindoSenha && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '28px 32px', maxWidth: 400, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,0.25)' }}>
-            <h3 style={{ margin: '0 0 6px', fontSize: 17 }}>Redefinir senha</h3>
-            <p style={{ margin: '0 0 18px', color: 'var(--text-muted)', fontSize: 13.5 }}>
-              Defina uma nova senha para <strong>{redefinindoSenha.nome}</strong>. O usuário deverá alterá-la no próximo acesso.
-            </p>
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Nova senha</label>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input className="input" style={{ flex: 1, fontFamily: 'monospace', letterSpacing: '0.06em' }}
-                  type="text" placeholder="Mín. 6 caracteres"
-                  value={novaSenhaAdmin} onChange={e => setNovaSenhaAdmin(e.target.value)} autoFocus />
-                <button type="button" className="btn btn-ghost" style={{ flexShrink: 0, fontSize: 12 }}
-                  onClick={() => setNovaSenhaAdmin(gerarSenha())}>
-                  Gerar
-                </button>
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 5 }}>Repasse esta senha ao usuário pelo WhatsApp ou outro canal seguro.</div>
-            </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setRedefinindoSenha(null)}>Cancelar</button>
-              <button className="btn btn-primary" disabled={salvandoSenha || novaSenhaAdmin.length < 6}
-                onClick={async () => {
-                  setSalvandoSenha(true);
-                  const { error } = await usuariosService.redefinirSenha(redefinindoSenha.email, novaSenhaAdmin);
-                  setSalvandoSenha(false);
-                  if (error) { alert('Erro ao redefinir senha: ' + error.message); return; }
-                  setConviteEnviado({ email: redefinindoSenha.email, senha: novaSenhaAdmin });
-                  setRedefinindoSenha(null);
-                }}>
-                {salvandoSenha ? <span className="login-spinner" style={{ width: 14, height: 14 }} /> : <><Icon name="key" size={14} /> Redefinir senha</>}
-              </button>
-            </div>
           </div>
         </div>
       )}
