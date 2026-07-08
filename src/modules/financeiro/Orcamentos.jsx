@@ -17,40 +17,15 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
   const [filter, setFilter] = React.useState('todos');
 
   const filtered = filter === 'todos' ? orcamentos : orcamentos.filter(o => o.status === filter);
-  const totalAprovado = orcamentos.filter(o => o.status === 'aprovado').reduce((a, b) => a + b.valor, 0);
-  const totalPendente = orcamentos.filter(o => o.status === 'pendente').reduce((a, b) => a + b.valor, 0);
 
   return (
     <>
       <div className="page-header">
         <div>
           <h1 className="page-title">Orçamentos</h1>
-          <div className="page-subtitle">
-            {loading
-              ? 'Carregando…'
-              : `${orcamentos.length} orçamentos · ${brlOR(totalAprovado + totalPendente, { compact: true })} em valor total`}
-          </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
           <button className="btn btn-primary" onClick={onNovo}><Icon name="plus" size={15} />Novo orçamento</button>
-        </div>
-      </div>
-
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">Aprovados</div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{brlOR(totalAprovado, { compact: true })}</div>
-          <div className="kpi-foot" style={{ marginTop: 6 }}>
-            <span className="kpi-foot-text">{orcamentos.filter(o => o.status === 'aprovado').length} contratos firmados</span>
-          </div>
-        </div>
-        <div className="kpi" style={{ padding: '14px 18px' }}>
-          <div className="kpi-label">Em aprovação</div>
-          <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{brlOR(totalPendente, { compact: true })}</div>
-          <div className="kpi-foot" style={{ marginTop: 6 }}>
-            <span className="kpi-foot-text">{orcamentos.filter(o => o.status === 'pendente').length} aguardando cliente</span>
-          </div>
         </div>
       </div>
 
@@ -78,10 +53,8 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
             <thead>
               <tr>
                 <th>Código</th>
-                <th>Obra / Cliente</th>
+                <th>Obra</th>
                 <th className="center">Versão</th>
-                <th className="right">Valor</th>
-                <th>Status</th>
                 <th>Data</th>
                 <th></th>
               </tr>
@@ -90,7 +63,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
               {loading ? (
                 Array.from({ length: 4 }).map((_, i) => (
                   <tr key={i} style={{ pointerEvents: 'none' }}>
-                    {Array.from({ length: 7 }).map((__, j) => (
+                    {Array.from({ length: 5 }).map((__, j) => (
                       <td key={j}><div className="skeleton" style={{ height: 14 }} /></td>
                     ))}
                   </tr>
@@ -99,13 +72,8 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
                 filtered.map((o) => (
                   <tr key={o.id} onClick={() => onOpen(o)}>
                     <td className="strong mono">{o.id}</td>
-                    <td>
-                      <div className="strong">{o.obra}</div>
-                      <div className="text-xs text-muted">{o.cliente}</div>
-                    </td>
+                    <td className="strong">{o.obra}</td>
                     <td className="center mono text-muted">{o.versao}</td>
-                    <td className="right strong num">{brlOR(o.valor, { compact: true })}</td>
-                    <td><StatusBadge status={o.status} /></td>
                     <td className="mono text-sm text-muted">{o.data}</td>
                     <td>
                       <button className="icon-btn" style={{ width: 28, height: 28 }} onClick={(e) => e.stopPropagation()}>
