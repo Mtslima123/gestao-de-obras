@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { usuariosService } from './usuarios.service';
+import { MODULOS as TODOS_MODULOS, MODULOS_IDS as TODOS_MODULOS_IDS, MODULO_ABAS } from '../../config/modulos';
 
 const MOCK_USUARIOS = [
   { id: 'USR-001', nome: 'Administrador Sistema', email: 'admin@empresa.com.br', telefone: '', perfil: 'admin', obrasIds: [], status: 'ativo', dataCadastro: '10/01/2024', ultimoAcesso: '24/05/2024 09:15' },
@@ -11,36 +12,8 @@ const MOCK_USUARIOS = [
   { id: 'USR-005', nome: 'Fernanda Lima', email: 'fernanda.lima@empresa.com.br', telefone: '(11) 99999-0004', perfil: 'usuario', obrasIds: ['OB-001', 'OB-002', 'OB-003', 'OB-005'], status: 'ativo', dataCadastro: '12/02/2024', ultimoAcesso: '24/05/2024 07:50' },
 ];
 
-const TODOS_MODULOS = [
-  { id: 'dashboard',    label: 'Dashboard',          icon: 'dashboard' },
-  { id: 'obras',        label: 'Obras',               icon: 'building' },
-  { id: 'orcamentos',   label: 'Orçamentos',          icon: 'wallet' },
-  { id: 'cronograma',   label: 'Cronogramas',         icon: 'calendar' },
-  { id: 'orc-x-cron',  label: 'Orç. × Cronograma',  icon: 'link' },
-  { id: 'resumo',       label: 'Resumo de obras',     icon: 'chart' },
-  { id: 'controle',     label: 'Controle de obras',   icon: 'hard-hat' },
-  { id: 'efetivo',      label: 'Efetivo',             icon: 'users' },
-  { id: 'estimativas',  label: 'Estimativas',         icon: 'calculator' },
-  { id: 'planejamento', label: 'Planejamento',        icon: 'gantt' },
-  { id: 'contratos',    label: 'Contratos',           icon: 'file' },
-  { id: 'incc',         label: 'INCC',                icon: 'trending-up' },
-  { id: 'incorporacao', label: 'Incorporação',        icon: 'briefcase' },
-  { id: 'relatorios',   label: 'Relatórios',          icon: 'chart' },
-];
-const TODOS_MODULOS_IDS = TODOS_MODULOS.map(m => m.id);
-
-// Abas configuráveis por módulo (apenas módulos com abas navegáveis)
-// Abas configuráveis por módulo — ids batem com as abas reais de cada tela.
-// Só módulos com sub-telas reais entram aqui (Cronograma tem apenas modos de
-// visualização do mesmo cronograma, controlado no nível de módulo).
-const MODULO_ABAS = {
-  obras:       [{ id: 'visao',      label: 'Visão geral' },
-                { id: 'cronograma', label: 'Cronograma' },
-                { id: 'fotos',      label: 'Fotos' }],
-  estimativas: [{ id: 'nova',   label: 'Estimativa atual' },
-                { id: 'salvas', label: 'Estimativas salvas' },
-                { id: 'base',   label: 'Base de dados' }],
-};
+// TODOS_MODULOS, TODOS_MODULOS_IDS e MODULO_ABAS vêm da fonte única em
+// config/modulos.js — assim menu e cadastro nunca ficam dessincronizados.
 
 const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [] };
 const PER_PAGE = 10;
@@ -493,15 +466,15 @@ const UsuariosScreen = ({ obras = [] }) => {
 
               <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', background: '#f8fafc' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                  <Icon name="mail" size={16} style={{ color: 'var(--brand)' }} />
-                  <strong style={{ fontSize: 13 }}>Fluxo de Convite</strong>
+                  <Icon name="shield" size={16} style={{ color: 'var(--brand)' }} />
+                  <strong style={{ fontSize: 13 }}>Como funciona o acesso</strong>
                 </div>
                 <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.9 }}>
-                  <li>Cadastre o usuário informando o e-mail.</li>
-                  <li>Defina o perfil e as obras permitidas.</li>
+                  <li>Cadastre o usuário informando o e-mail corporativo (@soter.com.br).</li>
+                  <li>Defina o perfil, as obras e as telas permitidas.</li>
                   <li>Salve o cadastro.</li>
-                  <li>O sistema envia um convite por e-mail.</li>
-                  <li>O usuário cria a senha no primeiro acesso.</li>
+                  <li>O usuário entra pelo login corporativo Microsoft, sem senha.</li>
+                  <li>Quem não estiver cadastrado é bloqueado no acesso.</li>
                 </ol>
               </div>
 

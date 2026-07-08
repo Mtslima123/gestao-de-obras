@@ -3,6 +3,7 @@ import { Icon } from './components/Icons';
 import { NotifPanel } from './components/Modals';
 import { authService } from './modules/auth/auth.service';
 import { moduloLiberado } from './utils/permissions';
+import { MODULOS_TOPO } from './config/modulos';
 
 // Sidebar + Topbar — shared app chrome
 const ModalAlterarSenha = ({ onClose, forcar = false }) => {
@@ -97,15 +98,11 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
   }, [currentView]);
   const open = expanded || pinned;   // aberto por hover OU por fixação
   const collapsed = !open;
-  // Menu filtrado pelas permissões do usuário (admin vê tudo; módulos vêm de modulos_ids)
-  const navItems = [
-    { id: 'dashboard',     label: 'Dashboard',           icon: 'dashboard' },
-    { id: 'obras',         label: 'Obras',               icon: 'building' },
-    { id: 'orcamentos',    label: 'Orçamentos',          icon: 'wallet' },
-    { id: 'cronograma',    label: 'Cronogramas',         icon: 'calendar' },
-    { id: 'estimativas',   label: 'Estimativas',         icon: 'calculator' },
-    { id: 'incc',          label: 'INCC',                icon: 'trending-up' },
-  ].filter(item => moduloLiberado(userProfile, item.id));
+  // Menu derivado da fonte única (config/modulos) e filtrado pelas permissões
+  // do usuário (admin vê tudo; usuário comum vê o que está em modulos_ids)
+  const navItems = MODULOS_TOPO
+    .map(m => ({ id: m.id, label: m.label, icon: m.icon }))
+    .filter(item => moduloLiberado(userProfile, item.id));
   const cronogramaSubItems = [
     { id: 'gantt',       label: 'Cronograma',       mod: 'cronograma' },
     { id: 'orc-x-cron',  label: 'Orç. × Cronograma', mod: 'orc-x-cron' },
