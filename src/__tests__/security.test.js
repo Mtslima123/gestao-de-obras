@@ -177,10 +177,11 @@ describe('VULN-3: permissions.js — Fail-Secure (CWE-636)', () => {
     expect(podeVerAba(null, 'admin', 'usuarios')).toBe(false);
   });
 
-  test('podeVerAba retorna false quando não há restrições definidas para o módulo', async () => {
+  test('podeVerAba libera todas as abas quando não há restrição marcada para o módulo', async () => {
     const { podeVerAba } = await import('../utils/permissions.js');
+    // Sem nenhuma aba marcada = "todas as abas liberadas" (igual ao cadastro de usuários)
     const perfil = { perfil: 'usuario', abas_ids: [] };
-    expect(podeVerAba(perfil, 'admin', 'usuarios')).toBe(false);
+    expect(podeVerAba(perfil, 'obras', 'visao')).toBe(true);
   });
 
   test('podeVerAba retorna true para admin independente do módulo', async () => {

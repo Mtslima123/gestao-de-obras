@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from './components/Icons';
 import { NotifPanel } from './components/Modals';
 import { authService } from './modules/auth/auth.service';
+import { moduloLiberado } from './utils/permissions';
 
 // Sidebar + Topbar — shared app chrome
 const ModalAlterarSenha = ({ onClose, forcar = false }) => {
@@ -77,7 +78,7 @@ const ModalAlterarSenha = ({ onClose, forcar = false }) => {
   );
 };
 
-const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha = false, onPasswordChanged, cronogramaTab, onCronogramaTabChange, adminTab, onAdminTabChange, pinned = false, onPinChange }) => {
+const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarAlterarSenha = false, onPasswordChanged, cronogramaTab, onCronogramaTabChange, adminTab, onAdminTabChange, pinned = false, onPinChange }) => {
   const [expanded, setExpanded] = React.useState(false);
   const [showAlterarSenha, setShowAlterarSenha] = React.useState(false);
   const [expandedSection, setExpandedSection] = React.useState(null);
@@ -96,6 +97,7 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
   }, [currentView]);
   const open = expanded || pinned;   // aberto por hover OU por fixação
   const collapsed = !open;
+  // Menu filtrado pelas permissões do usuário (admin vê tudo; módulos vêm de modulos_ids)
   const navItems = [
     { id: 'dashboard',     label: 'Dashboard',           icon: 'dashboard' },
     { id: 'obras',         label: 'Obras',               icon: 'building' },
@@ -103,18 +105,19 @@ const Sidebar = ({ currentView, onNavigate, user, onLogout, forcarAlterarSenha =
     { id: 'cronograma',    label: 'Cronogramas',         icon: 'calendar' },
     { id: 'estimativas',   label: 'Estimativas',         icon: 'calculator' },
     { id: 'incc',          label: 'INCC',                icon: 'trending-up' },
-  ];
+  ].filter(item => moduloLiberado(userProfile, item.id));
   const cronogramaSubItems = [
-    { id: 'gantt',       label: 'Cronograma' },
-    { id: 'orc-x-cron',  label: 'Orç. × Cronograma' },
-  ];
+    { id: 'gantt',       label: 'Cronograma',       mod: 'cronograma' },
+    { id: 'orc-x-cron',  label: 'Orç. × Cronograma', mod: 'orc-x-cron' },
+  ].filter(sub => moduloLiberado(userProfile, sub.mod));
   const adminSubItems = [
     { id: 'usuarios',  label: 'Usuários' },
     { id: 'auditoria', label: 'Auditoria do Sistema' },
   ];
+  // Administração é exclusiva de admin
   const navMgmt = [
     { id: 'admin',         label: 'Administração',       icon: 'shield' },
-  ];
+  ].filter(() => userProfile?.perfil === 'admin');
 
   const handleSectionClick = (id) => {
     if (expandedSection === id) {

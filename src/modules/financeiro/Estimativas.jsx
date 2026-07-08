@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { formatBRL, formatNum, formatPct } from '../../utils/formatters';
+import { podeVerAba } from '../../utils/permissions';
 import {
   ESTIM_PROJETOS_REF, ESTIM_FLOORS_BASE, ESTIM_PROJETOS_ESPEC,
   ESTIM_ELEVADORES_REF, ESTIM_FUNDACAO_REF, ESTIM_PROPOSTAS_PROJ,
@@ -24,9 +25,16 @@ const calcItemsTotal = (items, fator) =>
 // ===========================================================
 // MAIN ESTIMATIVAS SCREEN
 // ===========================================================
-const EstimativasScreen = () => {
+const EstimativasScreen = ({ userProfile }) => {
   const [subtab, setSubtab] = React.useState(() => sessionStorage.getItem('estim_subtab') || 'nova');
   React.useEffect(() => { sessionStorage.setItem('estim_subtab', subtab); }, [subtab]);
+  // Garante que a aba ativa é permitida ao usuário (senão cai na primeira liberada)
+  React.useEffect(() => {
+    if (!podeVerAba(userProfile, 'estimativas', subtab)) {
+      const primeira = ['nova', 'salvas', 'base'].find(id => podeVerAba(userProfile, 'estimativas', id));
+      if (primeira) setSubtab(primeira);
+    }
+  }, [userProfile, subtab]);
   const [editingEstim, setEditingEstim] = React.useState(null);
   const [savedItems, setSavedItems] = React.useState([]);
   const [saveTrigger, setSaveTrigger] = React.useState(0);
@@ -103,7 +111,7 @@ const EstimativasScreen = () => {
             { id: 'nova',   label: editingEstim ? 'Editando estimativa' : 'Estimativa atual' },
             { id: 'salvas', label: 'Estimativas salvas' },
             { id: 'base',   label: 'Base de dados' },
-          ].map(t => (
+          ].filter(t => podeVerAba(userProfile, 'estimativas', t.id)).map(t => (
             <button key={t.id} className={'tab' + (subtab === t.id ? ' active' : '')} onClick={() => setSubtab(t.id)}>
               {t.label}
             </button>

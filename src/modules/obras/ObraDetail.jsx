@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
+import { podeVerAba } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset } from '../cronograma/ganttUtils';
 
 // Obra Detail Page
@@ -854,7 +855,7 @@ const HeroImage = ({ obra, onObraUpdate }) => {
 };
 
 // ----- Main ObraDetail -----
-const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpdate, onObraDelete, onOpenCronograma }) => {
+const ObraDetail = ({ obra, userProfile, onBack, onNovaMedicao, onSolicitarCompra, onObraUpdate, onObraDelete, onOpenCronograma }) => {
   const [tab, setTab] = React.useState(() => {
     const saved = sessionStorage.getItem('obra_tab');
     return ['visao', 'cronograma', 'fotos'].includes(saved) ? saved : 'visao';
@@ -892,7 +893,12 @@ const ObraDetail = ({ obra, onBack, onNovaMedicao, onSolicitarCompra, onObraUpda
     { id: 'visao',      label: 'Visão geral' },
     { id: 'cronograma', label: 'Cronograma'  },
     { id: 'fotos',      label: 'Fotos'       },
-  ];
+  ].filter(t => podeVerAba(userProfile, 'obras', t.id));
+
+  // Se a aba salva não estiver liberada para este usuário, cai na primeira permitida
+  React.useEffect(() => {
+    if (tabs.length && !tabs.some(t => t.id === tab)) setTab(tabs[0].id);
+  }, [tabs, tab]);
 
   return (
     <>

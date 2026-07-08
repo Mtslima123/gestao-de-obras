@@ -7,6 +7,7 @@ import { LoginScreen } from './modules/auth/Login';
 import { AcessoNaoAutorizado } from './modules/auth/AcessoNaoAutorizado';
 import { authService } from './modules/auth/auth.service';
 import { supabase } from './services/supabase';
+import { moduloLiberado, obraLiberada, obrasPermitidas } from './utils/permissions';
 import { obrasService } from './modules/obras/obras.service';
 import { Dashboard } from './modules/dashboard/Dashboard';
 import { ObrasList } from './modules/obras/ObrasList';
@@ -142,7 +143,7 @@ const AppInner = () => {
     if (!email) return null;
     const { data } = await supabase
       .from('user_profiles')
-      .select('id, perfil, status, modulos_ids, abas_ids, deve_alterar_senha')
+      .select('id, perfil, status, modulos_ids, abas_ids, deve_alterar_senha, user_obras(obra_id)')
       .eq('email', email)
       .single();
     setUserProfile(data ?? null);
@@ -247,6 +248,25 @@ const AppInner = () => {
     return [home, { label: map[view] || view }];
   };
 
+  // Obras visíveis conforme as obras autorizadas do usuário (admin vê todas)
+  const obrasVisiveis = React.useMemo(() => {
+    const permitidas = obrasPermitidas(userProfile);
+    if (permitidas === null) return obras;
+    return obras.filter(o => permitidas.includes(o.id));
+  }, [obras, userProfile]);
+
+  // Mapa view -> módulo, para bloquear telas não liberadas ao usuário
+  const VIEW_MODULO = {
+    dashboard: 'dashboard', obras: 'obras', 'obra-detail': 'obras',
+    orcamentos: 'orcamentos', cronograma: 'cronograma',
+    estimativas: 'estimativas', incc: 'incc',
+  };
+  const moduloDaView = VIEW_MODULO[view];
+  const viewBloqueada = !!moduloDaView && !moduloLiberado(userProfile, moduloDaView);
+  const primeiraViewLiberada =
+    ['dashboard', 'obras', 'orcamentos', 'cronograma', 'estimativas', 'incc']
+      .find(v => moduloLiberado(userProfile, v)) || 'dashboard';
+
   return (
     <>
       {((!authed && !acessoNegado) || passwordRecovery) && (
@@ -265,6 +285,7 @@ const AppInner = () => {
         currentView={view === 'obra-detail' ? 'obras' : view}
         onNavigate={handleNavigate}
         user={user}
+        userProfile={userProfile}
         onLogout={handleLogout}
         forcarAlterarSenha={userProfile?.deve_alterar_senha === true}
         onPasswordChanged={() => setUserProfile(p => p ? { ...p, deve_alterar_senha: false } : p)}
@@ -283,13 +304,16 @@ const AppInner = () => {
           <ErrorBoundary key={view}>
           {!obrasLoaded ? (
             <div className="content-loading"><span className="spinner" /></div>
+          ) : viewBloqueada ? (
+            <AcessoNegado onVoltar={() => handleNavigate(primeiraViewLiberada)} />
           ) : (
           <>
           {view === 'dashboard' && <Dashboard onOpenObra={handleOpenObra} onAcao={(a) => setModal(a)} />}
-          {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} obras={obras} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} />}
+          {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} obras={obrasVisiveis} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} />}
           {view === 'obra-detail' && (
             <ObraDetail
               obra={selectedObra}
+              userProfile={userProfile}
               onBack={() => handleNavigate('obras')}
               onNovaMedicao={() => setModal('nova-medicao')}
               onSolicitarCompra={(insumo) => setModal({ type: 'compra', insumo })}
@@ -301,17 +325,17 @@ const AppInner = () => {
           {view === 'orcamentos' && (
             <OrcamentosScreen
               onNovoOrcamento={() => setModal('novo-orcamento')}
-              obras={obras}
+              obras={obrasVisiveis}
               refreshKey={refreshOrcamentos}
               user={user}
             />
           )}
-          {view === 'estimativas' && <EstimativasScreen />}
+          {view === 'estimativas' && <EstimativasScreen userProfile={userProfile} />}
           {view === 'incc' && <INCCScreen />}
           {view === 'cronograma' && (
             <>
               {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} />}
-              {cronogramaTab === 'orc-x-cron' && <OrcamentoCronogramaScreen obras={obras} user={user} />}
+              {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} />}
             </>
           )}
           {/* 🔒 SEGURANÇA [VULN-3]: telas admin bloqueadas para não-admin no frontend */}

@@ -30,21 +30,16 @@ const TODOS_MODULOS = [
 const TODOS_MODULOS_IDS = TODOS_MODULOS.map(m => m.id);
 
 // Abas configuráveis por módulo (apenas módulos com abas navegáveis)
+// Abas configuráveis por módulo — ids batem com as abas reais de cada tela.
+// Só módulos com sub-telas reais entram aqui (Cronograma tem apenas modos de
+// visualização do mesmo cronograma, controlado no nível de módulo).
 const MODULO_ABAS = {
-  cronograma:  [{ id: 'gantt',            label: 'Gantt' },
-                { id: 'fluxo-executivo',  label: 'Fluxo Executivo' }],
-  estimativas: [{ id: 'nova',   label: 'Nova Estimativa' },
-                { id: 'salvas', label: 'Estimativas Salvas' }],
-  obras:       [{ id: 'visao-geral',   label: 'Visão Geral' },
-                { id: 'medicoes',      label: 'Medições' },
-                { id: 'insumos',       label: 'Insumos' },
-                { id: 'fornecedores',  label: 'Fornecedores' },
-                { id: 'equipe',        label: 'Equipe' }],
-  controle:    [{ id: 'rdo',        label: 'RDO' },
-                { id: 'frentes',    label: 'Frentes' },
-                { id: 'producao',   label: 'Produção' },
-                { id: 'equipe',     label: 'Equipe' },
-                { id: 'ocorrencias', label: 'Ocorrências' }],
+  obras:       [{ id: 'visao',      label: 'Visão geral' },
+                { id: 'cronograma', label: 'Cronograma' },
+                { id: 'fotos',      label: 'Fotos' }],
+  estimativas: [{ id: 'nova',   label: 'Estimativa atual' },
+                { id: 'salvas', label: 'Estimativas salvas' },
+                { id: 'base',   label: 'Base de dados' }],
 };
 
 const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [] };
