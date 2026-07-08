@@ -3,7 +3,6 @@ import * as XLSX from 'xlsx';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { useToast, Modal } from '../../components/Modals';
-import { StatusBadge } from '../../components/StatusBadge';
 import { orcamentosService } from './orcamentos.service';
 import { formatBRL } from '../../utils/formatters';
 
@@ -13,10 +12,37 @@ const brlFull = formatBRL;
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
-const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) => {
-  const [filter, setFilter] = React.useState('todos');
+const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, onCriarRevisao }) => {
+  const filtered = orcamentos;
+  const [openMenuId, setOpenMenuId] = React.useState(null);
+  const [revisandoId, setRevisandoId] = React.useState(null);
+  const [deleteOrc, setDeleteOrc] = React.useState(null);
+  const [deleteStep, setDeleteStep] = React.useState(1);
+  const menuRef = React.useRef(null);
 
-  const filtered = filter === 'todos' ? orcamentos : orcamentos.filter(o => o.status === filter);
+  React.useEffect(() => {
+    if (!openMenuId) return;
+    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenuId(null); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [openMenuId]);
+
+  const handleRevisao = async (o) => {
+    setOpenMenuId(null);
+    setRevisandoId(o.id);
+    await onCriarRevisao(o);
+    setRevisandoId(null);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!deleteOrc) return;
+    if (deleteStep === 1) { setDeleteStep(2); return; }
+    onDelete(deleteOrc.id);
+    setDeleteOrc(null);
+    setDeleteStep(1);
+  };
+
+  const handleDeleteCancel = () => { setDeleteOrc(null); setDeleteStep(1); };
 
   return (
     <>
@@ -31,19 +57,6 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
 
       <div className="card" style={{ marginTop: 'var(--gap)' }}>
         <div className="card-header">
-          <div className="filters">
-            {[
-              { id: 'todos',    label: 'Todos',        count: orcamentos.length },
-              { id: 'aprovado', label: 'Aprovados',    count: orcamentos.filter(o => o.status === 'aprovado').length },
-              { id: 'pendente', label: 'Em aprovação', count: orcamentos.filter(o => o.status === 'pendente').length },
-              { id: 'rascunho', label: 'Rascunhos',    count: orcamentos.filter(o => o.status === 'rascunho').length },
-              { id: 'rejeitado',label: 'Rejeitados',   count: orcamentos.filter(o => o.status === 'rejeitado').length },
-            ].map(f => (
-              <button key={f.id} className={'chip' + (filter === f.id ? ' active' : '')} onClick={() => setFilter(f.id)}>
-                {f.label} <span style={{ color: 'var(--text-faint)' }}>·</span> {f.count}
-              </button>
-            ))}
-          </div>
           <div className="card-actions">
             <input className="input input-search" placeholder="Buscar orçamento…" style={{ minWidth: 220 }} />
           </div>
@@ -69,24 +82,77 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false }) =>
                   </tr>
                 ))
               ) : (
-                filtered.map((o) => (
+                filtered.map((o, i) => {
+                  const openUp = i >= filtered.length - 2;
+                  return (
                   <tr key={o.id} onClick={() => onOpen(o)}>
                     <td className="strong mono">{o.id}</td>
                     <td className="strong">{o.obra}</td>
                     <td className="center mono text-muted">{o.versao}</td>
                     <td className="mono text-sm text-muted">{o.data}</td>
                     <td>
-                      <button className="icon-btn" style={{ width: 28, height: 28 }} onClick={(e) => e.stopPropagation()}>
-                        <Icon name="dots" size={14} />
-                      </button>
+                      <div style={{ position: 'relative' }} ref={openMenuId === o.id ? menuRef : null}>
+                        <button
+                          className="icon-btn"
+                          style={{ width: 28, height: 28 }}
+                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === o.id ? null : o.id); }}
+                        >
+                          <Icon name="dots" size={14} />
+                        </button>
+                        {openMenuId === o.id && (
+                          <div className="dropdown" style={openUp ? { top: 'auto', bottom: 'calc(100% + 6px)' } : undefined} onClick={(e) => e.stopPropagation()}>
+                            <button className="dropdown-item" disabled={revisandoId === o.id} onClick={() => handleRevisao(o)}>
+                              <Icon name="file" size={14} />
+                              {revisandoId === o.id ? 'Criando…' : 'Criar revisão'}
+                            </button>
+                            <button className="dropdown-item danger" onClick={() => { setOpenMenuId(null); setDeleteOrc(o); setDeleteStep(1); }}>
+                              <Icon name="trash" size={14} />
+                              Excluir
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {deleteOrc && (
+        <Modal
+          title={deleteStep === 1 ? 'Excluir orçamento' : 'Confirmação final'}
+          onClose={handleDeleteCancel}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={handleDeleteCancel}>Cancelar</button>
+              <button
+                className="btn"
+                style={{ background: 'var(--danger)', color: 'white', fontWeight: 600 }}
+                onClick={handleDeleteConfirm}
+              >
+                {deleteStep === 1 ? 'Sim, excluir' : 'Confirmar exclusão'}
+              </button>
+            </>
+          }
+        >
+          {deleteStep === 1 ? (
+            <p style={{ fontSize: 14 }}>
+              Tem certeza que deseja excluir o orçamento <strong>{deleteOrc.id}</strong> ({deleteOrc.obra})?
+            </p>
+          ) : (
+            <div>
+              <p style={{ fontSize: 14, marginBottom: 10 }}>
+                Esta ação é <strong style={{ color: 'var(--danger)' }}>irreversível</strong>. Todos os itens do orçamento serão removidos.
+              </p>
+              <p style={{ fontSize: 14, marginTop: 12, fontWeight: 600 }}>Deseja realmente continuar?</p>
+            </div>
+          )}
+        </Modal>
+      )}
     </>
   );
 };
@@ -866,10 +932,6 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
   const grandTotal  = React.useMemo(() => withTotals.filter(it => getNivel(it.codigo) === 0).reduce((s, it) => s + it.valor_total, 0), [withTotals]);
 
   // Seções de nível 1 para Curva ABC
-  const secoes        = React.useMemo(() => withTotals.filter(it => getNivel(it.codigo) === 1), [withTotals]);
-  const maxSecaoTotal = React.useMemo(() => Math.max(...secoes.map(s => s.valor_total), 1), [secoes]);
-  const abcSorted     = React.useMemo(() => [...secoes].sort((a, b) => b.valor_total - a.valor_total).slice(0, 8), [secoes]);
-
   return (
     <>
       {/* Cabeçalho */}
@@ -880,7 +942,6 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
           </button>
           <div className="row" style={{ gap: 10 }}>
             <h1 className="page-title">{orcamento.id}</h1>
-            <StatusBadge status={orcamento.status} />
             <span className="badge neutral mono">{orcamento.versao}</span>
           </div>
           <div className="page-subtitle">{orcamento.obra} · {orcamento.cliente} · atualizado em {orcamento.data}</div>
@@ -920,8 +981,8 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
         </div>
       </div>
 
-      {/* Composição + Curva ABC */}
-      <div className="grid-cols-3-2" style={{ marginTop: 'var(--gap)' }}>
+      {/* Composição */}
+      <div style={{ marginTop: 'var(--gap)' }}>
         {/* Tabela de itens */}
         <div className="card" style={{ overflow: 'hidden' }}>
           <div className="card-header">
@@ -1147,41 +1208,6 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
             )}
           </div>
         </div>
-
-        {/* Painéis laterais */}
-        <div className="stack">
-          {/* Curva ABC por seção */}
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title">Curva ABC — Seções</div>
-            </div>
-            <div className="card-body">
-              <div className="stack" style={{ gap: 11 }}>
-                {secoes.length === 0 && (
-                  <div className="text-muted" style={{ fontSize: 13 }}>Adicione itens para ver a Curva ABC.</div>
-                )}
-                {abcSorted.map((it, i) => {
-                    const pct = grandTotal > 0 ? (it.valor_total / grandTotal * 100) : 0;
-                    return (
-                      <div key={i}>
-                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
-                          <span className="text-sm" style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
-                            <span className="mono text-muted" style={{ marginRight: 6 }}>{it.codigo}</span>
-                            {it.nome || '—'}
-                          </span>
-                          <span className="mono num fw-600 text-sm">{pct.toFixed(1)}%</span>
-                        </div>
-                        <div className="progress" style={{ height: 5 }}>
-                          <span style={{ width: (it.valor_total / maxSecaoTotal * 100) + '%' }}></span>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          </div>
-
-        </div>
       </div>
 
       {showImport && (
@@ -1332,6 +1358,8 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
       onNovo={onNovoOrcamento}
       orcamentos={orcamentos}
       loading={loading}
+      onDelete={handleDelete}
+      onCriarRevisao={handleCriarRevisao}
     />
   );
 };
