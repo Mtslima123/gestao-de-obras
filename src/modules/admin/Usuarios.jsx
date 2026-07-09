@@ -105,7 +105,7 @@ const UsuariosScreen = ({ obras = [] }) => {
     if (usuario === 'novo') {
       setForm({ ...FORM_VAZIO });
     } else {
-      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])] });
+      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])], modulosReadonlyIds: [...(usuario.modulosReadonlyIds || [])] });
     }
     setEditando(usuario);
     setObraSearch('');
