@@ -15,7 +15,7 @@ const MOCK_USUARIOS = [
 // TODOS_MODULOS, TODOS_MODULOS_IDS e MODULO_ABAS vêm da fonte única em
 // config/modulos.js — assim menu e cadastro nunca ficam dessincronizados.
 
-const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [] };
+const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [], modulosReadonlyIds: [] };
 const PER_PAGE = 10;
 
 const BadgePerfil = ({ perfil }) => (
@@ -44,6 +44,7 @@ const transformar = (u) => ({
   obrasIds: (u.user_obras || []).map(uo => uo.obra_id),
   modulosIds: u.modulos_ids?.length ? u.modulos_ids : TODOS_MODULOS_IDS,
   abasIds: u.abas_ids || [],
+  modulosReadonlyIds: u.modulos_readonly_ids || [],
   dataCadastro: u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '—',
   ultimoAcesso: u.ultimo_acesso ? new Date(u.ultimo_acesso).toLocaleString('pt-BR') : '—',
 });
@@ -124,6 +125,7 @@ const UsuariosScreen = ({ obras = [] }) => {
       status: form.status,
       modulos_ids: form.modulosIds,
       abas_ids: form.abasIds,
+      modulos_readonly_ids: form.modulosReadonlyIds,
     };
     try {
       if (editando === 'novo') {
@@ -157,6 +159,18 @@ const UsuariosScreen = ({ obras = [] }) => {
     setForm(f => ({
       ...f,
       modulosIds: f.modulosIds.includes(id) ? f.modulosIds.filter(m => m !== id) : [...f.modulosIds, id],
+      // Módulo desmarcado não faz sentido ficar marcado como "somente visualização"
+      modulosReadonlyIds: f.modulosIds.includes(id) ? f.modulosReadonlyIds.filter(m => m !== id) : f.modulosReadonlyIds,
+    }));
+  };
+
+  // Define se um módulo é "somente visualização" (true) ou "editar" (false) para o usuário
+  const setModuloReadonly = (modId, readonly) => {
+    setForm(f => ({
+      ...f,
+      modulosReadonlyIds: readonly
+        ? [...new Set([...f.modulosReadonlyIds, modId])]
+        : f.modulosReadonlyIds.filter(m => m !== modId),
     }));
   };
 
@@ -517,12 +531,29 @@ const UsuariosScreen = ({ obras = [] }) => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {TODOS_MODULOS.map(mod => {
                 const ativo = form.modulosIds.includes(mod.id);
+                const isReadonly = form.modulosReadonlyIds.includes(mod.id);
                 return (
                   <div key={mod.id} onClick={() => toggleModulo(mod.id)}
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: `1px solid ${ativo ? 'var(--brand)' : 'var(--border)'}`, borderRadius: 8, cursor: 'pointer', background: ativo ? 'var(--brand-tint)' : 'var(--surface)', transition: 'all 0.15s' }}>
                     <input type="checkbox" checked={ativo} readOnly onClick={e => { e.stopPropagation(); toggleModulo(mod.id); }} style={{ accentColor: 'var(--brand)', cursor: 'pointer', flexShrink: 0 }} />
                     <Icon name={mod.icon} size={14} style={{ color: ativo ? 'var(--brand)' : 'var(--text-muted)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 13, fontWeight: ativo ? 500 : 400, color: ativo ? 'var(--brand)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{mod.label}</span>
+                    <span style={{ fontSize: 13, fontWeight: ativo ? 500 : 400, color: ativo ? 'var(--brand)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>{mod.label}</span>
+                    {ativo && form.perfil !== 'admin' && (
+                      <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          title="Pode criar, editar e excluir"
+                          onClick={() => setModuloReadonly(mod.id, false)}
+                          style={{ fontSize: 10.5, fontWeight: 600, padding: '3px 7px', borderRadius: 5, border: `1px solid ${!isReadonly ? 'var(--brand)' : 'var(--border)'}`, background: !isReadonly ? 'var(--brand)' : 'var(--surface)', color: !isReadonly ? '#fff' : 'var(--text-muted)', cursor: 'pointer' }}
+                        >Editar</button>
+                        <button
+                          type="button"
+                          title="Só pode visualizar, sem criar/editar/excluir"
+                          onClick={() => setModuloReadonly(mod.id, true)}
+                          style={{ fontSize: 10.5, fontWeight: 600, padding: '3px 7px', borderRadius: 5, border: `1px solid ${isReadonly ? 'var(--brand)' : 'var(--border)'}`, background: isReadonly ? 'var(--brand)' : 'var(--surface)', color: isReadonly ? '#fff' : 'var(--text-muted)', cursor: 'pointer' }}
+                        >Visualizar</button>
+                      </div>
+                    )}
                   </div>
                 );
               })}

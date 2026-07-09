@@ -36,6 +36,7 @@ export const usuariosService = {
         status: dados.status,
         modulos_ids: dados.modulos_ids ?? [],
         abas_ids: dados.abas_ids ?? [],
+        modulos_readonly_ids: dados.modulos_readonly_ids ?? [],
         deve_alterar_senha: false,
       })
       .select()
@@ -59,7 +60,7 @@ export const usuariosService = {
   atualizar: async (id, dados) => {
     const res = await supabase
       .from('user_profiles')
-      .update({ ...dados, modulos_ids: dados.modulos_ids ?? [], abas_ids: dados.abas_ids ?? [], updated_at: new Date().toISOString() })
+      .update({ ...dados, modulos_ids: dados.modulos_ids ?? [], abas_ids: dados.abas_ids ?? [], modulos_readonly_ids: dados.modulos_readonly_ids ?? [], updated_at: new Date().toISOString() })
       .eq('id', id);
     if (!res.error) registrar({
       modulo: 'usuarios', acao: 'editou',

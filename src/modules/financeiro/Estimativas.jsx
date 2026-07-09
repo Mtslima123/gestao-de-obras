@@ -3,7 +3,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { formatBRL, formatNum, formatPct } from '../../utils/formatters';
-import { podeVerAba } from '../../utils/permissions';
+import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
 import {
   ESTIM_PROJETOS_REF, ESTIM_FLOORS_BASE, ESTIM_PROJETOS_ESPEC,
   ESTIM_ELEVADORES_REF, ESTIM_FUNDACAO_REF, ESTIM_PROPOSTAS_PROJ,
@@ -26,6 +26,7 @@ const calcItemsTotal = (items, fator) =>
 // MAIN ESTIMATIVAS SCREEN
 // ===========================================================
 const EstimativasScreen = ({ userProfile }) => {
+  const readOnly = moduloSomenteLeitura(userProfile, 'estimativas');
   const [subtab, setSubtab] = React.useState(() => sessionStorage.getItem('estim_subtab') || 'nova');
   React.useEffect(() => { sessionStorage.setItem('estim_subtab', subtab); }, [subtab]);
   // Garante que a aba ativa é permitida ao usuário (senão cai na primeira liberada)
@@ -91,19 +92,25 @@ const EstimativasScreen = ({ userProfile }) => {
           <div className="page-actions">
             {subtab === 'nova' && (
               <>
-                <button className="btn btn-ghost" style={{ color: '#e53e3e' }} onClick={() => setClearTrigger(t => t + 1)}>
-                  <Icon name="refresh-cw" size={14} />Limpar dados
-                </button>
+                {!readOnly && (
+                  <button className="btn btn-ghost" style={{ color: '#e53e3e' }} onClick={() => setClearTrigger(t => t + 1)}>
+                    <Icon name="refresh-cw" size={14} />Limpar dados
+                  </button>
+                )}
                 <button className="btn btn-ghost" onClick={() => {}}>
                   <Icon name="download" size={14} />Exportar
                 </button>
-                <button className="btn btn-primary" onClick={() => setSaveTrigger(t => t + 1)}>
-                  <Icon name="check" size={14} />Salvar
-                </button>
+                {!readOnly && (
+                  <button className="btn btn-primary" onClick={() => setSaveTrigger(t => t + 1)}>
+                    <Icon name="check" size={14} />Salvar
+                  </button>
+                )}
                 <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 2px' }} />
               </>
             )}
-            <button className="btn btn-primary" onClick={handleNova}><Icon name="plus" size={15} />Nova estimativa</button>
+            {!readOnly && (
+              <button className="btn btn-primary" onClick={handleNova}><Icon name="plus" size={15} />Nova estimativa</button>
+            )}
           </div>
         </div>
         <div className="tabs" style={{ boxShadow: '0 1px 0 var(--border)' }}>
@@ -120,9 +127,9 @@ const EstimativasScreen = ({ userProfile }) => {
       </div>
       <div style={{ height: spacerH }} />
 
-      {subtab === 'nova' && <EstimativaAtual key={editingEstim ? editingEstim.id : '__nova__'} initialData={editingEstim} onSalvar={handleSalvar} saveTrigger={saveTrigger} clearTrigger={clearTrigger} refObras={refObras} />}
-      {subtab === 'salvas' && <EstimativasSalvas items={savedItems} onEditar={handleEditar} />}
-      <div style={{ display: subtab === 'base' ? '' : 'none' }}><BaseDados refObras={refObras} setRefObras={setRefObras} /></div>
+      {subtab === 'nova' && <EstimativaAtual key={editingEstim ? editingEstim.id : '__nova__'} initialData={editingEstim} onSalvar={handleSalvar} saveTrigger={saveTrigger} clearTrigger={clearTrigger} refObras={refObras} readOnly={readOnly} />}
+      {subtab === 'salvas' && <EstimativasSalvas items={savedItems} onEditar={handleEditar} readOnly={readOnly} />}
+      <div style={{ display: subtab === 'base' ? '' : 'none' }}><BaseDados refObras={refObras} setRefObras={setRefObras} readOnly={readOnly} /></div>
     </>
   );
 };
@@ -276,7 +283,7 @@ const ConfirmDeleteRow = ({ conf, label, colSpan, onConfirm, onCancel }) => {
 // ===========================================================
 // SUB: ESTIMATIVA ATUAL — calculadora
 // ===========================================================
-const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, refObras }) => {
+const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, refObras, readOnly = false }) => {
   const initRefId = initialData
     ? (refObras.find(p => p.nome.startsWith(initialData.ref))?.id || null)
     : null;
@@ -908,29 +915,31 @@ const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, ref
                     <td className="center mono text-muted" style={{ fontSize: 11 }}>{idx + 1}</td>
                     <td>
                       <input value={item.label} onChange={e => updImplItem(item.id, 'label', e.target.value)}
-                        style={{ ...inlineInput, minWidth: 160 }} />
+                        disabled={readOnly} style={{ ...inlineInput, minWidth: 160 }} />
                     </td>
                     <td className="right">
                       <input className="input num" value={item.incc}
                         onChange={e => updImplItem(item.id, 'incc', e.target.value)}
-                        style={{ width: 120, height: 28, textAlign: 'right', padding: '0 8px' }} />
+                        disabled={readOnly} style={{ width: 120, height: 28, textAlign: 'right', padding: '0 8px' }} />
                     </td>
                     <td className="right mono num">{fmtR((item.incc || 0) * inccFator)}</td>
                     <td>
-                      <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                        <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para cima"
-                          onClick={() => moveImplItem(item.id, 'up')}>
-                          <Icon name="chevron-up" size={12} />
-                        </button>
-                        <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para baixo"
-                          onClick={() => moveImplItem(item.id, 'down')}>
-                          <Icon name="chevron-down" size={12} />
-                        </button>
-                        <button className="icon-btn" style={{ width: 26, height: 26, color: delConf && delConf.id === item.id ? '#e53e3e' : 'var(--text-faint)' }}
-                          onClick={() => preserveScroll(() => setDelConf({ id: item.id, step: 1, type: 'impl', label: item.label }))}>
-                          <Icon name="trash" size={12} />
-                        </button>
-                      </div>
+                      {!readOnly && (
+                        <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                          <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para cima"
+                            onClick={() => moveImplItem(item.id, 'up')}>
+                            <Icon name="chevron-up" size={12} />
+                          </button>
+                          <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para baixo"
+                            onClick={() => moveImplItem(item.id, 'down')}>
+                            <Icon name="chevron-down" size={12} />
+                          </button>
+                          <button className="icon-btn" style={{ width: 26, height: 26, color: delConf && delConf.id === item.id ? '#e53e3e' : 'var(--text-faint)' }}
+                            onClick={() => preserveScroll(() => setDelConf({ id: item.id, step: 1, type: 'impl', label: item.label }))}>
+                            <Icon name="trash" size={12} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                   {delConf && delConf.id === item.id && (
@@ -949,11 +958,13 @@ const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, ref
             </tbody>
           </table>
         </div>
-        <div style={{ padding: '10px 18px 14px' }}>
-          <button className="btn btn-sm btn-ghost" onClick={addImplItem}>
-            <Icon name="plus" size={13} />Adicionar item
-          </button>
-        </div>
+        {!readOnly && (
+          <div style={{ padding: '10px 18px 14px' }}>
+            <button className="btn btn-sm btn-ghost" onClick={addImplItem}>
+              <Icon name="plus" size={13} />Adicionar item
+            </button>
+          </div>
+        )}
       </AccordionGroup>
 
       {/* ===== 5. Projetos e Consultorias ===== */}
@@ -962,14 +973,16 @@ const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, ref
           <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
             {estim.projetosItems.filter(p => p.checked).length} de {estim.projetosItems.length} especialidades selecionadas
           </span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn btn-sm btn-ghost" onClick={() => preserveScroll(() => setEstim(s => ({ ...s, projetosItems: s.projetosItems.map(p => ({ ...p, checked: true })) })))}>
-              Selecionar todos
-            </button>
-            <button className="btn btn-sm btn-ghost" onClick={() => preserveScroll(() => setEstim(s => ({ ...s, projetosItems: s.projetosItems.map(p => ({ ...p, checked: false })) })))}>
-              Limpar
-            </button>
-          </div>
+          {!readOnly && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-sm btn-ghost" onClick={() => preserveScroll(() => setEstim(s => ({ ...s, projetosItems: s.projetosItems.map(p => ({ ...p, checked: true })) })))}>
+                Selecionar todos
+              </button>
+              <button className="btn btn-sm btn-ghost" onClick={() => preserveScroll(() => setEstim(s => ({ ...s, projetosItems: s.projetosItems.map(p => ({ ...p, checked: false })) })))}>
+                Limpar
+              </button>
+            </div>
+          )}
         </div>
         <div style={{ ...flushWrap, marginTop: 10 }}>
           <table className="tbl">
@@ -991,35 +1004,37 @@ const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, ref
                   <React.Fragment key={p.id}>
                     <tr style={{ opacity: checked ? 1 : 0.55 }}>
                       <td className="center">
-                        <div className={'switch' + (checked ? ' on' : '')}
-                          onClick={() => toggleProj(p.id)} style={{ margin: '0 auto' }}></div>
+                        <div className={'switch' + (checked ? ' on' : '') + (readOnly ? ' disabled' : '')}
+                          onClick={() => !readOnly && toggleProj(p.id)} style={{ margin: '0 auto' }}></div>
                       </td>
                       <td className="strong">
                         <input value={p.esp} onChange={e => updProjetoItem(p.id, 'esp', e.target.value)}
-                          style={{ ...inlineInput, fontWeight: 600, minWidth: 160 }} />
+                          disabled={readOnly} style={{ ...inlineInput, fontWeight: 600, minWidth: 160 }} />
                       </td>
                       <td className="right">
                         <input className="input num" value={p.rs_m2}
                           onChange={e => updProjetoItem(p.id, 'rs_m2', e.target.value)}
-                          style={{ width: 90, height: 28, textAlign: 'right', padding: '0 8px' }} />
+                          disabled={readOnly} style={{ width: 90, height: 28, textAlign: 'right', padding: '0 8px' }} />
                       </td>
                       <td className="right mono num strong">{checked ? fmtR(subt) : '—'}</td>
                       <td className="right mono num text-muted">{checked && custoConstrucao > 0 ? ((subt / custoConstrucao) * 100).toFixed(2) + '%' : '—'}</td>
                       <td>
-                        <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                          <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para cima"
-                            onClick={() => moveProjetoItem(p.id, 'up')}>
-                            <Icon name="chevron-up" size={12} />
-                          </button>
-                          <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para baixo"
-                            onClick={() => moveProjetoItem(p.id, 'down')}>
-                            <Icon name="chevron-down" size={12} />
-                          </button>
-                          <button className="icon-btn" style={{ width: 26, height: 26, color: delConf && delConf.id === p.id ? '#e53e3e' : 'var(--text-faint)' }}
-                            onClick={() => preserveScroll(() => setDelConf({ id: p.id, step: 1, type: 'proj', label: p.esp }))}>
-                            <Icon name="trash" size={12} />
-                          </button>
-                        </div>
+                        {!readOnly && (
+                          <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                            <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para cima"
+                              onClick={() => moveProjetoItem(p.id, 'up')}>
+                              <Icon name="chevron-up" size={12} />
+                            </button>
+                            <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para baixo"
+                              onClick={() => moveProjetoItem(p.id, 'down')}>
+                              <Icon name="chevron-down" size={12} />
+                            </button>
+                            <button className="icon-btn" style={{ width: 26, height: 26, color: delConf && delConf.id === p.id ? '#e53e3e' : 'var(--text-faint)' }}
+                              onClick={() => preserveScroll(() => setDelConf({ id: p.id, step: 1, type: 'proj', label: p.esp }))}>
+                              <Icon name="trash" size={12} />
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                     {delConf && delConf.id === p.id && (
@@ -1040,11 +1055,13 @@ const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, ref
             </tbody>
           </table>
         </div>
-        <div style={{ padding: '10px 18px 14px' }}>
-          <button className="btn btn-sm btn-ghost" onClick={addProjetoItem}>
-            <Icon name="plus" size={13} />Adicionar especialidade
-          </button>
-        </div>
+        {!readOnly && (
+          <div style={{ padding: '10px 18px 14px' }}>
+            <button className="btn btn-sm btn-ghost" onClick={addProjetoItem}>
+              <Icon name="plus" size={13} />Adicionar especialidade
+            </button>
+          </div>
+        )}
       </AccordionGroup>
 
       {/* ===== 6. Infraestrutura ===== */}
@@ -1204,22 +1221,24 @@ const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, ref
                                 </div>
                               </button>
                               <input value={item.label} onChange={e => updIncorpItem(item.id, 'label', e.target.value)}
-                                style={{ ...inlineInput, fontWeight: 600, color: 'var(--brand)', minWidth: 160 }} />
+                                disabled={readOnly} style={{ ...inlineInput, fontWeight: 600, color: 'var(--brand)', minWidth: 160 }} />
                             </div>
                           </td>
                           <td></td>
                           <td className="right mono num strong" style={{ color: 'var(--brand)' }}>{fmtR(groupTotal)}</td>
                           <td className="center">
-                            <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                              <button className="icon-btn" style={{ width: 26, height: 26 }} title="Adicionar sub-item"
-                                onClick={() => { addIncorpSubitem(item.id); setIncorpExpGroups(s => new Set([...s, item.id])); }}>
-                                <Icon name="plus" size={12} />
-                              </button>
-                              <button className="icon-btn" style={{ width: 26, height: 26, color: delConf && delConf.id === item.id ? '#e53e3e' : 'var(--text-faint)' }}
-                                onClick={() => preserveScroll(() => setDelConf({ id: item.id, step: 1, type: 'incorp', label: item.label }))}>
-                                <Icon name="trash" size={12} />
-                              </button>
-                            </div>
+                            {!readOnly && (
+                              <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                                <button className="icon-btn" style={{ width: 26, height: 26 }} title="Adicionar sub-item"
+                                  onClick={() => { addIncorpSubitem(item.id); setIncorpExpGroups(s => new Set([...s, item.id])); }}>
+                                  <Icon name="plus" size={12} />
+                                </button>
+                                <button className="icon-btn" style={{ width: 26, height: 26, color: delConf && delConf.id === item.id ? '#e53e3e' : 'var(--text-faint)' }}
+                                  onClick={() => preserveScroll(() => setDelConf({ id: item.id, step: 1, type: 'incorp', label: item.label }))}>
+                                  <Icon name="trash" size={12} />
+                                </button>
+                              </div>
+                            )}
                           </td>
                         </tr>
                         {delConf && delConf.id === item.id && (
@@ -1241,29 +1260,31 @@ const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, ref
                         </td>
                         <td style={{ paddingLeft: isSubItem ? 40 : 14 }}>
                           <input value={item.label} onChange={e => updIncorpItem(item.id, 'label', e.target.value)}
-                            style={{ ...inlineInput, fontSize: isSubItem ? 12.5 : 13, minWidth: 160 }} />
+                            disabled={readOnly} style={{ ...inlineInput, fontSize: isSubItem ? 12.5 : 13, minWidth: 160 }} />
                         </td>
                         <td className="right">
                           <input className="input num" value={item.incc}
                             onChange={e => updIncorpItem(item.id, 'incc', e.target.value)}
-                            style={{ width: 120, height: 28, textAlign: 'right', padding: '0 8px' }} />
+                            disabled={readOnly} style={{ width: 120, height: 28, textAlign: 'right', padding: '0 8px' }} />
                         </td>
                         <td className="right mono num">{fmtR((item.incc || 0) * inccFator)}</td>
                         <td className="center">
-                          <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                            <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para cima"
-                              onClick={() => moveIncorpItem(item.id, 'up')}>
-                              <Icon name="chevron-up" size={12} />
-                            </button>
-                            <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para baixo"
-                              onClick={() => moveIncorpItem(item.id, 'down')}>
-                              <Icon name="chevron-down" size={12} />
-                            </button>
-                            <button className="icon-btn" style={{ width: 26, height: 26, color: delConf && delConf.id === item.id ? '#e53e3e' : 'var(--text-faint)' }}
-                              onClick={() => preserveScroll(() => setDelConf({ id: item.id, step: 1, type: 'incorp', label: item.label }))}>
-                              <Icon name="trash" size={12} />
-                            </button>
-                          </div>
+                          {!readOnly && (
+                            <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                              <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para cima"
+                                onClick={() => moveIncorpItem(item.id, 'up')}>
+                                <Icon name="chevron-up" size={12} />
+                              </button>
+                              <button className="icon-btn" style={{ width: 26, height: 26 }} title="Mover para baixo"
+                                onClick={() => moveIncorpItem(item.id, 'down')}>
+                                <Icon name="chevron-down" size={12} />
+                              </button>
+                              <button className="icon-btn" style={{ width: 26, height: 26, color: delConf && delConf.id === item.id ? '#e53e3e' : 'var(--text-faint)' }}
+                                onClick={() => preserveScroll(() => setDelConf({ id: item.id, step: 1, type: 'incorp', label: item.label }))}>
+                                <Icon name="trash" size={12} />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                       {delConf && delConf.id === item.id && (
@@ -1284,14 +1305,16 @@ const EstimativaAtual = ({ initialData, onSalvar, saveTrigger, clearTrigger, ref
             </tbody>
           </table>
         </div>
-        <div style={{ padding: '10px 18px 14px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-sm btn-ghost" onClick={addIncorpItem}>
-            <Icon name="plus" size={13} />Adicionar item
-          </button>
-          <button className="btn btn-sm btn-ghost" onClick={addIncorpGroup}>
-            <Icon name="plus" size={13} />Adicionar grupo
-          </button>
-        </div>
+        {!readOnly && (
+          <div style={{ padding: '10px 18px 14px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-sm btn-ghost" onClick={addIncorpItem}>
+              <Icon name="plus" size={13} />Adicionar item
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={addIncorpGroup}>
+              <Icon name="plus" size={13} />Adicionar grupo
+            </button>
+          </div>
+        )}
       </AccordionGroup>
 
       {/* ===== 13. Extras ===== */}
@@ -1749,7 +1772,7 @@ const statusBadge = (s) => {
   return <span className={'badge '+(map[s]||'neutral')}><span className="dot"></span>{label[s]||s}</span>;
 };
 
-const EstimativasSalvas = ({ onEditar, items }) => {
+const EstimativasSalvas = ({ onEditar, items, readOnly = false }) => {
   const today = new Date().toLocaleDateString('pt-BR');
   const [filter,   setFilter]   = React.useState('todas');
   const [search,   setSearch]   = React.useState('');
@@ -1874,6 +1897,7 @@ const EstimativasSalvas = ({ onEditar, items }) => {
                     <select
                       value={e.status}
                       onChange={ev => changeStatus(e.id, ev.target.value)}
+                      disabled={readOnly}
                       style={{ fontSize:12, padding:'3px 6px', borderRadius:6, border:'1px solid var(--border)', background:'var(--surface)', color:'var(--text)', cursor:'pointer', fontFamily:'var(--font-sans)' }}
                     >
                       <option value="rascunho">Rascunho</option>
@@ -1883,17 +1907,19 @@ const EstimativasSalvas = ({ onEditar, items }) => {
                   </td>
                   <td className="mono text-muted" style={{ fontSize:11 }}>{e.data}</td>
                   <td>
-                    <div className="row" style={{ gap:3, justifyContent:'flex-end' }}>
-                      <button className="icon-btn" style={{ width:28,height:28 }} title="Editar" onClick={()=>onEditar&&onEditar(e)}>
-                        <Icon name="edit" size={13} />
-                      </button>
-                      <button className="icon-btn" style={{ width:28,height:28 }} title="Criar revisão" onClick={()=>setRevConf(e)}>
-                        <Icon name="refresh-cw" size={13} />
-                      </button>
-                      <button className="icon-btn" style={{ width:28,height:28,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(e)}>
-                        <Icon name="trash" size={13} />
-                      </button>
-                    </div>
+                    {!readOnly && (
+                      <div className="row" style={{ gap:3, justifyContent:'flex-end' }}>
+                        <button className="icon-btn" style={{ width:28,height:28 }} title="Editar" onClick={()=>onEditar&&onEditar(e)}>
+                          <Icon name="edit" size={13} />
+                        </button>
+                        <button className="icon-btn" style={{ width:28,height:28 }} title="Criar revisão" onClick={()=>setRevConf(e)}>
+                          <Icon name="refresh-cw" size={13} />
+                        </button>
+                        <button className="icon-btn" style={{ width:28,height:28,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(e)}>
+                          <Icon name="trash" size={13} />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1908,7 +1934,7 @@ const EstimativasSalvas = ({ onEditar, items }) => {
 // ===========================================================
 // SUB: BASE DE DADOS — obras / projetos / elevadores / fundação
 // ===========================================================
-const BaseDados = ({ refObras, setRefObras }) => {
+const BaseDados = ({ refObras, setRefObras, readOnly = false }) => {
   const [section, setSection] = React.useState(() => sessionStorage.getItem('base_section') || 'obras');
   React.useEffect(() => { sessionStorage.setItem('base_section', section); }, [section]);
   const sections = [
@@ -1929,11 +1955,11 @@ const BaseDados = ({ refObras, setRefObras }) => {
           ))}
         </div>
       </div>
-      <div style={{ display: section === 'obras'       ? '' : 'none' }}><BaseObras items={refObras} setItems={setRefObras} /></div>
-      <div style={{ display: section === 'projetos'    ? '' : 'none' }}><BaseProjetos /></div>
-      <div style={{ display: section === 'elevadores'  ? '' : 'none' }}><BaseElevadores /></div>
-      <div style={{ display: section === 'fundacao'    ? '' : 'none' }}><BaseFundacao /></div>
-      <div style={{ display: section === 'implantacao' ? '' : 'none' }}><BaseImplantacao /></div>
+      <div style={{ display: section === 'obras'       ? '' : 'none' }}><BaseObras items={refObras} setItems={setRefObras} readOnly={readOnly} /></div>
+      <div style={{ display: section === 'projetos'    ? '' : 'none' }}><BaseProjetos readOnly={readOnly} /></div>
+      <div style={{ display: section === 'elevadores'  ? '' : 'none' }}><BaseElevadores readOnly={readOnly} /></div>
+      <div style={{ display: section === 'fundacao'    ? '' : 'none' }}><BaseFundacao readOnly={readOnly} /></div>
+      <div style={{ display: section === 'implantacao' ? '' : 'none' }}><BaseImplantacao readOnly={readOnly} /></div>
     </div>
   );
 };
@@ -2074,7 +2100,7 @@ const NovaObraModal = ({ onSave, onCancel, initialData }) => {
 };
 
 // ---------- BASE OBRAS ----------
-const BaseObras = ({ items, setItems }) => {
+const BaseObras = ({ items, setItems, readOnly = false }) => {
   const [showForm, setShowForm] = React.useState(false);
   const [editItem, setEditItem] = React.useState(null);
   const [delConf,  setDelConf]  = React.useState(null);
@@ -2110,9 +2136,11 @@ const BaseObras = ({ items, setItems }) => {
 
       <div className="card-header">
         <div><div className="card-title">Obras de referência</div><div className="card-subtitle">Empreendimentos históricos usados como base paramétrica</div></div>
-        <div className="card-actions">
-          <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Nova obra</button>
-        </div>
+        {!readOnly && (
+          <div className="card-actions">
+            <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Nova obra</button>
+          </div>
+        )}
       </div>
       <div style={{overflowX:'auto',overflowY:'auto',maxHeight:360}}>
         <table className="tbl" style={{minWidth:700}}>
@@ -2135,10 +2163,12 @@ const BaseObras = ({ items, setItems }) => {
                 <td className="text-soft">{p.fundacao}</td>
                 <td className="right mono num text-muted">{fmtNumES(p.inccBase,2)}</td>
                 <td className="center">
-                  <div style={{display:'flex',gap:4,justifyContent:'center'}}>
-                    <button className="icon-btn" style={{width:26,height:26}} title="Editar" onClick={()=>setEditItem(p)}><Icon name="edit" size={12} /></button>
-                    <button className="icon-btn" style={{width:26,height:26,color:'#e53e3e'}} title="Excluir" onClick={()=>setDelConf(p)}><Icon name="trash" size={12} /></button>
-                  </div>
+                  {!readOnly && (
+                    <div style={{display:'flex',gap:4,justifyContent:'center'}}>
+                      <button className="icon-btn" style={{width:26,height:26}} title="Editar" onClick={()=>setEditItem(p)}><Icon name="edit" size={12} /></button>
+                      <button className="icon-btn" style={{width:26,height:26,color:'#e53e3e'}} title="Excluir" onClick={()=>setDelConf(p)}><Icon name="trash" size={12} /></button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -2409,7 +2439,7 @@ const ImportModal = ({ tipo, onImportar, onCancel, onSuccess }) => {
 };
 
 // ---------- BASE PROJETOS ----------
-const BaseProjetos = () => {
+const BaseProjetos = ({ readOnly = false }) => {
   const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('proposta');
   const [showForm,   setShowForm]   = React.useState(false);
   const [showImport, setShowImport] = React.useState(false);
@@ -2477,8 +2507,12 @@ const BaseProjetos = () => {
         </select>
         <div className="card-actions">
           <button className="btn btn-sm btn-ghost" onClick={() => exportarBase('proposta', items)}><Icon name="download" size={12} />Exportar</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
-          <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Nova Proposta</button>
+          {!readOnly && (
+            <>
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
+              <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Nova Proposta</button>
+            </>
+          )}
         </div>
       </div>
 
@@ -2509,8 +2543,12 @@ const BaseProjetos = () => {
                 <td className="center">
                   <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center' }}>
                     {p._status==='incompleto' && <span className="badge warning" style={{ fontSize:10 }}>Incompleto</span>}
-                    <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(p)}><Icon name="edit" size={12} /></button>
-                    <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(p)}><Icon name="trash" size={12} /></button>
+                    {!readOnly && (
+                      <>
+                        <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(p)}><Icon name="edit" size={12} /></button>
+                        <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(p)}><Icon name="trash" size={12} /></button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -2526,7 +2564,7 @@ const BaseProjetos = () => {
 };
 
 // ---------- BASE ELEVADORES ----------
-const BaseElevadores = () => {
+const BaseElevadores = ({ readOnly = false }) => {
   const inccAtual = 1259.652;
   const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('elevador');
   const [showForm,   setShowForm]   = React.useState(false);
@@ -2589,8 +2627,12 @@ const BaseElevadores = () => {
         <span style={{ marginLeft:'auto', fontSize:11.5, color:'var(--text-muted)' }}>{filtered.length} registros</span>
         <div className="card-actions" style={{ marginLeft:0 }}>
           <button className="btn btn-sm btn-ghost" onClick={() => exportarBase('elevador', items)}><Icon name="download" size={12} />Exportar</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
-          <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Novo Elevador</button>
+          {!readOnly && (
+            <>
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
+              <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Novo Elevador</button>
+            </>
+          )}
         </div>
       </div>
 
@@ -2624,8 +2666,12 @@ const BaseElevadores = () => {
                   <td className="center">
                     <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center' }}>
                       {e._status==='incompleto' && <span className="badge warning" style={{ fontSize:10 }}>Incompleto</span>}
-                      <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(e)}><Icon name="edit" size={12} /></button>
-                      <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(e)}><Icon name="trash" size={12} /></button>
+                      {!readOnly && (
+                        <>
+                          <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(e)}><Icon name="edit" size={12} /></button>
+                          <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(e)}><Icon name="trash" size={12} /></button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -2642,7 +2688,7 @@ const BaseElevadores = () => {
 };
 
 // ---------- BASE FUNDAÇÃO ----------
-const BaseFundacao = () => {
+const BaseFundacao = ({ readOnly = false }) => {
   const inccAtual = 1259.652;
   const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('fundacao');
   const [showForm,   setShowForm]   = React.useState(false);
@@ -2705,8 +2751,12 @@ const BaseFundacao = () => {
         <span style={{ marginLeft:'auto', fontSize:11.5, color:'var(--text-muted)' }}>{filtered.length} registros</span>
         <div className="card-actions" style={{ marginLeft:0 }}>
           <button className="btn btn-sm btn-ghost" onClick={() => exportarBase('fundacao', items)}><Icon name="download" size={12} />Exportar</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
-          <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Nova Fundação</button>
+          {!readOnly && (
+            <>
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
+              <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Nova Fundação</button>
+            </>
+          )}
         </div>
       </div>
 
@@ -2741,8 +2791,12 @@ const BaseFundacao = () => {
                   <td className="center">
                     <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center' }}>
                       {f._status==='incompleto' && <span className="badge warning" style={{ fontSize:10 }}>Incompleto</span>}
-                      <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(f)}><Icon name="edit" size={12} /></button>
-                      <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(f)}><Icon name="trash" size={12} /></button>
+                      {!readOnly && (
+                        <>
+                          <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(f)}><Icon name="edit" size={12} /></button>
+                          <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(f)}><Icon name="trash" size={12} /></button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -2759,7 +2813,7 @@ const BaseFundacao = () => {
 };
 
 // ---------- BASE IMPLANTAÇÃO ----------
-const BaseImplantacao = () => {
+const BaseImplantacao = ({ readOnly = false }) => {
   const { items, loading, inserir, atualizar, excluir: excluirDb } = useBaseSupabase('implantacao');
   const [showForm,   setShowForm]   = React.useState(false);
   const [showImport, setShowImport] = React.useState(false);
@@ -2808,8 +2862,12 @@ const BaseImplantacao = () => {
         <span style={{ fontSize:11.5, color:'var(--text-muted)' }}>{filtered.length} itens</span>
         <div className="card-actions" style={{ marginLeft:0 }}>
           <button className="btn btn-sm btn-ghost" onClick={() => exportarBase('implantacao', items)}><Icon name="download" size={12} />Exportar</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
-          <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Novo Item</button>
+          {!readOnly && (
+            <>
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={12} />Importar</button>
+              <button className="btn btn-sm btn-primary" onClick={()=>setShowForm(true)}><Icon name="plus" size={13} />Novo Item</button>
+            </>
+          )}
         </div>
       </div>
 
@@ -2838,8 +2896,12 @@ const BaseImplantacao = () => {
                 <td className="center">
                   <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center' }}>
                     {i._status==='incompleto' && <span className="badge warning" style={{ fontSize:10 }}>Incompleto</span>}
-                    <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(i)}><Icon name="edit" size={12} /></button>
-                    <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(i)}><Icon name="trash" size={12} /></button>
+                    {!readOnly && (
+                      <>
+                        <button className="icon-btn" style={{ width:26,height:26 }} title="Editar" onClick={()=>startEdit(i)}><Icon name="edit" size={12} /></button>
+                        <button className="icon-btn" style={{ width:26,height:26,color:'#e53e3e' }} title="Excluir" onClick={()=>setDelConf(i)}><Icon name="trash" size={12} /></button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>

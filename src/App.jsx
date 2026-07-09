@@ -309,7 +309,7 @@ const AppInner = () => {
           ) : (
           <>
           {view === 'dashboard' && <Dashboard onOpenObra={handleOpenObra} onAcao={(a) => setModal(a)} />}
-          {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} obras={obrasVisiveis} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} />}
+          {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} obras={obrasVisiveis} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} userProfile={userProfile} />}
           {view === 'obra-detail' && (
             <ObraDetail
               obra={selectedObra}
@@ -328,13 +328,14 @@ const AppInner = () => {
               obras={obrasVisiveis}
               refreshKey={refreshOrcamentos}
               user={user}
+              userProfile={userProfile}
             />
           )}
           {view === 'estimativas' && <EstimativasScreen userProfile={userProfile} />}
-          {view === 'incc' && <INCCScreen />}
+          {view === 'incc' && <INCCScreen userProfile={userProfile} />}
           {view === 'cronograma' && (
             <>
-              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} />}
+              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} userProfile={userProfile} />}
               {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} />}
             </>
           )}

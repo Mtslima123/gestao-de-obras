@@ -60,6 +60,25 @@ export const moduloLiberado = (userProfile, modId) => {
 };
 
 /**
+ * Verifica se o usuário só pode visualizar um módulo (sem criar/editar/excluir).
+ *
+ * Regras:
+ * - Sem perfil carregado ou admin: nunca é somente leitura
+ * - modulos_readonly_ids vazio/ausente: edição liberada (comportamento atual,
+ *   mesma convenção de compatibilidade de modulos_ids/abas_ids)
+ * - Caso contrário: somente leitura se o módulo estiver na lista
+ *
+ * @param {object|null} userProfile
+ * @param {string}      modId
+ * @returns {boolean}
+ */
+export const moduloSomenteLeitura = (userProfile, modId) => {
+  if (!userProfile || userProfile.perfil === 'admin') return false;
+  const readonly = userProfile.modulos_readonly_ids || [];
+  return readonly.includes(modId);
+};
+
+/**
  * IDs das obras que o usuário pode ver. Admin não tem restrição (retorna null,
  * sinalizando "todas"). Para usuário comum, retorna a lista de user_obras.
  *

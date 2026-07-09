@@ -3,7 +3,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
-import { podeVerAba } from '../../utils/permissions';
+import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset } from '../cronograma/ganttUtils';
 
 // Obra Detail Page
@@ -546,7 +546,7 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose }) => {
 };
 
 // ----- Fotos tab -----
-const Fotos = ({ obra }) => {
+const Fotos = ({ obra, readOnly = false }) => {
   const toast = useToast();
   const [fotos,        setFotos]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
@@ -618,11 +618,13 @@ const Fotos = ({ obra }) => {
             )}
           </>
         )}
-        <div style={{ marginLeft: 'auto' }}>
-          <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
-            <Icon name="upload" size={15} />Upload
-          </button>
-        </div>
+        {!readOnly && (
+          <div style={{ marginLeft: 'auto' }}>
+            <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
+              <Icon name="upload" size={15} />Upload
+            </button>
+          </div>
+        )}
       </div>
 
       {loading
@@ -647,12 +649,14 @@ const Fotos = ({ obra }) => {
                       {f.data && <div style={{ opacity: 0.75, fontSize: 11 }}>{f.data}</div>}
                       {f.descricao && <div style={{ opacity: 0.65, marginTop: 2 }}>{f.descricao}</div>}
                     </div>
-                    <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
-                      <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
-                        onClick={e => { e.stopPropagation(); setEditando(f); }}><Icon name="edit" size={13} /></button>
-                      <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
-                        onClick={e => { e.stopPropagation(); excluirFoto(f); }}><Icon name="trash" size={13} /></button>
-                    </div>
+                    {!readOnly && (
+                      <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
+                        <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
+                          onClick={e => { e.stopPropagation(); setEditando(f); }}><Icon name="edit" size={13} /></button>
+                        <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
+                          onClick={e => { e.stopPropagation(); excluirFoto(f); }}><Icon name="trash" size={13} /></button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -866,6 +870,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onNovaMedicao, onSolicitarCompr
   const [deleteStep, setDeleteStep] = React.useState(0);
   const D = AppData;
   const o = obra || D.obraAtual;
+  const readOnly = moduloSomenteLeitura(userProfile, 'obras');
 
   // Busca as etapas do cronograma da obra — não depende de o usuário já ter aberto o módulo Cronograma
   const [etapasObra, setEtapasObra] = React.useState(() => AppData.cronograma[o.id] || []);
@@ -911,7 +916,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onNovaMedicao, onSolicitarCompr
             </span>
           </div>
         </div>
-        {onObraUpdate && onObraDelete && (
+        {onObraUpdate && onObraDelete && !readOnly && (
           <div className="page-actions">
             <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(true)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1033,7 +1038,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onNovaMedicao, onSolicitarCompr
           </div>
         </div>
       )}
-      {tab === 'fotos' && <Fotos obra={o} />}
+      {tab === 'fotos' && <Fotos obra={o} readOnly={readOnly} />}
 
       {showEdit && (
         <ObraFormModal

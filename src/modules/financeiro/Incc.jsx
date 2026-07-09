@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
+import { moduloSomenteLeitura } from '../../utils/permissions';
 
 // INCC — Índice Nacional de Custo da Construção
 // Fonte: https://sindusconpr.com.br/incc-di-fgv-310-p
@@ -83,7 +84,8 @@ async function fetchInccBCB() {
   throw new Error('API do BCB indisponível');
 }
 
-const INCCScreen = () => {
+const INCCScreen = ({ userProfile }) => {
+  const readOnly = moduloSomenteLeitura(userProfile, 'incc');
   const [serie, setSerie]       = React.useState(() => {
     try {
       const c = localStorage.getItem(INCC_CACHE_KEY);
@@ -148,10 +150,12 @@ const INCCScreen = () => {
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost" onClick={handleAtualizar} disabled={loading}>
-            <Icon name="refresh-cw" size={14} />
-            {loading ? 'Buscando…' : 'Atualizar dados'}
-          </button>
+          {!readOnly && (
+            <button className="btn btn-ghost" onClick={handleAtualizar} disabled={loading}>
+              <Icon name="refresh-cw" size={14} />
+              {loading ? 'Buscando…' : 'Atualizar dados'}
+            </button>
+          )}
           <a className="btn btn-primary" href={INCC_SOURCE_URL} target="_blank" rel="noopener noreferrer">
             <Icon name="arrow-right" size={15} />
             Ver no Sinduscon-PR

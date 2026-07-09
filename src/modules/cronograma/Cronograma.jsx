@@ -7,6 +7,7 @@ import { Modal, useToast } from '../../components/Modals';
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap as _computeValorVinculadoMap } from './ganttUtils';
+import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
 // ganttUtils exporta as funções puras do Gantt — disponíveis para testes e reutilização
 export { gmConflicts, computeAllWBS, recomputeHierarchy, computeSuccessors, getVisibleEtapas,
          computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist, verificarRestricoes,
@@ -730,10 +731,11 @@ function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
 }
 
 // ─── GanttInterativo ─────────────────────────────────────────────────────────
-const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, onTaskSelect }) => {
+const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, onTaskSelect, readOnly = false }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
-  const [editMode,    setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
+  const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
+  const editMode = readOnly ? false : editModeRaw;
   const [lockDone,    setLock]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; } catch { return true; } });
   const [replanAuto,  setReplan]   = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.replanAuto ?? true; } catch { return true; } });
   const [labelWidth,  setLabelW]   = React.useState(() => { try { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; } catch { return 220; } });
@@ -1351,13 +1353,15 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
         <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
 
         {/* Edição */}
-        <button
-          className={'btn ' + (editMode ? 'btn-primary' : 'btn-ghost')}
-          style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5 }}
-          onClick={() => { const nv = !editMode; saveGanttCfg({ editMode: nv }); setEdit(nv); }}
-        >
-          <Icon name="edit" size={12} />{editMode ? 'Editando' : 'Somente leitura'}
-        </button>
+        {!readOnly && (
+          <button
+            className={'btn ' + (editModeRaw ? 'btn-primary' : 'btn-ghost')}
+            style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5 }}
+            onClick={() => { const nv = !editModeRaw; saveGanttCfg({ editMode: nv }); setEdit(nv); }}
+          >
+            <Icon name="edit" size={12} />{editModeRaw ? 'Editando' : 'Somente leitura'}
+          </button>
+        )}
 
         <button
           className="btn btn-ghost"
@@ -2217,7 +2221,7 @@ const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
 
 // ─── ListaInterativa ──────────────────────────────────────────────────────────
-const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {} }) => {
+const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showAddCol,     setShowAddCol]     = React.useState(false);
@@ -2443,6 +2447,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   // Atalho Ctrl+F2 — cria vínculos em cadeia entre tarefas de multiSel (na ordem de clique)
   React.useEffect(() => {
     const handler = (e) => {
+      if (readOnly) return;
       if (e.ctrlKey && e.key === 'F2') {
         e.preventDefault();
         if (multiSel.length < 2) { toast('Selecione ao menos 2 tarefas com Ctrl+clique', { tone: 'warning', icon: 'alert-triangle' }); return; }
@@ -2569,13 +2574,14 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   // Atalhos Ctrl+Shift+→ / Ctrl+Shift+← para recuar/promover tarefa selecionada
   React.useEffect(() => {
     const h = (e) => {
+      if (readOnly) return;
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); handleIndent(); }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'ArrowLeft')  { e.preventDefault(); handleOutdent(); }
     };
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
-  }, [selectedId, etapas]);
+  }, [selectedId, etapas, readOnly]);
 
   const confirmDelete = () => {
     if (!deleteConfirm) return;
@@ -2788,6 +2794,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         flexWrap: 'wrap', background: 'var(--surface-muted)',
         borderBottom: '1px solid var(--border)',
       }}>
+        {!readOnly && (
+        <>
         <button className="btn btn-ghost" style={btnStyle} onClick={handleAddTask}>
           <Icon name="plus" size={13} /> Adicionar tarefa
         </button>
@@ -2877,9 +2885,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
           </svg>
           Promover
         </button>
+        </>
+        )}
 
         <div style={{ flex: 1 }} />
 
+        {!readOnly && (
+        <>
         <button className="btn btn-ghost" style={btnStyle} onClick={undo} title="Desfazer (Ctrl+Z)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/>
@@ -2893,6 +2905,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
           </svg>
           Refazer
         </button>
+        </>
+        )}
 
         <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
 
@@ -3085,7 +3099,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                         <span style={{ width: 20, flexShrink: 0, display: 'inline-block' }} />
                       )}
                       <EditableCell value={e.etapa} onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
-                        style={{ fontWeight: e.isGroup ? 600 : 400 }} />
+                        readOnly={readOnly} style={{ fontWeight: e.isGroup ? 600 : 400 }} />
                       {isMultiSel && <span className="multi-sel-badge">{multiIdx + 1}</span>}
                     </div>
                   </td>
@@ -3093,13 +3107,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 inicio: (
                   <td key="inicio" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
                     <EditableCell type="date" value={offsetToISO(eInicio)}
-                      onSave={v => handleCellSave(e.id, 'inicio', v)} readOnly={e.isGroup} />
+                      onSave={v => handleCellSave(e.id, 'inicio', v)} readOnly={readOnly || e.isGroup} />
                   </td>
                 ),
                 fim: (
                   <td key="fim" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
                     <EditableCell type="date" value={offsetToISO(eInicio + eDur)}
-                      onSave={v => handleCellSave(e.id, 'fim', v)} readOnly={e.isGroup} />
+                      onSave={v => handleCellSave(e.id, 'fim', v)} readOnly={readOnly || e.isGroup} />
                   </td>
                 ),
                 duracao: (
@@ -3109,7 +3123,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                         <EditableCell type="number" value={String(e.dur)}
-                          onSave={v => handleCellSave(e.id, 'duracaoDias', v)} style={{ minWidth: 32 }} />
+                          onSave={v => handleCellSave(e.id, 'duracaoDias', v)} readOnly={readOnly} style={{ minWidth: 32 }} />
                         <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>d</span>
                       </div>
                     )}
@@ -3125,7 +3139,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <EditableCell type="number" value={String(eAvanco)}
-                          onSave={v => handleCellSave(e.id, 'avanco', v)} readOnly={e.isGroup}
+                          onSave={v => handleCellSave(e.id, 'avanco', v)} readOnly={readOnly || e.isGroup}
                           style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 28 }} />
                         <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
                       </div>
@@ -3139,6 +3153,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                         title="Derivado do orçamento vinculado">{fmtBRL(valorVinculadoMap[e.id] || 0)}</span>
                     ) : e.isGroup ? (
                       <span className="text-muted mono" style={{ fontSize: 12 }}>{fmtBRL(gv?.custo || 0)}</span>
+                    ) : readOnly ? (
+                      <span className="mono" style={{ fontSize: 12, display: 'block', textAlign: 'right' }}>{fmtBRL(e.custo || 0)}</span>
                     ) : editingCusto === e.id + '_custo' ? (
                       <input autoFocus type="number" min="0" defaultValue={e.custo || 0}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
@@ -3164,6 +3180,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                   <td key="fatorPeso" className="num" style={{ textAlign: 'right', fontSize: 12 }} onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
                       <span className="text-faint">—</span>
+                    ) : readOnly ? (
+                      <span className="mono" style={{ display: 'block', textAlign: 'right' }}>{(e.fator_peso ?? 1).toLocaleString('pt-BR')}</span>
                     ) : editingFatorPeso === e.id ? (
                       <input
                         autoFocus type="number" min="0" step="any"
@@ -3191,6 +3209,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                       <span className="text-muted mono" style={{ fontSize: 12 }}>
                         {fmtBRL(etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0))}
                       </span>
+                    ) : readOnly ? (
+                      <span className="mono" style={{ fontSize: 12, display: 'block', textAlign: 'right' }}>{fmtBRL(e.custoRealizado || 0)}</span>
                     ) : editingCusto === e.id + '_real' ? (
                       <input autoFocus type="number" min="0" defaultValue={e.custoRealizado || 0}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
@@ -3217,12 +3237,12 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 ),
                 resp: (
                   <td key="resp" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} />
+                    <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} readOnly={readOnly} />
                   </td>
                 ),
                 dep: (
                   <td key="dep" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell value={formatDepList(e.dep, etapas)} onSave={v => handleCellSave(e.id, 'dep', v)} readOnly={e.isGroup} />
+                    <EditableCell value={formatDepList(e.dep, etapas)} onSave={v => handleCellSave(e.id, 'dep', v)} readOnly={readOnly || e.isGroup} />
                   </td>
                 ),
                 succ: (
@@ -3287,15 +3307,17 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
                     dragOverId === e.id ? 'drag-over-row' : '',
                   ].filter(Boolean).join(' ')}
-                  draggable
+                  draggable={!readOnly}
                   onDragStart={(ev) => {
+                    if (readOnly) return;
                     dragRowRef.current = e.id;
                     ev.dataTransfer.effectAllowed = 'move';
                     ev.stopPropagation();
                   }}
-                  onDragOver={(ev) => { ev.preventDefault(); ev.stopPropagation(); setDragOverId(e.id); }}
+                  onDragOver={(ev) => { if (readOnly) return; ev.preventDefault(); ev.stopPropagation(); setDragOverId(e.id); }}
                   onDragLeave={() => setDragOverId(prev => prev === e.id ? null : prev)}
                   onDrop={(ev) => {
+                    if (readOnly) return;
                     ev.preventDefault(); ev.stopPropagation();
                     const dragged = dragRowRef.current;
                     if (dragged && dragged !== e.id) {
@@ -3324,7 +3346,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     const cellVal = (e.customCols || {})[col.id] || '';
                     if (col.type === 'boolean') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                        <select className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
+                        <select className="input" disabled={readOnly} style={{ height: 26, fontSize: 11, padding: '0 4px' }}
                           value={cellVal} onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
                           <option value="">—</option>
                           <option value="sim">Sim</option>
@@ -3334,7 +3356,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     );
                     if (col.type === 'list') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                        <select className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
+                        <select className="input" disabled={readOnly} style={{ height: 26, fontSize: 11, padding: '0 4px' }}
                           value={cellVal} onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
                           <option value="">—</option>
                           {(col.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -3344,13 +3366,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     if (col.type === 'currency') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()} className="num" style={{ textAlign: 'right' }}>
                         <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)}
-                          style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+                          readOnly={readOnly} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
                       </td>
                     );
                     if (col.type === 'percent') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} />
+                          <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
                         </div>
                       </td>
@@ -3358,14 +3380,14 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     if (col.type === 'duration') return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} />
+                          <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>d</span>
                         </div>
                       </td>
                     );
                     return (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                        <EditableCell type={col.type} value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} />
+                        <EditableCell type={col.type} value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
                       </td>
                     );
                   })}
@@ -3445,7 +3467,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       )}
 
       {/* Menu de contexto — botão direito na linha */}
-      {ctxMenu && (
+      {ctxMenu && !readOnly && (
         <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
           <button onClick={() => { insertTask(ctxMenu.taskId, 'above'); setCtxMenu(null); }}>
             ↑ Inserir linha acima
@@ -4815,9 +4837,10 @@ const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDuplicar, on
 };
 
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
-const CronogramaFull = ({ initialObraId }) => {
+const CronogramaFull = ({ initialObraId, userProfile }) => {
   const D    = AppData;
   const toast = useToast();
+  const readOnly = moduloSomenteLeitura(userProfile, 'cronograma');
 
   // Escolhe a obra inicial sem usar OB-001 hardcoded.
   // Após F5 o initialObraId vem null; cai na obra salva na sessão para não
@@ -4832,6 +4855,19 @@ const CronogramaFull = ({ initialObraId }) => {
   const [view,         setView]         = React.useState(() => sessionStorage.getItem('cronograma_view') || 'gantt');
   // Persistem a sub-aba e a obra na sessão para o F5 reabrir onde o usuário estava
   React.useEffect(() => { sessionStorage.setItem('cronograma_view', view); }, [view]);
+
+  const abasCronograma = [
+    { id: 'gantt', label: 'Gantt' },
+    { id: 'lista', label: 'Lista' },
+    { id: 'uso',   label: 'Uso da Tarefa' },
+    { id: 'curva', label: 'Curva Física' },
+    { id: 'fluxo', label: 'Fluxo Executivo' },
+  ].filter(a => podeVerAba(userProfile, 'cronograma', a.id));
+
+  // Se a sub-aba salva não estiver liberada para este usuário, cai na primeira permitida
+  React.useEffect(() => {
+    if (abasCronograma.length && !abasCronograma.some(a => a.id === view)) setView(abasCronograma[0].id);
+  }, [abasCronograma, view]);
   React.useEffect(() => { if (obraSel) sessionStorage.setItem('cronograma_obra', obraSel); }, [obraSel]);
   const [etapas,       setEtapas]       = React.useState([]);
   const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
@@ -5089,6 +5125,7 @@ const CronogramaFull = ({ initialObraId }) => {
   // Atalho Ctrl+Z / Ctrl+Y global (funciona em qualquer aba do módulo)
   React.useEffect(() => {
     const h = (e) => {
+      if (readOnly) return;
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redoRef.current(); }
@@ -5097,7 +5134,7 @@ const CronogramaFull = ({ initialObraId }) => {
     };
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
-  }, []);
+  }, [readOnly]);
 
   React.useEffect(() => {
     if (!outlineOpen) return;
@@ -5158,11 +5195,9 @@ const CronogramaFull = ({ initialObraId }) => {
             )}
           </div>
           <div className="segmented">
-            <button className={view === 'gantt' ? 'active' : ''} onClick={() => setView('gantt')}>Gantt</button>
-            <button className={view === 'lista' ? 'active' : ''} onClick={() => setView('lista')}>Lista</button>
-            <button className={view === 'uso'   ? 'active' : ''} onClick={() => setView('uso')}>Uso da Tarefa</button>
-            <button className={view === 'curva' ? 'active' : ''} onClick={() => setView('curva')}>Curva Física</button>
-            <button className={view === 'fluxo' ? 'active' : ''} onClick={() => setView('fluxo')}>Fluxo Executivo</button>
+            {abasCronograma.map(a => (
+              <button key={a.id} className={view === a.id ? 'active' : ''} onClick={() => setView(a.id)}>{a.label}</button>
+            ))}
           </div>
           {baselines.length > 0 && (
             <select className="input" style={{ minWidth: 180 }}
@@ -5175,10 +5210,12 @@ const CronogramaFull = ({ initialObraId }) => {
               ))}
             </select>
           )}
-          <button className="btn btn-ghost" onClick={() => setShowCriar(true)}>
-            <Icon name="bookmark" size={15} />Criar Linha de Base
-          </button>
-          {baselines.length > 0 && (
+          {!readOnly && (
+            <button className="btn btn-ghost" onClick={() => setShowCriar(true)}>
+              <Icon name="bookmark" size={15} />Criar Linha de Base
+            </button>
+          )}
+          {baselines.length > 0 && !readOnly && (
             <button className="btn btn-ghost" onClick={() => setShowGerenciar(true)}>
               <Icon name="layers" size={15} />Gerenciar
             </button>
@@ -5200,7 +5237,7 @@ const CronogramaFull = ({ initialObraId }) => {
               <div className="text-muted" style={{ maxWidth: 400, margin: '0 auto 20px', fontSize: 13.5 }}>
                 Esta obra ainda não possui cronograma. Adicione a primeira etapa para começar o planejamento.
               </div>
-              {obraSel && (
+              {obraSel && !readOnly && (
                 <button className="btn btn-primary" onClick={() => {
                   commit([{ id: 'TSK-001', etapa: 'Nova etapa', inicio: 0, dur: 30,
                             avanco: 0, status: 'upcoming', dep: [], milestone: false,
@@ -5274,7 +5311,7 @@ const CronogramaFull = ({ initialObraId }) => {
                         </div>
                       </div>
                       <div className="card-body" style={{ padding: 0 }}>
-                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} />
+                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} />
                       </div>
                     </div>
 
@@ -5454,6 +5491,7 @@ const CronogramaFull = ({ initialObraId }) => {
                   redo={redo}
                   vinculos={vinculos}
                   orcamentoItensMap={orcamentoItensMap}
+                  readOnly={readOnly}
                 />
               )}
 

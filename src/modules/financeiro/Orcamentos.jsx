@@ -5,6 +5,7 @@ import { AppData } from '../../utils/data';
 import { useToast, Modal } from '../../components/Modals';
 import { orcamentosService } from './orcamentos.service';
 import { formatBRL } from '../../utils/formatters';
+import { moduloSomenteLeitura } from '../../utils/permissions';
 
 // Orçamentos — lista + detalhe com composição
 const { brl: brlOR } = AppData;
@@ -12,8 +13,9 @@ const brlFull = formatBRL;
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
-const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, onCriarRevisao }) => {
+const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, onCriarRevisao, userProfile }) => {
   const filtered = orcamentos;
+  const readOnly = moduloSomenteLeitura(userProfile, 'orcamentos');
   const [openMenuId, setOpenMenuId] = React.useState(null);
   const [revisandoId, setRevisandoId] = React.useState(null);
   const [deleteOrc, setDeleteOrc] = React.useState(null);
@@ -50,9 +52,11 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
         <div>
           <h1 className="page-title">Orçamentos</h1>
         </div>
-        <div className="page-actions">
-          <button className="btn btn-primary" onClick={onNovo}><Icon name="plus" size={15} />Novo orçamento</button>
-        </div>
+        {!readOnly && (
+          <div className="page-actions">
+            <button className="btn btn-primary" onClick={onNovo}><Icon name="plus" size={15} />Novo orçamento</button>
+          </div>
+        )}
       </div>
 
       <div className="card" style={{ marginTop: 'var(--gap)' }}>
@@ -91,6 +95,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
                     <td className="center mono text-muted">{o.versao}</td>
                     <td className="mono text-sm text-muted">{o.data}</td>
                     <td>
+                      {!readOnly && (
                       <div style={{ position: 'relative' }} ref={openMenuId === o.id ? menuRef : null}>
                         <button
                           className="icon-btn"
@@ -112,6 +117,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
                           </div>
                         )}
                       </div>
+                      )}
                     </td>
                   </tr>
                   );
@@ -523,8 +529,9 @@ const NumericCell = React.memo(({ value, displayValue, onCommit, placeholder }) 
   );
 });
 
-const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user }) => {
+const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user, userProfile }) => {
   const toast         = useToast();
+  const readOnly       = moduloSomenteLeitura(userProfile, 'orcamentos');
   const [items, setItems]           = React.useState([]);
   const [deletedIds, setDeletedIds] = React.useState([]);
   const [dirty, setDirty]           = React.useState(false);
@@ -947,20 +954,24 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
           <div className="page-subtitle">{orcamento.obra} · {orcamento.cliente} · atualizado em {orcamento.data}</div>
         </div>
         <div className="page-actions">
-          <button
-            className={'btn ' + (confirmDelete ? 'btn-danger' : 'btn-ghost')}
-            onClick={handleDeleteClick}
-            disabled={deleting}
-          >
-            <Icon name="trash" size={15} />
-            {deleting ? 'Excluindo…' : confirmDelete ? 'Confirmar exclusão' : 'Excluir'}
-          </button>
-          <button className="btn btn-ghost" onClick={handleCriarRevisao} disabled={revisando}>
-            <Icon name="file" size={15} />
-            {revisando ? 'Criando…' : 'Criar revisão'}
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                className={'btn ' + (confirmDelete ? 'btn-danger' : 'btn-ghost')}
+                onClick={handleDeleteClick}
+                disabled={deleting}
+              >
+                <Icon name="trash" size={15} />
+                {deleting ? 'Excluindo…' : confirmDelete ? 'Confirmar exclusão' : 'Excluir'}
+              </button>
+              <button className="btn btn-ghost" onClick={handleCriarRevisao} disabled={revisando}>
+                <Icon name="file" size={15} />
+                {revisando ? 'Criando…' : 'Criar revisão'}
+              </button>
+            </>
+          )}
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar PDF</button>
-          {orcamento.status === 'pendente' && (
+          {orcamento.status === 'pendente' && !readOnly && (
             <button className="btn btn-primary"><Icon name="check" size={15} />Aprovar</button>
           )}
         </div>
@@ -1013,9 +1024,12 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                   </button>
                 ))}
               </div>
+              {!readOnly && (
               <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}>
                 <Icon name="download" size={13} />Importar
               </button>
+              )}
+              {!readOnly && (
               <button
                 className="btn btn-sm btn-ghost"
                 onClick={() => {
@@ -1047,6 +1061,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
               >
                 <Icon name="plus" size={13} />Novo item
               </button>
+              )}
             </div>
           </div>
           <div className="card-body flush" style={{ overflowX: 'auto' }}>
@@ -1103,29 +1118,37 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
 
                         {/* Nome */}
                         <td>
-                          <input
-                            className="orca-cell-input"
-                            value={it.nome || ''}
-                            placeholder={hasKids ? 'Nome do grupo…' : 'Nome do item…'}
-                            onChange={e => editCell(it.id, 'nome', e.target.value)}
-                          />
+                          {readOnly ? (
+                            <span style={{ fontSize: 13 }}>{it.nome || '—'}</span>
+                          ) : (
+                            <input
+                              className="orca-cell-input"
+                              value={it.nome || ''}
+                              placeholder={hasKids ? 'Nome do grupo…' : 'Nome do item…'}
+                              onChange={e => editCell(it.id, 'nome', e.target.value)}
+                            />
+                          )}
                         </td>
 
                         {/* Quantidade */}
                         <td className="right">
-                          {!hasKids ? (
+                          {hasKids ? <span className="text-muted" style={{ fontSize: 11 }}>—</span>
+                          : readOnly ? <span className="mono">{fmtNum(it.quantidade)}</span>
+                          : (
                             <NumericCell
                               value={it.quantidade}
                               displayValue={fmtNum(it.quantidade)}
                               onCommit={(raw) => editCell(it.id, 'quantidade', parseNum(raw))}
                               placeholder="0,00"
                             />
-                          ) : <span className="text-muted" style={{ fontSize: 11 }}>—</span>}
+                          )}
                         </td>
 
                         {/* Unidade */}
                         <td>
-                          {!hasKids ? (
+                          {hasKids ? null
+                          : readOnly ? <span className="mono">{it.unidade || '—'}</span>
+                          : (
                             <input
                               className="orca-cell-input"
                               value={it.unidade || ''}
@@ -1134,19 +1157,21 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
                               onChange={e => editCell(it.id, 'unidade', e.target.value.toUpperCase())}
                               style={{ width: 52, textTransform: 'uppercase' }}
                             />
-                          ) : null}
+                          )}
                         </td>
 
                         {/* Valor Unitário */}
                         <td className="right">
-                          {!hasKids ? (
+                          {hasKids ? <span className="text-muted" style={{ fontSize: 11 }}>—</span>
+                          : readOnly ? <span className="mono">{fmtNum(it.valor_unitario)}</span>
+                          : (
                             <NumericCell
                               value={it.valor_unitario}
                               displayValue={fmtNum(it.valor_unitario)}
                               onCommit={(raw) => editCell(it.id, 'valor_unitario', parseNum(raw))}
                               placeholder="0,00"
                             />
-                          ) : <span className="text-muted" style={{ fontSize: 11 }}>—</span>}
+                          )}
                         </td>
 
                         {/* Valor Total (calculado) */}
@@ -1156,32 +1181,34 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user })
 
                         {/* Ações */}
                         <td>
-                          <div className="orca-row-actions">
-                            {nivel > 0 && (
+                          {!readOnly && (
+                            <div className="orca-row-actions">
+                              {nivel > 0 && (
+                                <button
+                                  className="orca-row-btn"
+                                  title="Inserir acima (mesmo nível)"
+                                  onClick={() => addAbove(it.codigo)}
+                                >↑+</button>
+                              )}
                               <button
                                 className="orca-row-btn"
-                                title="Inserir acima (mesmo nível)"
-                                onClick={() => addAbove(it.codigo)}
-                              >↑+</button>
-                            )}
-                            <button
-                              className="orca-row-btn"
-                              title="Inserir abaixo (mesmo nível)"
-                              onClick={() => addBelow(it.codigo)}
-                            >↓+</button>
-                            {nivel < 3 && (
+                                title="Inserir abaixo (mesmo nível)"
+                                onClick={() => addBelow(it.codigo)}
+                              >↓+</button>
+                              {nivel < 3 && (
+                                <button
+                                  className="orca-row-btn"
+                                  title="Inserir subgrupo (nível filho)"
+                                  onClick={() => addChild(it.codigo)}
+                                >→+</button>
+                              )}
                               <button
-                                className="orca-row-btn"
-                                title="Inserir subgrupo (nível filho)"
-                                onClick={() => addChild(it.codigo)}
-                              >→+</button>
-                            )}
-                            <button
-                              className="orca-row-btn danger"
-                              title="Remover linha (e filhos)"
-                              onClick={() => requestRemove(it.codigo)}
-                            >×</button>
-                          </div>
+                                className="orca-row-btn danger"
+                                title="Remover linha (e filhos)"
+                                onClick={() => requestRemove(it.codigo)}
+                              >×</button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1257,7 +1284,7 @@ let _orcamentosCache = null;
 const _itensCache = {};
 
 // OrcamentosScreen gerencia o estado da lista e os handlers de ação
-const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user }) => {
+const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, userProfile }) => {
   const toast = useToast();
   const [selected, setSelected]     = React.useState(null);
   const [orcamentos, setOrcamentos] = React.useState(_orcamentosCache ?? []);
@@ -1347,6 +1374,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
         onBack={() => setSelected(null)}
         onDelete={handleDelete}
         user={user}
+        userProfile={userProfile}
         onCriarRevisao={handleCriarRevisao}
       />
     );
@@ -1360,6 +1388,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user })
       loading={loading}
       onDelete={handleDelete}
       onCriarRevisao={handleCriarRevisao}
+      userProfile={userProfile}
     />
   );
 };

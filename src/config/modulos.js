@@ -15,7 +15,13 @@ export const MODULOS = [
       { id: 'fotos',      label: 'Fotos' },
   ] },
   { id: 'orcamentos',  label: 'Orçamentos',        icon: 'wallet' },
-  { id: 'cronograma',  label: 'Cronogramas',       icon: 'calendar' },
+  { id: 'cronograma',  label: 'Cronogramas',       icon: 'calendar', abas: [
+      { id: 'gantt', label: 'Gantt' },
+      { id: 'lista', label: 'Lista' },
+      { id: 'uso',   label: 'Uso da Tarefa' },
+      { id: 'curva', label: 'Curva Física' },
+      { id: 'fluxo', label: 'Fluxo Executivo' },
+  ] },
   { id: 'orc-x-cron',  label: 'Orç. × Cronograma', icon: 'link', subDe: 'cronograma' },
   { id: 'estimativas', label: 'Estimativas',       icon: 'calculator', abas: [
       { id: 'nova',   label: 'Estimativa atual' },
