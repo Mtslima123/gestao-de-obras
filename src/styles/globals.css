@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 /* ============================================
    DESIGN TOKENS — Gestão de Obras
@@ -2195,3 +2195,209 @@ tr:hover .obras-row-actions {
 
 .import-err-row  { background: #fef2f2 !important; }
 .import-warn-row { background: #fffbeb !important; }
+
+/* ============================================================
+   Tela de Login SSO (handoff design_handoff_login_sso)
+   Classes isoladas com prefixo .sso-* e fonte Manrope, sem
+   afetar o restante do app (que segue IBM Plex Sans).
+   ============================================================ */
+.sso-login {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  background: #ffffff;
+  color: #0f2244;
+  font-family: 'Manrope', -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* ---- Painel esquerdo: marca ---- */
+.sso-brand {
+  flex: 1 1 50%;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #103a7a 0%, #16509f 55%, #2361ba 100%);
+  color: #fff;
+}
+/* Texturas: riscos diagonais + grade sutil */
+.sso-brand::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 1px, transparent 1px, transparent 26px),
+    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: auto, 52px 52px, 52px 52px;
+}
+/* Brilho suave no canto superior direito */
+.sso-brand::after {
+  content: '';
+  position: absolute;
+  top: -15%;
+  right: -10%;
+  width: 60%;
+  height: 60%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(90,150,240,0.25), transparent 65%);
+}
+.sso-brand-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.sso-brand-logo {
+  width: 360px;
+  max-width: 70%;
+  height: auto;
+  display: block;
+}
+.sso-brand-label {
+  position: absolute;
+  bottom: 48px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 6px;
+  color: rgba(255,255,255,0.5);
+}
+
+/* ---- Painel direito: acesso ---- */
+.sso-access {
+  flex: 1 1 50%;
+  display: flex;
+  flex-direction: column;
+  padding: 40px 56px;
+}
+.sso-access-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+}
+.sso-block {
+  border-left: 3px solid #1b3a8f;
+  border-radius: 3px;
+  padding-left: 26px;
+}
+.sso-eyebrow {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: #1b3a8f;
+  margin-bottom: 18px;
+}
+.sso-title {
+  font-weight: 800;
+  font-size: 44px;
+  line-height: 1.05;
+  letter-spacing: -1px;
+  color: #0f2244;
+  margin: 0;
+}
+.sso-sub {
+  font-size: 16px;
+  line-height: 1.5;
+  color: #64748b;
+  margin-top: 20px;
+}
+.sso-btn {
+  width: 100%;
+  margin-top: 34px;
+  padding: 17px 24px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 16px;
+  color: #fff;
+  background: linear-gradient(180deg, #204aa8 0%, #173a86 100%);
+  box-shadow: 0 12px 28px rgba(23,58,134,0.28);
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+}
+.sso-btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 16px 34px rgba(23,58,134,0.36);
+  transform: translateY(-1px);
+}
+.sso-btn:disabled { opacity: 0.75; cursor: default; }
+.sso-btn-icon { flex-shrink: 0; }
+.sso-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+.sso-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #b3241e;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+/* Spinner do botão */
+.sso-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: sso-spin .7s linear infinite;
+}
+@keyframes sso-spin { to { transform: rotate(360deg); } }
+
+/* ---- Rodapé ---- */
+.sso-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid #eef1f6;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.sso-foot-links { display: flex; align-items: center; gap: 22px; }
+.sso-foot a { color: #1b3a8f; text-decoration: none; }
+.sso-foot a:hover { color: #12275e; text-decoration: underline; }
+.sso-foot .sso-version { color: #cbd2dd; }
+
+/* ---- Responsivo: empilha as colunas ---- */
+@media (max-width: 768px) {
+  .sso-login { flex-direction: column; }
+  .sso-brand {
+    flex: none;
+    min-height: 220px;
+    padding: 32px 20px;
+  }
+  .sso-brand-logo { width: 180px; }
+  .sso-brand-label { bottom: 18px; font-size: 11px; letter-spacing: 5px; }
+  .sso-access { padding: 32px 24px; }
+  .sso-title { font-size: 34px; }
+}
