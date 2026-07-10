@@ -116,6 +116,9 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
     { id: 'admin',         label: 'Administração',       icon: 'shield' },
   ].filter(() => userProfile?.perfil === 'admin');
 
+  const displayName = userProfile?.nome || user?.email || '—';
+  const roleLabel = userProfile?.perfil === 'admin' ? 'Administrador' : 'Usuário';
+
   const handleSectionClick = (id) => {
     if (expandedSection === id) {
       setExpandedSection(null);
@@ -131,8 +134,9 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
       className={'nav-item' + (currentView === item.id ? ' active' : '') + (item.subtle ? ' subtle' : '')}
       onClick={onClick ?? (() => onNavigate(item.id))}
       title={collapsed ? item.label : undefined}
+      aria-current={currentView === item.id ? 'page' : undefined}
     >
-      <Icon name={item.icon} size={17} className="nav-icon" />
+      <Icon name={item.icon} size={20} className="nav-icon" />
       {!collapsed && <span>{item.label}</span>}
       {!collapsed && item.badge != null && <span className="nav-badge">{item.badge}</span>}
     </button>
@@ -148,7 +152,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
       >
         <div className="sidebar-header">
         <div className="brand-logo">
-          <img src="/assets/soter-icon.png" alt="Soter" style={{ width: 52, height: 52, objectFit: 'contain' }} />
+          <img src="/assets/soter-mark-white.png" alt="Soter" />
         </div>
         {!collapsed && (
           <div style={{ minWidth: 0, flex: 1 }}>
@@ -160,6 +164,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
           <button
             className={'sidebar-toggle' + (pinned ? ' pinned' : '')}
             title={pinned ? 'Desafixar menu' : 'Fixar menu'}
+            aria-pressed={pinned}
             onClick={() => onPinChange?.(!pinned)}
           >
             <Icon name={pinned ? 'pin-off' : 'pin'} size={16} />
@@ -216,15 +221,16 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
       </nav>
 
       <div className="sidebar-user">
-        <div className="avatar av-5 lg">{user?.email?.[0]?.toUpperCase() ?? '?'}</div>
+        <div className="sidebar-avatar">{displayName[0]?.toUpperCase() ?? '?'}</div>
         {!collapsed && (
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="user-name" style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.email ?? '—'}</div>
+            <div className="user-name" style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{displayName}</div>
+            <div className="user-role">{roleLabel}</div>
           </div>
         )}
         {!collapsed && (
           <button className="icon-btn" title="Sair" onClick={onLogout}>
-            <Icon name="log-out" size={16} />
+            <Icon name="log-out" size={17} />
           </button>
         )}
       </div>
