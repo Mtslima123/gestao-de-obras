@@ -83,10 +83,27 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
   const [expanded, setExpanded] = React.useState(false);
   const [showAlterarSenha, setShowAlterarSenha] = React.useState(false);
   const [expandedSection, setExpandedSection] = React.useState(null);
+  const asideRef = React.useRef(null);
 
   React.useEffect(() => {
     if (forcarAlterarSenha) setShowAlterarSenha(true);
   }, [forcarAlterarSenha]);
+
+  // Recolhe o menu assim que o ponteiro sai da área do sidebar. Garante o
+  // recolhimento mesmo quando o evento nativo onMouseLeave se perde (ex.: após
+  // uma re-renderização pesada disparada ao clicar num módulo).
+  React.useEffect(() => {
+    if (!expanded || pinned) return;
+    const onMove = (e) => {
+      const el = asideRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const fora = e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+      if (fora) setExpanded(false);
+    };
+    document.addEventListener('mousemove', onMove);
+    return () => document.removeEventListener('mousemove', onMove);
+  }, [expanded, pinned]);
 
   // Abre accordion ao entrar na seção; fecha ao sair para outro módulo
   React.useEffect(() => {
@@ -152,6 +169,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
     <>
       {open && !pinned && <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.3)',zIndex:199,pointerEvents:'none'}}/>}
       <aside
+        ref={asideRef}
         className={'sidebar' + (open ? ' expanded' : '')}
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
