@@ -878,11 +878,17 @@ const ObraDetail = ({ obra, userProfile, onBack, onNovaMedicao, onSolicitarCompr
 
   React.useEffect(() => {
     let cancelled = false;
-    if (AppData.cronograma[o.id]?.length) { setEtapasObra(AppData.cronograma[o.id]); setEtapasLoaded(true); return; }
-    setEtapasLoaded(false);
-    supabase.from('cronogramas').select('etapas').eq('obra_id', o.id).single().then(({ data, error }) => {
+    // Pinta o cache imediatamente para não piscar, mas SEMPRE rebusca do banco
+    // (fonte da verdade). Assim edições/exclusões feitas no módulo Cronograma
+    // se refletem aqui ao reabrir a obra, sem ficar "fixo" num cache antigo.
+    const cache = AppData.cronograma[o.id];
+    if (cache?.length) { setEtapasObra(cache); setEtapasLoaded(true); }
+    else setEtapasLoaded(false);
+    // maybeSingle: cronograma inexistente/apagado retorna data=null (sem erro)
+    supabase.from('cronogramas').select('etapas').eq('obra_id', o.id).maybeSingle().then(({ data, error }) => {
       if (cancelled) return;
-      const etapas = !error && data?.etapas ? migrateEtapas(data.etapas) : (AppData.cronograma[o.id] || []);
+      if (error) { setEtapasLoaded(true); return; } // falha de rede: mantém o que já havia
+      const etapas = data?.etapas ? migrateEtapas(data.etapas) : []; // apagado = vazio (não volta pro cache)
       AppData.cronograma[o.id] = etapas; // mantém o cache compartilhado com o módulo Cronograma
       setEtapasObra(etapas);
       setEtapasLoaded(true);
