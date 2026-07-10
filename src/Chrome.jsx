@@ -173,51 +173,64 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
       </div>
 
       <nav className="sidebar-nav">
-        {!collapsed && <div className="nav-group-label">Principal</div>}
-        {navItems.map(item => {
-          const isCronograma = item.id === 'cronograma';
-          return (
-            <React.Fragment key={item.id}>
-              {renderItem(item, isCronograma ? () => handleSectionClick('cronograma') : null)}
-              {isCronograma && !collapsed && expandedSection === 'cronograma' && (
-                <div className="nav-sub-group">
-                  {cronogramaSubItems.map(sub => (
-                    <button
-                      key={sub.id}
-                      className={'nav-sub-item' + (cronogramaTab === sub.id ? ' active' : '')}
-                      onClick={() => { onNavigate('cronograma'); onCronogramaTabChange && onCronogramaTabChange(sub.id); }}
-                    >
-                      {sub.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </React.Fragment>
-          );
-        })}
+        {!userProfile ? (
+          // Perfil ainda carregando: skeleton para o menu nunca ficar "em branco"
+          <div className="nav-skeleton" aria-hidden="true">
+            {[0, 1, 2, 3, 4].map(i => <div key={i} className="nav-skeleton-item" />)}
+          </div>
+        ) : (
+          <>
+            {navItems.length > 0 && !collapsed && <div className="nav-group-label">Principal</div>}
+            {navItems.map(item => {
+              const isCronograma = item.id === 'cronograma';
+              return (
+                <React.Fragment key={item.id}>
+                  {renderItem(item, isCronograma ? () => handleSectionClick('cronograma') : null)}
+                  {isCronograma && !collapsed && expandedSection === 'cronograma' && (
+                    <div className="nav-sub-group">
+                      {cronogramaSubItems.map(sub => (
+                        <button
+                          key={sub.id}
+                          className={'nav-sub-item' + (cronogramaTab === sub.id ? ' active' : '')}
+                          onClick={() => { onNavigate('cronograma'); onCronogramaTabChange && onCronogramaTabChange(sub.id); }}
+                        >
+                          {sub.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })}
 
-        {!collapsed && <div className="nav-group-label">Gestão</div>}
-        {navMgmt.map(item => {
-          const isAdmin = item.id === 'admin';
-          return (
-            <React.Fragment key={item.id}>
-              {renderItem(item, isAdmin ? () => handleSectionClick('admin') : null)}
-              {isAdmin && !collapsed && expandedSection === 'admin' && (
-                <div className="nav-sub-group">
-                  {adminSubItems.map(sub => (
-                    <button
-                      key={sub.id}
-                      className={'nav-sub-item' + (adminTab === sub.id ? ' active' : '')}
-                      onClick={() => { onNavigate('admin'); onAdminTabChange && onAdminTabChange(sub.id); }}
-                    >
-                      {sub.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </React.Fragment>
-          );
-        })}
+            {navMgmt.length > 0 && !collapsed && <div className="nav-group-label">Gestão</div>}
+            {navMgmt.map(item => {
+              const isAdmin = item.id === 'admin';
+              return (
+                <React.Fragment key={item.id}>
+                  {renderItem(item, isAdmin ? () => handleSectionClick('admin') : null)}
+                  {isAdmin && !collapsed && expandedSection === 'admin' && (
+                    <div className="nav-sub-group">
+                      {adminSubItems.map(sub => (
+                        <button
+                          key={sub.id}
+                          className={'nav-sub-item' + (adminTab === sub.id ? ' active' : '')}
+                          onClick={() => { onNavigate('admin'); onAdminTabChange && onAdminTabChange(sub.id); }}
+                        >
+                          {sub.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })}
+
+            {navItems.length === 0 && navMgmt.length === 0 && !collapsed && (
+              <div className="nav-empty">Sem módulos liberados</div>
+            )}
+          </>
+        )}
       </nav>
 
       <div className="sidebar-user">
