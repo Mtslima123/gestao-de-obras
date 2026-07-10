@@ -119,6 +119,11 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
   const displayName = userProfile?.nome || user?.email || '—';
   const roleLabel = userProfile?.perfil === 'admin' ? 'Administrador' : 'Usuário';
 
+  // Navega e colapsa o menu de forma determinística, evitando ficar preso em
+  // estado intermediário de hover quando o clique dispara uma re-renderização
+  // pesada (o evento de mouseleave pode se perder nesse momento).
+  const navegar = (id) => { onNavigate(id); setExpanded(false); };
+
   const handleSectionClick = (id) => {
     if (expandedSection === id) {
       setExpandedSection(null);
@@ -126,13 +131,14 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
       onNavigate(id);
       setExpandedSection(id);
     }
+    setExpanded(false);
   };
 
   const renderItem = (item, onClick) => (
     <button
       key={item.id}
       className={'nav-item' + (currentView === item.id ? ' active' : '') + (item.subtle ? ' subtle' : '')}
-      onClick={onClick ?? (() => onNavigate(item.id))}
+      onClick={onClick ?? (() => navegar(item.id))}
       title={collapsed ? item.label : undefined}
       aria-current={currentView === item.id ? 'page' : undefined}
     >
@@ -192,7 +198,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
                         <button
                           key={sub.id}
                           className={'nav-sub-item' + (cronogramaTab === sub.id ? ' active' : '')}
-                          onClick={() => { onNavigate('cronograma'); onCronogramaTabChange && onCronogramaTabChange(sub.id); }}
+                          onClick={() => { onNavigate('cronograma'); onCronogramaTabChange && onCronogramaTabChange(sub.id); setExpanded(false); }}
                         >
                           {sub.label}
                         </button>
@@ -215,7 +221,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
                         <button
                           key={sub.id}
                           className={'nav-sub-item' + (adminTab === sub.id ? ' active' : '')}
-                          onClick={() => { onNavigate('admin'); onAdminTabChange && onAdminTabChange(sub.id); }}
+                          onClick={() => { onNavigate('admin'); onAdminTabChange && onAdminTabChange(sub.id); setExpanded(false); }}
                         >
                           {sub.label}
                         </button>
