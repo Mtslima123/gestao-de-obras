@@ -109,6 +109,10 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
   const [regLogs,     setRegLogs]     = React.useState([]);
   const [regLoading,  setRegLoading]  = React.useState(false);
   const [criticosCount, setCriticosCount] = React.useState(0);
+  // Origem do log: 'Web' = ações do app (com descrição), 'DB-trigger' = trilha à
+  // prova de forja gerada no banco, '' = todas. Padrão mostra só Operação para
+  // não duplicar (cada ação tem uma versão 'Web' legível e uma 'DB-trigger').
+  const [origemFiltro, setOrigemFiltro] = React.useState('Web');
 
   const carregarKpis = React.useCallback(async () => {
     const k = await auditoriaService.kpis();
@@ -118,7 +122,7 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
   const carregarLogs = React.useCallback(async (filt = aplicados, pg = pagina) => {
     setLoading(true);
     const critFilt = aba === 'criticos' ? 'critica' : filt.criticidade;
-    const { data, count, error } = await auditoriaService.listar({ ...filt, criticidade: critFilt, page: pg, perPage: PER_PAGE });
+    const { data, count, error } = await auditoriaService.listar({ ...filt, criticidade: critFilt, origem: origemFiltro, page: pg, perPage: PER_PAGE });
     if (error || !data) {
       setLogs(MOCK_LOGS);
       setTotal(MOCK_LOGS.length);
@@ -136,11 +140,11 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
       }
     }
     setLoading(false);
-  }, [aplicados, pagina, aba]);
+  }, [aplicados, pagina, aba, origemFiltro]);
 
   React.useEffect(() => { carregarKpis(); }, [carregarKpis]);
   React.useEffect(() => { carregarLogs(); }, [carregarLogs]);
-  React.useEffect(() => { setPagina(1); }, [aba, aplicados]);
+  React.useEffect(() => { setPagina(1); }, [aba, aplicados, origemFiltro]);
 
   const aplicarFiltros = () => { setAplicados({ ...filtros }); setPagina(1); };
   const limparFiltros  = () => { setFiltros(FILTROS_VAZIOS); setAplicados(FILTROS_VAZIOS); setPagina(1); };
@@ -200,9 +204,23 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
       {/* Filtros */}
       <div className="card" style={{ padding: '18px 20px', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="filter" size={15} style={{ color: 'var(--text-muted)' }} />
-            <span style={{ fontWeight: 600, fontSize: 14 }}>Filtros</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="filter" size={15} style={{ color: 'var(--text-muted)' }} />
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Filtros</span>
+            </div>
+            <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}
+                 title="Operação: ações do app (com descrição legível). Segurança: trilha à prova de forja gerada pelo banco.">
+              {[{ k: 'Web', l: 'Operação' }, { k: 'DB-trigger', l: 'Segurança' }, { k: '', l: 'Todos' }].map(o => (
+                <button key={o.l} onClick={() => setOrigemFiltro(o.k)}
+                  style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontSize: 12,
+                           fontWeight: origemFiltro === o.k ? 700 : 500,
+                           background: origemFiltro === o.k ? 'var(--brand)' : 'transparent',
+                           color: origemFiltro === o.k ? '#fff' : 'var(--text-muted)' }}>
+                  {o.l}
+                </button>
+              ))}
+            </div>
           </div>
           <button onClick={exportarCSV} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 500, color: 'var(--text)' }}>
             <Icon name="download" size={13} /> Exportar CSV
