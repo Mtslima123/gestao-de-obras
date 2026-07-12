@@ -17,6 +17,7 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
   const [deleteObra,     setDeleteObra]    = React.useState(null);
   const [deleteStep,     setDeleteStep]    = React.useState(1);
   const [cronFinal,      setCronFinal]     = React.useState({}); // { [obraId]: 'YYYY-MM-DD' | null } — data final do cronograma, sempre calculada das etapas reais
+  const [capaUrls,       setCapaUrls]      = React.useState({}); // { [obraId]: signedUrl } — capa via URL assinada (bucket privado)
 
   // Recalcula a data final do cronograma de cada obra a cada vez que a lista é aberta/atualizada
   React.useEffect(() => {
@@ -31,6 +32,19 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
         map[row.obra_id] = offsetToISO(fimMax);
       });
       setCronFinal(map);
+    });
+  }, [obras]);
+
+  // Capas via URL assinada (bucket obras-images privado). Path determinístico: obras/<id>/capa.jpg
+  React.useEffect(() => {
+    const comCapa = obras.filter(o => o.imageUrl);
+    if (!comCapa.length) { setCapaUrls({}); return; }
+    const pathToId = {};
+    comCapa.forEach(o => { pathToId[`obras/${o.id}/capa.jpg`] = o.id; });
+    supabase.storage.from('obras-images').createSignedUrls(Object.keys(pathToId), 3600).then(({ data }) => {
+      const map = {};
+      (data || []).forEach(u => { if (u.signedUrl && !u.error && pathToId[u.path]) map[pathToId[u.path]] = u.signedUrl; });
+      setCapaUrls(map);
     });
   }, [obras]);
 
@@ -146,8 +160,8 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
           {filtered.map((o) => (
             <div key={o.id} className="obra-card" onClick={() => onOpenObra(o)}>
               <div className="obra-card-img">
-                {o.imageUrl
-                  ? <img src={o.imageUrl} alt={o.nome} />
+                {capaUrls[o.id]
+                  ? <img src={capaUrls[o.id]} alt={o.nome} />
                   : <div className="obra-card-img-ph">
                       <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>

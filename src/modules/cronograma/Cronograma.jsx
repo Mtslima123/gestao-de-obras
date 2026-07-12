@@ -7,7 +7,10 @@ import { Modal, useToast } from '../../components/Modals';
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap as _computeValorVinculadoMap } from './ganttUtils';
-import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
+import { podeVerAba, moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
+import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
+import { taskDetailStore } from './taskDetailStore';
+import { usuariosService } from '../admin/usuarios.service';
 // ganttUtils exporta as funções puras do Gantt — disponíveis para testes e reutilização
 export { gmConflicts, computeAllWBS, recomputeHierarchy, computeSuccessors, getVisibleEtapas,
          computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist, verificarRestricoes,
@@ -273,6 +276,11 @@ function computeSuccessors(etapas) {
   }));
   return r;
 }
+
+// Status efetivo para EXIBIÇÃO/contagem: tarefa em 100% conta como concluída (verde),
+// mesmo que o status salvo ainda seja outro. Não altera o dado persistido.
+// Grupos não flipam aqui (o avanço do grupo é calculado à parte, não vive em e.avanco).
+const effStatus = (e) => (!e?.isGroup && (e?.avanco ?? 0) >= 100 ? 'done' : e?.status);
 
 function getVisibleEtapas(etapas) {
   const collapsed = new Set(etapas.filter(e => e.isGroup && e.collapsed).map(e => e.id));
@@ -731,6 +739,7 @@ function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
 }
 
 // ─── GanttInterativo ─────────────────────────────────────────────────────────
+// Barras coloridas por STATUS (done/exec/late/upcoming), grupos em ardósia.
 const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, onTaskSelect, readOnly = false }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
@@ -741,6 +750,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
   const [labelWidth,  setLabelW]   = React.useState(() => { try { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; } catch { return 220; } });
   const [zoom,        setZoom]     = React.useState('mes');
   const [search,      setSearch]   = React.useState('');
+  const [showBaseline, setShowBaseline] = React.useState(true);   // toggle "Linha de base"
+  const [showCritical, setShowCritical] = React.useState(false);  // toggle "Caminho crítico"
   // Ref para uso em event handlers — sincronizado no render
   const zoomDayWRef = React.useRef(GM_DAY_W);
 
@@ -777,6 +788,32 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
     return Object.fromEntries(baselineEtapas.map(e => [e.id, e]));
   }, [baselineEtapas]);
 
+  // Caminho crítico (cadeia condutora): parte da tarefa de término mais tardio
+  // e volta pela predecessora que determina o início de cada etapa.
+  // TODO: CPM completo com folga (early/late start via forward/backward pass).
+  const criticalIds = React.useMemo(() => {
+    const leaves = etapas.filter(e => !e.isGroup);
+    if (!leaves.length) return new Set();
+    const byId = Object.fromEntries(etapas.map(e => [e.id, e]));
+    const preds = (e) => (e.dep || [])
+      .map(d => (typeof d === 'string' ? d : d.id))
+      .map(id => byId[id])
+      .filter(p => p && !p.isGroup);
+    let end = leaves[0];
+    leaves.forEach(e => { if ((e.inicio + e.dur) > (end.inicio + end.dur)) end = e; });
+    const set = new Set();
+    let cur = end;
+    while (cur && !set.has(cur.id)) {
+      set.add(cur.id);
+      const ps = preds(cur);
+      if (!ps.length) break;
+      let drv = ps[0];
+      ps.forEach(p => { if ((p.inicio + p.dur) > (drv.inicio + drv.dur)) drv = p; });
+      cur = drv;
+    }
+    return set;
+  }, [etapas]);
+
   // Limpa seleção de IDs que não existem mais
   React.useEffect(() => {
     const ids = new Set(etapas.map(e => e.id));
@@ -806,6 +843,15 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
     const up = () => { el.style.cursor = ''; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
     document.addEventListener('mousemove', mv);
     document.addEventListener('mouseup', up);
+  };
+
+  // ── Ajustar: reenquadra a timeline no período que tem tarefas ──────────────
+  const onAjustar = () => {
+    if (!cRef.current) return;
+    const folhas = etapas.filter(e => !e.isGroup);
+    const minIni = folhas.length ? Math.min(...folhas.map(e => e.inicio)) : 0;
+    const alvoPx = labelWidth + minIni * zoomDayWRef.current;
+    cRef.current.scrollTo({ left: Math.max(0, alvoPx - 48), behavior: 'smooth' });
   };
 
   // ── Redimensionar coluna de rótulos ───────────────────────────────────────
@@ -934,45 +980,32 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
   const findEt = (id) => etapas.find(e => e.id === id);
   const idxEt  = (id) => etapas.findIndex(e => e.id === id);
 
-  const barColor = (e, isConf) =>
-    isConf                    ? '#d97706'
-    : e.status === 'done'     ? '#1b8f5e'
-    : e.status === 'late'     ? '#c0281f'
-    : e.status === 'upcoming' ? '#3d7fc9'
+  const barColor = (e, isConf) => {
+    const s = effStatus(e);
+    return isConf              ? '#d97706'
+    : s === 'done'     ? '#16a34a'
+    : s === 'late'     ? 'var(--danger)'
+    : s === 'upcoming' ? '#60a5fa'
     : 'var(--brand)';
+  };
 
-  // Mapeia cada tarefa para a cor do seu grupo (isGroup=true) mais próximo.
-  // Grupos recebem cor própria; tarefas herdam do grupo pai; dados flat recebem cor por posição.
-  const groupColorMap = React.useMemo(() => {
-    const byId = {};
-    etapas.forEach(e => { byId[e.id] = e; });
+  // Paleta de barras por STATUS (não por grupo) — fiel ao protótipo.
+  // track = trilho claro (parte não executada), fill = cor sólida (executado).
+  // fills em hex (não var()) para permitir sufixo alfa CSS, ex: `${sc.fill}33`
+  const STATUS_COLORS = {
+    done:     { fill: '#16a34a', track: '#c8efd5', text: '#166534' },
+    late:     { fill: '#b3241e', track: '#f2b3af', text: '#991b1b' },
+    upcoming: { fill: '#60a5fa', track: '#e4eefb', text: '#1e40af' },
+    exec:     { fill: '#1c4584', track: '#d5e2f0', text: '#102b54' },
+  };
+  const statusKey = (e) => {
+    const s = effStatus(e);
+    return s === 'done'     ? 'done'
+    : s === 'late'     ? 'late'
+    : s === 'upcoming' ? 'upcoming'
+    : 'exec';
+  };
 
-    // Passo 1: atribui cor distinta a cada grupo
-    const groupColor = {};
-    let ci = 0;
-    etapas.forEach(e => {
-      if (e.isGroup) groupColor[e.id] = GROUP_PALETTE[ci++ % GROUP_PALETTE.length];
-    });
-
-    // Passo 2: cada tarefa herda do grupo pai mais próximo; sem grupo → cor própria
-    const result = {};
-    etapas.forEach(e => {
-      if (groupColor[e.id] !== undefined) {
-        result[e.id] = groupColor[e.id];
-      } else {
-        let cur = byId[e.parentId];
-        const seen = new Set([e.id]);
-        while (cur && !seen.has(cur.id)) {
-          seen.add(cur.id);
-          if (groupColor[cur.id] !== undefined) { result[e.id] = groupColor[cur.id]; break; }
-          cur = byId[cur.parentId];
-        }
-        if (result[e.id] === undefined) result[e.id] = GROUP_PALETTE[ci++ % GROUP_PALETTE.length];
-      }
-    });
-
-    return result;
-  }, [etapas]);
 
   const exportExcelGantt = () => {
     import('xlsx').then(XLSX => {
@@ -994,7 +1027,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
           offsetToDate(ini + dur),
           dur,
           av / 100,
-          e.isGroup ? '' : (e.status === 'done' ? 'Concluída' : e.status === 'late' ? 'Atrasada' : 'Futura'),
+          e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura'),
           cst,
           e.isGroup ? '' : formatDepList(e.dep, etapas),
         ];
@@ -1042,8 +1075,9 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
       // Cor da barra por status (RGB)
       const pdfBarColor = (e) => {
         if (e.isGroup) return BRAND;
-        if (e.status === 'done') return [27, 143, 94];
-        if (e.status === 'late') return [192, 40, 31];
+        const s = effStatus(e);
+        if (s === 'done') return [27, 143, 94];
+        if (s === 'late') return [192, 40, 31];
         return [61, 127, 201];
       };
 
@@ -1197,7 +1231,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
             isoToBR(offsetToISO(ini + dur)),
             dur + 'd',
             av + '%',
-            e.isGroup ? '' : (e.status === 'done' ? 'Concluída' : e.status === 'late' ? 'Atrasada' : 'Futura'),
+            e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura'),
             fmtBRL(cst),
             e.isGroup ? '' : formatDepList(e.dep, etapas),
           ],
@@ -1303,138 +1337,185 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
   return (
     <div ref={ganttRef} style={{ position: 'relative' }}>
 
-      {/* ── Toolbar superior — zoom + busca ──────────────────────────────── */}
-      <div style={{
-        display: 'flex', gap: 8, padding: '8px 20px', alignItems: 'center',
-        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
-        minHeight: 48,
-      }}>
-        {/* Busca */}
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar tarefa…"
-            style={{
-              paddingLeft: 30, paddingRight: 10, height: 30, fontSize: 12,
-              border: '1px solid var(--border)', borderRadius: 8,
-              background: 'var(--surface-muted)', color: 'var(--text)',
-              outline: 'none', width: 160,
-            }}
-          />
-        </div>
-
-        {/* Zoom */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginRight: 2 }}>Zoom</span>
-          {[
-            { key: 'dia', label: 'Dia' },
-            { key: 'semana', label: 'Semana' },
-            { key: 'mes', label: 'Mês' },
-            { key: 'trimestre', label: 'Trimestre' },
-          ].map(z => (
-            <button key={z.key} onClick={() => setZoom(z.key)}
+      {/* ── Toolbar — 2 linhas (fiel ao protótipo) ───────────────────────── */}
+      {(() => {
+        const darkToggle = (active) => ({
+          fontSize: 12, padding: '4px 12px', height: 32, gap: 6, fontWeight: 600,
+          borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+          border: active ? '1px solid #1e293b' : '1px solid var(--border)',
+          background: active ? '#1e293b' : 'var(--surface)',
+          color: active ? '#fff' : 'var(--text-muted)',
+          transition: 'background 0.12s, color 0.12s, border-color 0.12s',
+        });
+        return (
+      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        {/* Linha 1 — busca + VER + Ajustar */}
+        <div style={{ display: 'flex', gap: 12, padding: '8px 20px 6px', alignItems: 'center' }}>
+          {/* Busca */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar tarefa…"
               style={{
-                fontSize: 11.5, padding: '3px 10px', height: 28, border: 'none',
-                borderRadius: 6, cursor: 'pointer', fontWeight: zoom === z.key ? 600 : 400,
-                background: zoom === z.key ? 'var(--brand)' : 'transparent',
-                color: zoom === z.key ? 'white' : 'var(--text-muted)',
-                transition: 'background 0.15s, color 0.15s',
-              }}>
-              {z.label}
-            </button>
-          ))}
+                paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 12.5,
+                border: '1px solid var(--border)', borderRadius: 8,
+                background: 'var(--surface-muted)', color: 'var(--text)',
+                outline: 'none', width: 240,
+              }}
+            />
+          </div>
+
+          {/* VER — escala de tempo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 700, letterSpacing: '0.09em' }}>VER</span>
+            <div style={{ display: 'inline-flex', background: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: 8, padding: 3, gap: 2 }}>
+              {[
+                { key: 'dia', label: 'Dia' },
+                { key: 'semana', label: 'Semana' },
+                { key: 'mes', label: 'Mês' },
+                { key: 'trimestre', label: 'Trimestre' },
+              ].map(z => (
+                <button key={z.key} onClick={() => setZoom(z.key)}
+                  style={{
+                    fontSize: 12.5, padding: '5px 13px', border: 'none',
+                    borderRadius: 6, cursor: 'pointer', fontWeight: zoom === z.key ? 600 : 500,
+                    background: zoom === z.key ? 'var(--brand)' : 'transparent',
+                    color: zoom === z.key ? '#fff' : 'var(--text-muted)',
+                    transition: 'background 0.15s, color 0.15s',
+                  }}>
+                  {z.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Ajustar — reenquadra ao período com tarefas */}
+          <button onClick={onAjustar} title="Reenquadrar a timeline no período com tarefas"
+            style={{
+              fontSize: 12.5, padding: '5px 13px', height: 32, gap: 6, fontWeight: 600,
+              borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+              border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)',
+            }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>
+            </svg>
+            Ajustar
+          </button>
         </div>
 
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-
-        {/* Edição */}
-        {!readOnly && (
-          <button
-            className={'btn ' + (editModeRaw ? 'btn-primary' : 'btn-ghost')}
-            style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5 }}
-            onClick={() => { const nv = !editModeRaw; saveGanttCfg({ editMode: nv }); setEdit(nv); }}
-          >
-            <Icon name="edit" size={12} />{editModeRaw ? 'Editando' : 'Somente leitura'}
+        {/* Linha 2 — visão / edição / histórico / export */}
+        <div style={{ display: 'flex', gap: 8, padding: '2px 20px 8px', alignItems: 'center' }}>
+          {/* Linha de base */}
+          <button onClick={() => setShowBaseline(v => !v)} style={darkToggle(showBaseline)}
+            title={baselineEtapas ? 'Mostrar/ocultar barras da linha de base' : 'Nenhuma linha de base salva'}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="6" y1="4" x2="6" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="18" y1="4" x2="18" y2="20"/>
+            </svg>
+            Linha de base
           </button>
-        )}
 
-        <button
-          className="btn btn-ghost"
-          style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5, color: lockDone ? 'var(--success)' : 'var(--text-muted)' }}
-          onClick={() => { const nv = !lockDone; saveGanttCfg({ lockDone: nv }); setLock(nv); }}
-        >
-          <Icon name="shield" size={12} />{lockDone ? 'Concluídas bloqueadas' : 'Concluídas livres'}
-        </button>
+          {/* Caminho crítico */}
+          <button onClick={() => setShowCritical(v => !v)} style={darkToggle(showCritical)}
+            title="Destacar a cadeia condutora (caminho crítico)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2l10 10-10 10L2 12z"/>
+            </svg>
+            Caminho crítico
+          </button>
 
-        <button
-          className="btn btn-ghost"
-          style={{ fontSize: 12, padding: '4px 12px', height: 30, gap: 5, color: replanAuto ? 'var(--brand)' : 'var(--text-muted)' }}
-          onClick={() => { const nv = !replanAuto; saveGanttCfg({ replanAuto: nv }); setReplan(nv); }}
-          title="Quando ativo, arrastar uma barra move automaticamente todas as tarefas sucessoras"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-          </svg>
-          {replanAuto ? 'Replan. automático' : 'Replan. manual'}
-        </button>
+          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
 
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+          {/* Edição */}
+          {!readOnly && (
+            <button
+              className={'btn ' + (editModeRaw ? 'btn-primary' : 'btn-ghost')}
+              style={{ fontSize: 12, padding: '4px 12px', height: 32, gap: 5 }}
+              onClick={() => { const nv = !editModeRaw; saveGanttCfg({ editMode: nv }); setEdit(nv); }}
+            >
+              <Icon name="edit" size={12} />{editModeRaw ? 'Editando' : 'Somente leitura'}
+            </button>
+          )}
 
-        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 30, gap: 5 }} onClick={undo} title="Desfazer (Ctrl+Z)">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/>
-          </svg>
-          Desfazer
-        </button>
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: 12, padding: '4px 12px', height: 32, gap: 5, color: lockDone ? 'var(--success)' : 'var(--text-muted)' }}
+            onClick={() => { const nv = !lockDone; saveGanttCfg({ lockDone: nv }); setLock(nv); }}
+          >
+            <Icon name="shield" size={12} />{lockDone ? 'Concluídas bloqueadas' : 'Concluídas livres'}
+          </button>
 
-        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 30, gap: 5 }} onClick={redo} title="Refazer (Ctrl+Y)">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/>
-          </svg>
-          Refazer
-        </button>
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: 12, padding: '4px 12px', height: 32, gap: 5, color: replanAuto ? 'var(--brand)' : 'var(--text-muted)' }}
+            onClick={() => { const nv = !replanAuto; saveGanttCfg({ replanAuto: nv }); setReplan(nv); }}
+            title="Quando ativo, arrastar uma barra move automaticamente todas as tarefas sucessoras"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+            </svg>
+            {replanAuto ? 'Replan. automático' : 'Replan. manual'}
+          </button>
 
-        <div style={{ flex: 1 }} />
+          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
 
-        {selected.size > 0 && (
-          <span style={{ fontSize: 11.5, color: 'var(--brand)', fontWeight: 600, padding: '3px 10px', background: 'var(--brand-tint)', borderRadius: 20 }}>
-            {selected.size} selecionada{selected.size > 1 ? 's' : ''} · Shift+clique para adicionar
-          </span>
-        )}
+          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 32, gap: 5 }} onClick={undo} title="Desfazer (Ctrl+Z)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/>
+            </svg>
+            Desfazer
+          </button>
 
-        {conflictIds.size > 0 && (
-          <span style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Icon name="alert-triangle" size={11} /> Conflito de dependência
-          </span>
-        )}
+          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 32, gap: 5 }} onClick={redo} title="Refazer (Ctrl+Y)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/>
+            </svg>
+            Refazer
+          </button>
 
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 30, gap: 5 }}
-          onClick={exportExcelGantt} title="Exportar para Excel (.xlsx)">
-          <Icon name="download" size={13} /> Excel
-        </button>
-        <select
-          value={pdfFormat}
-          onChange={e => setPdfFormat(e.target.value)}
-          style={{ fontSize: 12, height: 30, padding: '0 6px', borderRadius: 6,
-                   border: '1px solid var(--border)', background: 'var(--surface)',
-                   color: 'var(--text)', cursor: 'pointer' }}
-          title="Formato do PDF">
-          <option value="a3">A3</option>
-          <option value="a2">A2</option>
-          <option value="a1">A1</option>
-          <option value="a0">A0</option>
-        </select>
-        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 30, gap: 5 }}
-          onClick={exportPDFGantt} disabled={exportingPDF} title="Exportar para PDF">
-          <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
-        </button>
+          <div style={{ flex: 1 }} />
+
+          {selected.size > 0 && (
+            <span style={{ fontSize: 11.5, color: 'var(--brand)', fontWeight: 600, padding: '3px 10px', background: 'var(--brand-tint)', borderRadius: 20 }}>
+              {selected.size} selecionada{selected.size > 1 ? 's' : ''} · Shift+clique para adicionar
+            </span>
+          )}
+
+          {conflictIds.size > 0 && (
+            <span style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="alert-triangle" size={11} /> Conflito de dependência
+            </span>
+          )}
+
+          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
+          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 32, gap: 5 }}
+            onClick={exportExcelGantt} title="Exportar para Excel (.xlsx)">
+            <Icon name="download" size={13} /> Excel
+          </button>
+          <select
+            value={pdfFormat}
+            onChange={e => setPdfFormat(e.target.value)}
+            style={{ fontSize: 12, height: 32, padding: '0 6px', borderRadius: 6,
+                     border: '1px solid var(--border)', background: 'var(--surface)',
+                     color: 'var(--text)', cursor: 'pointer' }}
+            title="Formato do PDF">
+            <option value="a3">A3</option>
+            <option value="a2">A2</option>
+            <option value="a1">A1</option>
+            <option value="a0">A0</option>
+          </select>
+          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 32, gap: 5 }}
+            onClick={exportPDFGantt} disabled={exportingPDF} title="Exportar para PDF">
+            <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+          </button>
+        </div>
       </div>
+        );
+      })()}
 
       {/* ── Scroll container ──────────────────────────────────────────────── */}
       <div
@@ -1524,17 +1605,17 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
             const isSel  = selected.has(e.id);
             const isConf = conflictIds.has(e.id);
             const isLock = lockDone && e.status === 'done';
-            const bc      = barColor(e, isConf);
-            // gc sempre em hex 6-dígitos para suportar sufixo alfa CSS (ex: gc+'2e')
-            const gc      = isConf ? '#d97706' : (groupColorMap[e.id] || '#014386');
-            const gcLight = gc + '2e'; // hex 8-dígitos ≈ 18% opacidade
-            const rowBg   = isSel ? 'rgba(0,85,160,0.04)' : i % 2 === 0 ? 'transparent' : 'rgba(248,250,253,0.8)';
+            const sc      = STATUS_COLORS[statusKey(e)];        // cores por status
+            const isCrit  = showCritical && criticalIds.has(e.id);
+            const borderCol = isConf ? '#d97706' : isCrit ? '#dc2626' : `${sc.fill}33`;
+            const borderW   = (isConf || isCrit) ? 2 : 1;
+            const rowBg   = isSel ? 'rgba(28,69,132,0.05)' : i % 2 === 0 ? 'transparent' : 'rgba(248,250,253,0.8)';
             // Base sempre sólida (opaca) + tint via backgroundImage para não vazar timeline
             const lblBase = i % 2 === 0 ? 'var(--surface)' : 'var(--surface-muted)';
             const lblTint = isSel
-              ? 'linear-gradient(rgba(0,85,160,0.09),rgba(0,85,160,0.09))'
+              ? 'linear-gradient(rgba(28,69,132,0.08),rgba(28,69,132,0.08))'
               : e.isGroup
-                ? `linear-gradient(${gc}18,${gc}18)`
+                ? 'linear-gradient(var(--brand-50),var(--brand-50))'
                 : 'none';
             const isSearchMatch = matchesSearch(e);
 
@@ -1546,11 +1627,11 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                   style={{
                     height: GM_ROW_H, padding: '0 10px 0 15px',
                     borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
-                    borderLeft: e.isGroup ? `3px solid ${gc}` : '3px solid transparent',
+                    borderLeft: '3px solid transparent',
                     display: 'flex', alignItems: 'center', gap: 6,
                     fontSize: 12.5, fontWeight: isSel ? 600 : (e.isGroup ? 600 : 500),
                     color: isSel ? 'var(--brand)' : 'var(--text)',
-                    position: 'sticky', left: 0, zIndex: 2,
+                    position: 'sticky', left: 0, zIndex: 5,
                     backgroundColor: lblBase, backgroundImage: lblTint,
                     cursor: 'default',
                     transition: 'background-color 0.12s, color 0.12s',
@@ -1561,33 +1642,44 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', minWidth: 30, flexShrink: 0 }}>
                     {e.displayId ?? e.id}
                   </span>
-                  {/* Ícone de pasta colorido para grupos / espaço para tarefas */}
+                  {/* Chevron de recolher para grupos / espaço para tarefas */}
                   {e.isGroup
                     ? <button
                         onClick={ev => { ev.stopPropagation(); handleToggleCollapse(e.id); }}
-                        style={{ width: 18, height: 18, flexShrink: 0, display: 'flex', alignItems: 'center',
+                        style={{ width: 16, height: 16, flexShrink: 0, display: 'flex', alignItems: 'center',
                                  justifyContent: 'center', border: 'none', background: 'none',
                                  cursor: 'pointer', padding: 0 }}
+                        title={e.collapsed ? 'Expandir' : 'Recolher'}
                       >
-                        <svg viewBox="0 0 20 16" width={15} height={13} fill={gc}>
-                          <path d="M0 3a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3z"/>
-                          {e.collapsed
-                            ? <path d="M7 8h6M10 5v6" stroke="rgba(255,255,255,0.85)" strokeWidth="1.7" strokeLinecap="round"/>
-                            : <path d="M7 9h6" stroke="rgba(255,255,255,0.85)" strokeWidth="1.7" strokeLinecap="round"/>
-                          }
+                        <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="#475569" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                          style={{ transform: e.collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.12s' }}>
+                          <path d="M6 9l6 6 6-6"/>
                         </svg>
                       </button>
                     : <span style={{ width: 16, flexShrink: 0 }} />
                   }
-                  {/* Nome da tarefa com indentação */}
-                  <span style={{
-                    flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    paddingLeft: (e.nivel || 0) * 10,
-                    fontSize: e.isGroup ? 12 : e.nivel > 0 ? 11.5 : 12.5,
-                    color: isSel ? undefined : e.isGroup ? undefined : e.nivel > 0 ? 'var(--text-faint)' : '#111827',
-                  }}>
-                    {e.etapa}
-                  </span>
+                  {/* Nome da tarefa com indentação + pill de status ao lado */}
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, paddingLeft: (e.nivel || 0) * 10 }}>
+                    <span style={{
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      fontSize: e.isGroup ? 12 : e.nivel > 0 ? 11.5 : 12.5,
+                      color: isSel ? undefined : e.isGroup ? undefined : '#111827',
+                    }}>
+                      {e.etapa}
+                    </span>
+                    {!e.isGroup && (() => {
+                      const es = effStatus(e);
+                      const st = es === 'done'     ? { label: 'Concluída',   color: '#15803d',      bg: '#dcfce7' }
+                               : es === 'late'     ? { label: 'Atrasada',    color: '#dc2626',      bg: '#fee2e2' }
+                               : es === 'upcoming' ? { label: 'Futura',      color: '#60a5fa',      bg: 'rgba(96,165,250,0.14)' }
+                               :                           { label: 'Em execução', color: 'var(--brand)', bg: 'var(--brand-tint)' };
+                      return (
+                        <span className="badge" style={{ flexShrink: 0, color: st.color, background: st.bg, border: 'none', fontSize: 9.5, lineHeight: 1.6, padding: '0 7px', textTransform: 'none' }}>
+                          {st.label}
+                        </span>
+                      );
+                    })()}
+                  </div>
                   {isLock && <Icon name="shield" size={10} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
                   {/* Percentual de progresso */}
                   <span style={{ fontSize: 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text)', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
@@ -1608,7 +1700,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                       <svg viewBox="0 0 16 16" width={16} height={16} style={{ flexShrink: 0 }}>
                         <circle cx="8" cy="8" r={r} fill="none" stroke="rgba(0,0,0,0.10)" strokeWidth={2.5}/>
                         {e.avanco > 0 && (
-                          <circle cx="8" cy="8" r={r} fill="none" stroke={gc} strokeWidth={2.5}
+                          <circle cx="8" cy="8" r={r} fill="none" stroke={sc.fill} strokeWidth={2.5}
                             strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
                             style={{ transform: 'rotate(-90deg)', transformOrigin: '8px 8px' }}/>
                         )}
@@ -1639,87 +1731,103 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                     background: 'rgba(0,0,0,0.022)', pointerEvents: 'none',
                   }} />
 
-                  {/* Barra de linha de base — fina, atrás da barra atual */}
-                  {blMap[e.id] && !e.milestone && (
+                  {/* Barra de linha de base — fina, logo abaixo da barra atual */}
+                  {showBaseline && blMap[e.id] && !e.milestone && (
                     <div style={{
                       position: 'absolute',
                       left: blMap[e.id].inicio * zoomDayW + 3,
                       width: Math.max(blMap[e.id].dur * zoomDayW - 6, 10),
-                      top: '50%', transform: 'translateY(-50%)',
-                      height: 6, borderRadius: 3,
-                      background: 'rgba(107,120,144,0.45)',
+                      top: 'calc(50% + 11px)',
+                      height: 5, borderRadius: 3,
+                      background: 'rgba(107,120,144,0.5)',
                       zIndex: 0, pointerEvents: 'none',
                     }} />
                   )}
 
                   {/* Barra ou Marco */}
                   {!e.milestone ? (
-                    <div
-                      data-gb={e.id}
-                      onClick={(ev) => onBarClick(ev, e.id)}
-                      onMouseDown={editMode && !isLock ? (ev) => onBarDown(ev, e.id, 'move') : undefined}
-                      onMouseEnter={(ev) => setTip({ etapa: e, x: ev.clientX, y: ev.clientY })}
-                      onMouseLeave={() => setTip(null)}
-                      style={{
-                        position: 'absolute',
-                        left: bar.inicio * zoomDayW + 3,
-                        width: Math.max(bar.dur * zoomDayW - 6, 10),
-                        top: '50%', transform: 'translateY(-50%)',
-                        height: e.isGroup ? GM_BAR_H - 6 : e.nivel > 0 ? GM_BAR_H - 10 : GM_BAR_H - 2,
-                        backgroundColor: gcLight,
-                        borderRadius: e.isGroup ? 6 : 10,
-                        border: `1px solid ${gc}40`,
-                        boxShadow: isSel
-                          ? `0 0 0 2px white, 0 0 0 3.5px ${gc}, 0 4px 14px rgba(0,0,0,0.18)`
-                          : '0 1px 4px rgba(0,0,0,0.10)',
-                        display: 'flex', alignItems: 'center', overflow: 'hidden',
-                        cursor: editMode && !isLock ? 'grab' : 'pointer',
-                        transition: draft ? 'none' : 'left 0.15s ease, width 0.15s ease, box-shadow 0.12s',
-                        zIndex: isSel ? 3 : 1,
-                      }}
-                    >
-                      {/* Porção concluída — cor sólida do grupo com gradiente de luz */}
-                      {e.avanco > 0 && (
-                        <div style={{
-                          position: 'absolute', left: 0, top: 0, bottom: 0,
-                          width: e.avanco + '%',
-                          backgroundColor: gc,
-                          backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%, rgba(0,0,0,0.07) 100%)',
-                          borderRadius: e.isGroup ? 6 : 10,
-                        }} />
-                      )}
-                      <span style={{
-                        position: 'relative', zIndex: 1, paddingLeft: 8, paddingRight: 6,
-                        fontSize: 10.5, fontWeight: 700,
-                        color: e.avanco > 15 ? 'rgba(255,255,255,0.95)' : gc,
-                        textShadow: e.avanco > 15 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none',
-                        whiteSpace: 'nowrap',
-                      }}>
-                        {e.avanco > 0 ? `${e.avanco}%` : ''}
-                      </span>
-                      {/* Ícone de restrição */}
-                      {e.restricaoTipo && e.restricaoTipo !== 'asap' && (
-                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none"
-                          stroke={e.avanco > 15 ? 'rgba(255,255,255,0.9)' : gc} strokeWidth="2.5"
-                          style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', flexShrink: 0 }}>
-                          <circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                        </svg>
-                      )}
-                      {/* Handle resize esquerda */}
-                      {editMode && !isLock && (
-                        <div data-gb={e.id}
-                          onMouseDown={(ev) => { ev.stopPropagation(); onBarDown(ev, e.id, 'resizeLeft'); }}
-                          style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${gc}44`, borderRadius: '10px 0 0 10px' }}
-                        />
-                      )}
-                      {/* Handle resize direita */}
-                      {editMode && !isLock && (
-                        <div data-gb={e.id}
-                          onMouseDown={(ev) => { ev.stopPropagation(); onBarDown(ev, e.id, 'resizeRight'); }}
-                          style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${gc}44`, borderRadius: '0 10px 10px 0' }}
-                        />
-                      )}
-                    </div>
+                    e.isGroup ? (
+                      /* Barra-resumo de grupo — ardósia escura, plana, com pés (estilo bracket) */
+                      <div
+                        data-gb={e.id}
+                        onClick={(ev) => onBarClick(ev, e.id)}
+                        onMouseEnter={(ev) => setTip({ etapa: e, x: ev.clientX, y: ev.clientY })}
+                        onMouseLeave={() => setTip(null)}
+                        style={{
+                          position: 'absolute',
+                          left: bar.inicio * zoomDayW + 3,
+                          width: Math.max(bar.dur * zoomDayW - 6, 10),
+                          top: '50%', transform: 'translateY(-50%)',
+                          height: 9, background: '#334155', borderRadius: 2,
+                          boxShadow: isSel ? '0 0 0 2px white, 0 0 0 3px #334155' : 'none',
+                          cursor: 'pointer',
+                          transition: draft ? 'none' : 'left 0.15s ease, width 0.15s ease',
+                          zIndex: isSel ? 3 : 1,
+                        }}
+                      >
+                        <span style={{ position: 'absolute', left: 0, top: '100%', width: 0, height: 0, borderLeft: '5px solid #334155', borderBottom: '5px solid transparent' }} />
+                        <span style={{ position: 'absolute', right: 0, top: '100%', width: 0, height: 0, borderRight: '5px solid #334155', borderBottom: '5px solid transparent' }} />
+                      </div>
+                    ) : (
+                      /* Barra de tarefa — trilho claro + preenchimento sólido por status */
+                      <div
+                        data-gb={e.id}
+                        onClick={(ev) => onBarClick(ev, e.id)}
+                        onMouseDown={editMode && !isLock ? (ev) => onBarDown(ev, e.id, 'move') : undefined}
+                        onMouseEnter={(ev) => setTip({ etapa: e, x: ev.clientX, y: ev.clientY })}
+                        onMouseLeave={() => setTip(null)}
+                        style={{
+                          position: 'absolute',
+                          left: bar.inicio * zoomDayW + 3,
+                          width: Math.max(bar.dur * zoomDayW - 6, 10),
+                          top: '50%', transform: 'translateY(-50%)',
+                          height: GM_BAR_H - 4,
+                          backgroundColor: sc.track,
+                          borderRadius: 7,
+                          border: `${borderW}px solid ${borderCol}`,
+                          boxShadow: isSel
+                            ? `0 0 0 2px white, 0 0 0 3px ${sc.fill}, 0 4px 14px rgba(0,0,0,0.16)`
+                            : '0 1px 3px rgba(0,0,0,0.10)',
+                          display: 'flex', alignItems: 'center', overflow: 'hidden',
+                          cursor: editMode && !isLock ? 'grab' : 'pointer',
+                          transition: draft ? 'none' : 'left 0.15s ease, width 0.15s ease, box-shadow 0.12s',
+                          zIndex: isSel ? 3 : 1,
+                        }}
+                      >
+                        {/* Porção concluída — cor sólida do status */}
+                        {e.avanco > 0 && (
+                          <div style={{
+                            position: 'absolute', left: 0, top: 0, bottom: 0,
+                            width: e.avanco + '%',
+                            backgroundColor: sc.fill,
+                            backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.16) 0%, transparent 60%, rgba(0,0,0,0.06) 100%)',
+                            borderRadius: 6,
+                          }} />
+                        )}
+                        {/* Ícone de restrição */}
+                        {e.restricaoTipo && e.restricaoTipo !== 'asap' && (
+                          <svg viewBox="0 0 24 24" width="10" height="10" fill="none"
+                            stroke={e.avanco > 25 ? 'rgba(255,255,255,0.95)' : sc.text} strokeWidth="2.5"
+                            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', zIndex: 1, flexShrink: 0 }}>
+                            <circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                          </svg>
+                        )}
+                        {/* Handle resize esquerda */}
+                        {editMode && !isLock && (
+                          <div data-gb={e.id}
+                            onMouseDown={(ev) => { ev.stopPropagation(); onBarDown(ev, e.id, 'resizeLeft'); }}
+                            style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${sc.fill}44`, borderRadius: '7px 0 0 7px' }}
+                          />
+                        )}
+                        {/* Handle resize direita */}
+                        {editMode && !isLock && (
+                          <div data-gb={e.id}
+                            onMouseDown={(ev) => { ev.stopPropagation(); onBarDown(ev, e.id, 'resizeRight'); }}
+                            style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${sc.fill}44`, borderRadius: '0 7px 7px 0' }}
+                          />
+                        )}
+                      </div>
+                    )
                   ) : (
                     /* Marco */
                     <div
@@ -1730,14 +1838,13 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                       onMouseLeave={() => setTip(null)}
                       style={{
                         position: 'absolute',
-                        left: bar.inicio * zoomDayW - 11,
+                        left: bar.inicio * zoomDayW - 10,
                         top: '50%', transform: 'translateY(-50%) rotate(45deg)',
-                        width: 22, height: 22,
-                        backgroundColor: isConf ? '#d97706' : gc,
-                        backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.18) 0%, transparent 100%)',
-                        borderRadius: 5,
-                        border: '2px solid rgba(255,255,255,0.5)',
-                        boxShadow: isSel ? `0 0 0 2px white, 0 0 0 4px ${gc}` : '0 3px 10px rgba(0,0,0,0.22)',
+                        width: 20, height: 20,
+                        backgroundColor: isConf ? '#d97706' : '#1e293b',
+                        borderRadius: 4,
+                        border: '2px solid rgba(255,255,255,0.6)',
+                        boxShadow: isSel ? '0 0 0 2px white, 0 0 0 4px #1e293b' : '0 3px 10px rgba(0,0,0,0.22)',
                         cursor: editMode ? 'grab' : 'pointer',
                         transition: draft ? 'none' : 'left 0.15s ease',
                         zIndex: 2,
@@ -1754,14 +1861,14 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
             position: 'absolute',
             left: labelWidth + Math.min(today, dynTotal * 30) * zoomDayW,
             top: 0, bottom: 0, width: 0,
-            borderLeft: '2px solid rgba(229,57,53,0.9)',
+            borderLeft: '2px solid var(--danger)',
             zIndex: 10, pointerEvents: 'none',
           }}>
             <div style={{
-              position: 'absolute', top: 5, left: 5,
-              background: '#e53935', color: 'white',
+              position: 'absolute', top: 2, left: 0, transform: 'translateX(-50%)',
+              background: 'var(--danger)', color: '#fff',
               fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
-              padding: '2px 8px', borderRadius: 10, whiteSpace: 'nowrap',
+              padding: '2px 7px', borderRadius: 4, whiteSpace: 'nowrap',
             }}>
               HOJE
             </div>
@@ -1892,8 +1999,8 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
               <span style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)' }}>{tooltip.etapa.avanco}%</span>
             </span>
             <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Status</span>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: tooltip.etapa.status === 'done' ? '#1b8f5e' : tooltip.etapa.status === 'late' ? '#c0281f' : '#3d7fc9' }}>
-              {tooltip.etapa.status === 'done' ? '✓ Concluída' : tooltip.etapa.status === 'late' ? '⚠ Atrasada' : '◷ Planejada'}
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: effStatus(tooltip.etapa) === 'done' ? '#1b8f5e' : effStatus(tooltip.etapa) === 'late' ? '#c0281f' : '#3d7fc9' }}>
+              {effStatus(tooltip.etapa) === 'done' ? '✓ Concluída' : effStatus(tooltip.etapa) === 'late' ? '⚠ Atrasada' : '◷ Planejada'}
             </span>
           </div>
           {(tooltip.etapa.dep || []).length > 0 && (
@@ -2197,26 +2304,37 @@ const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
 
 // ─── Definições de colunas da Lista ──────────────────────────────────────────
 const LISTA_COL_DEFS = {
-  wbs:       { label: 'WBS',           defWidth: 56,  frozen: true  },
-  id:        { label: 'ID',            defWidth: 58,  frozen: true  },
-  etapa:     { label: 'Etapa / Tarefa',defWidth: 240, frozen: true  },
-  inicio:    { label: 'Início',        defWidth: 112 },
-  fim:       { label: 'Término',       defWidth: 112 },
-  duracao:   { label: 'Duração',       defWidth: 90  },
-  avanco:    { label: '% Concluída',   defWidth: 150 },
-  custo:     { label: 'Custo',         defWidth: 130, align: 'right' },
-  peso:           { label: 'Peso %',          defWidth: 68,  align: 'right' },
-  fatorPeso:      { label: 'Fator Peso',      defWidth: 90,  align: 'right' },
-  valorVinculado: { label: 'Valor Vinculado', defWidth: 130, align: 'right' },
-  custoReal: { label: 'Custo Real',    defWidth: 130, align: 'right' },
-  saldo:     { label: 'Saldo',         defWidth: 110, align: 'right' },
-  resp:      { label: 'Responsável',   defWidth: 130 },
-  dep:       { label: 'Predecessoras', defWidth: 130 },
-  succ:      { label: 'Sucessoras',    defWidth: 110 },
-  status:    { label: 'Status',        defWidth: 105 },
-  restricao: { label: 'Restrição',     defWidth: 200 },
-  participa:  { label: 'Curva',         defWidth: 54, align: 'center' },
+  wbs:       { label: 'WBS',           defWidth: 44,  frozen: true, band: 'etapa' },
+  id:        { label: 'ID',            defWidth: 44,  frozen: true, band: 'etapa' },
+  etapa:     { label: 'Etapa / Tarefa',defWidth: 224, frozen: true, band: 'etapa' },
+  inicio:    { label: 'Início',        defWidth: 96,  band: 'prazo' },
+  fim:       { label: 'Término',       defWidth: 96,  band: 'prazo' },
+  duracao:   { label: 'Duração',       defWidth: 78,  band: 'prazo' },
+  avanco:    { label: '% Concluída',   defWidth: 150, band: 'avanco' },
+  status:    { label: 'Status',        defWidth: 110, band: 'avanco' },
+  peso:           { label: 'Peso %',          defWidth: 70,  align: 'right', band: 'fin' },
+  fatorPeso:      { label: 'Fator Peso',      defWidth: 90,  align: 'right', band: 'fin' },
+  valorVinculado: { label: 'Valor Vinculado', defWidth: 120, align: 'right', band: 'fin' },
+  custo:     { label: 'Custo Prev.',   defWidth: 112, align: 'right', band: 'fin' },
+  custoReal: { label: 'Custo Real',    defWidth: 112, align: 'right', band: 'fin' },
+  saldo:     { label: 'Saldo',         defWidth: 112, align: 'right', band: 'fin' },
+  dep:       { label: 'Pred.',         defWidth: 90,  band: 'seq' },
+  succ:      { label: 'Suces.',        defWidth: 90,  band: 'seq' },
+  resp:      { label: 'Responsável',   defWidth: 152, band: 'seq' },
+  restricao: { label: 'Restrição',     defWidth: 148, band: 'seq' },
+  participa:  { label: 'Curva',         defWidth: 54, align: 'center', band: 'seq' },
 };
+const LISTA_BAND_LABELS = { etapa: 'Etapa / Tarefa', prazo: 'Prazo', avanco: 'Avanço', fin: 'Financeiro', seq: 'Sequenciamento', custom: 'Personalizadas' };
+
+// Avatar do responsável (iniciais + cor determinística por nome). Cores de identidade
+// por pessoa — não confundir com o azul de marca da UI.
+const AV_PALETTE = ['#1c4584', '#2a5599', '#0891b2', '#7c3aed', '#db2777', '#15803d'];
+const respInitials = (name) => {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
+};
+const respColor = (name) => AV_PALETTE[[...(name || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % AV_PALETTE.length];
 const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
 
@@ -2230,6 +2348,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
+  const [editingDep,     setEditingDep]     = React.useState(null); // id da tarefa com predecessora em edição
   const [busca,          setBusca]          = React.useState('');
   const [filtroStatus,   setFiltroStatus]   = React.useState('');
   const [filtroResp,     setFiltroResp]     = React.useState('');
@@ -2390,7 +2509,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const filtrada = React.useMemo(() =>
     visible.filter(e =>
       (!busca || e.etapa.toLowerCase().includes(busca.toLowerCase())) &&
-      (!filtroStatus || e.status === filtroStatus) &&
+      (!filtroStatus || effStatus(e) === filtroStatus) &&
       (!filtroResp || (e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase()))
     ),
     [visible, busca, filtroStatus, filtroResp]
@@ -2657,7 +2776,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         if (cid === 'resp')     return e.responsavel || '';
         if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas);
         if (cid === 'succ')     return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', ');
-        if (cid === 'status')   return e.isGroup ? '' : (e.status === 'done' ? 'Concluída' : e.status === 'late' ? 'Atrasada' : 'Futura');
+        if (cid === 'status')   return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap')
           ? `${e.restricaoTipo}${e.restricaoData ? ' ' + e.restricaoData : ''}` : '';
         if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
@@ -2734,7 +2853,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         if (cid === 'resp')      return e.responsavel || '';
         if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas);
         if (cid === 'succ')      return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', ');
-        if (cid === 'status')    return e.isGroup ? '' : (e.status === 'done' ? 'Concluída' : e.status === 'late' ? 'Atrasada' : 'Futura');
+        if (cid === 'status')    return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap') ? `${e.restricaoTipo}${e.restricaoData ? ' ' + e.restricaoData : ''}` : '';
         if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
         return String(e.customCols?.[cid] ?? '');
@@ -2796,7 +2915,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       }}>
         {!readOnly && (
         <>
-        <button className="btn btn-ghost" style={btnStyle} onClick={handleAddTask}>
+        <button className="btn btn-dark" style={btnStyle} onClick={handleAddTask}>
           <Icon name="plus" size={13} /> Adicionar tarefa
         </button>
 
@@ -3038,6 +3157,34 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       <div style={{ overflowX: 'auto' }}>
         <table className="tbl tbl-lista" style={{ minWidth: 1780 }}>
           <thead>
+            {(() => {
+              // Linha de bandas (Etapa/Tarefa · Prazo · Avanço · Financeiro · Sequenciamento).
+              // Dinâmica: agrupa colunas visíveis contíguas por banda, respeitando reordenação.
+              const frozenVis = LISTA_FROZEN.filter(c => !hiddenCols.has(c));
+              const frozenW = frozenVis.reduce((a, c) => a + getColW(c), 0);
+              const rest = colOrder.filter(c => !hiddenCols.has(c) && !LISTA_FROZEN.includes(c));
+              const runs = [];
+              rest.forEach(c => {
+                const b = LISTA_COL_DEFS[c]?.band || 'seq';
+                const last = runs[runs.length - 1];
+                if (last && last.band === b) last.cols.push(c); else runs.push({ band: b, cols: [c] });
+              });
+              const custVis = customCols.filter(col => !hiddenCols.has(col.id));
+              return (
+                <tr className="band-row">
+                  {frozenVis.length > 0 && (
+                    <th colSpan={frozenVis.length} className="band-th" style={{ position: 'sticky', left: 0, zIndex: 5, width: frozenW, minWidth: frozenW }}>
+                      {LISTA_BAND_LABELS.etapa}
+                    </th>
+                  )}
+                  {runs.map((r, i) => (
+                    <th key={'band-' + i} colSpan={r.cols.length} className="band-th">{LISTA_BAND_LABELS[r.band] || ''}</th>
+                  ))}
+                  {custVis.length > 0 && <th colSpan={custVis.length} className="band-th">{LISTA_BAND_LABELS.custom}</th>}
+                  <th className="band-th" />
+                </tr>
+              );
+            })()}
             <tr>
               {colOrder.filter(c => !hiddenCols.has(c)).map(colId => renderTh(colId))}
               {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
@@ -3071,7 +3218,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               // Background explícito para células sticky (colunas congeladas)
               const frozenBg = isSelected
                 ? 'color-mix(in srgb, var(--brand) 8%, var(--surface))'
-                : e.isGroup ? 'var(--surface-muted)' : 'var(--surface)';
+                : e.isGroup ? 'var(--brand-50)' : 'var(--surface)';
               const stickyStyle = (colId) => ({
                 position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: frozenBg,
               });
@@ -3099,7 +3246,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                         <span style={{ width: 20, flexShrink: 0, display: 'inline-block' }} />
                       )}
                       <EditableCell value={e.etapa} onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
-                        readOnly={readOnly} style={{ fontWeight: e.isGroup ? 600 : 400 }} />
+                        readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 13.5 : 13 }} />
                       {isMultiSel && <span className="multi-sel-badge">{multiIdx + 1}</span>}
                     </div>
                   </td>
@@ -3133,7 +3280,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                   <td key="avanco" onClick={ev => ev.stopPropagation()}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <div style={{ flex: 1, minWidth: 50 }}>
-                        <div className={'progress' + (e.status === 'done' ? ' success' : e.status === 'late' ? ' danger' : '')}>
+                        <div className={'progress' + (e.isGroup ? ' groupbar' : effStatus(e) === 'done' ? ' success' : effStatus(e) === 'late' ? ' danger' : effStatus(e) === 'upcoming' ? ' futura' : '')}>
                           <span style={{ width: eAvanco + '%' }}></span>
                         </div>
                       </div>
@@ -3152,7 +3299,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                       <span className="mono" style={{ fontSize: 12, color: 'var(--text)' }}
                         title="Derivado do orçamento vinculado">{fmtBRL(valorVinculadoMap[e.id] || 0)}</span>
                     ) : e.isGroup ? (
-                      <span className="text-muted mono" style={{ fontSize: 12 }}>{fmtBRL(gv?.custo || 0)}</span>
+                      <span className="mono" style={{ fontSize: 12, fontWeight: 700 }}>{fmtBRL(gv?.custo || 0)}</span>
                     ) : readOnly ? (
                       <span className="mono" style={{ fontSize: 12, display: 'block', textAlign: 'right' }}>{fmtBRL(e.custo || 0)}</span>
                     ) : editingCusto === e.id + '_custo' ? (
@@ -3168,11 +3315,11 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                   </td>
                 ),
                 peso: (
-                  <td key="peso" className="num text-muted mono" style={{ textAlign: 'right', fontSize: 12 }}>
-                    {e.isGroup ? '—' : (() => {
-                      if (hasVinculos && totalValorVinculado > 0)
-                        return ((valorVinculadoMap[e.id] || 0) / totalValorVinculado * 100).toFixed(1) + '%';
-                      return totalCusto > 0 ? ((e.custo || 0) / totalCusto * 100).toFixed(1) + '%' : '—';
+                  <td key="peso" className="num mono" style={{ textAlign: 'right', fontSize: 12, fontWeight: e.isGroup ? 700 : 400, color: e.isGroup ? 'var(--text)' : 'var(--text-muted)' }}>
+                    {(() => {
+                      const base = hasVinculos && totalValorVinculado > 0 ? totalValorVinculado : totalCusto;
+                      const val = hasVinculos ? (valorVinculadoMap[e.id] || 0) : (e.isGroup ? (gv?.custo || 0) : (e.custo || 0));
+                      return base > 0 ? (val / base * 100).toFixed(1) + '%' : '—';
                     })()}
                   </td>
                 ),
@@ -3206,7 +3353,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 custoReal: (
                   <td key="custoReal" className="num" style={{ textAlign: 'right' }} onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
-                      <span className="text-muted mono" style={{ fontSize: 12 }}>
+                      <span className="mono" style={{ fontSize: 12, fontWeight: 700 }}>
                         {fmtBRL(etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0))}
                       </span>
                     ) : readOnly ? (
@@ -3237,31 +3384,57 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 ),
                 resp: (
                   <td key="resp" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} readOnly={readOnly} />
+                    {e.isGroup ? null : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {e.responsavel && (
+                          <span className="avatar" style={{ width: 26, height: 26, flex: '0 0 26px', fontSize: 11, background: respColor(e.responsavel) }}>
+                            {respInitials(e.responsavel)}
+                          </span>
+                        )}
+                        <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} readOnly={readOnly} style={{ fontSize: 12.5 }} />
+                      </div>
+                    )}
                   </td>
                 ),
                 dep: (
-                  <td key="dep" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell value={formatDepList(e.dep, etapas)} onSave={v => handleCellSave(e.id, 'dep', v)} readOnly={readOnly || e.isGroup} />
+                  <td key="dep" onClick={ev => ev.stopPropagation()}>
+                    {e.isGroup ? null : editingDep === e.id ? (
+                      <input autoFocus defaultValue={formatDepList(e.dep, etapas)}
+                        style={{ width: '100%', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
+                        onBlur={ev => { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); }}
+                        onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); } if (ev.key === 'Escape') setEditingDep(null); }} />
+                    ) : (() => {
+                      const parts = formatDepList(e.dep, etapas).split(',').map(s => s.trim()).filter(p => p && p !== '—');
+                      return (
+                        <div onClick={() => !readOnly && setEditingDep(e.id)} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', cursor: readOnly ? 'default' : 'text', minHeight: 20 }}>
+                          {parts.length ? parts.map(p => <span key={p} className="dep-chip">{p}</span>) : <span className="text-faint">—</span>}
+                        </div>
+                      );
+                    })()}
                   </td>
                 ),
                 succ: (
-                  <td key="succ" className="mono text-sm text-muted">
-                    {(succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', ') || '—'}
+                  <td key="succ">
+                    {e.isGroup ? null : (() => {
+                      const ss = (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id);
+                      return ss.length
+                        ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{ss.map(s => <span key={s} className="dep-chip">{s}</span>)}</div>
+                        : <span className="text-faint">—</span>;
+                    })()}
                   </td>
                 ),
                 status: (
                   <td key="status">
-                    <span className={'badge ' + statusBadgeClass(e.status)}>
-                      <span className="dot"></span>{statusLabel(e.status)}
-                    </span>
+                    {!e.isGroup && (
+                      <span className={'badge ' + statusBadgeClass(effStatus(e))}>{statusLabel(effStatus(e))}</span>
+                    )}
                   </td>
                 ),
                 restricao: (
                   <td key="restricao" onClick={ev => ev.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
                     {e.isGroup ? <span className="text-faint">—</span> : (
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <select className="input" style={{ height: 26, fontSize: 11, padding: '0 4px' }}
+                        <select style={{ width: '100%', height: 30, fontSize: 12, padding: '0 10px', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-soft)', background: 'var(--surface)' }}
                           value={e.restricaoTipo || 'asap'}
                           onChange={ev => handleCellSave(e.id, 'restricaoTipo', ev.target.value)}
                           onClick={ev => ev.stopPropagation()}>
@@ -3400,7 +3573,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             {/* Linha de adição rápida */}
             {filtrada.length === 0 && (
               <tr>
-                <td colSpan={16 + customCols.length + 1} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+                <td colSpan={colOrder.filter(c => !hiddenCols.has(c)).length + customCols.filter(col => !hiddenCols.has(col.id)).length + 1} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
                   {visible.length === 0
                     ? <>Nenhuma tarefa — clique em <strong>Adicionar tarefa</strong> para começar</>
                     : 'Nenhuma tarefa corresponde aos filtros aplicados'}
@@ -3409,16 +3582,36 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             )}
           </tbody>
           <tfoot>
-            <tr style={{ fontWeight: 600, borderTop: '2px solid var(--border)', background: 'var(--surface-raised)' }}>
-              <td colSpan={7} style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-soft)', padding: '8px 8px 8px 0' }}>Total</td>
-              <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>{fmtBRL(totalCustoEf)}</td>
-              <td className="num mono text-muted" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>100%</td>
-              <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>{fmtBRL(totalReal)}</td>
-              <td className="num mono" style={{ textAlign: 'right', fontSize: 12, padding: '8px 4px' }}>
-                <span style={{ color: (totalCustoEf - totalReal) < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalCustoEf - totalReal)}</span>
-              </td>
-              <td colSpan={5 + customCols.length + 1}></td>
-            </tr>
+            {(() => {
+              // Rodapé alinhado célula-a-célula à ordem/visibilidade atual das colunas.
+              const leaves = etapas.filter(x => !x.isGroup);
+              const w = (x) => hasVinculos ? (valorVinculadoMap[x.id] || 0) : (x.custo || 0);
+              const tp = leaves.reduce((s, x) => s + w(x), 0);
+              const totalPct = !tp
+                ? (leaves.length ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length) : 0)
+                : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp);
+              const footSaldo = totalCustoEf - totalReal; // usa o mesmo custo efetivo do total (consistente com vínculos)
+              const footBg = 'var(--surface-muted)';
+              const stick = (cid, extra) => ({ position: 'sticky', left: frozenLeft[cid], background: footBg, zIndex: 1, ...extra });
+              const num = { textAlign: 'right', fontWeight: 700, fontSize: 12 };
+              const foot = {
+                wbs: <td key="wbs" style={stick('wbs')} />,
+                id: <td key="id" style={stick('id')} />,
+                etapa: <td key="etapa" style={stick('etapa', { fontWeight: 700, fontSize: 12.5, color: 'var(--text)', boxShadow: '1px 0 0 var(--border)' })}>Total do cronograma</td>,
+                avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 40 }}><div className="progress"><span style={{ width: totalPct + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{totalPct}%</span></div></td>,
+                peso: <td key="peso" className="num mono" style={num}>100%</td>,
+                custo: <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
+                custoReal: <td key="custoReal" className="num mono" style={num}>{fmtBRL(totalReal)}</td>,
+                saldo: <td key="saldo" className="num mono" style={{ ...num, color: totalSaldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalSaldo)}</td>,
+              };
+              return (
+                <tr style={{ fontWeight: 600, borderTop: '2px solid var(--border)', background: footBg, height: 48 }}>
+                  {colOrder.filter(c => !hiddenCols.has(c)).map(c => foot[c] || <td key={c} />)}
+                  {customCols.filter(col => !hiddenCols.has(col.id)).map(col => <td key={col.id} />)}
+                  <td />
+                </tr>
+              );
+            })()}
           </tfoot>
         </table>
       </div>
@@ -3486,10 +3679,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 };
 
 // ─── UsoTarefaView ───────────────────────────────────────────────────────────
-const USO_COL_KEYS    = ['id', 'wbs', 'nome', 'inicio', 'fim', 'dur', 'avanco', 'custo'];
-const USO_COL_LABELS  = ['ID', 'EAP', 'Nome da Tarefa', 'Início', 'Término', 'Dur.', '%', 'R$'];
-const USO_COL_DEFAULT = { id: 44, wbs: 52, nome: 200, inicio: 88, fim: 88, dur: 54, avanco: 44, custo: 94 };
-const USO_COL_ALIGN   = { id: 'right', wbs: 'left', nome: 'left', inicio: 'left', fim: 'left', dur: 'right', avanco: 'right', custo: 'right' };
+const USO_COL_KEYS    = ['id', 'wbs', 'nome', 'inicio', 'fim', 'dur', 'avanco'];
+const USO_COL_LABELS  = ['ID', 'EAP', 'Nome da Tarefa', 'Início', 'Término', 'Dur.', '%'];
+const USO_COL_DEFAULT = { id: 44, wbs: 52, nome: 208, inicio: 88, fim: 88, dur: 56, avanco: 52 };
+const USO_COL_ALIGN   = { id: 'right', wbs: 'left', nome: 'left', inicio: 'left', fim: 'left', dur: 'right', avanco: 'right' };
 
 const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
   const [selectedId, setSelectedId] = React.useState(null);
@@ -3533,15 +3726,34 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
   const visible = etapas;
   const wbsMap  = React.useMemo(() => computeAllWBS(etapas), [etapas]);
 
+  // Métrica selecionável — recalcula toda a grade/heatmap/totais.
+  // Trabalho = custo/120 h (proxy) — TODO: ligar API de horas se houver.
+  const metricCfg = {
+    custo:    { label: 'Custo (R$)',    band: 'CUSTO (R$)',    val: (e) => e.custo || 0,      cell: (v) => v < 1 ? '—' : 'R$ ' + Math.round(v / 1000) + 'k', tot: (v) => fmtBRL(v) },
+    trabalho: { label: 'Trabalho (Hh)', band: 'TRABALHO (Hh)', val: (e) => (e.custo || 0) / 120, cell: (v) => v < 1 ? '—' : (v >= 1000 ? (v / 1000).toFixed(1) + 'k h' : Math.round(v) + ' h'), tot: (v) => Math.round(v).toLocaleString('pt-BR') + ' h' },
+    avanco:   { label: 'Avanço (%)',    band: 'AVANÇO (%)',    val: (e) => e.fator_peso ?? 1, cell: (v) => v < 0.05 ? '—' : v.toFixed(1) + '%', tot: (v) => v.toFixed(0) + '%' },
+  };
+  const cfg = metricCfg[detalhe] || metricCfg.custo;
+  const metricOverride = React.useMemo(() => {
+    const o = {}; etapas.forEach(e => { if (!e.isGroup) o[e.id] = cfg.val(e); }); return o;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etapas, detalhe]);
+  const dist2 = React.useMemo(() => computeMonthlyDist(etapas, metricOverride), [etapas, metricOverride]);
+  const cellMax = React.useMemo(() => {
+    let mx = 0;
+    etapas.forEach(e => { if (!e.isGroup) { const d = dist2[e.id] || {}; months.forEach(m => { const v = d[m.key] || 0; if (v > mx) mx = v; }); } });
+    return mx || 1;
+  }, [dist2, etapas, months]);
+
   const getDist = (e) =>
     e.isGroup
-      ? getGroupMonthlyDist(e.id, etapas, monthlyDist)
-      : (monthlyDist[e.id] || {});
+      ? getGroupMonthlyDist(e.id, etapas, dist2)
+      : (dist2[e.id] || {});
 
   const rowBg = (e) =>
     selectedId === e.id
       ? 'color-mix(in srgb, var(--brand) 8%, transparent)'
-      : e.isGroup ? 'var(--surface-muted)' : undefined;
+      : e.isGroup ? 'var(--brand-50)' : undefined;
 
   const thSt = {
     position: 'sticky', top: 0, zIndex: 2,
@@ -3692,13 +3904,17 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
     <div ref={usoRef} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 280px)', marginTop: 'var(--gap)' }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', marginBottom: 4 }}>
-        <span style={{ fontSize: 13, color: 'var(--text-soft)' }}>Detalhe:</span>
-        <select className="input" value={detalhe} onChange={e => setDetalhe(e.target.value)}
-          style={{ fontSize: 13, padding: '4px 10px', minWidth: 130 }}>
-          <option value="custo">Custo (R$)</option>
-        </select>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Distribuir</span>
+        <div style={{ display: 'inline-flex', background: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: 9, padding: 3, gap: 2 }}>
+          {Object.entries(metricCfg).map(([k, m]) => (
+            <button key={k} onClick={() => setDetalhe(k)}
+              style={{ padding: '5px 12px', fontSize: 13, fontWeight: detalhe === k ? 600 : 500, borderRadius: 7, border: 'none', cursor: 'pointer', background: detalhe === k ? 'var(--text)' : 'transparent', color: detalhe === k ? '#fff' : 'var(--text-soft)' }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
         <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 8 }}>
-          Clique em uma tarefa para destacar na grade
+          Intensidade da célula = concentração no mês · clique numa tarefa para destacar
         </span>
         <div style={{ flex: 1 }} />
         <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5 }}
@@ -3742,7 +3958,6 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
                 const fimText  = isoToBR(offsetToISO(e.inicio + e.dur));
                 const durText  = `${e.dur}d`;
                 const avText   = `${e.avanco}%`;
-                const cusText  = e.isGroup ? '—' : formatBRL2(e.custo || 0);
                 return (
                   <tr key={e.id}
                     style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
@@ -3759,9 +3974,6 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
                     <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }} title={fimText}>{fimText}</td>
                     <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }} title={durText}>{durText}</td>
                     <td style={{ ...tdSt, textAlign: 'right' }} title={avText}>{avText}</td>
-                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} title={cusText}>
-                      {cusText}
-                    </td>
                   </tr>
                 );
               })}
@@ -3773,13 +3985,11 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
         <div ref={rightRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: 80 }} />
-              {months.map(m => <col key={m.key} style={{ width: 110 }} />)}
-              <col style={{ width: 110 }} />
+              {months.map(m => <col key={m.key} style={{ width: 92 }} />)}
+              <col style={{ width: 112 }} />
             </colgroup>
             <thead>
               <tr>
-                <th style={{ ...thSt, textAlign: 'left' }}>Detalhe</th>
                 {months.map(m => (
                   <th key={m.key} style={{ ...thSt, textAlign: 'right' }}>{m.label}</th>
                 ))}
@@ -3789,23 +3999,27 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
             <tbody>
               {visible.map(e => {
                 const dist  = getDist(e);
-                const total = Object.values(dist).reduce((s, v) => s + v, 0);
+                const total = months.reduce((s, m) => s + (dist[m.key] || 0), 0);
+                const emptyThresh = detalhe === 'avanco' ? 0.05 : 1;
                 return (
                   <tr key={e.id}
                     style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
                     onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
-                    <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12, paddingLeft: 14 }}>Custo</td>
                     {months.map(m => {
                       const v = dist[m.key] || 0;
-                      const txt = v > 0 ? formatBRL2(v) : '—';
+                      const empty = v < emptyThresh;
+                      const f = Math.min(1, v / cellMax);
                       return (
-                        <td key={m.key} style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v > 0 ? 'var(--text)' : 'var(--text-faint)' }} title={v > 0 ? txt : undefined}>
-                          {txt}
+                        <td key={m.key}
+                          className={'heat-cell' + (e.isGroup ? ' group' : '') + (empty ? ' empty' : (f > 0.35 ? ' hot' : ''))}
+                          style={{ ...tdSt, textAlign: 'right', '--f': f }}
+                          title={empty ? undefined : cfg.cell(v)}>
+                          {empty ? '—' : cfg.cell(v)}
                         </td>
                       );
                     })}
-                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }} title={total > 0 ? formatBRL2(total) : undefined}>
-                      {total > 0 ? formatBRL2(total) : '—'}
+                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }} title={total > 0 ? cfg.tot(total) : undefined}>
+                      {total > 0 ? cfg.tot(total) : '—'}
                     </td>
                   </tr>
                 );
@@ -3815,6 +4029,55 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
         </div>
       </div>
     </div>
+  );
+};
+
+// ─── SCurveChart — Curva S própria (SVG). Recriada do zero; não copia o protótipo.
+// Recebe séries já computadas e desenha grade, barras mensais, linhas planejado/
+// realizado com pontos, e o marcador "hoje". Cores da marca (navy) + verde/cinza.
+const SCurveChart = ({ months = [], planned = [], realized = [], monthlyPct = [], todayIdx = -1, height = 300 }) => {
+  const N = months.length || 1;
+  const pL = 54, pR = 20, pT = 18, pB = 52;
+  const svgW = 1000, svgH = height;
+  const chartW = svgW - pL - pR, chartH = svgH - pT - pB;
+  const xC = (i) => pL + (chartW / N) * (i + 0.5);
+  const yS = (pct) => pT + (1 - pct / 100) * chartH;
+  const barW = (chartW / N) * 0.55;
+  const ptsPlan = planned.map((v, i) => `${xC(i).toFixed(1)},${yS(v).toFixed(1)}`).join(' ');
+  const firstX = xC(0).toFixed(1), lastX = xC(N - 1).toFixed(1);
+  const areaPath = planned.length
+    ? `M${firstX},${yS(planned[0]).toFixed(1)} ` +
+      planned.slice(1).map((v, i) => `L${xC(i + 1).toFixed(1)},${yS(v).toFixed(1)}`).join(' ') +
+      ` L${lastX},${(pT + chartH).toFixed(1)} L${firstX},${(pT + chartH).toFixed(1)} Z`
+    : '';
+  const realPts = realized.map((v, i) => v != null ? `${xC(i).toFixed(1)},${yS(v).toFixed(1)}` : null).filter(Boolean).join(' ');
+  return (
+    <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={svgH} style={{ display: 'block', minWidth: Math.max(600, N * 36) }}>
+      {[0, 20, 40, 60, 80, 100].map(pct => (
+        <g key={pct}>
+          <line x1={pL} y1={yS(pct)} x2={pL + chartW} y2={yS(pct)} stroke="var(--border)" strokeWidth="1" strokeDasharray={pct === 0 || pct === 100 ? undefined : '3,4'} />
+          <text x={pL - 6} y={yS(pct) + 4} textAnchor="end" fontSize="10" fill="var(--text-muted)" fontFamily="var(--font-mono)">{pct}%</text>
+        </g>
+      ))}
+      {monthlyPct.map((pct, i) => { const bh = (pct / 100) * chartH; return <rect key={i} x={xC(i) - barW / 2} y={yS(0) - bh} width={barW} height={bh} fill="#e2e8f0" rx="2" />; })}
+      {todayIdx >= 0 && (
+        <g>
+          <line x1={xC(todayIdx)} y1={pT} x2={xC(todayIdx)} y2={pT + chartH} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4,3" />
+          <text x={xC(todayIdx)} y={pT - 5} textAnchor="middle" fontSize="9" fill="#94a3b8">hoje</text>
+        </g>
+      )}
+      <path d={areaPath} fill="var(--brand)" opacity="0.07" />
+      <polyline points={ptsPlan} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" />
+      {planned.map((v, i) => <circle key={i} cx={xC(i)} cy={yS(v)} r="3.5" fill="#fff" stroke="var(--brand)" strokeWidth="2" />)}
+      {realPts && <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" />}
+      {realized.map((v, i) => v != null ? <circle key={i} cx={xC(i)} cy={yS(v)} r="3.5" fill="#16a34a" /> : null)}
+      {months.map((m, i) => {
+        if (N > 18 && i % 2 !== 0) return null;
+        if (N > 30 && i % 3 !== 0) return null;
+        return <text key={m.key} x={xC(i)} y={pT + chartH + 18} textAnchor="middle" fontSize="9.5" fill="var(--text-muted)">{m.label}</text>;
+      })}
+      <line x1={pL} y1={pT + chartH} x2={pL + chartW} y2={pT + chartH} stroke="var(--border)" strokeWidth="1" />
+    </svg>
   );
 };
 
@@ -4151,70 +4414,13 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
           </div>
         </div>
         <div className="card-body" style={{ padding: '12px 16px 0', overflowX: 'auto' }}>
-          <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={svgH}
-            style={{ display: 'block', minWidth: Math.max(600, N * 36) }}>
-
-            {/* Linhas de grade Y */}
-            {[0, 20, 40, 60, 80, 100].map(pct => (
-              <g key={pct}>
-                <line x1={pL} y1={yS(pct)} x2={pL + chartW} y2={yS(pct)}
-                  stroke="var(--border)" strokeWidth="1" strokeDasharray={pct === 0 || pct === 100 ? undefined : '3,4'} />
-                <text x={pL - 6} y={yS(pct) + 4} textAnchor="end" fontSize="10"
-                  fill="var(--text-muted)" fontFamily="var(--font-mono)">{pct}%</text>
-              </g>
-            ))}
-
-            {/* Barras histograma mensal */}
-            {months.map((m, i) => {
-              const v = filteredPlanned[m.key] || 0;
-              const pct = total > 0 ? v / total * 100 : 0;
-              const bh = (pct / 100) * chartH;
-              return (
-                <rect key={m.key}
-                  x={xC(i) - barW / 2} y={yS(0) - bh}
-                  width={barW} height={bh}
-                  fill="#e2e8f0" rx="2" />
-              );
-            })}
-
-            {/* Marcador HOJE */}
-            {todayIdx >= 0 && (
-              <line x1={xC(todayIdx)} y1={pT} x2={xC(todayIdx)} y2={pT + chartH}
-                stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4,3" opacity="0.7" />
-            )}
-
-            {/* Área sob curva planejada */}
-            <path d={areaPath} fill="var(--brand)" opacity="0.07" />
-
-            {/* Linha planejada acumulada */}
-            <polyline points={ptsPlan} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" />
-
-            {/* Pontos planejados */}
-            {seriesPlanned.map((v, i) => (
-              <circle key={i} cx={xC(i)} cy={yS(v)} r="3" fill="var(--brand)" />
-            ))}
-
-            {/* Linha realizada acumulada */}
-            {realPts && (
-              <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2"
-                strokeDasharray="5,3" strokeLinejoin="round" />
-            )}
-
-            {/* Rótulos X */}
-            {months.map((m, i) => {
-              if (N > 18 && i % 2 !== 0) return null;
-              if (N > 30 && i % 3 !== 0) return null;
-              return (
-                <text key={m.key} x={xC(i)} y={pT + chartH + 18}
-                  textAnchor="middle" fontSize="9.5" fill="var(--text-muted)"
-                  fontFamily="var(--font-sans)">{m.label}</text>
-              );
-            })}
-
-            {/* Eixo X base */}
-            <line x1={pL} y1={pT + chartH} x2={pL + chartW} y2={pT + chartH}
-              stroke="var(--border)" strokeWidth="1" />
-          </svg>
+          <SCurveChart
+            months={months}
+            planned={seriesPlanned}
+            realized={seriesRealized}
+            monthlyPct={months.map(m => total > 0 ? (filteredPlanned[m.key] || 0) / total * 100 : 0)}
+            todayIdx={todayIdx}
+          />
         </div>
       </div>
 
@@ -4278,7 +4484,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em',
               textTransform: 'uppercase', padding: '6px 14px',
             };
-            const grpHdrGray = { ...grpHdrBlue, background: '#4b5563' };
+            const grpHdrGray  = { ...grpHdrBlue, background: '#475569' };
+            const grpHdrGreen = { ...grpHdrBlue, background: '#15803d' };
+            const grpHdrBase  = { ...grpHdrBlue, background: 'var(--brand-700)' };
 
             const bdr = '1px solid var(--border-subtle, rgba(0,0,0,0.06))';
             const tdAct = (accum) => ({
@@ -4378,7 +4586,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                 <tbody>
                   {/* ── Linha de Base ── */}
                   <tr>
-                    <td colSpan={totalCols} style={grpHdrBlue}>
+                    <td colSpan={totalCols} style={grpHdrBase}>
                       {hasBL ? blNome : 'Linha de Base'}
                     </td>
                   </tr>
@@ -4412,7 +4620,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
                   {/* ── Real + Reprogramado ── */}
                   <tr>
-                    <td colSpan={totalCols} style={{ ...grpHdrBlue, borderTop: '2px solid rgba(255,255,255,0.2)' }}>
+                    <td colSpan={totalCols} style={{ ...grpHdrGreen, borderTop: '2px solid rgba(255,255,255,0.2)' }}>
                       Real + Reprogramado
                     </td>
                   </tr>
@@ -4580,15 +4788,13 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                         {months.map(m => {
                           const v   = taskDist[m.key] || 0;
                           const pct = taskCusto > 0 ? v / taskCusto * 100 : 0;
+                          const empty = pct <= 0.5;
+                          const f = Math.min(1, pct / 100);
                           return (
-                            <td key={m.key} style={{
-                              ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                              color: pct > 0.005 ? (e.isGroup ? 'var(--brand)' : 'var(--text)') : 'var(--text-faint)',
-                              fontWeight: e.isGroup ? 600 : 400,
-                              background: m.key === todayKey ? 'rgba(1,67,134,0.04)' : undefined,
-                              fontSize: 10.5,
-                            }}>
-                              {fmt(pct)}
+                            <td key={m.key}
+                              className={'heat-cell' + (e.isGroup ? ' group' : '') + (empty ? ' empty' : (f > 0.4 ? ' hot' : ''))}
+                              style={{ ...tdBase, textAlign: 'right', fontSize: 10.5, '--f': f }}>
+                              {empty ? '—' : fmt(pct)}
                             </td>
                           );
                         })}
@@ -4653,11 +4859,14 @@ function salvarBaselines(obraId, bls) {
   localStorage.setItem(`cronograma_baselines_${obraId}`, JSON.stringify(bls));
 }
 
+// Retorna { error } para o chamador decidir o feedback. Não engole falha de persistência.
 async function salvarCronograma(obraId, etapas, customCols, baselines) {
-  await supabase.from('cronogramas').upsert(
+  const { error } = await supabase.from('cronogramas').upsert(
     { obra_id: obraId, etapas, custom_cols: customCols, baselines, updated_at: new Date().toISOString() },
     { onConflict: 'obra_id' }
   );
+  if (error) console.error('[cronograma] falha ao salvar', error);
+  return { error };
 }
 
 async function carregarCronogramaDB(obraId) {
@@ -4884,6 +5093,27 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // Painel lateral de detalhes da tarefa selecionada
   const [detailId,     setDetailId]    = React.useState(null);
   const [detailTab,    setDetailTab]   = React.useState('detalhes');
+  // Usuário logado (autor de anexos/comentários/eventos). Resolvido 1x via sessão.
+  const [currentUser, setCurrentUser] = React.useState({ id: 'sistema', nome: 'Sistema', email: '', isAdmin: isAdmin(userProfile) });
+  const currentUserRef = React.useRef(currentUser);
+  currentUserRef.current = currentUser;
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const u = session?.user;
+        if (!u) return;
+        let nome = u.email;
+        try {
+          const { data: prof } = await usuariosService.buscarPorId(u.id);
+          if (prof?.nome) nome = prof.nome;
+        } catch { /* mantém email como nome */ }
+        if (vivo) setCurrentUser({ id: u.id, nome, email: u.email, isAdmin: isAdmin(userProfile) });
+      } catch { /* sem sessão: mantém "Sistema" */ }
+    })();
+    return () => { vivo = false; };
+  }, [userProfile]);
   // Integração Orçamento × Cronograma
   const [vinculos,         setVinculos]         = React.useState([]);
   const [orcamentoItensMap, setOrcamentoItensMap] = React.useState({});
@@ -5038,8 +5268,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const baselineEtapas = blVisivelId ? (baselines.find(b => b.id === blVisivelId)?.etapas || null) : null;
 
   const obra       = obras.find(o => o.id === obraSel) || obras[0];
-  const concluidas = etapas.filter(e => e.status === 'done').length;
-  const atrasadas  = etapas.filter(e => e.status === 'late').length;
+  const concluidas = etapas.filter(e => effStatus(e) === 'done').length;
+  const atrasadas  = etapas.filter(e => effStatus(e) === 'late').length;
 
   // Pesos vinculados ao orçamento — quando existem, substituem custo na Curva S e no avanço
   const valorVinculadoMapFull = React.useMemo(
@@ -5073,6 +5303,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // ── Commit (fonte única de verdade) ────────────────────────────────────────
   const commit = (novas, opts = {}) => {
     const clean = novas.map(e => ({ ...e }));
+    // Auto-histórico: registra mudanças relevantes por tarefa (fora do undo/redo)
+    taskDetailStore.diffAndLog(obraSel, etapas, clean, currentUserRef.current);
     const h = histRef.current.slice(0, hidxRef.current + 1);
     h.push(clean);
     histRef.current = h;
@@ -5080,15 +5312,21 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     setEtapas(clean);
     D.cronograma[obraSel] = clean;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => salvarCronograma(obraSel, clean, customCols, baselines), 800);
-    if (!opts.silent) {
-      const cfls = gmConflicts(clean);
-      if (cfls.length > 0) {
-        toast(`Salvo com ${cfls.length} conflito(s) de precedência`, { tone: 'warning', icon: 'alert-triangle' });
+    // O toast reflete o RESULTADO real da persistência (após o await), não a intenção.
+    saveTimerRef.current = setTimeout(async () => {
+      const { error } = await salvarCronograma(obraSel, clean, customCols, baselines);
+      if (opts.silent) return;
+      if (error) {
+        toast('Falha ao salvar o cronograma. Suas mudanças podem não ter sido gravadas.', { tone: 'danger', icon: 'alert-triangle' });
       } else {
-        toast('Cronograma atualizado', { tone: 'success', icon: 'check' });
+        const cfls = gmConflicts(clean);
+        if (cfls.length > 0) {
+          toast(`Salvo com ${cfls.length} conflito(s) de precedência`, { tone: 'warning', icon: 'alert-triangle' });
+        } else {
+          toast('Cronograma atualizado', { tone: 'success', icon: 'check' });
+        }
       }
-    }
+    }, 800);
   };
 
   const undo = () => {
@@ -5098,7 +5336,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     setEtapas(snap);
     D.cronograma[obraSel] = snap;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => salvarCronograma(obraSel, snap, customCols, baselines), 800);
+    saveTimerRef.current = setTimeout(async () => {
+      const { error } = await salvarCronograma(obraSel, snap, customCols, baselines);
+      if (error) toast('Falha ao salvar após desfazer.', { tone: 'danger', icon: 'alert-triangle' });
+    }, 800);
     toast('Ação desfeita', { tone: 'neutral', icon: 'check' });
   };
 
@@ -5109,7 +5350,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     setEtapas(snap);
     D.cronograma[obraSel] = snap;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => salvarCronograma(obraSel, snap, customCols, baselines), 800);
+    saveTimerRef.current = setTimeout(async () => {
+      const { error } = await salvarCronograma(obraSel, snap, customCols, baselines);
+      if (error) toast('Falha ao salvar após refazer.', { tone: 'danger', icon: 'alert-triangle' });
+    }, 800);
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
   };
 
@@ -5256,39 +5500,120 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
           )
           : (
             <>
-              {/* KPIs */}
-              <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
-                <div className="kpi" style={{ padding: '14px 18px' }}>
-                  <div className="kpi-label">Avanço físico</div>
-                  <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{avancoTotal}<span className="unit">%</span></div>
-                  <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">ponderado pelo custo de cada etapa</span></div>
-                </div>
-                <div className="kpi" style={{ padding: '14px 18px' }}>
-                  <div className="kpi-label">Custo previsto</div>
-                  <div className="kpi-value num" style={{ fontSize: 18, marginTop: 6 }}>
-                    {D.brl(etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), { compact: true })}
+              {/* KPIs — faixa de 5 (redesenho handoff). Dados reais onde há; mock sinalizado. */}
+              {(() => {
+                const leaves = etapas.filter(e => !e.isGroup);
+                const pesoDe = (e) => weightOverride ? (weightOverride[e.id] || 0) : (e.custo || 0);
+                const custoPrev = leaves.reduce((s, e) => s + pesoDe(e), 0);
+                // Custo incorrido = valor agregado (avanço × peso) — proxy de earned value
+                const custoReal = leaves.reduce((s, e) => s + (e.avanco || 0) / 100 * pesoDe(e), 0);
+                const custoPct = custoPrev > 0 ? Math.round(custoReal / custoPrev * 100) : 0;
+                // Previsto acumulado até hoje, a partir da distribuição mensal já computada
+                const totalPlan = Object.values(monthlyTotals).reduce((s, v) => s + v, 0);
+                const todayKey = new Date().toISOString().slice(0, 7);
+                const planToDate = Object.entries(monthlyTotals).reduce((s, [k, v]) => k <= todayKey ? s + v : s, 0);
+                const plannedPct = totalPlan > 0 ? Math.round(planToDate / totalPlan * 100) : 0;
+                const deltaPp = avancoTotal - plannedPct;
+                // Término projetado = maior data de término das tarefas (real). Comparação com base = TODO.
+                const maxEnd = leaves.length ? Math.max(...leaves.map(e => e.inicio + e.dur)) : 0;
+                const termino = leaves.length ? offsetToDate(maxEnd).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }) : '—';
+                // ── Derivações por-view da Curva Física (aba view === 'curva') ────────
+                const mesAtual     = todayKey; // "YYYY-MM" do mês corrente
+                const realAcum     = Object.entries(realizedTotals).reduce((s, [k, v]) => k <= mesAtual ? s + v : s, 0);
+                const incorridoTot = Object.values(realizedTotals).reduce((s, v) => s + v, 0);
+                const previstoPct  = plannedPct; // planToDate / totalPlan (%)
+                const prodMesPct   = totalPlan > 0 ? Math.round((realizedTotals[mesAtual] || 0) / totalPlan * 100) : 0;
+                const planMesPct   = totalPlan > 0 ? Math.round((monthlyTotals[mesAtual] || 0) / totalPlan * 100) : 0;
+                const deltaMesPp   = prodMesPct - planMesPct;
+                const desvioPp     = totalPlan > 0 ? (Math.round(realAcum / totalPlan * 100) - previstoPct) : 0;
+                const incorridoPct = totalPlan > 0 ? Math.round(incorridoTot / totalPlan * 100) : 0;
+                const nowCurva     = new Date();
+                const mesLabel     = nowCurva.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '/' + String(nowCurva.getFullYear()).slice(2);
+                // TODO: delta de dias do término projetado vs linha de base — sem baseline no pipeline (mock).
+                const terminoDeltaDias = 22;
+                return (
+                  view === 'curva' ? (
+                  <div className="kpi-grid cols-5">
+                    <div className="kpi" style={{ padding: '18px 20px' }}>
+                      <div className="kpi-label">Avanço realizado</div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                        <div className="kpi-value num" style={{ fontSize: 30 }}>{avancoTotal}<span className="unit">%</span></div>
+                        <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600, fontSize: 12 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp} pp vs previsto</span>
+                      </div>
+                      <div className="kpi-bar"><span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} /><span className="kpi-bar-target" style={{ left: previstoPct + '%' }} /></div>
+                      <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">realizado × previsto ({previstoPct}%)</span></div>
+                    </div>
+                    <div className="kpi" style={{ padding: '18px 20px' }}>
+                      <div className="kpi-label">Produção do mês</div>
+                      <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{prodMesPct}<span className="unit">%</span></div>
+                      <div className="kpi-foot" style={{ marginTop: 6 }}>
+                        <span style={{ color: '#d97706', fontWeight: 600 }}>{deltaMesPp >= 0 ? '+' : ''}{deltaMesPp} pp</span>
+                        <span className="kpi-foot-text"> vs planejado ({planMesPct}%)</span>
+                      </div>
+                      <div className="kpi-foot" style={{ marginTop: 2, textTransform: 'capitalize' }}><span className="kpi-foot-text">{mesLabel} · mês corrente</span></div>
+                    </div>
+                    <div className="kpi risk" style={{ padding: '18px 20px' }}>
+                      <div className="kpi-label">Desvio acumulado</div>
+                      <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4, color: 'var(--danger)' }}>{desvioPp >= 0 ? '+' : ''}{desvioPp}<span className="unit">pp</span></div>
+                      <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text" style={{ color: desvioPp < 0 ? 'var(--danger)' : undefined }}>{desvioPp < 0 ? 'obra atrasada' : 'obra no prazo'}</span></div>
+                    </div>
+                    <div className="kpi" style={{ padding: '18px 20px' }}>
+                      <div className="kpi-label">Custo planejado</div>
+                      <div className="kpi-value num" style={{ fontSize: 28, marginTop: 4 }}>{D.brl(totalPlan, { compact: true })}</div>
+                      <div className="kpi-bar"><span className="kpi-bar-fill ok" style={{ width: incorridoPct + '%' }} /></div>
+                      <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">{D.brl(incorridoTot, { compact: true })} incorridos ({incorridoPct}%)</span></div>
+                    </div>
+                    <div className="kpi" style={{ padding: '18px 20px' }}>
+                      <div className="kpi-label">Término projetado</div>
+                      <div className="kpi-value num" style={{ fontSize: 26, marginTop: 4, textTransform: 'capitalize' }}>{termino}</div>
+                      {/* TODO: delta de dias vs linha de base — sem baseline no pipeline; valor mockado */}
+                      <div className="kpi-foot" style={{ marginTop: 6 }}><span style={{ color: '#d97706', fontWeight: 600 }}>+{terminoDeltaDias} dias</span><span className="kpi-foot-text"> vs planejado</span></div>
+                    </div>
                   </div>
-                  <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">soma das tarefas do cronograma</span></div>
+                  ) : (
+                <div className="kpi-grid cols-5">
+                  <div className="kpi" style={{ padding: '18px 20px' }}>
+                    <div className="kpi-label">Avanço físico</div>
+                    <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{avancoTotal}<span className="unit">%</span></div>
+                    <div className="kpi-bar"><span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} /><span className="kpi-bar-target" style={{ left: plannedPct + '%' }} /></div>
+                    <div className="kpi-foot" style={{ marginTop: 6 }}>
+                      <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp} pp</span>
+                      <span className="kpi-foot-text"> vs previsto ({plannedPct}%)</span>
+                    </div>
+                  </div>
+                  <div className="kpi" style={{ padding: '18px 20px' }}>
+                    <div className="kpi-label">Custo incorrido</div>
+                    <div className="kpi-value num" style={{ fontSize: 28, marginTop: 4 }}>{D.brl(custoReal, { compact: true })}</div>
+                    <div className="kpi-bar"><span className="kpi-bar-fill ok" style={{ width: custoPct + '%' }} /></div>
+                    <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">de {D.brl(custoPrev, { compact: true })} previstos ({custoPct}%)</span></div>
+                  </div>
+                  <div className="kpi" style={{ padding: '18px 20px' }}>
+                    <div className="kpi-label">Término projetado</div>
+                    <div className="kpi-value num" style={{ fontSize: 26, marginTop: 4, textTransform: 'capitalize' }}>{termino}</div>
+                    {/* TODO: comparar com a linha de base (delta de dias) quando houver baseline selecionada */}
+                    <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">maior término entre as tarefas</span></div>
+                  </div>
+                  <div className="kpi risk" style={{ padding: '18px 20px' }}>
+                    <div className="kpi-label">Etapas atrasadas</div>
+                    <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4, color: 'var(--danger)' }}>{atrasadas}</div>
+                    <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">{atrasadas === 0 ? 'nenhuma tarefa atrasada' : 'status = atrasada'}</span></div>
+                  </div>
+                  <div className="kpi" style={{ padding: '18px 20px' }}>
+                    <div className="kpi-label">Folga total</div>
+                    {/* TODO: calcular folga/caminho crítico (CPM) — não há esse cálculo no pipeline hoje */}
+                    <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4, color: 'var(--text-faint)' }}>—</div>
+                    <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">requer cálculo de caminho crítico</span></div>
+                  </div>
                 </div>
-                <div className="kpi" style={{ padding: '14px 18px' }}>
-                  <div className="kpi-label">Etapas concluídas</div>
-                  <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>{concluidas}<span className="unit">/ {etapas.length}</span></div>
-                </div>
-                <div className="kpi" style={{ padding: '14px 18px' }}>
-                  <div className="kpi-label">Etapas atrasadas</div>
-                  <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6, color: 'var(--danger)' }}>{atrasadas}</div>
-                  <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">Caminho crítico afetado</span></div>
-                </div>
-                <div className="kpi" style={{ padding: '14px 18px' }}>
-                  <div className="kpi-label">Folga total</div>
-                  <div className="kpi-value num" style={{ fontSize: 22, marginTop: 6 }}>11<span className="unit">dias</span></div>
-                </div>
-              </div>
+                  )
+                );
+              })()}
 
               {view === 'gantt' && (() => {
                 const detailTask = detailId ? etapas.find(e => e.id === detailId) : null;
+                const dtStatus = detailTask ? effStatus(detailTask) : null;
                 const dtColor = detailTask
-                  ? (detailTask.status === 'done' ? '#1b8f5e' : detailTask.status === 'late' ? '#c0281f' : detailTask.status === 'upcoming' ? '#3d7fc9' : 'var(--brand)')
+                  ? (dtStatus === 'done' ? '#1b8f5e' : dtStatus === 'late' ? '#c0281f' : dtStatus === 'upcoming' ? '#3d7fc9' : 'var(--brand)')
                   : 'var(--brand)';
                 return (
                   <div style={{ display: 'flex', gap: 'var(--gap)', marginTop: 'var(--gap)', alignItems: 'flex-start' }}>
@@ -5301,12 +5626,12 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                         </div>
                         <div className="card-actions">
                           <div className="legend">
-                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#1b8f5e' }}></span>Concluída</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#16a34a' }}></span>Concluída</span>
                             <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Em execução</span>
-                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#c0281f' }}></span>Atrasada</span>
-                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#3d7fc9' }}></span>Futura</span>
-                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#d97706' }}></span>Conflito</span>
-                            <span className="legend-item"><span className="legend-swatch" style={{ width: 10, height: 10, background: 'var(--brand)', transform: 'rotate(45deg)', borderRadius: 0 }}></span>Marco</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--danger)' }}></span>Atrasada</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ background: '#60a5fa' }}></span>Futura</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ background: 'transparent', border: '1.5px solid #d97706' }}></span>Conflito</span>
+                            <span className="legend-item"><span className="legend-swatch" style={{ width: 10, height: 10, background: '#1e293b', transform: 'rotate(45deg)', borderRadius: 2 }}></span>Marco</span>
                             {baselineEtapas && (
                               <span className="legend-item"><span className="legend-swatch" style={{ background: 'rgba(107,120,144,0.55)', height: 4 }}></span>Linha de base</span>
                             )}
@@ -5358,11 +5683,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                         </div>
 
                         <div style={{ padding: '16px 20px', overflowY: 'auto', maxHeight: 'calc(100vh - 320px)' }}>
-                          {detailTab !== 'detalhes' ? (
-                            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-faint)', fontSize: 13 }}>
-                              Em breve
-                            </div>
-                          ) : (
+                          {detailTab === 'anexos' ? (
+                            <AnexosTab obraId={obraSel} taskId={detailTask.id} currentUser={currentUser} />
+                          ) : detailTab === 'histórico' ? (
+                            <HistoricoTab obraId={obraSel} taskId={detailTask.id} currentUser={currentUser} />
+                          ) : detailTab === 'detalhes' ? (
                             <>
                               {/* Datas e duração */}
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px', marginBottom: 16 }}>
@@ -5422,10 +5747,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                                 <div style={{ fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Status</div>
                                 <span style={{
                                   display: 'inline-block', fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                                  background: detailTask.status === 'done' ? '#e5f3ec' : detailTask.status === 'late' ? '#fbe6e4' : 'var(--brand-tint)',
+                                  background: dtStatus === 'done' ? '#e5f3ec' : dtStatus === 'late' ? '#fbe6e4' : 'var(--brand-tint)',
                                   color: dtColor,
                                 }}>
-                                  {detailTask.status === 'done' ? 'Concluída' : detailTask.status === 'late' ? 'Atrasada' : detailTask.status === 'upcoming' ? 'Planejada' : 'Em execução'}
+                                  {dtStatus === 'done' ? 'Concluída' : dtStatus === 'late' ? 'Atrasada' : dtStatus === 'upcoming' ? 'Planejada' : 'Em execução'}
                                 </span>
                               </div>
 
@@ -5462,6 +5787,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                                 </button>
                               </div>
                             </>
+                          ) : (
+                            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-faint)', fontSize: 13 }}>
+                              Em breve
+                            </div>
                           )}
                         </div>
                       </div>

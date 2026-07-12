@@ -559,7 +559,18 @@ const Fotos = ({ obra, readOnly = false }) => {
     setLoading(true);
     const { data, error } = await supabase.from('fotos_obra')
       .select('*').eq('obra_id', obra.id).order('created_at', { ascending: false });
-    if (!error && data) setFotos(data);
+    if (!error && data) {
+      // Bucket privado: exibe via URL assinada gerada do storage_path (funciona também
+      // em bucket público, então não depende da ordem de deploy). A coluna `url` pública
+      // fica só como fallback.
+      const paths = data.map(f => f.storage_path).filter(Boolean);
+      const signed = {};
+      if (paths.length) {
+        const { data: urls } = await supabase.storage.from('obras-images').createSignedUrls(paths, 3600);
+        (urls || []).forEach(u => { if (u.signedUrl && !u.error) signed[u.path] = u.signedUrl; });
+      }
+      setFotos(data.map(f => ({ ...f, url: signed[f.storage_path] || f.url })));
+    }
     setLoading(false);
   };
 
@@ -698,6 +709,11 @@ const UploadFotoModal = ({ obra, onSave, onClose }) => {
   const [form,    setForm]    = React.useState({ data: new Date().toISOString().slice(0, 10), pavimento: '', descricao: '' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // Revoga o objectURL anterior sempre que o preview muda e no unmount (evita leak de blob)
+  React.useEffect(() => {
+    return () => { if (preview) URL.revokeObjectURL(preview); };
+  }, [preview]);
+
   const onFileChange = (e) => {
     const f = e.target.files[0];
     if (!f) return;
@@ -708,9 +724,15 @@ const UploadFotoModal = ({ obra, onSave, onClose }) => {
   const handleSave = async () => {
     if (!file) return;
     setSaving(true);
-    await onSave(form, file);
-    setSaving(false);
-    onClose();
+    try {
+      await onSave(form, file);
+      onClose();
+    } catch (e) {
+      // onSave normalmente já exibe o toast de erro; mantém o modal aberto para nova tentativa
+      console.error('[fotos] falha ao salvar foto', e);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -791,7 +813,18 @@ const EditFotoModal = ({ foto, onSave, onClose }) => {
 const HeroImage = ({ obra, onObraUpdate }) => {
   const toast = useToast();
   const [uploading, setUploading] = React.useState(false);
+  const [heroSrc, setHeroSrc]     = React.useState(null);
   const inputRef = React.useRef();
+
+  // Bucket privado: a capa é exibida via URL assinada do caminho determinístico.
+  React.useEffect(() => {
+    let alive = true;
+    if (!obra.imageUrl) { setHeroSrc(null); return; }
+    supabase.storage.from('obras-images')
+      .createSignedUrl(`obras/${obra.id}/capa.jpg`, 3600)
+      .then(({ data }) => { if (alive) setHeroSrc(data?.signedUrl || null); });
+    return () => { alive = false; };
+  }, [obra.id, obra.imageUrl]);
 
   const handleFile = async (file) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
@@ -812,13 +845,15 @@ const HeroImage = ({ obra, onObraUpdate }) => {
       setUploading(false);
       return;
     }
-    const { data } = supabase.storage.from('obras-images').getPublicUrl(path);
-    onObraUpdate({ ...obra, imageUrl: data.publicUrl });
+    const { data: signed } = await supabase.storage.from('obras-images').createSignedUrl(path, 3600);
+    setHeroSrc(signed?.signedUrl || null);
+    // Guarda o caminho (marcador de "tem capa"); a exibição sempre re-assina.
+    onObraUpdate({ ...obra, imageUrl: path });
     toast('Imagem salva com sucesso', { tone: 'success', icon: 'check' });
     setUploading(false);
   };
 
-  const src = obra.imageUrl;
+  const src = heroSrc;
   const canUpload = !!onObraUpdate;
 
   return (

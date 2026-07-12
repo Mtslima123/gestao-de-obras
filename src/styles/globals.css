@@ -4,15 +4,15 @@
    DESIGN TOKENS — Gestão de Obras
    ============================================ */
 :root {
-  /* Brand */
-  --brand: #014386;
-  --brand-600: #013a76;
-  --brand-700: #002b58;
-  --brand-500: #1858a3;
-  --brand-400: #3d7fc9;
-  --brand-50: #eaf1f9;
-  --brand-100: #d6e4f1;
-  --brand-tint: #f2f6fb;
+  /* Brand — navy oficial Soter #1C4584 (Pantone 281 C) */
+  --brand: #1c4584;
+  --brand-600: #173a70;
+  --brand-700: #102b54;
+  --brand-500: #2a5599;
+  --brand-400: #4a79c0;
+  --brand-50: #eaf0f8;
+  --brand-100: #d5e2f0;
+  --brand-tint: #f2f6fc;
 
   /* Neutrals (cool, hue 250) */
   --bg: #ffffff;
@@ -59,7 +59,7 @@
   --shadow-sm: 0 1px 3px rgba(12, 22, 38, 0.06), 0 1px 2px rgba(12, 22, 38, 0.04);
   --shadow-md: 0 4px 12px rgba(12, 22, 38, 0.06), 0 2px 4px rgba(12, 22, 38, 0.04);
   --shadow-lg: 0 12px 28px rgba(12, 22, 38, 0.08), 0 4px 10px rgba(12, 22, 38, 0.04);
-  --shadow-brand: 0 4px 14px rgba(1, 67, 134, 0.18);
+  --shadow-brand: 0 4px 14px rgba(28, 69, 132, 0.18);
 
   /* Type */
   --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
@@ -2390,3 +2390,74 @@ tr:hover .obras-row-actions {
   .sso-access { padding: 32px 24px; }
   .sso-title { font-size: 34px; }
 }
+
+/* ============================================
+   CRONOGRAMA — redesenho das 4 telas (handoff)
+   Paleta navy da marca (#1C4584). Intensidade de
+   heatmap por --f (0..1) definido inline por célula.
+   ============================================ */
+
+/* KPI band: 5 colunas + bordas de risco */
+.kpi-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.kpi.risk { border-color: #fca5a5; }
+.kpi.warn { border-color: #fde68a; }
+/* Mini-barra de apoio no KPI (realizado x meta) */
+.kpi-bar { position: relative; height: 6px; border-radius: 999px; background: var(--surface-muted); border: 1px solid var(--border); margin-top: 8px; overflow: visible; }
+.kpi-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--brand); }
+.kpi-bar-fill.ok { background: var(--success); }
+.kpi-bar-target { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); border-radius: 1px; }
+
+/* Botão de perigo */
+.btn-danger { background: var(--danger); color: #fff; border-color: transparent; }
+.btn-danger:hover { background: #9c1f1a; }
+
+/* Coluna congelada (sticky-left) em tabelas largas */
+.sticky-left { position: sticky; left: 0; z-index: 2; background: var(--surface); box-shadow: 1px 0 0 var(--border); }
+th.sticky-left { z-index: 4; }
+.cron-grid tbody tr:hover td { background: var(--surface-muted); }
+.cron-grid tbody tr:hover .sticky-left { background: var(--surface-muted); }
+
+/* Células de heatmap (distribuição mensal) */
+.heat-cell { text-align: right; font-variant-numeric: tabular-nums;
+  background: rgb(28 69 132 / calc(0.05 + 0.5 * var(--f, 0))); color: #10305f; font-weight: 500; }
+.heat-cell.hot { font-weight: 600; }
+.heat-cell.group { background: rgb(51 65 85 / calc(0.06 + 0.28 * var(--f, 0))); color: var(--text); font-weight: 700; }
+.heat-cell.foot { background: rgb(15 23 42 / calc(0.05 + 0.16 * var(--f, 0))); color: var(--text); font-weight: 600; }
+.heat-cell.empty { background: transparent; color: #cbd5e1; font-weight: 400; }
+[data-theme="dark"] .heat-cell { color: #bcd2f5; background: rgb(74 121 192 / calc(0.08 + 0.5 * var(--f, 0))); }
+[data-theme="dark"] .heat-cell.group { color: var(--text); background: rgb(148 163 184 / calc(0.06 + 0.24 * var(--f, 0))); }
+
+/* Cabeçalho em bandas da Lista (linha acima dos nomes de coluna) */
+.tbl thead tr.band-row th {
+  top: auto; /* não gruda no topo; só a linha de nomes de coluna fica sticky-top */
+  background: var(--surface-muted);
+  color: var(--text-faint);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  text-align: left; padding: 8px 10px 4px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+/* Lista — barras de progresso por status/grupo */
+.tbl-lista .progress { background: #eef2f6; }          /* track mais visível (tarefas) */
+.tbl-lista .progress.groupbar { background: #e2e8f0; } /* track do grupo um pouco mais escuro */
+.progress.groupbar > span { background: #334155; }
+.progress.futura > span { background: #60a5fa; }
+
+/* Lista — chip de predecessora/sucessora */
+.dep-chip { display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 600; color: var(--text-soft); background: #eef2f6; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+
+/* Lista — alturas de linha e banda de grupo (contraste elevado) */
+.tbl-lista tbody tr td { height: 52px; }
+.tbl-lista tbody tr.lista-row-group td { height: 46px; background: var(--brand-50); }
+
+/* Botão escuro (Adicionar tarefa) */
+.btn-dark { background: var(--text); color: #fff; border-color: transparent; }
+.btn-dark:hover { background: #000; border-color: transparent; }
+
+/* Resumo Mensal (Curva Física): bandas de série coloridas */
+.serie-band { color: #fff; font-weight: 700; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; padding: 6px 12px; }
+.serie-band.base   { background: var(--brand-700); }
+.serie-band.reprog { background: var(--brand); }
+.serie-band.real   { background: #15803d; }
+.serie-band.desvio { background: #475569; }

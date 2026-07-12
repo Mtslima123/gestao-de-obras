@@ -18,6 +18,22 @@ Deno.serve(async (req) => {
       { auth: { autoRefreshToken: false, persistSession: false } },
     );
 
+    // ── Autorização: só admin autenticado pode usar esta função ──
+    // Sem isso, qualquer um com a anon key (pública) poderia redefinir senha
+    // de qualquer usuário ou se promover a admin.
+    const token = req.headers.get('Authorization')?.replace('Bearer ', '') ?? '';
+    const { data: { user: caller }, error: callerErr } = await supabaseAdmin.auth.getUser(token);
+    if (callerErr || !caller) return err('Não autenticado');
+
+    const { data: callerProfile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('perfil, status')
+      .eq('id', caller.id)
+      .single();
+    if (!callerProfile || callerProfile.perfil !== 'admin' || callerProfile.status !== 'ativo') {
+      return err('Acesso negado: requer administrador');
+    }
+
     const body = await req.json();
     const { modo, nome, email, telefone, perfil, status, modulos_ids, abas_ids, obra_ids, password } = body;
 

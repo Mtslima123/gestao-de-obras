@@ -19,4 +19,11 @@ export default defineConfig({
       'Referrer-Policy': 'strict-origin-when-cross-origin',
     },
   },
+  // Testes unitários (vitest). O teste de integração de segurança (Supabase real +
+  // credenciais TEST_USER_*) é excluído do run padrão e roda via `npm run test:security`.
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.js'],
+    exclude: ['**/node_modules/**', 'src/__tests__/security.test.js'],
+  },
 });
