@@ -13,8 +13,6 @@ import { Dashboard } from './modules/dashboard/Dashboard';
 import { ObrasList } from './modules/obras/ObrasList';
 import { ObraDetail } from './modules/obras/ObraDetail';
 import { OrcamentosScreen } from './modules/financeiro/Orcamentos';
-import { EstimativasScreen } from './modules/financeiro/Estimativas';
-import { INCCScreen } from './modules/financeiro/Incc';
 import { CronogramaFull } from './modules/cronograma/Cronograma';
 import { OrcamentoCronogramaScreen } from './modules/financeiro/OrcamentoCronograma';
 import { UsuariosScreen } from './modules/admin/Usuarios';
@@ -224,10 +222,8 @@ const AppInner = () => {
     'dashboard':  '01 Dashboard',
     'obras':      '02 Obras — Lista',
     'obra-detail':'03 Obra — Detalhe',
-    'estimativas':'04 Estimativas',
     'orcamentos': '05 Orçamentos',
     'cronograma': '06 Cronograma',
-    'incc':       '07 INCC',
     'admin':      'Administração',
   };
 
@@ -240,9 +236,8 @@ const AppInner = () => {
       { label: selectedObra ? selectedObra.nome : AppData.obraAtual.nome },
     ];
     const map = {
-      obras: 'Obras', estimativas: 'Estimativas',
+      obras: 'Obras',
       orcamentos: 'Orçamentos', cronograma: 'Cronogramas',
-      incc: 'INCC',
       admin: 'Administração',
     };
     return [home, { label: map[view] || view }];
@@ -259,12 +254,11 @@ const AppInner = () => {
   const VIEW_MODULO = {
     dashboard: 'dashboard', obras: 'obras', 'obra-detail': 'obras',
     orcamentos: 'orcamentos', cronograma: 'cronograma',
-    estimativas: 'estimativas', incc: 'incc',
   };
   const moduloDaView = VIEW_MODULO[view];
   const viewBloqueada = !!moduloDaView && !moduloLiberado(userProfile, moduloDaView);
   const primeiraViewLiberada =
-    ['dashboard', 'obras', 'orcamentos', 'cronograma', 'estimativas', 'incc']
+    ['dashboard', 'obras', 'orcamentos', 'cronograma']
       .find(v => moduloLiberado(userProfile, v)) || 'dashboard';
 
   return (
@@ -331,11 +325,9 @@ const AppInner = () => {
               userProfile={userProfile}
             />
           )}
-          {view === 'estimativas' && <EstimativasScreen userProfile={userProfile} />}
-          {view === 'incc' && <INCCScreen userProfile={userProfile} />}
           {view === 'cronograma' && (
             <>
-              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} userProfile={userProfile} />}
+              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} obras={obrasVisiveis} userProfile={userProfile} />}
               {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} />}
             </>
           )}
@@ -353,7 +345,7 @@ const AppInner = () => {
             ) : <AcessoNegado onVoltar={() => handleNavigate('dashboard')} />
           )}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
-           view !== 'orcamentos' && view !== 'estimativas' && view !== 'incc' &&
+           view !== 'orcamentos' &&
            view !== 'cronograma' && view !== 'admin' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
@@ -396,10 +388,8 @@ const AppInner = () => {
         <TweakButton label="Dashboard" onClick={() => handleNavigate('dashboard')} />
         <TweakButton label="Obras" onClick={() => handleNavigate('obras')} />
         <TweakButton label="Detalhe da Obra A" onClick={() => handleOpenObra(AppData.obraAtual)} />
-        <TweakButton label="Estimativas" onClick={() => handleNavigate('estimativas')} />
         <TweakButton label="Orçamentos" onClick={() => handleNavigate('orcamentos')} />
         <TweakButton label="Cronograma" onClick={() => handleNavigate('cronograma')} />
-        <TweakButton label="INCC" onClick={() => handleNavigate('incc')} />
 
         <TweakSection label="Modais" />
         <TweakButton label="Nova obra" onClick={() => setModal('nova-obra')} secondary />

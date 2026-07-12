@@ -16,13 +16,12 @@ const MOD_COLORS = {
   orcamentos:    '#16a34a',
   medicoes:      '#d97706',
   contratos:     '#ea580c',
-  estimativas:   '#0284c7',
   autenticacao:  '#374151',
   ia:            '#6d28d9',
 };
 
 const ACOES = ['criou', 'editou', 'excluiu', 'aprovou', 'reprovou', 'login', 'logout', 'importou', 'exportou'];
-const MODULOS = ['usuarios', 'obras', 'cronograma', 'orcamentos', 'medicoes', 'contratos', 'estimativas', 'autenticacao'];
+const MODULOS = ['usuarios', 'obras', 'cronograma', 'orcamentos', 'medicoes', 'contratos', 'autenticacao'];
 
 const MOCK_LOGS = [
   { id: 'm1', created_at: new Date(Date.now()-3*60000).toISOString(), user_nome: 'Administrador', user_perfil: 'admin', modulo: 'usuarios', acao: 'editou', entidade_tipo: 'usuario', entidade_id: '25', descricao: 'Alterou o perfil do usuário João da Silva de Usuário para Administrador', obra_nome: 'Todas as Obras', ip: '177.68.32.10', criticidade: 'critica', valor_anterior: { Perfil: 'Usuário', Status: 'Ativo' }, valor_novo: { Perfil: 'Administrador', Status: 'Ativo' }, sessao_id: '5f8d9...', duracao_ms: 842 },

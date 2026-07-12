@@ -40,12 +40,6 @@ Registro de quantitativos executados, validação contra contrato e orçamento.
 ### Orçamentos
 Orçamento base, análise de variações, previsão de custos finais (forecast).
 
-### INCC
-Correção monetária automática baseada em índices da construção civil.
-
-### Estimativas
-Projeção de custos finais, prazos e recursos necessários.
-
 ### Resumo & Relatórios
 Exportação de dashboards, KPIs e relatórios gerenciais.
 

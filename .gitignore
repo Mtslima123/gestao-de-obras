@@ -12,3 +12,5 @@ verify_test.mjs
 verify_test.cjs
 # Screenshots gerados por verificações locais
 verify_*.png
+# Handoff de design (material local, não versionar)
+design_handoff_soter_cronogramas/

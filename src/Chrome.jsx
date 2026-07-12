@@ -297,11 +297,6 @@ const Topbar = ({ breadcrumb, onNovaObra }) => {
       </div>
 
       <div className="topbar-actions">
-        <button className="search-trigger">
-          <Icon name="search" size={14} />
-          <span>Buscar em todo o sistema…</span>
-          <kbd>⌘K</kbd>
-        </button>
         <div style={{ position: 'relative' }}>
           <button
             className="icon-btn"

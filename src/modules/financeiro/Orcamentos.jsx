@@ -5,7 +5,7 @@ import { AppData } from '../../utils/data';
 import { useToast, Modal } from '../../components/Modals';
 import { orcamentosService } from './orcamentos.service';
 import { formatBRL } from '../../utils/formatters';
-import { moduloSomenteLeitura } from '../../utils/permissions';
+import { moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
 
 // Orçamentos — lista + detalhe com composição
 const { brl: brlOR } = AppData;
@@ -13,28 +13,11 @@ const brlFull = formatBRL;
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
-const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, onCriarRevisao, userProfile }) => {
+const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, userProfile }) => {
   const filtered = orcamentos;
   const readOnly = moduloSomenteLeitura(userProfile, 'orcamentos');
-  const [openMenuId, setOpenMenuId] = React.useState(null);
-  const [revisandoId, setRevisandoId] = React.useState(null);
   const [deleteOrc, setDeleteOrc] = React.useState(null);
   const [deleteStep, setDeleteStep] = React.useState(1);
-  const menuRef = React.useRef(null);
-
-  React.useEffect(() => {
-    if (!openMenuId) return;
-    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenuId(null); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [openMenuId]);
-
-  const handleRevisao = async (o) => {
-    setOpenMenuId(null);
-    setRevisandoId(o.id);
-    await onCriarRevisao(o);
-    setRevisandoId(null);
-  };
 
   const handleDeleteConfirm = () => {
     if (!deleteOrc) return;
@@ -52,7 +35,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
         <div>
           <h1 className="page-title">Orçamentos</h1>
         </div>
-        {!readOnly && (
+        {isAdmin(userProfile) && (
           <div className="page-actions">
             <button className="btn btn-primary" onClick={onNovo}><Icon name="plus" size={15} />Novo orçamento</button>
           </div>
@@ -86,9 +69,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
                   </tr>
                 ))
               ) : (
-                filtered.map((o, i) => {
-                  const openUp = i >= filtered.length - 2;
-                  return (
+                filtered.map((o) => (
                   <tr key={o.id} onClick={() => onOpen(o)}>
                     <td className="strong mono">{o.id}</td>
                     <td className="strong">{o.obra}</td>
@@ -96,32 +77,20 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
                     <td className="mono text-sm text-muted">{o.data}</td>
                     <td>
                       {!readOnly && (
-                      <div style={{ position: 'relative' }} ref={openMenuId === o.id ? menuRef : null}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
                         <button
                           className="icon-btn"
                           style={{ width: 28, height: 28 }}
-                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === o.id ? null : o.id); }}
+                          title="Excluir orçamento"
+                          onClick={(e) => { e.stopPropagation(); setDeleteOrc(o); setDeleteStep(1); }}
                         >
-                          <Icon name="dots" size={14} />
+                          <Icon name="trash" size={14} />
                         </button>
-                        {openMenuId === o.id && (
-                          <div className="dropdown" style={openUp ? { top: 'auto', bottom: 'calc(100% + 6px)' } : undefined} onClick={(e) => e.stopPropagation()}>
-                            <button className="dropdown-item" disabled={revisandoId === o.id} onClick={() => handleRevisao(o)}>
-                              <Icon name="file" size={14} />
-                              {revisandoId === o.id ? 'Criando…' : 'Criar revisão'}
-                            </button>
-                            <button className="dropdown-item danger" onClick={() => { setOpenMenuId(null); setDeleteOrc(o); setDeleteStep(1); }}>
-                              <Icon name="trash" size={14} />
-                              Excluir
-                            </button>
-                          </div>
-                        )}
                       </div>
                       )}
                     </td>
                   </tr>
-                  );
-                })
+                ))
               )}
             </tbody>
           </table>
@@ -529,7 +498,7 @@ const NumericCell = React.memo(({ value, displayValue, onCommit, placeholder }) 
   );
 });
 
-const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user, userProfile }) => {
+const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) => {
   const toast         = useToast();
   const readOnly       = moduloSomenteLeitura(userProfile, 'orcamentos');
   const [items, setItems]           = React.useState([]);
@@ -549,7 +518,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user, u
   const [collapsed, setCollapsed]   = React.useState(new Set());
   const [confirmDelete, setConfirm] = React.useState(false);
   const [deleting, setDeleting]     = React.useState(false);
-  const [revisando, setRevisando]   = React.useState(false);
+  const [exportingPDF, setExportingPDF] = React.useState(false);
 
   React.useEffect(() => {
     if (_itensCache[orcamento.id]) { setItems(_itensCache[orcamento.id]); return; }
@@ -929,10 +898,63 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user, u
     await onDelete(orcamento.id);
   };
 
-  const handleCriarRevisao = async () => {
-    setRevisando(true);
-    await onCriarRevisao(orcamento);
-    setRevisando(false);
+  const handleExportPDF = async () => {
+    if (!withTotals.length) { toast('Nada para exportar', { tone: 'neutral', icon: 'alert' }); return; }
+    setExportingPDF(true);
+    try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const BRAND = [28, 69, 132]; // #1C4584 (identidade Soter)
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      doc.setFontSize(14); doc.text(`Orçamento ${orcamento.id} (${orcamento.versao || 'v1'})`, 14, 14);
+      doc.setFontSize(9); doc.setTextColor(120);
+      doc.text(`${orcamento.obra || orcamento.cliente || ''} · Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
+      doc.setTextColor(0);
+      const grupo = (it) => parentSet.has(it.codigo);
+      const body = withTotals.map(it => ({
+        _g: grupo(it),
+        vals: [
+          '  '.repeat(getNivel(it.codigo)) + it.codigo,
+          it.nome || '—',
+          grupo(it) ? '—' : fmtNum(it.quantidade),
+          grupo(it) ? '' : (it.unidade || '—'),
+          grupo(it) ? '—' : fmtNum(it.valor_unitario),
+          brlFull(it.valor_total),
+        ],
+      }));
+      autoTable(doc, {
+        startY: 25,
+        head: [['Código', 'Nome', 'Quant.', 'Un.', 'Valor Unit.', 'Valor Total']],
+        body: body.map(r => r.vals),
+        foot: [['', 'Total', '', '', '', brlFull(grandTotal)]],
+        theme: 'grid',
+        headStyles: { fillColor: BRAND, textColor: 255, fontSize: 8, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 7.5, textColor: 40 },
+        alternateRowStyles: { fillColor: [248, 249, 250] },
+        footStyles: { fillColor: [225, 232, 242], fontStyle: 'bold', fontSize: 8 },
+        columnStyles: { 2: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+        margin: { top: 25, right: 14, bottom: 14, left: 14 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && body[data.row.index]?._g) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [232, 240, 252];
+            data.cell.styles.textColor = 20;
+          }
+        },
+        didDrawPage: ({ pageNumber }) => {
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text(`Página ${pageNumber}`, W - 20, H - 6);
+          doc.setTextColor(0);
+        },
+      });
+      doc.save(`orcamento-${orcamento.id}-${orcamento.versao || 'v1'}.pdf`);
+      toast('PDF exportado', { tone: 'success', icon: 'check' });
+    } catch (e) {
+      toast('Erro ao exportar PDF: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
+    } finally {
+      setExportingPDF(false);
+    }
   };
 
   // ── KPIs ───────────────────────────────────────────────────────────────────
@@ -955,22 +977,18 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, onCriarRevisao, user, u
         </div>
         <div className="page-actions">
           {!readOnly && (
-            <>
-              <button
-                className={'btn ' + (confirmDelete ? 'btn-danger' : 'btn-ghost')}
-                onClick={handleDeleteClick}
-                disabled={deleting}
-              >
-                <Icon name="trash" size={15} />
-                {deleting ? 'Excluindo…' : confirmDelete ? 'Confirmar exclusão' : 'Excluir'}
-              </button>
-              <button className="btn btn-ghost" onClick={handleCriarRevisao} disabled={revisando}>
-                <Icon name="file" size={15} />
-                {revisando ? 'Criando…' : 'Criar revisão'}
-              </button>
-            </>
+            <button
+              className={'btn ' + (confirmDelete ? 'btn-danger' : 'btn-ghost')}
+              onClick={handleDeleteClick}
+              disabled={deleting}
+            >
+              <Icon name="trash" size={15} />
+              {deleting ? 'Excluindo…' : confirmDelete ? 'Confirmar exclusão' : 'Excluir'}
+            </button>
           )}
-          <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar PDF</button>
+          <button className="btn btn-ghost" onClick={handleExportPDF} disabled={exportingPDF}>
+            <Icon name="download" size={15} />{exportingPDF ? 'Exportando…' : 'Exportar PDF'}
+          </button>
           {orcamento.status === 'pendente' && !readOnly && (
             <button className="btn btn-primary"><Icon name="check" size={15} />Aprovar</button>
           )}
@@ -1328,45 +1346,6 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
     refetch(true);
   };
 
-  const handleCriarRevisao = async (orcamento) => {
-    if (!orcamento.obra_id) {
-      toast('Orçamento sem obra vinculada — não é possível criar revisão', { tone: 'error', icon: 'alert' });
-      return;
-    }
-    const versaoNum = parseInt((orcamento.versao || 'v1').replace('v', ''), 10);
-    const novaVersao = 'v' + (versaoNum + 1);
-    const novoId = 'OR-' + String(Date.now()).slice(-4);
-
-    const { error } = await orcamentosService.criar({
-      id:      novoId,
-      obra_id: orcamento.obra_id,
-      cliente: orcamento.cliente,
-      versao:  novaVersao,
-      status:  'rascunho',
-      valor:   orcamento.valor,
-      data:    new Date().toISOString().slice(0, 10),
-    }, user?.id);
-
-    if (error) {
-      toast('Erro ao criar revisão: ' + error.message, { tone: 'error', icon: 'alert' });
-      return;
-    }
-
-    // Copia os itens do orçamento original para a nova revisão
-    const { data: itens } = await orcamentosService.itens.listar(orcamento.id);
-    if (itens && itens.length > 0) {
-      const novosItens = itens.map(({ id, created_at, orcamento_id, ...rest }) => ({
-        ...rest,
-        orcamento_id: novoId,
-      }));
-      await orcamentosService.itens.criar(novosItens);
-    }
-
-    toast('Revisão ' + novaVersao + ' criada', { tone: 'success', icon: 'check' });
-    refetch(true);
-    setSelected({ ...orcamento, id: novoId, versao: novaVersao, status: 'rascunho', data: new Date().toLocaleDateString('pt-BR') });
-  };
-
   if (selected) {
     return (
       <OrcamentoDetalhe
@@ -1375,7 +1354,6 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
         onDelete={handleDelete}
         user={user}
         userProfile={userProfile}
-        onCriarRevisao={handleCriarRevisao}
       />
     );
   }
@@ -1387,7 +1365,6 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
       orcamentos={orcamentos}
       loading={loading}
       onDelete={handleDelete}
-      onCriarRevisao={handleCriarRevisao}
       userProfile={userProfile}
     />
   );

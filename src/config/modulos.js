@@ -23,12 +23,6 @@ export const MODULOS = [
       { id: 'fluxo', label: 'Fluxo Executivo' },
   ] },
   { id: 'orc-x-cron',  label: 'Orç. × Cronograma', icon: 'link', subDe: 'cronograma' },
-  { id: 'estimativas', label: 'Estimativas',       icon: 'calculator', abas: [
-      { id: 'nova',   label: 'Estimativa atual' },
-      { id: 'salvas', label: 'Estimativas salvas' },
-      { id: 'base',   label: 'Base de dados' },
-  ] },
-  { id: 'incc',        label: 'INCC',              icon: 'trending-up' },
 ];
 
 // Módulos de nível superior no menu (exclui sub-itens, ex.: orc-x-cron)

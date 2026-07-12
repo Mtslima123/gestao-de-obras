@@ -11,8 +11,8 @@
  * decide as abas DENTRO de um módulo que o usuário já pode ver.
  *
  * @param {object|null} userProfile  Perfil do usuário (user_profiles)
- * @param {string}      modId        ID do módulo (ex: 'obras', 'estimativas')
- * @param {string}      abaId        ID da aba (ex: 'visao', 'salvas')
+ * @param {string}      modId        ID do módulo (ex: 'obras', 'cronograma')
+ * @param {string}      abaId        ID da aba (ex: 'visao', 'gantt')
  * @returns {boolean}
  */
 export const podeVerAba = (userProfile, modId, abaId) => {
@@ -51,6 +51,14 @@ export const filtrarAbas = (userProfile, modId, abas) =>
  * @param {string}      modId
  * @returns {boolean}
  */
+/**
+ * Verifica se o usuário é administrador.
+ *
+ * @param {object|null} userProfile
+ * @returns {boolean}
+ */
+export const isAdmin = (userProfile) => userProfile?.perfil === 'admin';
+
 export const moduloLiberado = (userProfile, modId) => {
   if (!userProfile) return false;
   if (userProfile.perfil === 'admin') return true;

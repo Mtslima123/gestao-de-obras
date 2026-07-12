@@ -436,27 +436,6 @@ a:hover { color: var(--brand-600); }
   background: var(--danger);
   border: 1.5px solid var(--surface);
 }
-.search-trigger {
-  display: flex; align-items: center; gap: 10px;
-  height: 36px; padding: 0 12px;
-  background: var(--surface-muted);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-muted);
-  font-size: 13px;
-  min-width: 260px;
-}
-.search-trigger:hover { border-color: var(--border-strong); }
-.search-trigger kbd {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-
 /* ============================================
    BUTTONS
    ============================================ */

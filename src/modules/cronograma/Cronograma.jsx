@@ -2042,7 +2042,7 @@ const AddColModal = ({ onClose, onAdd }) => {
 // ─── PavimentosModal ─────────────────────────────────────────────────────────
 const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
   const [step,          setStep]          = React.useState(1);
-  const [floors,        setFloors]        = React.useState(['Térreo', 'Pavimento 1', 'Pavimento 2']);
+  const [floors,        setFloors]        = React.useState(['']);
   const [selectedTasks, setSelectedTasks] = React.useState([]);
 
   const validFloors = floors.filter(f => f.trim());
@@ -4837,18 +4837,20 @@ const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDuplicar, on
 };
 
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
-const CronogramaFull = ({ initialObraId, userProfile }) => {
+const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const D    = AppData;
   const toast = useToast();
   const readOnly = moduloSomenteLeitura(userProfile, 'cronograma');
 
-  // Escolhe a obra inicial sem usar OB-001 hardcoded.
-  // Após F5 o initialObraId vem null; cai na obra salva na sessão para não
-  // voltar à obra padrão. Navegação explícita (initialObraId) tem prioridade.
+  // Escolhe a obra inicial a partir da lista real de obras (prop). Navegação
+  // explícita (initialObraId) tem prioridade; depois a obra salva na sessão,
+  // mas só se ela ainda existir na lista (evita ficar preso numa obra fantasma);
+  // por fim a primeira em andamento e, na falta, a primeira da lista.
+  const obraSalva = sessionStorage.getItem('cronograma_obra');
   const defaultObraId = initialObraId
-    || sessionStorage.getItem('cronograma_obra')
-    || D.obras.find(o => o.status === 'em_andamento')?.id
-    || D.obras[0]?.id
+    || (obras.some(o => o.id === obraSalva) ? obraSalva : null)
+    || obras.find(o => o.status === 'em_andamento')?.id
+    || obras[0]?.id
     || null;
 
   const [obraSel,      setObraSel]      = React.useState(defaultObraId);
@@ -4874,6 +4876,8 @@ const CronogramaFull = ({ initialObraId, userProfile }) => {
   const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(defaultObraId || ''));
   const [blVisivelId,  setBlVisivelId]  = React.useState(null);
   const [showCriar,    setShowCriar]    = React.useState(false);
+  // Cronograma iniciado mas ainda sem etapas: mostra o editor vazio sem gravar nada
+  const [iniciando,    setIniciando]    = React.useState(false);
   const [showGerenciar, setShowGerenciar] = React.useState(false);
   const [outlineOpen,  setOutlineOpen]  = React.useState(false);
   const [loadedObraId, setLoadedObraId] = React.useState(null);
@@ -4912,6 +4916,7 @@ const CronogramaFull = ({ initialObraId, userProfile }) => {
   // Recarrega etapas, histórico e baselines ao trocar de obra (Supabase first, fallback para mock)
   React.useEffect(() => {
     let cancelled = false;
+    setIniciando(false); // outra obra sem cronograma volta a exibir o empty-state
     async function carregar() {
       if (!obraSel) { setLoadedObraId(null); return; }
       // Cache da sessão: restaura na hora, sem rede nem reprocessamento
@@ -5032,7 +5037,7 @@ const CronogramaFull = ({ initialObraId, userProfile }) => {
   // Etapas da baseline visível (null = nenhuma)
   const baselineEtapas = blVisivelId ? (baselines.find(b => b.id === blVisivelId)?.etapas || null) : null;
 
-  const obra       = D.obras.find(o => o.id === obraSel) || D.obras[0];
+  const obra       = obras.find(o => o.id === obraSel) || obras[0];
   const concluidas = etapas.filter(e => e.status === 'done').length;
   const atrasadas  = etapas.filter(e => e.status === 'late').length;
 
@@ -5153,7 +5158,7 @@ const CronogramaFull = ({ initialObraId, userProfile }) => {
         <div className="page-actions">
           <select className="input" value={obraSel || ''} onChange={e => setObraSel(e.target.value)} style={{ minWidth: 200 }}>
             {!obraSel && <option value="">Selecione uma obra</option>}
-            {D.obras.filter(o => o.status === 'em_andamento').map(o => (
+            {obras.map(o => (
               <option key={o.id} value={o.id}>{o.nome} ({o.id})</option>
             ))}
           </select>
@@ -5226,7 +5231,7 @@ const CronogramaFull = ({ initialObraId, userProfile }) => {
 
       {isLoading
         ? <div className="text-muted" style={{ padding: 64, textAlign: 'center' }}>Carregando…</div>
-        : !obraSel || etapas.length === 0
+        : !obraSel || (etapas.length === 0 && !iniciando)
           ? (
             <div className="card" style={{ marginTop: 'var(--gap)', padding: '72px 24px', textAlign: 'center' }}>
               <div style={{ width: 64, height: 64, borderRadius: 16, background: 'var(--brand-tint)', color: 'var(--brand)',
@@ -5239,11 +5244,9 @@ const CronogramaFull = ({ initialObraId, userProfile }) => {
               </div>
               {obraSel && !readOnly && (
                 <button className="btn btn-primary" onClick={() => {
-                  commit([{ id: 'TSK-001', etapa: 'Nova etapa', inicio: 0, dur: 30,
-                            avanco: 0, status: 'upcoming', dep: [], milestone: false,
-                            nivel: 0, parentId: null, isGroup: false, collapsed: false,
-                            responsavel: '', customCols: {}, custo: 0,
-                            restricaoTipo: 'asap', restricaoData: '', fator_peso: 1 }]);
+                  // Entra no editor vazio sem criar/gravar etapa. As etapas são
+                  // adicionadas pelo usuário via "Adicionar tarefa", que persiste.
+                  setIniciando(true);
                   setView('lista');
                 }}>
                   <Icon name="plus" size={15} />Criar cronograma

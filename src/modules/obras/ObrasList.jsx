@@ -4,13 +4,12 @@ import { AppData } from '../../utils/data';
 import { Modal, ObraFormModal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
 import { offsetToISO } from '../cronograma/ganttUtils';
-import { moduloSomenteLeitura } from '../../utils/permissions';
+import { isAdmin } from '../../utils/permissions';
 
 // Obras — lista completa em cards
 const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete, userProfile }) => {
   const D = AppData;
   const { brl } = D;
-  const readOnly = moduloSomenteLeitura(userProfile, 'obras');
   const [filter,         setFilter]        = React.useState('todos');
   const [search,         setSearch]        = React.useState('');
   const [showNovaObra,   setShowNovaObra]  = React.useState(false);
@@ -61,7 +60,7 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
             {obras.length} obras cadastradas
           </div>
         </div>
-        {!readOnly && (
+        {isAdmin(userProfile) && (
           <div className="page-actions">
             <button className="btn btn-primary" onClick={() => setShowNovaObra(true)}>
               <Icon name="plus" size={15} /> Nova Obra

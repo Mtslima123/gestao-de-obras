@@ -21,9 +21,7 @@ const AcessoNaoAutorizado = ({ email, onSair }) => {
     <div className="login-foot">
       <span>© 2026 Soter · Gestão de Obras</span>
       <span className="row" style={{ gap: 12 }}>
-        <a href="#" onClick={e => e.preventDefault()}>Privacidade</a>
-        <a href="#" onClick={e => e.preventDefault()}>Termos</a>
-        <span className="mono text-xs text-faint">v4.18.2</span>
+        <span className="mono text-xs text-faint">v{__APP_VERSION__}</span>
       </span>
     </div>
   );
