@@ -6,7 +6,9 @@ import { FluxoExecutivo } from './FluxoExecutivo';
 import { Modal, useToast } from '../../components/Modals';
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
-import { computeValorVinculadoMap as _computeValorVinculadoMap } from './ganttUtils';
+import { computeValorVinculadoMap as _computeValorVinculadoMap,
+         buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
+         buildCalendarWeeks, buildCalendarDays } from './ganttUtils';
 import { podeVerAba, moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
 import { taskDetailStore } from './taskDetailStore';
@@ -29,8 +31,19 @@ const GM_MONTH_W     = 64;              // px por mês (mantido para compatibili
 const GM_DAY_W       = GM_MONTH_W / 30; // px por dia ≈ 2.133
 const GM_LABEL_W     = 280;  // px da coluna de rótulos
 const GM_ROW_H       = 44;   // altura por linha
-const GM_HEADER_H    = 78;   // altura do cabeçalho (20 ano + 28 trimestre + 30 mês)
 const GM_BAR_H       = 24;   // altura das barras
+
+// Altura de cada linha do cabeçalho (Ano / Trimestre / Mês / linha extra de Semana ou Dia).
+// A altura total varia com o zoom — ver `headerH` dentro de GanttInterativo.
+const GM_ROW_ANO  = 20;
+const GM_ROW_TRI  = 28;
+const GM_ROW_MES  = 30;
+const GM_ROW_FINE = 24; // linha extra de Semana (zoom "semana") ou Dia (zoom "dia")
+
+// px por dia em cada nível de zoom — cresce de Trimestre (mais zoom-out) para Dia (mais zoom-in).
+const ZOOM_PX_DIA = { dia: 22, semana: 9, mes: GM_MONTH_W / 30, trimestre: 0.7 };
+
+const GM_REF_DATE = new Date(GM_START_YEAR, GM_START_MONTH, 1);
 
 // Paleta de cores para grupos WBS — cores em hex de 6 dígitos (suportam sufixo alfa CSS Level 4)
 const GROUP_PALETTE = [
@@ -1311,21 +1324,45 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
     }
     return out;
   }, [dynTotal]);
-  // Agrupa meses por ano para o cabeçalho de 3 níveis (Ano / Trimestre / Mês)
-  const yearGroups = React.useMemo(() => {
-    const out = [];
-    dynMonths.forEach((m) => {
-      const last = out[out.length - 1];
-      if (last && last.year === m.year) { last.count++; }
-      else { out.push({ year: m.year, count: 1 }); }
-    });
-    return out;
-  }, [dynMonths]);
+  // Grade de calendário real (dias corretos por mês) para o cabeçalho e a grade de fundo.
+  // dynMonths/dynQuarters (acima) continuam existindo só para o export em PDF, que assume
+  // meses de 30 dias fixos — não são tocados para não alterar o layout do PDF.
+  const calTotalDays = dynTotal * 30;
+  const calMonths = React.useMemo(
+    () => buildCalendarMonths(GM_REF_DATE, calTotalDays), [calTotalDays]
+  );
+  const calQuarters = React.useMemo(() => buildCalendarQuarters(calMonths), [calMonths]);
+  const calYears    = React.useMemo(() => buildCalendarYears(calMonths), [calMonths]);
+  const calWeeks    = React.useMemo(
+    () => zoom === 'semana' ? buildCalendarWeeks(GM_REF_DATE, calTotalDays) : [], [zoom, calTotalDays]
+  );
+  const calDays     = React.useMemo(
+    () => zoom === 'dia' ? buildCalendarDays(GM_REF_DATE, calTotalDays) : [], [zoom, calTotalDays]
+  );
 
-  const zoomMonthW = zoom === 'dia' ? 30 : zoom === 'semana' ? 48 : zoom === 'mes' ? GM_MONTH_W : 192;
-  const zoomDayW   = zoomMonthW / 30;
+  // Escala por zoom — px/dia crescente de Trimestre (mais zoom-out) para Dia (mais zoom-in).
+  const zoomDayW = ZOOM_PX_DIA[zoom] ?? ZOOM_PX_DIA.mes;
   zoomDayWRef.current = zoomDayW; // sincroniza o ref para event handlers
-  const tlW = dynTotal * zoomMonthW;
+  const tlW = calTotalDays * zoomDayW;
+
+  // Linhas de grade de fundo por tarefa: granularidade muda com o zoom selecionado.
+  const gridLines = React.useMemo(() => {
+    if (zoom === 'trimestre') return calQuarters.map(q => ({ offset: q.startOffset, strong: true }));
+    if (zoom === 'dia')       return calDays.map(d => ({ offset: d.offset, strong: d.isMonthStart }));
+    if (zoom === 'semana') {
+      const monthStarts = calMonths.map(m => m.startOffset);
+      return calWeeks.map(w => ({
+        offset: w.startOffset,
+        strong: monthStarts.some(mo => mo >= w.startOffset && mo < w.startOffset + w.days),
+      }));
+    }
+    return calMonths.map(m => ({ offset: m.startOffset, strong: m.isQ }));
+  }, [zoom, calMonths, calQuarters, calWeeks, calDays]);
+
+  // Altura do cabeçalho varia com o zoom: Trimestre esconde a linha de Mês; Semana/Dia somam uma linha extra.
+  const headerH = GM_ROW_ANO + GM_ROW_TRI
+    + (zoom !== 'trimestre' ? GM_ROW_MES : 0)
+    + ((zoom === 'semana' || zoom === 'dia') ? GM_ROW_FINE : 0);
 
   // Utilitário para verificar se uma tarefa é compatível com a busca atual
   const matchesSearch = (e) => !search ||
@@ -1533,7 +1570,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
 
           {/* ── Cabeçalho rótulo (EAP / Tarefa / Progresso) ──────────────── */}
           <div style={{
-            height: GM_HEADER_H, borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
+            height: headerH, borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
             display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
             padding: '0 14px 10px 18px',
             background: 'var(--surface, #fff)',
@@ -1554,13 +1591,13 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
             />
           </div>
 
-          {/* ── Cabeçalho linha do tempo (Ano / Trimestre / Mês) ─────────── */}
+          {/* ── Cabeçalho linha do tempo (Ano / Trimestre / [Mês] / [Semana|Dia]) ── */}
           <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface, #fff)', position: 'sticky', top: 0, zIndex: 6 }}>
             {/* Anos */}
-            <div style={{ display: 'flex', height: 20, borderBottom: '1px solid var(--border)', background: 'rgba(1,67,134,0.018)' }}>
-              {yearGroups.map((yg, yi) => (
+            <div style={{ display: 'flex', height: GM_ROW_ANO, borderBottom: '1px solid var(--border)', background: 'rgba(1,67,134,0.018)' }}>
+              {calYears.map((yg, yi) => (
                 <div key={yi} style={{
-                  width: yg.count * zoomMonthW,
+                  width: yg.days * zoomDayW,
                   fontSize: 10, fontWeight: 700, color: 'var(--brand-500)',
                   letterSpacing: '0.05em', padding: '3px 10px',
                   borderRight: '1px solid var(--border)',
@@ -1569,11 +1606,11 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                 </div>
               ))}
             </div>
-            {/* Trimestres */}
-            <div style={{ display: 'flex', height: 28, borderBottom: '1px solid var(--border)' }}>
-              {dynQuarters.map((q, qi) => (
+            {/* Trimestres — sempre calendário real (Jan-Mar/Abr-Jun/Jul-Set/Out-Dez) */}
+            <div style={{ display: 'flex', height: GM_ROW_TRI, borderBottom: '1px solid var(--border)' }}>
+              {calQuarters.map((q, qi) => (
                 <div key={qi} style={{
-                  width: (q.end - q.start) * zoomMonthW,
+                  width: q.days * zoomDayW,
                   fontSize: 10, fontWeight: 600, color: 'var(--text-soft)',
                   textTransform: 'uppercase', letterSpacing: '0.06em',
                   padding: '7px 10px', borderRight: '1px solid var(--border)',
@@ -1583,20 +1620,51 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                 </div>
               ))}
             </div>
-            {/* Meses */}
-            <div style={{ display: 'flex', height: 30 }}>
-              {dynMonths.map((m, mi) => (
-                <div key={mi} style={{
-                  width: zoomMonthW, textAlign: 'center', padding: '8px 0', fontSize: 10,
-                  borderRight: '1px solid var(--border)', fontFamily: 'var(--font-mono)',
-                  color: m.isQ ? 'var(--text-muted)' : 'var(--text-faint)',
-                  fontWeight: m.isQ ? 600 : 400,
-                  background: m.isQ ? 'rgba(1,67,134,0.018)' : 'transparent',
-                }}>
-                  {m.short}
-                </div>
-              ))}
-            </div>
+            {/* Meses — ocultos no zoom Trimestre, que se resume a Ano/Trimestre */}
+            {zoom !== 'trimestre' && (
+              <div style={{ display: 'flex', height: GM_ROW_MES, borderBottom: (zoom === 'semana' || zoom === 'dia') ? '1px solid var(--border)' : 'none' }}>
+                {calMonths.map((m, mi) => (
+                  <div key={mi} style={{
+                    width: m.days * zoomDayW, textAlign: 'center', padding: '8px 0', fontSize: 10,
+                    borderRight: '1px solid var(--border)', fontFamily: 'var(--font-mono)',
+                    color: m.isQ ? 'var(--text-muted)' : 'var(--text-faint)',
+                    fontWeight: m.isQ ? 600 : 400,
+                    background: m.isQ ? 'rgba(1,67,134,0.018)' : 'transparent',
+                  }}>
+                    {m.short}
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Semana — número ISO da semana (zoom "semana") */}
+            {zoom === 'semana' && (
+              <div style={{ display: 'flex', height: GM_ROW_FINE }}>
+                {calWeeks.map((w, wi) => (
+                  <div key={wi} style={{
+                    width: w.days * zoomDayW, textAlign: 'center', padding: '5px 0', fontSize: 9.5,
+                    borderRight: '1px solid var(--border)', fontFamily: 'var(--font-mono)',
+                    color: 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden',
+                  }}>
+                    S{w.isoWeek}
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Dia — número do dia, com destaque leve para fins de semana (zoom "dia") */}
+            {zoom === 'dia' && (
+              <div style={{ display: 'flex', height: GM_ROW_FINE }}>
+                {calDays.map((d, di) => (
+                  <div key={di} style={{
+                    width: zoomDayW, textAlign: 'center', padding: '5px 0', fontSize: 9.5,
+                    borderRight: '1px solid var(--border)', fontFamily: 'var(--font-mono)',
+                    color: d.isWeekend ? 'var(--text-faint)' : 'var(--text-muted)',
+                    background: d.isWeekend ? 'rgba(1,67,134,0.03)' : 'transparent',
+                  }}>
+                    {d.day}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* ── Linhas das etapas ────────────────────────────────────────── */}
@@ -1715,19 +1783,19 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                   borderBottom: '1px solid var(--border)', background: rowBg,
                   opacity: isSearchMatch ? 1 : 0.25,
                 }}>
-                  {/* Grade de meses */}
-                  {dynMonths.map((m, mi) => (
-                    <div key={mi} style={{
-                      position: 'absolute', left: mi * zoomMonthW, top: 0, bottom: 0, width: 1,
-                      background: m.isQ ? 'var(--border-strong)' : 'var(--border)',
-                      opacity: m.isQ ? 0.65 : 0.20,
+                  {/* Grade — granularidade muda com o zoom (ver gridLines) */}
+                  {gridLines.map((g, gi) => (
+                    <div key={gi} style={{
+                      position: 'absolute', left: g.offset * zoomDayW, top: 0, bottom: 0, width: 1,
+                      background: g.strong ? 'var(--border-strong)' : 'var(--border)',
+                      opacity: g.strong ? 0.65 : 0.20,
                     }} />
                   ))}
 
                   {/* Sombreamento do passado */}
                   <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
-                    width: Math.min(today, dynTotal * 30) * zoomDayW,
+                    width: Math.min(today, calTotalDays) * zoomDayW,
                     background: 'rgba(0,0,0,0.022)', pointerEvents: 'none',
                   }} />
 
@@ -1859,7 +1927,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
           {/* ── Linha HOJE ────────────────────────────────────────────────── */}
           <div style={{
             position: 'absolute',
-            left: labelWidth + Math.min(today, dynTotal * 30) * zoomDayW,
+            left: labelWidth + Math.min(today, calTotalDays) * zoomDayW,
             top: 0, bottom: 0, width: 0,
             borderLeft: '2px solid var(--danger)',
             zIndex: 10, pointerEvents: 'none',
@@ -1876,7 +1944,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
 
           {/* ── SVG: setas de dependência tipadas (TI/TT/II/IT) ──────────── */}
           <svg style={{
-            position: 'absolute', top: GM_HEADER_H, left: labelWidth,
+            position: 'absolute', top: headerH, left: labelWidth,
             width: tlW, height: visible.length * GM_ROW_H,
             pointerEvents: 'none', overflow: 'visible',
           }}>
@@ -3684,9 +3752,8 @@ const USO_COL_LABELS  = ['ID', 'EAP', 'Nome da Tarefa', 'Início', 'Término', '
 const USO_COL_DEFAULT = { id: 44, wbs: 52, nome: 208, inicio: 88, fim: 88, dur: 56, avanco: 52 };
 const USO_COL_ALIGN   = { id: 'right', wbs: 'left', nome: 'left', inicio: 'left', fim: 'left', dur: 'right', avanco: 'right' };
 
-const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
+const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap = {} }) => {
   const [selectedId, setSelectedId] = React.useState(null);
-  const [detalhe,    setDetalhe]    = React.useState('custo');
   const leftRef  = React.useRef(null);
   const rightRef = React.useRef(null);
   const syncing  = React.useRef(false);
@@ -3726,18 +3793,17 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
   const visible = etapas;
   const wbsMap  = React.useMemo(() => computeAllWBS(etapas), [etapas]);
 
-  // Métrica selecionável — recalcula toda a grade/heatmap/totais.
-  // Trabalho = custo/120 h (proxy) — TODO: ligar API de horas se houver.
-  const metricCfg = {
-    custo:    { label: 'Custo (R$)',    band: 'CUSTO (R$)',    val: (e) => e.custo || 0,      cell: (v) => v < 1 ? '—' : 'R$ ' + Math.round(v / 1000) + 'k', tot: (v) => fmtBRL(v) },
-    trabalho: { label: 'Trabalho (Hh)', band: 'TRABALHO (Hh)', val: (e) => (e.custo || 0) / 120, cell: (v) => v < 1 ? '—' : (v >= 1000 ? (v / 1000).toFixed(1) + 'k h' : Math.round(v) + ' h'), tot: (v) => Math.round(v).toLocaleString('pt-BR') + ' h' },
-    avanco:   { label: 'Avanço (%)',    band: 'AVANÇO (%)',    val: (e) => e.fator_peso ?? 1, cell: (v) => v < 0.05 ? '—' : v.toFixed(1) + '%', tot: (v) => v.toFixed(0) + '%' },
+  // Distribuição sempre por custo previsto (valor vinculado ao orçamento quando houver).
+  const hasVinculos = Object.keys(valorVinculadoMap).length > 0;
+  const cfg = {
+    val: (e) => hasVinculos ? (valorVinculadoMap[e.id] || 0) : (e.custo || 0),
+    cell: (v) => v < 1 ? '—' : 'R$ ' + Math.round(v / 1000) + 'k',
+    tot: (v) => fmtBRL(v),
   };
-  const cfg = metricCfg[detalhe] || metricCfg.custo;
   const metricOverride = React.useMemo(() => {
     const o = {}; etapas.forEach(e => { if (!e.isGroup) o[e.id] = cfg.val(e); }); return o;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etapas, detalhe]);
+  }, [etapas, valorVinculadoMap]);
   const dist2 = React.useMemo(() => computeMonthlyDist(etapas, metricOverride), [etapas, metricOverride]);
   const cellMax = React.useMemo(() => {
     let mx = 0;
@@ -3904,15 +3970,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
     <div ref={usoRef} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 280px)', marginTop: 'var(--gap)' }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', marginBottom: 4 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Distribuir</span>
-        <div style={{ display: 'inline-flex', background: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: 9, padding: 3, gap: 2 }}>
-          {Object.entries(metricCfg).map(([k, m]) => (
-            <button key={k} onClick={() => setDetalhe(k)}
-              style={{ padding: '5px 12px', fontSize: 13, fontWeight: detalhe === k ? 600 : 500, borderRadius: 7, border: 'none', cursor: 'pointer', background: detalhe === k ? 'var(--text)' : 'transparent', color: detalhe === k ? '#fff' : 'var(--text-soft)' }}>
-              {m.label}
-            </button>
-          ))}
-        </div>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Custo (R$) previsto por mês</span>
         <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 8 }}>
           Intensidade da célula = concentração no mês · clique numa tarefa para destacar
         </span>
@@ -4000,7 +4058,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId }) => {
               {visible.map(e => {
                 const dist  = getDist(e);
                 const total = months.reduce((s, m) => s + (dist[m.key] || 0), 0);
-                const emptyThresh = detalhe === 'avanco' ? 0.05 : 1;
+                const emptyThresh = 1;
                 return (
                   <tr key={e.id}
                     style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
@@ -4082,7 +4140,7 @@ const SCurveChart = ({ months = [], planned = [], realized = [], monthlyPct = []
 };
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
-const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, valorVinculadoMap = {}, onCommit }) => {
+const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, reprogramacoes, repVisivelId, valorVinculadoMap = {}, onCommit }) => {
   // Custo efetivo: com vínculos, usa o valor vinculado distribuído (cobre folhas e grupos)
   const hasVinc  = Object.keys(valorVinculadoMap).length > 0;
   const custoEf  = (e, gv) => hasVinc
@@ -4118,6 +4176,25 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     ? months.reduce((s, m) => s + (baselineDist[m.key] || 0), 0)
     : null;
 
+  // Reprogramação = retrato do cronograma salvo antes de reprogramar (snapshot congelado).
+  // Sem nenhuma selecionada, cai no cronograma vivo (mesmo comportamento de antes desta feature).
+  const activeRep = repVisivelId
+    ? (reprogramacoes?.find(r => r.id === repVisivelId) || null)
+    : null;
+  const repEtapas = activeRep?.etapas || null;
+  const repNome   = activeRep?.nome   || null;
+  const hasRep    = repEtapas != null;
+
+  const repDist = React.useMemo(() => {
+    if (!repEtapas) return null;
+    const dist = computeMonthlyDist(repEtapas);
+    const agg = {};
+    Object.values(dist).forEach(d =>
+      Object.entries(d).forEach(([k, v]) => { agg[k] = (agg[k] || 0) + v; })
+    );
+    return agg;
+  }, [repEtapas]);
+
   // Mês selecionado para a coluna Produção
   const [selMonKey, setSelMonKey] = React.useState(() => {
     const n = new Date();
@@ -4140,7 +4217,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     const blM=[], blA=[], repM=[], repA=[], rrM=[], rrA=[], difBL=[], difRep=[];
     months.forEach(m => {
       const vBL  = hasBL ? (baselineDist[m.key] || 0) : 0;
-      const vRep = filteredPlanned[m.key] || 0;
+      const vRep = hasRep ? (repDist[m.key] || 0) : (filteredPlanned[m.key] || 0);
       const vRR  = m.key <= todayKey2 ? (realizedTotals[m.key] || 0) : vRep;
       apBL += vBL; apRep += vRep; apRR += vRR;
       blM.push(vBL  / refBLT * 100); blA.push(apBL / refBLT * 100);
@@ -4444,7 +4521,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
             months.forEach(m => {
               const vBL  = hasBL ? (baselineDist[m.key] || 0) : 0;
-              const vRep = filteredPlanned[m.key] || 0;
+              const vRep = hasRep ? (repDist[m.key] || 0) : (filteredPlanned[m.key] || 0);
               const vRR  = m.key <= todayKey
                 ? (realizedTotals[m.key] || 0)
                 : (filteredPlanned[m.key] || 0);
@@ -4604,7 +4681,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   {/* ── Reprogramação ── */}
                   <tr>
                     <td colSpan={totalCols} style={{ ...grpHdrBlue, borderTop: '2px solid rgba(255,255,255,0.2)' }}>
-                      Reprogramação Mês Anterior
+                      {hasRep ? repNome : 'Reprogramação Mês Anterior'}
                     </td>
                   </tr>
                   <tr>
@@ -4859,10 +4936,28 @@ function salvarBaselines(obraId, bls) {
   localStorage.setItem(`cronograma_baselines_${obraId}`, JSON.stringify(bls));
 }
 
+// ─── Helpers de Reprogramação (retrato do cronograma antes de reprogramar) ──
+function carregarReprogramacoes(obraId) {
+  try { return JSON.parse(localStorage.getItem(`cronograma_reprogramacoes_${obraId}`)) || []; }
+  catch { return []; }
+}
+function salvarReprogramacoesLocal(obraId, reps) {
+  localStorage.setItem(`cronograma_reprogramacoes_${obraId}`, JSON.stringify(reps));
+}
+// Entre as reprogramações anteriores ao mês atual, a mais recente; sem nenhuma
+// anterior, a mais recente entre todas; lista vazia, null.
+function defaultRepId(reps) {
+  if (!reps.length) return null;
+  const mesAtual = new Date().toISOString().slice(0, 7);
+  const anteriores = reps.filter(r => r.criadaEm.slice(0, 7) < mesAtual);
+  const pool = anteriores.length ? anteriores : reps;
+  return pool.reduce((best, r) => (!best || r.criadaEm > best.criadaEm) ? r : best, null)?.id ?? null;
+}
+
 // Retorna { error } para o chamador decidir o feedback. Não engole falha de persistência.
-async function salvarCronograma(obraId, etapas, customCols, baselines) {
+async function salvarCronograma(obraId, etapas, customCols, baselines, reprogramacoes) {
   const { error } = await supabase.from('cronogramas').upsert(
-    { obra_id: obraId, etapas, custom_cols: customCols, baselines, updated_at: new Date().toISOString() },
+    { obra_id: obraId, etapas, custom_cols: customCols, baselines, reprogramacoes, updated_at: new Date().toISOString() },
     { onConflict: 'obra_id' }
   );
   if (error) console.error('[cronograma] falha ao salvar', error);
@@ -4871,7 +4966,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines) {
 
 async function carregarCronogramaDB(obraId) {
   const { data, error } = await supabase.from('cronogramas')
-    .select('etapas, custom_cols, baselines')
+    .select('etapas, custom_cols, baselines, reprogramacoes')
     .eq('obra_id', obraId)
     .single();
   return error ? null : data;
@@ -5045,6 +5140,115 @@ const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDuplicar, on
   );
 };
 
+// ─── Modal: Salvar Reprogramação ─────────────────────────────────────────────
+const CriarReprogramacaoModal = ({ totalEtapas, onClose, onCreate }) => {
+  const hoje = new Date();
+  const mesLabel = hoje.toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '/');
+  const [nome, setNome] = React.useState(`Reprogramação ${mesLabel}`);
+
+  const handleConfirm = () => {
+    if (nome.trim()) { onCreate(nome.trim()); onClose(); }
+  };
+
+  return (
+    <Modal title="Salvar Reprogramação" onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" disabled={!nome.trim()} onClick={handleConfirm}>
+            <Icon name="check" size={14} />Salvar
+          </button>
+        </>
+      }
+    >
+      <div className="stack" style={{ gap: 14 }}>
+        <div>
+          <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)', display: 'block', marginBottom: 6 }}>
+            Nome
+          </label>
+          <input className="input" value={nome} autoFocus
+            onChange={e => setNome(e.target.value)}
+            placeholder="Ex: Reprogramação 07/2026"
+            style={{ width: '100%' }}
+          />
+        </div>
+        <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>
+          Salva uma cópia do cronograma atual ({totalEtapas} etapas), como ele está agora, para você
+          comparar depois na Curva Física — use antes de reprogramar.
+        </p>
+      </div>
+    </Modal>
+  );
+};
+
+// ─── Modal: Gerenciar Reprogramações ─────────────────────────────────────────
+const GerenciarReprogramacoesModal = ({ reprogramacoes, repVisivelId, onSelect, onExcluir, onClose }) => {
+  const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
+
+  return (
+    <Modal title="Gerenciar Reprogramações" subtitle={`${reprogramacoes.length} reprogramação${reprogramacoes.length !== 1 ? 'ões' : ''} salva${reprogramacoes.length !== 1 ? 's' : ''}`} size="lg" onClose={onClose}
+      footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
+    >
+      {reprogramacoes.length === 0
+        ? <p style={{ fontSize: 13.5, color: 'var(--text-muted)', padding: '24px 0', textAlign: 'center' }}>
+            Nenhuma reprogramação salva. Clique em "Salvar Reprogramação" para começar.
+          </p>
+        : (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Criada em</th>
+                <th className="right">Etapas</th>
+                <th style={{ textAlign: 'center' }}>Comparando</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {reprogramacoes.map(r => (
+                <tr key={r.id}>
+                  <td className="strong">{r.nome}</td>
+                  <td className="mono text-muted">{r.criadaEm}</td>
+                  <td className="right num">{r.etapas.length}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    <input type="radio" name="rep-visivel"
+                      checked={repVisivelId === r.id}
+                      onChange={() => onSelect(repVisivelId === r.id ? null : r.id)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </td>
+                  <td>
+                    {confirmId === r.id ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          Excluir definitivamente?
+                        </span>
+                        <button className="btn btn-sm"
+                          style={{ background: 'var(--danger)', color: 'white', fontWeight: 700 }}
+                          onClick={() => { onExcluir(r.id); setConfirmId(null); }}>
+                          Sim, excluir
+                        </button>
+                        <button className="btn btn-sm btn-ghost" onClick={() => setConfirmId(null)}>
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <button className="btn btn-sm" style={{ color: 'var(--danger)' }}
+                        onClick={() => setConfirmId(r.id)}>
+                        Excluir
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      }
+    </Modal>
+  );
+};
+
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
 const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const D    = AppData;
@@ -5084,7 +5288,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
   const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(defaultObraId || ''));
   const [blVisivelId,  setBlVisivelId]  = React.useState(null);
+  const [reprogramacoes, setReprogramacoes] = React.useState(() => carregarReprogramacoes(defaultObraId || ''));
+  const [repVisivelId,   setRepVisivelId]   = React.useState(() => defaultRepId(carregarReprogramacoes(defaultObraId || '')));
   const [showCriar,    setShowCriar]    = React.useState(false);
+  const [showCriarRep,     setShowCriarRep]     = React.useState(false);
+  const [showGerenciarRep, setShowGerenciarRep] = React.useState(false);
   // Cronograma iniciado mas ainda sem etapas: mostra o editor vazio sem gravar nada
   const [iniciando,    setIniciando]    = React.useState(false);
   const [showGerenciar, setShowGerenciar] = React.useState(false);
@@ -5155,11 +5363,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         setEtapas(cached.etapas);
         setCustomCols(cached.customCols);
         setBaselines(cached.baselines);
+        setReprogramacoes(cached.reprogramacoes || []);
         setVinculos(cached.vinculos);
         setOrcamentoItensMap(cached.orcamentoItensMap);
         histRef.current = [cached.etapas.map(e => ({ ...e }))];
         hidxRef.current = 0;
         setBlVisivelId(null);
+        setRepVisivelId(defaultRepId(cached.reprogramacoes || []));
         setLoadedObraId(obraSel);
         return;
       }
@@ -5190,12 +5400,19 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         const bls = db.baselines?.length ? db.baselines : carregarBaselines(obraSel);
         setBaselines(bls);
         if (db.baselines?.length) salvarBaselines(obraSel, db.baselines);
+        const reps = db.reprogramacoes?.length ? db.reprogramacoes : carregarReprogramacoes(obraSel);
+        setReprogramacoes(reps);
+        if (db.reprogramacoes?.length) salvarReprogramacoesLocal(obraSel, db.reprogramacoes);
+        setRepVisivelId(defaultRepId(reps));
       } else {
         const mock = sanitizarERecuperar(migrateEtapas(D.cronograma[obraSel] || []));
         setEtapas(mock);
         histRef.current = [mock.map(e => ({ ...e }))];
         hidxRef.current = 0;
         setBaselines(carregarBaselines(obraSel));
+        const reps = carregarReprogramacoes(obraSel);
+        setReprogramacoes(reps);
+        setRepVisivelId(defaultRepId(reps));
       }
       setBlVisivelId(null);
       setLoadedObraId(obraSel); // marca carga concluída — isLoading vira false
@@ -5207,9 +5424,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // Mantém o cache da obra espelhando o estado atual (inclui edições), para voltar instantâneo
   React.useEffect(() => {
     if (loadedObraId && loadedObraId === obraSel) {
-      _cronCache[loadedObraId] = { etapas, customCols, baselines, vinculos, orcamentoItensMap };
+      _cronCache[loadedObraId] = { etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap };
     }
-  }, [etapas, customCols, baselines, vinculos, orcamentoItensMap, loadedObraId, obraSel]);
+  }, [etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap, loadedObraId, obraSel]);
 
   // Handlers de linha de base
   const criarLinha = (nome) => {
@@ -5222,7 +5439,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const novas = [...baselines, nova];
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, novas);
+    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes);
     toast(`Linha de base "${nome}" criada`, { tone: 'success', icon: 'check' });
   };
 
@@ -5234,7 +5451,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     );
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, novas);
+    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes);
     toast(`Linha de base "${nome}" atualizada`, { tone: 'success', icon: 'check' });
   };
 
@@ -5242,7 +5459,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const novas = baselines.filter(b => b.id !== id);
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, novas);
+    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes);
     if (blVisivelId === id) setBlVisivelId(null);
     toast('Linha de base excluída', { tone: 'neutral', icon: 'check' });
   };
@@ -5254,14 +5471,39 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const novas = [...baselines, copia];
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, novas);
+    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes);
     toast(`"${copia.nome}" criada`, { tone: 'success', icon: 'check' });
+  };
+
+  // Handlers de reprogramação (retrato imutável — sem sobrescrever/duplicar)
+  const criarReprogramacao = (nome) => {
+    const nova = {
+      id: 'RP-' + Date.now(),
+      nome,
+      criadaEm: new Date().toISOString().slice(0, 10),
+      etapas: etapas.map(e => ({ ...e })),
+    };
+    const novas = [...reprogramacoes, nova];
+    setReprogramacoes(novas);
+    salvarReprogramacoesLocal(obraSel, novas);
+    salvarCronograma(obraSel, etapas, customCols, baselines, novas);
+    setRepVisivelId(nova.id);
+    toast(`Reprogramação "${nome}" salva`, { tone: 'success', icon: 'check' });
+  };
+
+  const excluirReprogramacao = (id) => {
+    const novas = reprogramacoes.filter(r => r.id !== id);
+    setReprogramacoes(novas);
+    salvarReprogramacoesLocal(obraSel, novas);
+    salvarCronograma(obraSel, etapas, customCols, baselines, novas);
+    if (repVisivelId === id) setRepVisivelId(defaultRepId(novas));
+    toast('Reprogramação excluída', { tone: 'neutral', icon: 'check' });
   };
 
   const handleCustomColsChange = (novasCols) => {
     setCustomCols(novasCols);
     D.cronogramaCustomCols = novasCols;
-    salvarCronograma(obraSel, etapas, novasCols, baselines);
+    salvarCronograma(obraSel, etapas, novasCols, baselines, reprogramacoes);
   };
 
   // Etapas da baseline visível (null = nenhuma)
@@ -5314,7 +5556,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     // O toast reflete o RESULTADO real da persistência (após o await), não a intenção.
     saveTimerRef.current = setTimeout(async () => {
-      const { error } = await salvarCronograma(obraSel, clean, customCols, baselines);
+      const { error } = await salvarCronograma(obraSel, clean, customCols, baselines, reprogramacoes);
       if (opts.silent) return;
       if (error) {
         toast('Falha ao salvar o cronograma. Suas mudanças podem não ter sido gravadas.', { tone: 'danger', icon: 'alert-triangle' });
@@ -5337,7 +5579,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     D.cronograma[obraSel] = snap;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      const { error } = await salvarCronograma(obraSel, snap, customCols, baselines);
+      const { error } = await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes);
       if (error) toast('Falha ao salvar após desfazer.', { tone: 'danger', icon: 'alert-triangle' });
     }, 800);
     toast('Ação desfeita', { tone: 'neutral', icon: 'check' });
@@ -5351,7 +5593,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     D.cronograma[obraSel] = snap;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      const { error } = await salvarCronograma(obraSel, snap, customCols, baselines);
+      const { error } = await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes);
       if (error) toast('Falha ao salvar após refazer.', { tone: 'danger', icon: 'alert-triangle' });
     }, 800);
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
@@ -5466,6 +5708,28 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
           )}
           {baselines.length > 0 && !readOnly && (
             <button className="btn btn-ghost" onClick={() => setShowGerenciar(true)}>
+              <Icon name="layers" size={15} />Gerenciar
+            </button>
+          )}
+          {reprogramacoes.length > 0 && (
+            <select className="input" style={{ minWidth: 200 }}
+              value={repVisivelId || ''}
+              onChange={e => setRepVisivelId(e.target.value || null)}
+              title="Reprogramação comparada na Curva Física"
+            >
+              <option value="">Sem reprogramação</option>
+              {reprogramacoes.map(r => (
+                <option key={r.id} value={r.id}>{r.nome}</option>
+              ))}
+            </select>
+          )}
+          {!readOnly && (
+            <button className="btn btn-ghost" onClick={() => setShowCriarRep(true)}>
+              <Icon name="clock" size={15} />Salvar Reprogramação
+            </button>
+          )}
+          {reprogramacoes.length > 0 && !readOnly && (
+            <button className="btn btn-ghost" onClick={() => setShowGerenciarRep(true)}>
               <Icon name="layers" size={15} />Gerenciar
             </button>
           )}
@@ -5668,7 +5932,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
 
                         {/* Tabs */}
                         <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', padding: '0 20px' }}>
-                          {['detalhes', 'recursos', 'anexos', 'histórico'].map(tab => (
+                          {['detalhes', 'anexos', 'histórico'].map(tab => (
                             <button key={tab} onClick={() => setDetailTab(tab)}
                               style={{
                                 border: 'none', background: 'none', cursor: 'pointer',
@@ -5687,7 +5951,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                             <AnexosTab obraId={obraSel} taskId={detailTask.id} currentUser={currentUser} />
                           ) : detailTab === 'histórico' ? (
                             <HistoricoTab obraId={obraSel} taskId={detailTask.id} currentUser={currentUser} />
-                          ) : detailTab === 'detalhes' ? (
+                          ) : (
                             <>
                               {/* Datas e duração */}
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px', marginBottom: 16 }}>
@@ -5787,10 +6051,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                                 </button>
                               </div>
                             </>
-                          ) : (
-                            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-faint)', fontSize: 13 }}>
-                              Em breve
-                            </div>
                           )}
                         </div>
                       </div>
@@ -5807,6 +6067,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   realizedTotals={realizedTotals}
                   baselines={baselines}
                   blVisivelId={blVisivelId}
+                  reprogramacoes={reprogramacoes}
+                  repVisivelId={repVisivelId}
                   valorVinculadoMap={valorVinculadoMapFull}
                   onCommit={commit}
                 />
@@ -5828,7 +6090,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               )}
 
               {view === 'uso' && (
-                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} />
+                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} valorVinculadoMap={valorVinculadoMapFull} />
               )}
 
               {view === 'fluxo' && (
@@ -5856,6 +6118,24 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
           onDuplicar={duplicarLinha}
           onExcluir={excluirLinha}
           onClose={() => setShowGerenciar(false)}
+        />
+      )}
+
+      {showCriarRep && (
+        <CriarReprogramacaoModal
+          totalEtapas={etapas.length}
+          onClose={() => setShowCriarRep(false)}
+          onCreate={criarReprogramacao}
+        />
+      )}
+
+      {showGerenciarRep && (
+        <GerenciarReprogramacoesModal
+          reprogramacoes={reprogramacoes}
+          repVisivelId={repVisivelId}
+          onSelect={setRepVisivelId}
+          onExcluir={excluirReprogramacao}
+          onClose={() => setShowGerenciarRep(false)}
         />
       )}
     </>
