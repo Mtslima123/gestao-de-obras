@@ -4954,22 +4954,56 @@ function defaultRepId(reps) {
   return pool.reduce((best, r) => (!best || r.criadaEm > best.criadaEm) ? r : best, null)?.id ?? null;
 }
 
-// Retorna { error } para o chamador decidir o feedback. Não engole falha de persistência.
+// updated_at que acreditamos ser o vigente por obra (última carga ou último save nosso).
+// Base do bloqueio otimista: se o banco divergir disso, outra pessoa salvou no meio.
+const _cronSavedAt = {};
+
+// Bloqueio otimista. Retorna:
+//   { error }                  em falha de rede/SQL
+//   { error:null }             sucesso (grava e avança o _cronSavedAt)
+//   { error:null, conflict:true } outra sessão gravou no meio (NÃO sobrescreve)
 async function salvarCronograma(obraId, etapas, customCols, baselines, reprogramacoes) {
-  const { error } = await supabase.from('cronogramas').upsert(
-    { obra_id: obraId, etapas, custom_cols: customCols, baselines, reprogramacoes, updated_at: new Date().toISOString() },
-    { onConflict: 'obra_id' }
-  );
-  if (error) console.error('[cronograma] falha ao salvar', error);
-  return { error };
+  const nowISO = new Date().toISOString();
+  const payload = { etapas, custom_cols: customCols, baselines, reprogramacoes, updated_at: nowISO };
+  const expected = _cronSavedAt[obraId];
+
+  // Sem baseline conhecida (1ª sessão sem ter carregado do banco): upsert simples (comportamento anterior).
+  if (expected === undefined || expected === null) {
+    const { error } = await supabase.from('cronogramas').upsert(
+      { obra_id: obraId, ...payload }, { onConflict: 'obra_id' });
+    if (error) { console.error('[cronograma] falha ao salvar', error); return { error }; }
+    _cronSavedAt[obraId] = nowISO;
+    return { error: null };
+  }
+
+  // Update condicional: só grava se o updated_at do banco ainda for o que carregamos.
+  const { data, error } = await supabase.from('cronogramas')
+    .update(payload).eq('obra_id', obraId).eq('updated_at', expected).select('updated_at');
+  if (error) { console.error('[cronograma] falha ao salvar', error); return { error }; }
+  if (data && data.length) { _cronSavedAt[obraId] = nowISO; return { error: null }; }
+
+  // 0 linhas: ou a linha ainda não existe, ou o updated_at mudou (conflito).
+  const { data: atual } = await supabase.from('cronogramas')
+    .select('updated_at').eq('obra_id', obraId).maybeSingle();
+  if (!atual) {
+    const { error: insErr } = await supabase.from('cronogramas').insert({ obra_id: obraId, ...payload });
+    if (insErr) { console.error('[cronograma] falha ao inserir', insErr); return { error: insErr }; }
+    _cronSavedAt[obraId] = nowISO;
+    return { error: null };
+  }
+  // Conflito: mantém expected inalterado para os próximos saves seguirem barrando até recarregar.
+  console.warn('[cronograma] conflito de edição — outra sessão salvou', obraId);
+  return { error: null, conflict: true };
 }
 
 async function carregarCronogramaDB(obraId) {
   const { data, error } = await supabase.from('cronogramas')
-    .select('etapas, custom_cols, baselines, reprogramacoes')
+    .select('etapas, custom_cols, baselines, reprogramacoes, updated_at')
     .eq('obra_id', obraId)
     .single();
-  return error ? null : data;
+  if (error) return null;
+  _cronSavedAt[obraId] = data.updated_at;  // baseline do bloqueio otimista
+  return data;
 }
 
 // Cache por obra (espelha o estado em memória), evita rebuscar/reprocessar ao voltar; resetado no F5
@@ -5298,6 +5332,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const [showGerenciar, setShowGerenciar] = React.useState(false);
   const [outlineOpen,  setOutlineOpen]  = React.useState(false);
   const [loadedObraId, setLoadedObraId] = React.useState(null);
+  // Bloqueio otimista: conflito quando outra sessão salvou o mesmo cronograma
+  const [conflito,     setConflito]     = React.useState(false);
+  const [reloadKey,    setReloadKey]    = React.useState(0);
   // Painel lateral de detalhes da tarefa selecionada
   const [detailId,     setDetailId]    = React.useState(null);
   const [detailTab,    setDetailTab]   = React.useState('detalhes');
@@ -5417,9 +5454,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       setBlVisivelId(null);
       setLoadedObraId(obraSel); // marca carga concluída — isLoading vira false
     }
+    setConflito(false);   // recarregou do banco: baseline atualizada, conflito resolvido
     carregar();
     return () => { cancelled = true; };
-  }, [obraSel]);
+  }, [obraSel, reloadKey]);
 
   // Mantém o cache da obra espelhando o estado atual (inclui edições), para voltar instantâneo
   React.useEffect(() => {
@@ -5427,6 +5465,29 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       _cronCache[loadedObraId] = { etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap };
     }
   }, [etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap, loadedObraId, obraSel]);
+
+  // Trata o resultado de salvarCronograma (bloqueio otimista): conflito ou erro.
+  // Retorna true quando houve problema (o chamador não deve exibir "sucesso").
+  const handleSaveResult = (res) => {
+    if (res?.conflict) {
+      setConflito(true);
+      toast('Este cronograma foi alterado por outra pessoa. Recarregue para ver a versão atual antes de continuar.', { tone: 'warning', icon: 'alert-triangle' });
+      return true;
+    }
+    if (res?.error) {
+      toast('Falha ao salvar o cronograma. Suas mudanças podem não ter sido gravadas.', { tone: 'danger', icon: 'alert-triangle' });
+      return true;
+    }
+    return false;
+  };
+
+  // Descarta o estado local e recarrega do banco (resolve o conflito reconciliando pela versão do servidor).
+  const recarregarCronograma = () => {
+    delete _cronCache[obraSel];
+    delete _cronSavedAt[obraSel];
+    setConflito(false);
+    setReloadKey(k => k + 1);
+  };
 
   // Handlers de linha de base
   const criarLinha = (nome) => {
@@ -5439,7 +5500,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const novas = [...baselines, nova];
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes);
+    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes).then(handleSaveResult);
     toast(`Linha de base "${nome}" criada`, { tone: 'success', icon: 'check' });
   };
 
@@ -5451,7 +5512,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     );
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes);
+    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes).then(handleSaveResult);
     toast(`Linha de base "${nome}" atualizada`, { tone: 'success', icon: 'check' });
   };
 
@@ -5459,7 +5520,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const novas = baselines.filter(b => b.id !== id);
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes);
+    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes).then(handleSaveResult);
     if (blVisivelId === id) setBlVisivelId(null);
     toast('Linha de base excluída', { tone: 'neutral', icon: 'check' });
   };
@@ -5471,7 +5532,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const novas = [...baselines, copia];
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes);
+    salvarCronograma(obraSel, etapas, customCols, novas, reprogramacoes).then(handleSaveResult);
     toast(`"${copia.nome}" criada`, { tone: 'success', icon: 'check' });
   };
 
@@ -5486,7 +5547,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const novas = [...reprogramacoes, nova];
     setReprogramacoes(novas);
     salvarReprogramacoesLocal(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, baselines, novas);
+    salvarCronograma(obraSel, etapas, customCols, baselines, novas).then(handleSaveResult);
     setRepVisivelId(nova.id);
     toast(`Reprogramação "${nome}" salva`, { tone: 'success', icon: 'check' });
   };
@@ -5495,7 +5556,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const novas = reprogramacoes.filter(r => r.id !== id);
     setReprogramacoes(novas);
     salvarReprogramacoesLocal(obraSel, novas);
-    salvarCronograma(obraSel, etapas, customCols, baselines, novas);
+    salvarCronograma(obraSel, etapas, customCols, baselines, novas).then(handleSaveResult);
     if (repVisivelId === id) setRepVisivelId(defaultRepId(novas));
     toast('Reprogramação excluída', { tone: 'neutral', icon: 'check' });
   };
@@ -5503,7 +5564,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const handleCustomColsChange = (novasCols) => {
     setCustomCols(novasCols);
     D.cronogramaCustomCols = novasCols;
-    salvarCronograma(obraSel, etapas, novasCols, baselines, reprogramacoes);
+    salvarCronograma(obraSel, etapas, novasCols, baselines, reprogramacoes).then(handleSaveResult);
   };
 
   // Etapas da baseline visível (null = nenhuma)
@@ -5556,17 +5617,14 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     // O toast reflete o RESULTADO real da persistência (após o await), não a intenção.
     saveTimerRef.current = setTimeout(async () => {
-      const { error } = await salvarCronograma(obraSel, clean, customCols, baselines, reprogramacoes);
+      const res = await salvarCronograma(obraSel, clean, customCols, baselines, reprogramacoes);
+      if (handleSaveResult(res)) return;   // conflito ou erro: sempre avisa (mesmo em save silencioso)
       if (opts.silent) return;
-      if (error) {
-        toast('Falha ao salvar o cronograma. Suas mudanças podem não ter sido gravadas.', { tone: 'danger', icon: 'alert-triangle' });
+      const cfls = gmConflicts(clean);
+      if (cfls.length > 0) {
+        toast(`Salvo com ${cfls.length} conflito(s) de precedência`, { tone: 'warning', icon: 'alert-triangle' });
       } else {
-        const cfls = gmConflicts(clean);
-        if (cfls.length > 0) {
-          toast(`Salvo com ${cfls.length} conflito(s) de precedência`, { tone: 'warning', icon: 'alert-triangle' });
-        } else {
-          toast('Cronograma atualizado', { tone: 'success', icon: 'check' });
-        }
+        toast('Cronograma atualizado', { tone: 'success', icon: 'check' });
       }
     }, 800);
   };
@@ -5579,8 +5637,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     D.cronograma[obraSel] = snap;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      const { error } = await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes);
-      if (error) toast('Falha ao salvar após desfazer.', { tone: 'danger', icon: 'alert-triangle' });
+      handleSaveResult(await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes));
     }, 800);
     toast('Ação desfeita', { tone: 'neutral', icon: 'check' });
   };
@@ -5593,8 +5650,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     D.cronograma[obraSel] = snap;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      const { error } = await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes);
-      if (error) toast('Falha ao salvar após refazer.', { tone: 'danger', icon: 'alert-triangle' });
+      handleSaveResult(await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes));
     }, 800);
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
   };
@@ -5636,6 +5692,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
 
   return (
     <>
+      {conflito && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
+          <Icon name="alert-triangle" size={16} style={{ color: '#b45309', flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>Este cronograma foi alterado por outra pessoa. Recarregue para ver a versão atual (suas edições não salvas serão descartadas).</span>
+          <button onClick={recarregarCronograma} style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>Recarregar</button>
+        </div>
+      )}
       <div className="page-header">
         <div>
           <h1 className="page-title">Cronogramas</h1>

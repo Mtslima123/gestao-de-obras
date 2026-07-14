@@ -9,11 +9,18 @@ const registrar = async (campos) => {
 };
 
 export const usuariosService = {
-  listar: () =>
-    supabase
+  // Paginado + busca/status no servidor (teto de 100 por página).
+  listar: ({ page = 1, perPage = 10, busca = '', status = '' } = {}) => {
+    const pp = Math.min(Math.max(1, Number(perPage) || 10), 100);
+    let q = supabase
       .from('user_profiles')
-      .select('*, user_obras(obra_id)')
-      .order('created_at', { ascending: false }),
+      .select('*, user_obras(obra_id)', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range((page - 1) * pp, page * pp - 1);
+    if (status && status !== 'todos') q = q.eq('status', status);
+    if (busca) q = q.or(`nome.ilike.%${busca}%,email.ilike.%${busca}%`);
+    return q;
+  },
 
   buscarPorId: (id) =>
     supabase

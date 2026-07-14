@@ -13,8 +13,9 @@ const brlFull = formatBRL;
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
-const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, userProfile }) => {
+const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, userProfile, pagina = 1, total = 0, perPage = 12, onPagina }) => {
   const filtered = orcamentos;
+  const totalPaginas = Math.max(1, Math.ceil(total / perPage));
   const readOnly = moduloSomenteLeitura(userProfile, 'orcamentos');
   const [deleteOrc, setDeleteOrc] = React.useState(null);
   const [deleteStep, setDeleteStep] = React.useState(1);
@@ -95,6 +96,20 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
             </tbody>
           </table>
         </div>
+        {!loading && total > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+              Mostrando {(pagina - 1) * perPage + 1}–{Math.min(pagina * perPage, total)} de {total} orçamento{total !== 1 ? 's' : ''}
+            </span>
+            {totalPaginas > 1 && (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button className="icon-btn" disabled={pagina === 1} onClick={() => onPagina(pagina - 1)} title="Página anterior"><Icon name="chevron-left" size={14} /></button>
+                <span style={{ fontSize: 12.5, minWidth: 60, textAlign: 'center' }}>{pagina} / {totalPaginas}</span>
+                <button className="icon-btn" disabled={pagina >= totalPaginas} onClick={() => onPagina(pagina + 1)} title="Próxima página"><Icon name="chevron-right" size={14} /></button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {deleteOrc && (
@@ -1298,6 +1313,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
 
 // Cache module-level: sobrevive a desmontagens do componente, resetado no F5
 let _orcamentosCache = null;
+const PER_PAGE_ORC = 12;  // itens por página na listagem de orçamentos (paginação no servidor)
 // Cache dos itens da composição por orçamento (evita rebuscar ao reabrir o mesmo)
 const _itensCache = {};
 
@@ -1305,35 +1321,31 @@ const _itensCache = {};
 const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, userProfile }) => {
   const toast = useToast();
   const [selected, setSelected]     = React.useState(null);
-  const [orcamentos, setOrcamentos] = React.useState(_orcamentosCache ?? []);
-  const [loading, setLoading]       = React.useState(_orcamentosCache === null);
+  const [orcamentos, setOrcamentos] = React.useState([]);
+  const [loading, setLoading]       = React.useState(true);
+  const [pagina, setPagina]         = React.useState(1);
+  const [total, setTotal]           = React.useState(0);
 
-  const refetch = React.useCallback((invalidate = false) => {
-    if (invalidate) _orcamentosCache = null;
-    // Só exibe skeleton quando não há cache (primeira visita ou após mutação)
-    if (_orcamentosCache === null) setLoading(true);
-    orcamentosService.listar().then(({ data, error }) => {
+  // Paginação no servidor: busca só a página atual (não a tabela inteira).
+  const refetch = React.useCallback(() => {
+    setLoading(true);
+    orcamentosService.listarPaginado({ page: pagina, perPage: PER_PAGE_ORC }).then(({ data, count, error }) => {
       if (!error && data) {
-        const enriched = data.map(o => ({
-          ...o,
-          obra: obras.find(ob => ob.id === o.obra_id)?.nome || '—',
-        }));
-        _orcamentosCache = enriched;
-        setOrcamentos(enriched);
+        setOrcamentos(data.map(o => ({ ...o, obra: obras.find(ob => ob.id === o.obra_id)?.nome || '—' })));
+        setTotal(count ?? 0);
       } else {
-        setOrcamentos([]);
+        setOrcamentos([]); setTotal(0);
       }
       setLoading(false);
     });
-  }, [obras]);
+  }, [obras, pagina]);
 
+  React.useEffect(() => { refetch(); }, [refetch, refreshKey]);
+  // Após criar um orçamento, volta para a 1ª página (onde ele aparece)
   const prevRefreshKeyRef = React.useRef(refreshKey);
   React.useEffect(() => {
-    const isCreation = refreshKey !== prevRefreshKeyRef.current;
-    prevRefreshKeyRef.current = refreshKey;
-    // Após criação invalida o cache; demais visitas fazem refresh em background
-    refetch(isCreation);
-  }, [refreshKey, refetch]);
+    if (refreshKey !== prevRefreshKeyRef.current) { prevRefreshKeyRef.current = refreshKey; setPagina(1); }
+  }, [refreshKey]);
 
   const handleDelete = async (id) => {
     const { error } = await orcamentosService.excluir(id);
@@ -1343,7 +1355,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
     }
     toast('Orçamento excluído', { tone: 'success', icon: 'check' });
     setSelected(null);
-    refetch(true);
+    refetch();
   };
 
   if (selected) {
@@ -1366,6 +1378,10 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
       loading={loading}
       onDelete={handleDelete}
       userProfile={userProfile}
+      pagina={pagina}
+      total={total}
+      perPage={PER_PAGE_ORC}
+      onPagina={setPagina}
     />
   );
 };

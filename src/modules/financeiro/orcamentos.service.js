@@ -9,8 +9,18 @@ const registrar = async (campos) => {
 };
 
 export const orcamentosService = {
+  // Lista completa (usada pelo modal de novo orçamento p/ saber quais obras já têm orçamento).
   listar: () =>
     supabase.from('orcamentos').select('*').order('created_at', { ascending: false }),
+
+  // Paginado no servidor (tela de listagem). Teto de 100 por página.
+  listarPaginado: ({ page = 1, perPage = 12 } = {}) => {
+    const pp = Math.min(Math.max(1, Number(perPage) || 12), 100);
+    return supabase.from('orcamentos')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range((page - 1) * pp, page * pp - 1);
+  },
 
   buscarPorId: (id) =>
     supabase.from('orcamentos').select('*').eq('id', id).single(),

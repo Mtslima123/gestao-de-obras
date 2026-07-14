@@ -53,6 +53,7 @@ const UsuariosScreen = ({ obras = [] }) => {
   const listaObras = obras.length > 0 ? obras : AppData.obras;
 
   const [usuarios, setUsuarios] = React.useState([]);
+  const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [erroCarregar, setErroCarregar] = React.useState(null);
   const [editando, setEditando] = React.useState(null);
@@ -68,29 +69,29 @@ const UsuariosScreen = ({ obras = [] }) => {
 
   const carregarUsuarios = React.useCallback(async () => {
     setLoading(true);
-    const { data, error } = await usuariosService.listar();
+    const { data, error, count } = await usuariosService.listar({ page: pagina, perPage: PER_PAGE, busca: search, status: filterStatus });
     if (error) {
       setErroCarregar(error.message);
       setUsuarios(MOCK_USUARIOS);
+      setTotal(MOCK_USUARIOS.length);
     } else {
       setErroCarregar(null);
       setUsuarios((data || []).map(transformar));
+      setTotal(count ?? 0);
     }
     setLoading(false);
-  }, []);
+  }, [pagina, search, filterStatus]);
 
-  React.useEffect(() => { carregarUsuarios(); }, [carregarUsuarios]);
+  // Debounce (busca no servidor por tecla) + refetch em mudança de página/filtro
+  React.useEffect(() => {
+    const t = setTimeout(carregarUsuarios, 250);
+    return () => clearTimeout(t);
+  }, [carregarUsuarios]);
 
-  const filtrados = React.useMemo(() =>
-    usuarios
-      .filter(u => filterStatus === 'todos' || u.status === filterStatus)
-      .filter(u => !search || (u.nome + u.email).toLowerCase().includes(search.toLowerCase())),
-    [usuarios, filterStatus, search]
-  );
-
-  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PER_PAGE));
-  const paginaAtual = Math.min(pagina, totalPaginas);
-  const paginados = filtrados.slice((paginaAtual - 1) * PER_PAGE, paginaAtual * PER_PAGE);
+  // Filtro e paginação são no servidor; a página já vem pronta.
+  const totalPaginas = Math.max(1, Math.ceil(total / PER_PAGE));
+  const paginaAtual = pagina;
+  const paginados = usuarios;
 
   React.useEffect(() => { setPagina(1); }, [search, filterStatus]);
 
@@ -320,7 +321,7 @@ const UsuariosScreen = ({ obras = [] }) => {
         {/* Paginação */}
         <div className="row" style={{ justifyContent: 'space-between', marginTop: 14, flexWrap: 'wrap', gap: 8 }}>
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            Mostrando {filtrados.length === 0 ? 0 : (paginaAtual - 1) * PER_PAGE + 1}–{Math.min(paginaAtual * PER_PAGE, filtrados.length)} de {filtrados.length} usuário{filtrados.length !== 1 ? 's' : ''}
+            Mostrando {total === 0 ? 0 : (paginaAtual - 1) * PER_PAGE + 1}–{Math.min(paginaAtual * PER_PAGE, total)} de {total} usuário{total !== 1 ? 's' : ''}
           </span>
           {totalPaginas > 1 && (
             <div className="row" style={{ gap: 4 }}>
