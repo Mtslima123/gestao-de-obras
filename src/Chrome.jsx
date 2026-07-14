@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from './components/Icons';
 import { NotifPanel } from './components/Modals';
+import { notificacoesService } from './services/notificacoes.service';
 import { authService } from './modules/auth/auth.service';
 import { moduloLiberado } from './utils/permissions';
 import { MODULOS_TOPO } from './config/modulos';
@@ -283,6 +284,14 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
 
 const Topbar = ({ breadcrumb, onNovaObra }) => {
   const [notifOpen, setNotifOpen] = React.useState(false);
+  const [naoLidas,  setNaoLidas]  = React.useState(0);
+  const refreshCount = React.useCallback(async () => {
+    try { const { count } = await notificacoesService.contarNaoLidas(); setNaoLidas(count || 0); }
+    catch { /* sem tabela ainda: ignora */ }
+  }, []);
+  React.useEffect(() => { refreshCount(); }, [refreshCount]);
+  // Reatualiza o contador ao fechar o painel (após marcar como lida)
+  React.useEffect(() => { if (!notifOpen) refreshCount(); }, [notifOpen, refreshCount]);
   return (
     <header className="topbar">
       <div className="breadcrumb">
@@ -305,9 +314,9 @@ const Topbar = ({ breadcrumb, onNovaObra }) => {
             title="Notificações"
           >
             <Icon name="bell" size={17} />
-            <span className="dot"></span>
+            {naoLidas > 0 && <span className="dot"></span>}
           </button>
-          {notifOpen && <NotifPanel onClose={() => setNotifOpen(false)} />}
+          {notifOpen && <NotifPanel onClose={() => setNotifOpen(false)} onChange={refreshCount} />}
         </div>
         <button className="icon-btn" title="Ajuda">
           <Icon name="help" size={17} />

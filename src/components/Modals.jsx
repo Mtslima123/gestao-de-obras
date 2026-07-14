@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from './Icons';
 import { AppData } from '../utils/data';
 import { orcamentosService } from '../modules/financeiro/orcamentos.service';
+import { notificacoesService } from '../services/notificacoes.service';
 
 // Modals, toasts, dropdowns — shared interactive components
 
@@ -515,42 +516,88 @@ const SolicitarCompraModal = ({ insumo, onClose }) => {
   );
 };
 
+// Tempo relativo curto em pt-BR a partir de um ISO timestamp.
+const tempoRel = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso); if (isNaN(d.getTime())) return '';
+  const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (s < 60) return 'agora';
+  const min = Math.floor(s / 60); if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60); if (h < 24) return `${h} h`;
+  const dias = Math.floor(h / 24); if (dias < 7) return `${dias} d`;
+  return d.toLocaleDateString('pt-BR');
+};
+
 // ----- Notification panel (dropdown attached to bell icon) -----
-const NotifPanel = ({ onClose }) => {
-  const D = AppData;
+const NotifPanel = ({ onClose, onChange }) => {
+  const [items, setItems]     = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await notificacoesService.listar(30);
+    setItems(error ? [] : (data || []));
+    setLoading(false);
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
   React.useEffect(() => {
     const handler = (e) => {
       if (!e.target.closest('.notif-panel') && !e.target.closest('[data-notif-trigger]')) onClose();
     };
     setTimeout(() => document.addEventListener('click', handler), 0);
     return () => document.removeEventListener('click', handler);
-  }, []);
+  }, [onClose]);
+
+  const naoLidas = items.filter(n => !n.lido).length;
+
+  const marcarTodas = async () => {
+    if (!naoLidas) return;
+    await notificacoesService.marcarTodasLidas();
+    await load();
+    onChange && onChange();
+  };
+
+  const abrirItem = async (n) => {
+    if (!n.lido) {
+      await notificacoesService.marcarLida(n.id);
+      setItems(prev => prev.map(x => x.id === n.id ? { ...x, lido: true } : x));
+      onChange && onChange();
+    }
+  };
+
   return (
     <div className="notif-panel">
       <div className="notif-header">
         <div>
           <div style={{ fontSize: 14, fontWeight: 600 }}>Notificações</div>
-          <div className="text-xs text-muted" style={{ marginTop: 2 }}>{D.notificacoes.filter(n => !n.lido).length} não lidas</div>
+          <div className="text-xs text-muted" style={{ marginTop: 2 }}>{naoLidas} não lida{naoLidas === 1 ? '' : 's'}</div>
         </div>
-        <button className="btn btn-sm btn-subtle" style={{ marginLeft: 'auto' }}>Marcar todas</button>
+        <button className="btn btn-sm btn-subtle" style={{ marginLeft: 'auto' }} onClick={marcarTodas} disabled={!naoLidas}>Marcar todas</button>
       </div>
       <div style={{ maxHeight: 380, overflowY: 'auto' }}>
-        {D.notificacoes.map((n, i) => (
-          <div key={i} className={'alert-item ' + n.tipo} style={{ borderBottom: '1px solid var(--border)', opacity: n.lido ? 0.7 : 1 }}>
+        {loading ? (
+          <div style={{ padding: '28px 16px', textAlign: 'center', fontSize: 12.5, color: 'var(--text-muted)' }}>Carregando…</div>
+        ) : items.length === 0 ? (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-faint)' }}>
+            <Icon name="bell" size={22} style={{ opacity: 0.5 }} />
+            <div style={{ marginTop: 8, fontSize: 12.5 }}>Nenhuma notificação por aqui</div>
+          </div>
+        ) : items.map((n) => (
+          <div key={n.id} className={'alert-item ' + n.tipo} onClick={() => abrirItem(n)}
+            style={{ borderBottom: '1px solid var(--border)', opacity: n.lido ? 0.6 : 1, cursor: 'pointer' }}>
             <div className={'alert-pill ' + n.tipo}></div>
             <div className="alert-icon">
               <Icon name={n.tipo === 'danger' ? 'alert-triangle' : n.tipo === 'warning' ? 'alert' : 'bell'} size={14} />
             </div>
             <div style={{ minWidth: 0 }}>
               <div className="alert-title" style={{ fontSize: 12.5 }}>{n.titulo}</div>
-              <div className="alert-sub">{n.sub}</div>
+              <div className="alert-sub">{n.subtitulo}</div>
             </div>
-            <div className="alert-time">{n.tempo}</div>
+            <div className="alert-time">{tempoRel(n.created_at)}</div>
           </div>
         ))}
-      </div>
-      <div style={{ padding: 10, borderTop: '1px solid var(--border)', textAlign: 'center' }}>
-        <a style={{ fontSize: 12.5, fontWeight: 500 }}>Ver todas as notificações</a>
       </div>
     </div>
   );

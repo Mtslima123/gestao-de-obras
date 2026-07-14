@@ -295,15 +295,6 @@ export const AppData = (function () {
     { id: 'CT-2023-022', obra: 'Obra F', parte: 'Cliente Zeta',           tipo: 'Obra principal',  valor: 14800000, vigencia: '15/08/2023 — 20/12/2025', aditivos: 2, status: 'encerrado' },
   ];
 
-  // Notificações
-  const notificacoes = [
-    { tipo: 'danger',  titulo: 'Insumo crítico — Obra A',         sub: 'Estoque de Insumo 05 abaixo do mínimo de segurança', tempo: '8 min', lido: false },
-    { tipo: 'warning', titulo: 'Medição 12 aguarda aprovação',     sub: 'Obra B · Cliente Beta',                              tempo: '1h',    lido: false },
-    { tipo: 'info',    titulo: 'Aditivo anexado — CT-2024-001',    sub: 'Cliente Alfa S.A. enviou novo aditivo',              tempo: '3h',    lido: false },
-    { tipo: 'info',    titulo: 'Vistoria agendada para 28/05',     sub: 'Obra E — 09:00, com técnico do órgão regulador',     tempo: 'ontem', lido: true  },
-    { tipo: 'info',    titulo: 'Relatório mensal disponível',      sub: 'Abril/2026 · pronto para revisão',                   tempo: '2 d',   lido: true  },
-  ];
-
   function brl(n, { compact = false } = {}) {
     if (compact) {
       if (Math.abs(n) >= 1_000_000) return 'R$ ' + (n / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mi';
@@ -316,7 +307,7 @@ export const AppData = (function () {
     obras, obraAtual, cronograma, cronogramaCustomCols: [], baselines: {},
     medicoes, insumos, fornecedores, equipe,
     avancoSerie, faturamentoSerie, distribuicaoStatus, alertas, eventos,
-    orcamentoItens, orcamentosLista, contratos, notificacoes,
+    orcamentoItens, orcamentosLista, contratos,
     brl,
   };
 })();
