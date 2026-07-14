@@ -318,9 +318,6 @@ const Topbar = ({ breadcrumb, onNovaObra }) => {
           </button>
           {notifOpen && <NotifPanel onClose={() => setNotifOpen(false)} onChange={refreshCount} />}
         </div>
-        <button className="icon-btn" title="Ajuda">
-          <Icon name="help" size={17} />
-        </button>
         {onNovaObra && (
           <button className="btn btn-primary" onClick={onNovaObra}>
             <Icon name="plus" size={15} />Nova obra

@@ -2084,6 +2084,10 @@ tr:hover .obras-row-actions {
   opacity: 0.4;
 }
 
+/* ── Indicador de drop ao arrastar colunas da lista ──────────────────────── */
+.drag-over-col-before { box-shadow: inset 2px 0 0 var(--brand) !important; }
+.drag-over-col-after  { box-shadow: inset -2px 0 0 var(--brand) !important; }
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }

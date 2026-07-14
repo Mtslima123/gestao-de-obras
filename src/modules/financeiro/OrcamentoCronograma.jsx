@@ -482,10 +482,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
           </div>
 
           {/* ── Vínculos cadastrados + Resumo lado a lado ─────────────────────── */}
-          <div style={{ display: 'flex', gap: 'var(--gap)', alignItems: 'flex-start', flexWrap: 'wrap', marginTop: 'var(--gap)' }}>
+          <div style={{ display: 'flex', gap: 'var(--gap)', alignItems: 'stretch', flexWrap: 'wrap', marginTop: 'var(--gap)' }}>
           <div style={{ flex: '2 1 480px', minWidth: 0 }}>
           <div className="card">
-            <div className="card-header" style={{ overflow: 'visible', minHeight: 69 }}>
+            <div className="card-header" style={{ overflow: 'visible', height: 69 }}>
               <div>
                 <div className="card-title">
                   Vínculos cadastrados
@@ -741,14 +741,14 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos }) => {
   if (etapasComVinculo.length === 0) return null;
 
   return (
-    <div className="card">
-      <div className="card-header" style={{ minHeight: 69 }}>
+    <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div className="card-header" style={{ height: 69 }}>
         <div>
           <div className="card-title">Resumo por tarefa</div>
           <div className="card-subtitle">Valor total recebido do orçamento por tarefa vinculada</div>
         </div>
       </div>
-      <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
+      <div className="card-body" style={{ padding: 0, overflowX: 'auto', overflowY: 'auto', flex: 1 }}>
         <table className="table">
           <thead>
             <tr>

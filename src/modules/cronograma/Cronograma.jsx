@@ -2484,6 +2484,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     catch { return new Set(); }
   });
   const dragColRef = React.useRef(null);
+  const [dragOverCol, setDragOverCol] = React.useState(null); // { id, side: 'before' | 'after' }
   const listaRef   = React.useRef(null);
   const [exportingPDF, setExportingPDF] = React.useState(false);
 
@@ -2532,19 +2533,32 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   };
 
   const onColDragStart = (ev, colId) => { dragColRef.current = colId; ev.dataTransfer.effectAllowed = 'move'; };
-  const onColDragOver  = (ev) => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; };
+  const onColDragOver  = (ev, colId) => {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    const from = dragColRef.current;
+    if (!from || from === colId || LISTA_FROZEN.includes(colId)) return;
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const side = (ev.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+    setDragOverCol(prev => (prev && prev.id === colId && prev.side === side) ? prev : { id: colId, side });
+  };
   const onColDrop      = (ev, targetColId) => {
     ev.preventDefault();
     const from = dragColRef.current;
+    const side = dragOverCol?.side;
+    dragColRef.current = null;
+    setDragOverCol(null);
     if (!from || from === targetColId || LISTA_FROZEN.includes(from) || LISTA_FROZEN.includes(targetColId)) return;
     setColOrder(prev => {
       const next = [...prev];
-      const fi = next.indexOf(from), ti = next.indexOf(targetColId);
-      if (fi < 0 || ti < 0) return prev;
-      next.splice(fi, 1); next.splice(ti, 0, from);
+      const fi = next.indexOf(from);
+      if (fi < 0) return prev;
+      next.splice(fi, 1);
+      const ti = next.indexOf(targetColId);
+      if (ti < 0) return prev;
+      next.splice(side === 'after' ? ti + 1 : ti, 0, from);
       return next;
     });
-    dragColRef.current = null;
   };
 
   const renderTh = (colId) => {
@@ -2554,6 +2568,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     const w = getColW(colId);
     return (
       <th key={colId}
+        className={dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : undefined}
         style={{
           width: w, minWidth: w, position: 'relative',
           ...(isFrozen ? { position: 'sticky', left: frozenLeft[colId], zIndex: 4 } : {}),
@@ -2563,7 +2578,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         }}
         draggable={!isFrozen}
         onDragStart={!isFrozen ? (ev) => onColDragStart(ev, colId) : undefined}
-        onDragOver={!isFrozen ? onColDragOver : undefined}
+        onDragOver={!isFrozen ? (ev) => onColDragOver(ev, colId) : undefined}
+        onDragLeave={!isFrozen ? () => setDragOverCol(prev => prev?.id === colId ? null : prev) : undefined}
+        onDragEnd={!isFrozen ? () => { dragColRef.current = null; setDragOverCol(null); } : undefined}
         onDrop={!isFrozen ? (ev) => onColDrop(ev, colId) : undefined}
       >
         {col.label}
@@ -3580,7 +3597,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                   }}
                   style={{ cursor: 'grab', fontWeight: e.isGroup ? 600 : undefined }}
                 >
-                  {colOrder.filter(c => !hiddenCols.has(c)).map(colId => cells[colId] || null)}
+                  {colOrder.filter(c => !hiddenCols.has(c)).map(colId => {
+                    const cell = cells[colId];
+                    if (!cell) return null;
+                    if (dragOverCol?.id !== colId) return cell;
+                    const cls = [cell.props.className, `drag-over-col-${dragOverCol.side}`].filter(Boolean).join(' ');
+                    return React.cloneElement(cell, { className: cls });
+                  })}
 
                   {/* Colunas personalizadas */}
                   {customCols.filter(col => !hiddenCols.has(col.id)).map(col => {
@@ -3674,7 +3697,12 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               };
               return (
                 <tr style={{ fontWeight: 600, borderTop: '2px solid var(--border)', background: footBg, height: 48 }}>
-                  {colOrder.filter(c => !hiddenCols.has(c)).map(c => foot[c] || <td key={c} />)}
+                  {colOrder.filter(c => !hiddenCols.has(c)).map(c => {
+                    const cell = foot[c] || <td key={c} />;
+                    if (dragOverCol?.id !== c) return cell;
+                    const cls = [cell.props.className, `drag-over-col-${dragOverCol.side}`].filter(Boolean).join(' ');
+                    return React.cloneElement(cell, { className: cls });
+                  })}
                   {customCols.filter(col => !hiddenCols.has(col.id)).map(col => <td key={col.id} />)}
                   <td />
                 </tr>
