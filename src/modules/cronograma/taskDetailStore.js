@@ -12,6 +12,7 @@
 // segmento como obra_id).
 
 import { supabase } from '../../services/supabase';
+import { notifBus } from '../../services/notificacoes.service';
 import { mkId, nowISO, extOf, normAuthor, validateFile, computeDiffEvents } from './taskDetailPure';
 
 /**
@@ -279,13 +280,21 @@ function pickBackend() {
 // ════════════════════════════════════════════════════════════════════════════
 export const taskDetailStore = {
   async listAttachments(obraId, taskId) { return (await pickBackend()).listAttachments(obraId, taskId); },
-  async addAttachment(obraId, taskId, file, author) { return (await pickBackend()).addAttachment(obraId, taskId, file, author); },
+  async addAttachment(obraId, taskId, file, author) {
+    const r = await (await pickBackend()).addAttachment(obraId, taskId, file, author);
+    notifBus.ping();  // gera notificação (gatilho no banco) -> avisa o sino na hora
+    return r;
+  },
   async renameAttachment(obraId, taskId, id, newName) { return (await pickBackend()).renameAttachment(obraId, taskId, id, newName); },
   async removeAttachment(obraId, taskId, id, author) { return (await pickBackend()).removeAttachment(obraId, taskId, id, author); },
   async getBlobUrl(att) { return (await pickBackend()).getBlobUrl(att); },
   async listHistory(obraId, taskId) { return (await pickBackend()).listHistory(obraId, taskId); },
   async logEvent(obraId, taskId, event) { return (await pickBackend()).logEvent(obraId, taskId, event); },
-  async addComment(obraId, taskId, text, author) { return (await pickBackend()).addComment(obraId, taskId, text, author); },
+  async addComment(obraId, taskId, text, author) {
+    const r = await (await pickBackend()).addComment(obraId, taskId, text, author);
+    notifBus.ping();  // idem: notifica o sino assim que o comentário é gravado
+    return r;
+  },
   async removeComment(obraId, taskId, id) { return (await pickBackend()).removeComment(obraId, taskId, id); },
 
   // Fire-and-forget: registra as mudanças de um commit no backend ativo. Nunca lança.

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from './components/Icons';
 import { NotifPanel } from './components/Modals';
-import { notificacoesService } from './services/notificacoes.service';
+import { notificacoesService, notifBus } from './services/notificacoes.service';
 import { authService } from './modules/auth/auth.service';
 import { moduloLiberado } from './utils/permissions';
 import { MODULOS_TOPO } from './config/modulos';
@@ -292,6 +292,16 @@ const Topbar = ({ breadcrumb, onNovaObra }) => {
   React.useEffect(() => { refreshCount(); }, [refreshCount]);
   // Reatualiza o contador ao fechar o painel (após marcar como lida)
   React.useEffect(() => { if (!notifOpen) refreshCount(); }, [notifOpen, refreshCount]);
+  // Atualização imediata quando uma ação gera notificação (evento do notifBus)
+  React.useEffect(() => notifBus.subscribe(refreshCount), [refreshCount]);
+  // Rede de segurança: polling leve (só com a aba visível) + refresh ao focar a aba.
+  // Cobre notificações geradas por outras pessoas / em outras telas, sem recarregar.
+  React.useEffect(() => {
+    const tick = () => { if (!document.hidden) refreshCount(); };
+    const id = setInterval(tick, 20000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
+  }, [refreshCount]);
   return (
     <header className="topbar">
       <div className="breadcrumb">
