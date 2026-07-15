@@ -2819,6 +2819,30 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     }
     return list;
   };
+  // Mapa "taskId|colId" -> arestas externas do retângulo {t,b,l,r} (borda só no contorno)
+  const rangeEdgeMap = () => {
+    const map = new Map();
+    if (!selectedCell) return map;
+    const a = selAnchor || selectedCell;
+    const rows = filtrada.map(x => x.id);
+    const cols = visibleColIds();
+    let r1 = rows.indexOf(a.taskId), r2 = rows.indexOf(selectedCell.taskId);
+    let c1 = cols.indexOf(a.colId), c2 = cols.indexOf(selectedCell.colId);
+    if (r1 < 0 || r2 < 0 || c1 < 0 || c2 < 0) {
+      map.set(selectedCell.taskId + '|' + selectedCell.colId, { t: true, b: true, l: true, r: true });
+      return map;
+    }
+    if (r1 > r2) [r1, r2] = [r2, r1];
+    if (c1 > c2) [c1, c2] = [c2, c1];
+    // Colunas de dados dentro do intervalo (ignora pegadas WBS/ID) para achar as bordas L/R reais
+    const dataCols = [];
+    for (let c = c1; c <= c2; c++) if (!ROW_DRAG_COLS.has(cols[c])) dataCols.push(c);
+    const leftC = dataCols[0], rightC = dataCols[dataCols.length - 1];
+    for (let r = r1; r <= r2; r++) for (const c of dataCols) {
+      map.set(rows[r] + '|' + cols[c], { t: r === r1, b: r === r2, l: c === leftC, r: c === rightC });
+    }
+    return map;
+  };
   const cleanFmtObj = (obj) => { Object.keys(obj).forEach(k => { if (obj[k] === null || obj[k] === undefined || obj[k] === false || obj[k] === '') delete obj[k]; }); return obj; };
   // Aplica um patch de formatação a várias células num ÚNICO commit
   const applyFmtToCells = (cellsList, patch) => {
@@ -2874,8 +2898,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     const e = etapas.find(x => x.id === t.taskId);
     return t.key === '__row' ? (e?.fmt?.__row || {}) : effFmt(e, t.key);
   })();
-  // Conjunto de células destacadas do intervalo atual (chave "taskId|colId")
-  const rangeKeys = new Set(rangeCellList().map(x => x.taskId + '|' + x.colId));
+  // Arestas externas do intervalo por célula (borda só no contorno, estilo Excel)
+  const rangeEdges = rangeEdgeMap();
 
   // Teclado da lista: ligado ao container focável (onKeyDown), não ao document,
   // para as setas moverem a seleção de célula em vez de rolar a página.
@@ -2934,25 +2958,41 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 
   // Envolve cada <td> com seleção de célula (clique único) + destaque, preservando
   // a classe de drag de coluna e qualquer onMouseDown já existente.
-  // Converte o objeto fmt em estilo CSS (herança cuida do texto; background pinta o td)
-  const fmtToStyle = (f) => {
-    if (!f) return null;
-    const s = {};
-    if (f.bg)        s.background = f.bg;
-    if (f.color)     s.color = f.color;
-    if (f.bold)      s.fontWeight = 700;
-    if (f.italic)    s.fontStyle = 'italic';
-    if (f.underline) s.textDecoration = 'underline';
-    if (f.fontSize)  s.fontSize = f.fontSize;
-    return Object.keys(s).length ? s : null;
+  // Converte o objeto fmt em { style, classes }. Cor/tamanho/negrito/itálico/sublinhado
+  // usam classes com !important (via variáveis CSS) para vencer estilos internos das células
+  // (ex.: a coluna Etapa define o próprio font-weight/size no span).
+  const fmtToCss = (f) => {
+    if (!f) return { style: null, classes: [] };
+    const style = {}; const classes = [];
+    if (f.bg)       style.background = f.bg;
+    if (f.color)    { style['--fmt-color'] = f.color; classes.push('fmt-color'); }
+    if (f.fontSize) { style['--fmt-size'] = f.fontSize + 'px'; classes.push('fmt-size'); }
+    if (f.bold)     classes.push('fmt-b');
+    if (f.italic)   classes.push('fmt-i');
+    if (f.underline) classes.push('fmt-u');
+    return { style: Object.keys(style).length ? style : null, classes };
   };
-  const decorateCell = (cell, colId, taskId, fmt, inRange) => {
+  // Borda externa do intervalo (só nas arestas do retângulo, estilo Excel) via box-shadow.
+  // O tom de fundo só entra quando a célula NÃO tem cor própria (assim a cor dela aparece).
+  const rangeSelStyle = (edges, hasOwnBg) => {
+    if (!edges) return null;
+    const sh = [];
+    if (edges.t) sh.push('inset 0 1px 0 0 var(--brand)');
+    if (edges.b) sh.push('inset 0 -1px 0 0 var(--brand)');
+    if (edges.l) sh.push('inset 1px 0 0 0 var(--brand)');
+    if (edges.r) sh.push('inset -1px 0 0 0 var(--brand)');
+    const s = { boxShadow: sh.join(', ') };
+    if (!hasOwnBg) s.background = 'color-mix(in srgb, var(--brand) 10%, transparent)';
+    return s;
+  };
+  const decorateCell = (cell, colId, taskId, fmt, edges) => {
     if (!cell) return null;
-    const isSel   = inRange || (selectedCell && selectedCell.taskId === taskId && selectedCell.colId === colId);
+    const eff = { ...(fmt?.__row || {}), ...(fmt?.[colId] || {}) };
     const dragCls = dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : '';
-    const cls     = [cell.props.className, dragCls, isSel ? 'lista-cell-selected' : ''].filter(Boolean).join(' ');
-    const fmtStyle = fmtToStyle({ ...(fmt?.__row || {}), ...(fmt?.[colId] || {}) });
-    const styled = fmtStyle ? { ...(cell.props.style || {}), ...fmtStyle } : cell.props.style;
+    const { style: fmtStyle, classes: fmtClasses } = fmtToCss(eff);
+    const cls     = [cell.props.className, dragCls, ...fmtClasses].filter(Boolean).join(' ');
+    const selStyle = rangeSelStyle(edges, !!eff.bg);
+    const styled = { ...(cell.props.style || {}), ...(fmtStyle || {}), ...(selStyle || {}) };
     // Colunas-pegada (WBS/ID) mantêm o arraste da linha e não participam da seleção de célula
     if (ROW_DRAG_COLS.has(colId)) {
       return React.cloneElement(cell, { className: cls || undefined, style: styled });
@@ -4039,7 +4079,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                   }}
                   style={{ cursor: 'grab', fontWeight: e.isGroup ? 600 : undefined }}
                 >
-                  {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeKeys.has(e.id + '|' + colId)))}
+                  {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeEdges.get(e.id + '|' + colId)))}
 
                   {/* Colunas personalizadas */}
                   {customCols.filter(col => !hiddenCols.has(col.id)).map(col => {
@@ -4091,7 +4131,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                         <EditableCell type={col.type} value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
                       </td>
                     );
-                    return decorateCell(cell, col.id, e.id, e.fmt, rangeKeys.has(e.id + '|' + col.id));
+                    return decorateCell(cell, col.id, e.id, e.fmt, rangeEdges.get(e.id + '|' + col.id));
                   })}
 
                   <td></td>
