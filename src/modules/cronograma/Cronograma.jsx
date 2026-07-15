@@ -2123,8 +2123,9 @@ const EditableCell = ({ value, type = 'text', onSave, readOnly = false, style })
     const display = type === 'date' && raw ? isoToBR(raw) : raw;
     return (
       <span
-        onClick={() => { setDraft(value); setEditing(true); }}
-        style={{ cursor: 'text', display: 'block', minHeight: 20, ...style }}
+        onDoubleClick={() => { setDraft(value); setEditing(true); }}
+        title="Duplo-clique para editar"
+        style={{ cursor: 'default', display: 'block', minHeight: 20, ...style }}
       >
         {display ?? <span style={{ color: 'var(--text-faint)' }}>—</span>}
       </span>
@@ -2409,6 +2410,70 @@ const respInitials = (name) => {
 const respColor = (name) => AV_PALETTE[[...(name || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % AV_PALETTE.length];
 const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
+const ROW_DRAG_COLS = new Set(['wbs', 'id']); // pegadas de arraste da linha (não entram na seleção de célula)
+
+// ─── Paleta de cores estilo Excel ──────────────────────────────────────────────
+// Clareia (pct>0, em direção ao branco) ou escurece (pct<0) um hex.
+function shadeHex(hex, pct) {
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  if (pct >= 0) { r += (255 - r) * pct; g += (255 - g) * pct; b += (255 - b) * pct; }
+  else { const p = 1 + pct; r *= p; g *= p; b *= p; }
+  return '#' + [r, g, b].map(x => Math.round(x).toString(16).padStart(2, '0')).join('');
+}
+const THEME_BASE = ['#FFFFFF', '#000000', '#E7E6E6', '#44546A', '#1C4584', '#ED7D31', '#A5A5A5', '#FFC000', '#4472C4', '#70AD47'];
+const THEME_SHADES = [0.8, 0.6, 0.4, 0, -0.25, -0.5];
+const STD_COLORS = ['#C00000', '#FF0000', '#FFC000', '#FFFF00', '#92D050', '#00B050', '#00B0F0', '#0070C0', '#002060', '#7030A0'];
+
+// Menu de cores (paleta) que fecha ao escolher — usado para preenchimento e fonte.
+const ColorMenu = ({ label, title, value, onPick, onClear, clearLabel }) => {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  const pick = (c) => { onPick(c); setOpen(false); };
+  const sw = { width: 16, height: 16, border: '1px solid rgba(0,0,0,.18)', borderRadius: 2, cursor: 'pointer', padding: 0 };
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button title={title} onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, height: 28, padding: '2px 8px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}>
+        {label}
+        <span style={{ width: 14, height: 14, borderRadius: 2, border: '1px solid rgba(0,0,0,.2)', background: value || 'transparent', backgroundImage: value ? undefined : 'linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(45deg,#ccc 25%,#fff 25%,#fff 75%,#ccc 75%)', backgroundSize: '6px 6px' }} />
+        <span style={{ fontSize: 8, color: 'var(--text-muted)' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 60, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.18)' }}>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.04em' }}>Cores do tema</div>
+          {THEME_SHADES.map((s, ri) => (
+            <div key={ri} style={{ display: 'flex', gap: 3, marginBottom: 3 }}>
+              {THEME_BASE.map((base, ci) => {
+                const c = shadeHex(base, s);
+                return <button key={ci} onClick={() => pick(c)} title={c} style={{ ...sw, background: c }} />;
+              })}
+            </div>
+          ))}
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', margin: '8px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' }}>Cores padrão</div>
+          <div style={{ display: 'flex', gap: 3 }}>
+            {STD_COLORS.map((c, i) => <button key={i} onClick={() => pick(c)} title={c} style={{ ...sw, background: c }} />)}
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', marginTop: 8, paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <button onClick={() => { onClear(); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', padding: '2px 0' }}>
+              <span style={{ width: 14, height: 14, border: '1px solid var(--border)', borderRadius: 2, display: 'inline-block' }} />{clearLabel}
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
+              <Icon name="edit" size={13} />Mais cores…
+              <input type="color" value={value || '#1c4584'} onChange={e => pick(e.target.value)} style={{ width: 0, height: 0, opacity: 0, position: 'absolute' }} />
+            </label>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── ListaInterativa ──────────────────────────────────────────────────────────
 const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false }) => {
@@ -2427,8 +2492,16 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const [ctxMenu,        setCtxMenu]        = React.useState(null); // { x, y, taskId }
   const [dragOverId,     setDragOverId]     = React.useState(null);
   const [showColPanel,   setShowColPanel]   = React.useState(false);
+  const [selectedCell,   setSelectedCell]   = React.useState(null); // { taskId, colId } — foco ativo (planilha)
+  const [selAnchor,      setSelAnchor]      = React.useState(null); // { taskId, colId } — âncora do intervalo
+  const [painterOn,      setPainterOn]      = React.useState(false); // pincel de formatação ativo
+  const painterRef = React.useRef(null); // fmt capturado pelo pincel
+  const isSelectingRef = React.useRef(false); // arraste de seleção de intervalo em andamento
   const dragRowRef   = React.useRef(null);
   const colPanelRef  = React.useRef(null);
+  const cellClipRef  = React.useRef(null); // clipboard interno de célula { value, kind, fmt }
+  const rowClipRef   = React.useRef(null); // clipboard interno de LINHA (clone da tarefa copiada)
+  const listaScrollRef = React.useRef(null); // container rolável da lista (foco p/ navegação por setas)
 
   const wbsMap      = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   const succMap     = React.useMemo(() => computeSuccessors(etapas), [etapas]);
@@ -2603,6 +2676,316 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     ),
     [visible, busca, filtroStatus, filtroResp]
   );
+
+  // ── Seleção de célula estilo planilha: copiar/colar + navegação ──────────────
+  // Colunas cujo valor pode ser copiado/colado (por tipo). 'text' aceita colar de qualquer origem.
+  const COPY_COLS = {
+    etapa:     { kind: 'text',   get: e => e.etapa || '',                    field: 'etapa' },
+    inicio:    { kind: 'date',   get: e => offsetToISO(e.inicio),            field: 'inicio' },
+    fim:       { kind: 'date',   get: e => offsetToISO(e.inicio + e.dur),    field: 'fim' },
+    duracao:   { kind: 'number', get: e => String(e.dur ?? ''),             field: 'duracaoDias' },
+    avanco:    { kind: 'number', get: e => String(e.avanco ?? 0),           field: 'avanco' },
+    custo:     { kind: 'number', get: e => String(e.custo ?? 0),            field: 'custo' },
+    custoReal: { kind: 'number', get: e => String(e.custoRealizado ?? 0),   field: 'custoRealizado' },
+    resp:      { kind: 'text',   get: e => e.responsavel || '',              field: 'responsavel' },
+  };
+  const cellSpec = (colId) => {
+    if (colId?.startsWith('cc_')) return { kind: 'text', get: e => (e.customCols || {})[colId] ?? '', field: colId };
+    return COPY_COLS[colId] || null;
+  };
+  const copyCell = () => {
+    if (!selectedCell) return;
+    const spec = cellSpec(selectedCell.colId);
+    if (!spec) return;
+    const e = etapas.find(x => x.id === selectedCell.taskId);
+    if (!e) return;
+    const value = spec.get(e);
+    cellClipRef.current = { value, kind: spec.kind, fmt: e.fmt?.[selectedCell.colId] };
+    try { navigator.clipboard?.writeText(String(value ?? '')); } catch { /* best-effort */ }
+    toast('Célula copiada', { tone: 'success', icon: 'check' });
+  };
+  const pasteCell = () => {
+    if (readOnly || !selectedCell) return;
+    const clip = cellClipRef.current;
+    if (!clip) return;
+    const spec = cellSpec(selectedCell.colId);
+    if (!spec) return; // coluna calculada / não editável
+    if (spec.kind !== 'text' && clip.kind !== spec.kind) return; // evita colar tipo incompatível
+    handleCellSave(selectedCell.taskId, spec.field, clip.value);
+  };
+  const moveSelCell = (key, extend) => {
+    const rows = filtrada.map(x => x.id);
+    const cols = [
+      ...colOrder.filter(c => !hiddenCols.has(c)),
+      ...customCols.filter(c => !hiddenCols.has(c.id)).map(c => c.id),
+    ];
+    let r = rows.indexOf(selectedCell.taskId);
+    let c = cols.indexOf(selectedCell.colId);
+    if (r < 0 || c < 0) return;
+    if (key === 'ArrowUp')    r = Math.max(0, r - 1);
+    if (key === 'ArrowDown')  r = Math.min(rows.length - 1, r + 1);
+    if (key === 'ArrowLeft')  c = Math.max(0, c - 1);
+    if (key === 'ArrowRight') c = Math.min(cols.length - 1, c + 1);
+    const next = { taskId: rows[r], colId: cols[c] };
+    setSelectedCell(next);
+    if (extend) return;                       // Shift+seta: estende o intervalo (âncora fica)
+    setSelAnchor(next);                        // seta sem shift: colapsa o intervalo
+    setSelectedId(rows[r]);                    // linha atual acompanha para as ações da barra
+  };
+  // ── Copiar/inserir LINHA (quando uma linha está selecionada, sem célula) ─────
+  const copyRow = () => {
+    if (!selectedId) return;
+    const e = etapas.find(x => x.id === selectedId);
+    if (!e) return;
+    rowClipRef.current = JSON.parse(JSON.stringify(e)); // clone profundo (customCols/fmt/dep)
+    toast('Linha copiada', { tone: 'success', icon: 'check' });
+  };
+  const pasteRow = () => {
+    if (readOnly || !selectedId) return;
+    const idx = etapas.findIndex(x => x.id === selectedId);
+    if (idx < 0) return;
+    const ref = etapas[idx];
+    if (rowClipRef.current) {
+      // Insere uma CÓPIA da linha copiada logo abaixo da linha selecionada
+      const src = JSON.parse(JSON.stringify(rowClipRef.current));
+      const clone = {
+        ...src,
+        id: nextEtapaId(etapas),
+        displayId: nextDisplayId(etapas),
+        dep: [],
+        isGroup: false,
+        collapsed: false,
+        nivel: ref.nivel,
+        parentId: ref.parentId,
+        customCols: { ...emptyCustomCols(customCols), ...(src.customCols || {}) },
+      };
+      const novas = [...etapas];
+      novas.splice(idx, 0, clone); // insere ACIMA da linha selecionada (estilo Excel)
+      onCommit(novas);
+      setSelectedId(clone.id);
+      rowClipRef.current = null; // cópia de uso único: não persiste no histórico
+    } else {
+      // Nada copiado: insere linha em branco acima
+      insertTask(selectedId, 'above');
+    }
+  };
+
+  // ── Formatação de célula/linha (compartilhada, salva no JSON do cronograma) ──
+  // key = colId (formata a célula) ou '__row' (formata a linha inteira)
+  const handleCellFormat = (taskId, key, patch) => {
+    const novas = etapas.map(e => {
+      if (e.id !== taskId) return e;
+      const prevFmt = e.fmt || {};
+      const prevKey = prevFmt[key] || {};
+      const nextKey = { ...prevKey, ...patch };
+      // remove chaves vazias/false para não inchar o JSON
+      Object.keys(nextKey).forEach(k => {
+        if (nextKey[k] === null || nextKey[k] === undefined || nextKey[k] === false || nextKey[k] === '') delete nextKey[k];
+      });
+      const nextFmt = { ...prevFmt, [key]: nextKey };
+      if (Object.keys(nextKey).length === 0) delete nextFmt[key];
+      return { ...e, fmt: nextFmt };
+    });
+    onCommit(novas, { silent: true });
+  };
+  // fmt efetivo de uma célula: linha (__row) sobrescrita pela célula (colId)
+  const effFmt = (e, colId) => ({ ...(e?.fmt?.__row || {}), ...(e?.fmt?.[colId] || {}) });
+  // alvo atual: célula (se houver) senão a linha selecionada
+  const fmtTarget = () => {
+    if (selectedCell) return { taskId: selectedCell.taskId, key: selectedCell.colId };
+    if (selectedId)   return { taskId: selectedId, key: '__row' };
+    return null;
+  };
+  // Colunas visíveis na ordem atual (para calcular o retângulo de seleção)
+  const visibleColIds = () => [
+    ...colOrder.filter(c => !hiddenCols.has(c)),
+    ...customCols.filter(c => !hiddenCols.has(c.id)).map(c => c.id),
+  ];
+  // Lista de células do intervalo (retângulo entre âncora e foco); ignora colunas-pegada
+  const rangeCellList = () => {
+    if (!selectedCell) return [];
+    const a = selAnchor || selectedCell;
+    const rows = filtrada.map(x => x.id);
+    const cols = visibleColIds();
+    let r1 = rows.indexOf(a.taskId), r2 = rows.indexOf(selectedCell.taskId);
+    let c1 = cols.indexOf(a.colId), c2 = cols.indexOf(selectedCell.colId);
+    if (r1 < 0 || r2 < 0 || c1 < 0 || c2 < 0) return [{ taskId: selectedCell.taskId, colId: selectedCell.colId }];
+    if (r1 > r2) [r1, r2] = [r2, r1];
+    if (c1 > c2) [c1, c2] = [c2, c1];
+    const list = [];
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+      if (ROW_DRAG_COLS.has(cols[c])) continue;
+      list.push({ taskId: rows[r], colId: cols[c] });
+    }
+    return list;
+  };
+  const cleanFmtObj = (obj) => { Object.keys(obj).forEach(k => { if (obj[k] === null || obj[k] === undefined || obj[k] === false || obj[k] === '') delete obj[k]; }); return obj; };
+  // Aplica um patch de formatação a várias células num ÚNICO commit
+  const applyFmtToCells = (cellsList, patch) => {
+    if (readOnly || !cellsList.length) return;
+    const byTask = {};
+    cellsList.forEach(({ taskId, colId }) => { (byTask[taskId] = byTask[taskId] || []).push(colId); });
+    const novas = etapas.map(e => {
+      const colIds = byTask[e.id];
+      if (!colIds) return e;
+      const nextFmt = { ...(e.fmt || {}) };
+      colIds.forEach(colId => {
+        const nk = cleanFmtObj({ ...(nextFmt[colId] || {}), ...patch });
+        if (Object.keys(nk).length) nextFmt[colId] = nk; else delete nextFmt[colId];
+      });
+      return { ...e, fmt: nextFmt };
+    });
+    onCommit(novas, { silent: true });
+  };
+  const applyFmt = (patch) => {
+    if (readOnly) return;
+    if (selectedCell) { applyFmtToCells(rangeCellList(), patch); return; }
+    if (selectedId)   { handleCellFormat(selectedId, '__row', patch); }
+  };
+  const clearFmt = () => {
+    if (readOnly) return;
+    if (selectedCell) {
+      const byTask = {};
+      rangeCellList().forEach(({ taskId, colId }) => { (byTask[taskId] = byTask[taskId] || []).push(colId); });
+      const novas = etapas.map(e => {
+        const colIds = byTask[e.id];
+        if (!colIds) return e;
+        const nextFmt = { ...(e.fmt || {}) };
+        colIds.forEach(colId => delete nextFmt[colId]);
+        return { ...e, fmt: nextFmt };
+      });
+      onCommit(novas, { silent: true });
+      return;
+    }
+    if (selectedId) {
+      const novas = etapas.map(e => {
+        if (e.id !== selectedId) return e;
+        const nextFmt = { ...(e.fmt || {}) };
+        delete nextFmt.__row;
+        return { ...e, fmt: nextFmt };
+      });
+      onCommit(novas, { silent: true });
+    }
+  };
+  // estado efetivo do alvo (para os botões B/I/S refletirem on/off)
+  const activeFmt = (() => {
+    const t = fmtTarget();
+    if (!t) return {};
+    const e = etapas.find(x => x.id === t.taskId);
+    return t.key === '__row' ? (e?.fmt?.__row || {}) : effFmt(e, t.key);
+  })();
+  // Conjunto de células destacadas do intervalo atual (chave "taskId|colId")
+  const rangeKeys = new Set(rangeCellList().map(x => x.taskId + '|' + x.colId));
+
+  // Teclado da lista: ligado ao container focável (onKeyDown), não ao document,
+  // para as setas moverem a seleção de célula em vez de rolar a página.
+  const handleListKeyDown = (ev) => {
+    if (!selectedCell && !selectedId) return;
+    const tag = ev.target?.tagName;
+    const editingNow = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'c' || ev.key === 'C')) {
+      if (editingNow) return; // deixa o navegador copiar o texto do input em edição
+      if (selectedCell) copyCell(); else copyRow();
+      return;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V')) {
+      if (editingNow || readOnly) return;
+      ev.preventDefault();
+      if (selectedCell) pasteCell(); else pasteRow();
+      return;
+    }
+    // Ctrl + '+' (estilo Excel): insere item (cópia da linha se houver, senão linha em
+    // branco). preventDefault impede o zoom do navegador. Cobre '+', '=' e o + do numpad.
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === '+' || ev.key === '=' || ev.code === 'NumpadAdd')) {
+      if (editingNow || readOnly) return;
+      ev.preventDefault();
+      pasteRow();
+      return;
+    }
+    if (editingNow) return;
+    // Shift+Espaço: seleciona a LINHA inteira (estilo Excel) — a partir de uma célula
+    if (ev.shiftKey && (ev.key === ' ' || ev.key === 'Spacebar') && selectedCell) {
+      ev.preventDefault();
+      setSelectedId(selectedCell.taskId);
+      setSelectedCell(null);
+      return;
+    }
+    if (selectedCell && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.key)) {
+      ev.preventDefault();
+      moveSelCell(ev.key, ev.shiftKey);
+    }
+    if (ev.key === 'Enter' || ev.key === 'F2') {
+      // duplo-clique é o gatilho principal de edição; Enter/F2 apenas evita rolagem
+      ev.preventDefault();
+    }
+  };
+
+  // Limpa a célula selecionada se a tarefa deixar de existir
+  React.useEffect(() => {
+    if (selectedCell && !etapas.find(e => e.id === selectedCell.taskId)) setSelectedCell(null);
+  }, [etapas, selectedCell]);
+
+  // Fim do arraste de seleção de intervalo em qualquer soltar de botão
+  React.useEffect(() => {
+    const up = () => { isSelectingRef.current = false; };
+    document.addEventListener('mouseup', up);
+    return () => document.removeEventListener('mouseup', up);
+  }, []);
+
+  // Envolve cada <td> com seleção de célula (clique único) + destaque, preservando
+  // a classe de drag de coluna e qualquer onMouseDown já existente.
+  // Converte o objeto fmt em estilo CSS (herança cuida do texto; background pinta o td)
+  const fmtToStyle = (f) => {
+    if (!f) return null;
+    const s = {};
+    if (f.bg)        s.background = f.bg;
+    if (f.color)     s.color = f.color;
+    if (f.bold)      s.fontWeight = 700;
+    if (f.italic)    s.fontStyle = 'italic';
+    if (f.underline) s.textDecoration = 'underline';
+    if (f.fontSize)  s.fontSize = f.fontSize;
+    return Object.keys(s).length ? s : null;
+  };
+  const decorateCell = (cell, colId, taskId, fmt, inRange) => {
+    if (!cell) return null;
+    const isSel   = inRange || (selectedCell && selectedCell.taskId === taskId && selectedCell.colId === colId);
+    const dragCls = dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : '';
+    const cls     = [cell.props.className, dragCls, isSel ? 'lista-cell-selected' : ''].filter(Boolean).join(' ');
+    const fmtStyle = fmtToStyle({ ...(fmt?.__row || {}), ...(fmt?.[colId] || {}) });
+    const styled = fmtStyle ? { ...(cell.props.style || {}), ...fmtStyle } : cell.props.style;
+    // Colunas-pegada (WBS/ID) mantêm o arraste da linha e não participam da seleção de célula
+    if (ROW_DRAG_COLS.has(colId)) {
+      return React.cloneElement(cell, { className: cls || undefined, style: styled });
+    }
+    const prevMd = cell.props.onMouseDown;
+    return React.cloneElement(cell, {
+      className: cls || undefined,
+      style: styled,
+      onMouseDown: (ev) => {
+        // Pincel de formatação ativo: aplica a formatação capturada nesta célula e desliga
+        if (painterOn && painterRef.current) {
+          ev.preventDefault();
+          applyFmtToCells([{ taskId, colId }], painterRef.current);
+          setPainterOn(false);
+          setSelectedCell({ taskId, colId }); setSelAnchor({ taskId, colId });
+          if (!ev.ctrlKey && !ev.metaKey) setSelectedId(taskId);
+          listaScrollRef.current?.focus?.({ preventScroll: true });
+          return;
+        }
+        setSelectedCell({ taskId, colId });
+        setSelAnchor({ taskId, colId });
+        isSelectingRef.current = true; // inicia possível arraste de intervalo
+        // Seleciona a linha também (as células editáveis param a propagação do clique)
+        if (!ev.ctrlKey && !ev.metaKey) { setSelectedId(taskId); setMultiSel([]); }
+        listaScrollRef.current?.focus?.({ preventScroll: true });
+        if (prevMd) prevMd(ev);
+      },
+      onMouseEnter: () => {
+        // Estende o intervalo enquanto arrasta com o botão pressionado
+        if (isSelectingRef.current) setSelectedCell({ taskId, colId });
+      },
+    });
+  };
 
   // Limpa seleção se o item selecionado for excluído
   React.useEffect(() => {
@@ -3242,8 +3625,59 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         )}
       </div>
 
+      {/* ── Barra de formatação (célula/linha estilo Excel) ────────────────── */}
+      {!readOnly && (() => {
+        const hasTarget = !!(selectedCell || selectedId);
+        const alvo = selectedCell ? 'célula' : (selectedId ? 'linha' : '');
+        const tglStyle = (on) => ({
+          ...btnStyle, height: 28, padding: '2px 9px', fontWeight: 700,
+          background: on ? 'var(--brand)' : 'var(--surface)', color: on ? '#fff' : 'var(--text)',
+          border: '1px solid var(--border)', borderRadius: 6,
+        });
+        const size = activeFmt.fontSize || 13;
+        const clampSize = (n) => Math.min(24, Math.max(9, n));
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '6px 2px 8px', opacity: hasTarget ? 1 : 0.5, pointerEvents: hasTarget || painterOn ? 'auto' : 'none' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 2 }}>
+              Formatar {alvo ? <strong>{alvo}</strong> : ''}:
+            </span>
+            {/* Preenchimento */}
+            <ColorMenu label="Fundo" title="Cor de preenchimento" value={activeFmt.bg}
+              onPick={(c) => applyFmt({ bg: c })} onClear={() => applyFmt({ bg: false })} clearLabel="Sem preenchimento" />
+            {/* Cor da fonte */}
+            <ColorMenu label="Texto" title="Cor da fonte" value={activeFmt.color}
+              onPick={(c) => applyFmt({ color: c })} onClear={() => applyFmt({ color: false })} clearLabel="Cor automática" />
+            <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
+            {/* Negrito / Itálico / Sublinhado */}
+            <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito">N</button>
+            <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico">I</button>
+            <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado">S</button>
+            <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
+            {/* Tamanho da fonte */}
+            <button style={{ ...btnStyle, height: 28, padding: '2px 8px' }} onClick={() => applyFmt({ fontSize: clampSize(size - 1) })} title="Diminuir fonte">A−</button>
+            <span style={{ fontSize: 12, minWidth: 18, textAlign: 'center', color: 'var(--text-muted)' }}>{size}</span>
+            <button style={{ ...btnStyle, height: 28, padding: '2px 8px' }} onClick={() => applyFmt({ fontSize: clampSize(size + 1) })} title="Aumentar fonte">A+</button>
+            <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
+            {/* Pincel de formatação */}
+            <button style={tglStyle(painterOn)}
+              onClick={() => {
+                if (painterOn) { setPainterOn(false); return; }
+                painterRef.current = { ...activeFmt };
+                setPainterOn(true);
+              }}
+              title="Pincel: copia a formatação da seleção; clique numa célula para aplicar">
+              <Icon name="edit" size={13} /> Pincel
+            </button>
+            {/* Limpar formatação */}
+            <button style={{ ...btnStyle, height: 28, padding: '2px 9px', border: '1px solid var(--border)', borderRadius: 6 }} onClick={clearFmt} title="Limpar formatação da seleção">
+              Limpar
+            </button>
+          </div>
+        );
+      })()}
+
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
-      <div style={{ overflowX: 'auto' }}>
+      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} style={{ overflowX: 'auto', outline: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}>
         <table className="tbl tbl-lista" style={{ minWidth: 1780 }}>
           <thead>
             {(() => {
@@ -3294,7 +3728,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
           </thead>
           <tbody>
             {filtrada.map((e) => {
-              const isSelected  = selectedId === e.id;
+              // Realce de LINHA só quando a linha está selecionada e não há uma CÉLULA
+              // selecionada nessa linha (seleção de célula tem prioridade visual).
+              const cellSelHere = selectedCell?.taskId === e.id;
+              const isSelected  = selectedId === e.id && !cellSelHere;
               const indent      = (e.nivel || 0) * 20;
               const hasChildren = etapas.some(x => x.parentId === e.id);
               const gv          = e.isGroup ? groupVals[e.id] : null;
@@ -3315,12 +3752,20 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               // Mapa de células por colId — renderizadas na ordem de colOrder
               const cells = {
                 wbs: (
-                  <td key="wbs" className="mono text-sm text-muted" style={{ paddingRight: 4, ...stickyStyle('wbs') }}>
+                  <td key="wbs" className="mono text-sm text-muted"
+                    draggable={!readOnly}
+                    onDragStart={(ev) => { if (readOnly) return; dragRowRef.current = e.id; ev.dataTransfer.effectAllowed = 'move'; }}
+                    title={readOnly ? undefined : 'Arraste para mover a tarefa'}
+                    style={{ paddingRight: 4, cursor: readOnly ? undefined : 'grab', ...stickyStyle('wbs') }}>
                     {wbsMap[e.id]}
                   </td>
                 ),
                 id: (
-                  <td key="id" className="mono" style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', ...stickyStyle('id') }}>
+                  <td key="id" className="mono"
+                    draggable={!readOnly}
+                    onDragStart={(ev) => { if (readOnly) return; dragRowRef.current = e.id; ev.dataTransfer.effectAllowed = 'move'; }}
+                    title={readOnly ? undefined : 'Arraste para mover a tarefa'}
+                    style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', cursor: readOnly ? undefined : 'grab', ...stickyStyle('id') }}>
                     {e.displayId ?? e.id}
                   </td>
                 ),
@@ -3569,13 +4014,6 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
                     dragOverId === e.id ? 'drag-over-row' : '',
                   ].filter(Boolean).join(' ')}
-                  draggable={!readOnly}
-                  onDragStart={(ev) => {
-                    if (readOnly) return;
-                    dragRowRef.current = e.id;
-                    ev.dataTransfer.effectAllowed = 'move';
-                    ev.stopPropagation();
-                  }}
                   onDragOver={(ev) => { if (readOnly) return; ev.preventDefault(); ev.stopPropagation(); setDragOverId(e.id); }}
                   onDragLeave={() => setDragOverId(prev => prev === e.id ? null : prev)}
                   onDrop={(ev) => {
@@ -3601,18 +4039,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                   }}
                   style={{ cursor: 'grab', fontWeight: e.isGroup ? 600 : undefined }}
                 >
-                  {colOrder.filter(c => !hiddenCols.has(c)).map(colId => {
-                    const cell = cells[colId];
-                    if (!cell) return null;
-                    if (dragOverCol?.id !== colId) return cell;
-                    const cls = [cell.props.className, `drag-over-col-${dragOverCol.side}`].filter(Boolean).join(' ');
-                    return React.cloneElement(cell, { className: cls });
-                  })}
+                  {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeKeys.has(e.id + '|' + colId)))}
 
                   {/* Colunas personalizadas */}
                   {customCols.filter(col => !hiddenCols.has(col.id)).map(col => {
                     const cellVal = (e.customCols || {})[col.id] || '';
-                    if (col.type === 'boolean') return (
+                    let cell;
+                    if (col.type === 'boolean') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <select className="input" disabled={readOnly} style={{ height: 26, fontSize: 11, padding: '0 4px' }}
                           value={cellVal} onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
@@ -3622,7 +4055,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                         </select>
                       </td>
                     );
-                    if (col.type === 'list') return (
+                    else if (col.type === 'list') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <select className="input" disabled={readOnly} style={{ height: 26, fontSize: 11, padding: '0 4px' }}
                           value={cellVal} onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
@@ -3631,13 +4064,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                         </select>
                       </td>
                     );
-                    if (col.type === 'currency') return (
+                    else if (col.type === 'currency') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()} className="num" style={{ textAlign: 'right' }}>
                         <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)}
                           readOnly={readOnly} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
                       </td>
                     );
-                    if (col.type === 'percent') return (
+                    else if (col.type === 'percent') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                           <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
@@ -3645,7 +4078,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                         </div>
                       </td>
                     );
-                    if (col.type === 'duration') return (
+                    else if (col.type === 'duration') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                           <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
@@ -3653,11 +4086,12 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                         </div>
                       </td>
                     );
-                    return (
+                    else cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <EditableCell type={col.type} value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
                       </td>
                     );
+                    return decorateCell(cell, col.id, e.id, e.fmt, rangeKeys.has(e.id + '|' + col.id));
                   })}
 
                   <td></td>

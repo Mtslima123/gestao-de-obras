@@ -513,6 +513,17 @@ const NumericCell = React.memo(({ value, displayValue, onCommit, placeholder }) 
   );
 });
 
+// Colunas da composição orçamentária + larguras padrão (px). Ordem fixa.
+const ORCA_COLS = [
+  { id: 'codigo', label: 'Código',      defWidth: 140 },
+  { id: 'nome',   label: 'Nome',        defWidth: 300 },
+  { id: 'quant',  label: 'Quant.',      defWidth: 100, right: true },
+  { id: 'un',     label: 'Un.',         defWidth: 60 },
+  { id: 'vunit',  label: 'Valor Unit.', defWidth: 110, right: true },
+  { id: 'vtotal', label: 'Valor Total', defWidth: 120, right: true },
+  { id: 'acoes',  label: '',            defWidth: 104 },
+];
+
 const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) => {
   const toast         = useToast();
   const readOnly       = moduloSomenteLeitura(userProfile, 'orcamentos');
@@ -534,6 +545,26 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
   const [confirmDelete, setConfirm] = React.useState(false);
   const [deleting, setDeleting]     = React.useState(false);
   const [exportingPDF, setExportingPDF] = React.useState(false);
+
+  // Larguras de coluna ajustáveis (por orçamento, persistidas no navegador)
+  const [colWidths, setColWidths] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(`ls_orca_widths_${orcamento.id}`) || 'null') || {}; }
+    catch { return {}; }
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem(`ls_orca_widths_${orcamento.id}`, JSON.stringify(colWidths)); } catch { /* ignore */ }
+  }, [colWidths, orcamento.id]);
+  const getColW = (id) => colWidths[id] ?? ORCA_COLS.find(c => c.id === id)?.defWidth ?? 100;
+  const tableWidth = ORCA_COLS.reduce((s, c) => s + getColW(c.id), 0);
+  const startColResize = (ev, id) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const startX = ev.clientX;
+    const startW = getColW(id);
+    const onMove = (e2) => setColWidths(prev => ({ ...prev, [id]: Math.max(50, startW + e2.clientX - startX) }));
+    const onUp   = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   React.useEffect(() => {
     if (_itensCache[orcamento.id]) { setItems(_itensCache[orcamento.id]); return; }
@@ -1098,16 +1129,20 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
             </div>
           </div>
           <div className="card-body flush" style={{ overflowX: 'auto' }}>
-            <table className="orca-table">
+            <table className="orca-table" style={{ tableLayout: 'fixed', width: tableWidth, minWidth: '100%' }}>
               <thead>
                 <tr>
-                  <th style={{ width: 140 }}>Código</th>
-                  <th>Nome</th>
-                  <th className="right" style={{ width: 100 }}>Quant.</th>
-                  <th style={{ width: 60 }}>Un.</th>
-                  <th className="right" style={{ width: 110 }}>Valor Unit.</th>
-                  <th className="right" style={{ width: 120 }}>Valor Total</th>
-                  <th style={{ width: 104 }}></th>
+                  {ORCA_COLS.map(col => {
+                    const w = getColW(col.id);
+                    return (
+                      <th key={col.id} className={col.right ? 'right' : undefined}
+                        style={{ width: w, minWidth: w, position: 'relative', userSelect: 'none', borderRight: '1px solid var(--border)' }}>
+                        {col.label}
+                        <div className="orca-col-grip" title="Arraste para redimensionar"
+                          onMouseDown={(ev) => startColResize(ev, col.id)} />
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -1142,7 +1177,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
                             {/* Código é gerado pelo sistema (novo item / sub-itens), não editável manualmente */}
                             <span
                               className="orca-cell-code"
-                              style={{ width: 90, padding: 2, fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5, color: 'var(--text-soft)' }}
+                              style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: 2, fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5, color: 'var(--text-soft)' }}
                             >
                               {it.codigo}
                             </span>
@@ -1188,7 +1223,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
                               placeholder="UN"
                               maxLength={8}
                               onChange={e => editCell(it.id, 'unidade', e.target.value.toUpperCase())}
-                              style={{ width: 52, textTransform: 'uppercase' }}
+                              style={{ width: '100%', textTransform: 'uppercase' }}
                             />
                           )}
                         </td>
