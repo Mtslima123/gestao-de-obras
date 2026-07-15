@@ -1557,7 +1557,11 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
       {/* ── Scroll container ──────────────────────────────────────────────── */}
       <div
         ref={cRef}
-        style={{ overflow: 'auto', maxWidth: '100%', userSelect: 'none', cursor: editMode ? 'grab' : 'default' }}
+        style={{
+          overflow: 'auto', maxWidth: '100%', userSelect: 'none', cursor: editMode ? 'grab' : 'default',
+          // Altura mínima: não deixa a caixa encolher ao recolher grupos (piso = até 10 linhas, ou todas se forem menos)
+          minHeight: headerH + Math.min(etapas.length, 10) * GM_ROW_H,
+        }}
         onMouseDown={onContDown}
         onClick={() => { if (!dragged.current) setSel(new Set()); }}
       >
@@ -6001,14 +6005,14 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                     {/* Painel lateral de detalhes */}
                     {detailTask && (
                       <div style={{
-                        width: 360, flexShrink: 0, background: 'var(--surface)',
+                        width: 400, flexShrink: 0, background: 'var(--surface)',
                         border: '1px solid var(--border)', borderRadius: 'var(--r-lg)',
                         boxShadow: 'var(--shadow-md)', overflow: 'hidden',
                       }}>
                         {/* Cabeçalho do painel */}
                         <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)', lineHeight: 1.3, marginBottom: 4 }}>
+                            <div title={detailTask.etapa} style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)', lineHeight: 1.3, marginBottom: 4 }}>
                               {detailTask.etapa}
                             </div>
                             <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>
@@ -6045,7 +6049,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           ) : (
                             <>
                               {/* Datas e duração */}
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px', marginBottom: 16 }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 14px', marginBottom: 16 }}>
                                 {[
                                   ['Início', isoToBR(offsetToISO(detailTask.inicio))],
                                   ['Término', isoToBR(offsetToISO(detailTask.inicio + detailTask.dur))],
@@ -6120,8 +6124,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                                     const depTask = etapas.find(e => e.id === depId);
                                     return (
                                       <div key={di} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
-                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--brand)', background: 'var(--brand-tint)', padding: '2px 6px', borderRadius: 4 }}>{depId}</span>
-                                        <span style={{ flex: 1, color: 'var(--text-soft)', fontSize: 11.5 }}>{depTask?.etapa || depId}</span>
+                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--brand)', background: 'var(--brand-tint)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{depId}</span>
+                                        <span title={depTask?.etapa || depId} style={{ flex: 1, minWidth: 0, color: 'var(--text-soft)', fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{depTask?.etapa || depId}</span>
                                         <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{depTipo}</span>
                                       </div>
                                     );
