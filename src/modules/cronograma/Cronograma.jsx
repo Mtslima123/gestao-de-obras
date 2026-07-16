@@ -2410,7 +2410,9 @@ const respInitials = (name) => {
 const respColor = (name) => AV_PALETTE[[...(name || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % AV_PALETTE.length];
 const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
-const ROW_DRAG_COLS = new Set(['wbs', 'id']); // pegadas de arraste da linha (não entram na seleção de célula)
+// Antes WBS/ID eram pegadas de arraste; agora a linha se move pela borda (arraste manual),
+// então nenhuma coluna é excluída da seleção — todas podem ser selecionadas/formatadas.
+const ROW_DRAG_COLS = new Set();
 
 // ─── Paleta de cores estilo Excel ──────────────────────────────────────────────
 // Clareia (pct>0, em direção ao branco) ou escurece (pct<0) um hex.
@@ -2498,10 +2500,21 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const painterRef = React.useRef(null); // fmt capturado pelo pincel
   const isSelectingRef = React.useRef(false); // arraste de seleção de intervalo em andamento
   const dragRowRef   = React.useRef(null);
+  const hoverRowRef  = React.useRef(null);   // linha sob o cursor (para o arraste manual de linha)
+  const rowDragMovedRef = React.useRef(false); // houve movimento de linha (suprime o clique seguinte)
   const colPanelRef  = React.useRef(null);
   const cellClipRef  = React.useRef(null); // clipboard interno de célula { value, kind, fmt }
   const rowClipRef   = React.useRef(null); // clipboard interno de LINHA (clone da tarefa copiada)
   const listaScrollRef = React.useRef(null); // container rolável da lista (foco p/ navegação por setas)
+
+  // Altura das linhas da lista (ajustável na UI, estilo MS Project), persistida no navegador.
+  const [rowH, setRowH] = React.useState(() => {
+    const v = parseInt(localStorage.getItem('ls_crono_row_h') || '', 10);
+    return Number.isFinite(v) ? Math.min(60, Math.max(24, v)) : 34;
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem('ls_crono_row_h', String(rowH)); } catch { /* ignore */ }
+  }, [rowH]);
 
   const wbsMap      = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   const succMap     = React.useMemo(() => computeSuccessors(etapas), [etapas]);
@@ -2647,8 +2660,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       <th key={colId}
         className={dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : undefined}
         style={{
-          width: w, minWidth: w, position: 'relative',
-          ...(isFrozen ? { position: 'sticky', left: frozenLeft[colId], zIndex: 4 } : {}),
+          width: w, minWidth: w,
+          position: 'sticky', top: 0, zIndex: isFrozen ? 6 : 3,
+          ...(isFrozen ? { left: frozenLeft[colId] } : {}),
           cursor: !isFrozen ? 'grab' : undefined,
           userSelect: 'none',
           ...(col.align === 'right' ? { textAlign: 'right' } : {}),
@@ -2900,6 +2914,19 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   })();
   // Arestas externas do intervalo por célula (borda só no contorno, estilo Excel)
   const rangeEdges = rangeEdgeMap();
+  // Linhas cobertas por uma seleção de INTERVALO de células. Usado para não pintar a
+  // linha-âncora com o realce de linha (que destoava do fundo do intervalo).
+  const rangeRowIds = (() => {
+    const s = new Set();
+    if (!selectedCell) return s;
+    const a = selAnchor || selectedCell;
+    const rows = filtrada.map(x => x.id);
+    let r1 = rows.indexOf(a.taskId), r2 = rows.indexOf(selectedCell.taskId);
+    if (r1 < 0 || r2 < 0) { s.add(selectedCell.taskId); return s; }
+    if (r1 > r2) [r1, r2] = [r2, r1];
+    for (let r = r1; r <= r2; r++) s.add(rows[r]);
+    return s;
+  })();
 
   // Teclado da lista: ligado ao container focável (onKeyDown), não ao document,
   // para as setas moverem a seleção de célula em vez de rolar a página.
@@ -2974,7 +3001,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   };
   // Borda externa do intervalo (só nas arestas do retângulo, estilo Excel) via box-shadow.
   // O tom de fundo só entra quando a célula NÃO tem cor própria (assim a cor dela aparece).
-  const rangeSelStyle = (edges, hasOwnBg) => {
+  const rangeSelStyle = (edges, hasOwnBg, frozen) => {
     if (!edges) return null;
     const sh = [];
     if (edges.t) sh.push('inset 0 1px 0 0 var(--brand)');
@@ -2982,7 +3009,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     if (edges.l) sh.push('inset 1px 0 0 0 var(--brand)');
     if (edges.r) sh.push('inset -1px 0 0 0 var(--brand)');
     const s = { boxShadow: sh.join(', ') };
-    if (!hasOwnBg) s.background = 'color-mix(in srgb, var(--brand) 10%, transparent)';
+    // Colunas congeladas precisam de fundo OPACO (senão vazam o conteúdo rolado por baixo)
+    if (!hasOwnBg) s.background = frozen
+      ? 'color-mix(in srgb, var(--brand) 10%, var(--surface))'
+      : 'color-mix(in srgb, var(--brand) 10%, transparent)';
     return s;
   };
   const decorateCell = (cell, colId, taskId, fmt, edges) => {
@@ -2991,9 +3021,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     const dragCls = dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : '';
     const { style: fmtStyle, classes: fmtClasses } = fmtToCss(eff);
     const cls     = [cell.props.className, dragCls, ...fmtClasses].filter(Boolean).join(' ');
-    const selStyle = rangeSelStyle(edges, !!eff.bg);
+    const selStyle = rangeSelStyle(edges, !!eff.bg, LISTA_FROZEN.includes(colId));
     const styled = { ...(cell.props.style || {}), ...(fmtStyle || {}), ...(selStyle || {}) };
-    // Colunas-pegada (WBS/ID) mantêm o arraste da linha e não participam da seleção de célula
+    // Colunas-pegada (se houver) não participam da seleção de célula
     if (ROW_DRAG_COLS.has(colId)) {
       return React.cloneElement(cell, { className: cls || undefined, style: styled });
     }
@@ -3477,6 +3507,21 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 
         <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
 
+        {/* Altura das linhas (estilo MS Project) — ajustável e persistida no navegador */}
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Altura das linhas">
+          <button className="btn btn-ghost" style={{ ...btnStyle, padding: '4px 8px' }}
+            onClick={() => setRowH(h => Math.max(24, h - 4))} title="Diminuir altura das linhas">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 34, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{rowH}px</span>
+          <button className="btn btn-ghost" style={{ ...btnStyle, padding: '4px 8px' }}
+            onClick={() => setRowH(h => Math.min(60, h + 4))} title="Aumentar altura das linhas">
+            <Icon name="plus" size={13} />
+          </button>
+        </div>
+
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+
         <button
           className="btn btn-ghost"
           style={{ ...btnStyle, color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.45 }}
@@ -3717,8 +3762,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       })()}
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
-      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} style={{ overflowX: 'auto', outline: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}>
-        <table className="tbl tbl-lista" style={{ minWidth: 1780 }}>
+      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} style={{ overflow: 'auto', maxHeight: 'calc(100vh - 240px)', outline: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}>
+        <table className="tbl tbl-lista" style={{ minWidth: 1780, '--lista-row-h': rowH + 'px' }}>
           <thead>
             {(() => {
               // Linha de bandas (Etapa/Tarefa · Prazo · Avanço · Financeiro · Sequenciamento).
@@ -3751,13 +3796,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             <tr>
               {colOrder.filter(c => !hiddenCols.has(c)).map(colId => renderTh(colId))}
               {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
-                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'relative', userSelect: 'none' }}>
+                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: 0, zIndex: 3, userSelect: 'none' }}>
                   {col.label}
                   <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 5 }}
                     onMouseDown={(ev) => startColResize(ev, col.id)} />
                 </th>
               ))}
-              <th style={{ width: 36, padding: '0 8px', textAlign: 'center' }}>
+              <th style={{ width: 36, padding: '0 8px', textAlign: 'center', position: 'sticky', top: 0, zIndex: 3 }}>
                 <button
                   onClick={() => setShowAddCol(true)}
                   title="Adicionar coluna personalizada"
@@ -3771,7 +3816,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               // Realce de LINHA só quando a linha está selecionada e não há uma CÉLULA
               // selecionada nessa linha (seleção de célula tem prioridade visual).
               const cellSelHere = selectedCell?.taskId === e.id;
-              const isSelected  = selectedId === e.id && !cellSelHere;
+              // Não aplica o realce de linha quando a linha faz parte de um intervalo de
+              // células selecionadas (senão a âncora fica com tom diferente do restante).
+              const isSelected  = selectedId === e.id && !cellSelHere && !rangeRowIds.has(e.id);
               const indent      = (e.nivel || 0) * 20;
               const hasChildren = etapas.some(x => x.parentId === e.id);
               const gv          = e.isGroup ? groupVals[e.id] : null;
@@ -3793,19 +3840,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               const cells = {
                 wbs: (
                   <td key="wbs" className="mono text-sm text-muted"
-                    draggable={!readOnly}
-                    onDragStart={(ev) => { if (readOnly) return; dragRowRef.current = e.id; ev.dataTransfer.effectAllowed = 'move'; }}
-                    title={readOnly ? undefined : 'Arraste para mover a tarefa'}
-                    style={{ paddingRight: 4, cursor: readOnly ? undefined : 'grab', ...stickyStyle('wbs') }}>
+                    style={{ paddingRight: 4, ...stickyStyle('wbs') }}>
                     {wbsMap[e.id]}
                   </td>
                 ),
                 id: (
                   <td key="id" className="mono"
-                    draggable={!readOnly}
-                    onDragStart={(ev) => { if (readOnly) return; dragRowRef.current = e.id; ev.dataTransfer.effectAllowed = 'move'; }}
-                    title={readOnly ? undefined : 'Arraste para mover a tarefa'}
-                    style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', cursor: readOnly ? undefined : 'grab', ...stickyStyle('id') }}>
+                    style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', ...stickyStyle('id') }}>
                     {e.displayId ?? e.id}
                   </td>
                 ),
@@ -4054,21 +4095,10 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
                     dragOverId === e.id ? 'drag-over-row' : '',
                   ].filter(Boolean).join(' ')}
-                  onDragOver={(ev) => { if (readOnly) return; ev.preventDefault(); ev.stopPropagation(); setDragOverId(e.id); }}
-                  onDragLeave={() => setDragOverId(prev => prev === e.id ? null : prev)}
-                  onDrop={(ev) => {
-                    if (readOnly) return;
-                    ev.preventDefault(); ev.stopPropagation();
-                    const dragged = dragRowRef.current;
-                    if (dragged && dragged !== e.id) {
-                      onCommit(moveTaskBlock(etapas, dragged, e.id, true));
-                    }
-                    dragRowRef.current = null;
-                    setDragOverId(null);
-                  }}
-                  onDragEnd={() => { dragRowRef.current = null; setDragOverId(null); }}
                   onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, taskId: e.id }); }}
                   onClick={(ev) => {
+                    // Acabou de mover a linha pela borda: não alterna a seleção neste clique
+                    if (rowDragMovedRef.current) { rowDragMovedRef.current = false; return; }
                     if (ev.ctrlKey || ev.metaKey) {
                       ev.preventDefault();
                       setMultiSel(ms => ms.includes(e.id) ? ms.filter(id => id !== e.id) : [...ms, e.id]);
@@ -4076,6 +4106,50 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                       setSelectedId(id => id === e.id ? null : e.id);
                       setMultiSel([]);
                     }
+                  }}
+                  onMouseEnter={() => {
+                    hoverRowRef.current = e.id;
+                    if (dragRowRef.current != null) setDragOverId(e.id);
+                  }}
+                  onMouseMove={(ev) => {
+                    if (readOnly || dragRowRef.current != null) return;
+                    const tr = ev.currentTarget;
+                    const rect = tr.getBoundingClientRect();
+                    // Perto da borda superior/inferior de uma linha selecionada: modo "mover" (estilo Excel)
+                    const nearBorder = (ev.clientY - rect.top <= 5) || (rect.bottom - ev.clientY <= 5);
+                    const canMove = nearBorder && (selectedId === e.id || multiSel.includes(e.id));
+                    tr.style.cursor = canMove ? 'move' : 'grab';
+                  }}
+                  onMouseLeave={(ev) => { ev.currentTarget.style.cursor = 'grab'; }}
+                  onMouseDown={(ev) => {
+                    if (readOnly) return;
+                    const rect = ev.currentTarget.getBoundingClientRect();
+                    const nearBorder = (ev.clientY - rect.top <= 5) || (rect.bottom - ev.clientY <= 5);
+                    if (!nearBorder || !(selectedId === e.id || multiSel.includes(e.id))) return;
+                    // Arraste manual da linha pela borda (evita o DnD nativo, que era instável)
+                    ev.preventDefault();
+                    isSelectingRef.current = false; // cancela seleção de intervalo de células
+                    dragRowRef.current = e.id;
+                    rowDragMovedRef.current = false;
+                    const onMove = () => {
+                      rowDragMovedRef.current = true;
+                      if (hoverRowRef.current != null) setDragOverId(hoverRowRef.current);
+                    };
+                    const onUp = () => {
+                      document.removeEventListener('mousemove', onMove);
+                      document.removeEventListener('mouseup', onUp);
+                      const dragged = dragRowRef.current;
+                      const target  = hoverRowRef.current;
+                      dragRowRef.current = null;
+                      setDragOverId(null);
+                      if (dragged != null && target != null && dragged !== target) {
+                        onCommit(moveTaskBlock(etapas, dragged, target, true));
+                      } else {
+                        rowDragMovedRef.current = false; // não moveu: deixa o clique agir normalmente
+                      }
+                    };
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
                   }}
                   style={{ cursor: 'grab', fontWeight: e.isGroup ? 600 : undefined }}
                 >
