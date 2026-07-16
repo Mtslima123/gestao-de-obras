@@ -3827,7 +3827,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     {/* Card FIXO: barra de formatação + banda + cabeçalho + tabela; congela sob a topbar */}
     <div ref={listaRef} className="card"
       style={listaPinned
-        ? { position: 'fixed', top: topbarH, left: listaPinned.left, width: listaPinned.width, height: `calc(100vh - ${topbarH}px - 8px)`, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
+        ? { position: 'fixed', top: topbarH + 10, left: listaPinned.left, width: listaPinned.width, height: `calc(100vh - ${topbarH + 10}px - 8px)`, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
         : { marginTop: 8, height: `calc(100vh - ${topbarH}px - 8px)`, display: 'flex', flexDirection: 'column' }
       }>
 
