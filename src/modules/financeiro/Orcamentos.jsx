@@ -524,7 +524,7 @@ const ORCA_COLS = [
   { id: 'acoes',  label: '',            defWidth: 104 },
 ];
 
-const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) => {
+const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
   const toast         = useToast();
   const readOnly       = moduloSomenteLeitura(userProfile, 'orcamentos');
   const [items, setItems]           = React.useState([]);
@@ -542,8 +542,8 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
     parseFloat(String(s).replace(/\./g, '').replace(',', '.')) || 0;
   const [saving, setSaving]         = React.useState(false);
   const [collapsed, setCollapsed]   = React.useState(new Set());
-  const [confirmDelete, setConfirm] = React.useState(false);
-  const [deleting, setDeleting]     = React.useState(false);
+  const [showClearAll, setShowClearAll] = React.useState(false);
+  const [clearing, setClearing]     = React.useState(false);
   const [exportingPDF, setExportingPDF] = React.useState(false);
 
   // Larguras de coluna ajustáveis (por orçamento, persistidas no navegador)
@@ -933,15 +933,39 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
     }
   };
 
-  // ── Excluir / Revisão ──────────────────────────────────────────────────────
-  const handleDeleteClick = async () => {
-    if (!confirmDelete) {
-      setConfirm(true);
-      setTimeout(() => setConfirm(false), 5000);
-      return;
+  // ── Limpar itens ─────────────────────────────────────────────────────────────
+  // Remove todos os itens da composição, mantendo o orçamento (fica vazio).
+  const handleClearAll = async () => {
+    setClearing(true);
+    try {
+      // Itens já persistidos no banco: excluir via serviço (registra auditoria)
+      const idsToDelete = items.filter(it => !it._new).map(it => it.id);
+      if (idsToDelete.length) {
+        const { error } = await orcamentosService.itens.excluirVarios(idsToDelete);
+        if (error) {
+          console.error('[orcamento] erro ao limpar itens', error);
+          toast('Erro ao limpar itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          setClearing(false);
+          return;
+        }
+      }
+
+      // Zera o total no cabeçalho do orçamento
+      const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: 0 });
+      if (errHeader) console.error('[orcamento] erro ao zerar total do orçamento', errHeader);
+
+      delete _itensCache[orcamento.id];
+      setItems([]);
+      setDeletedIds([]);
+      setDirty(false);
+      setShowClearAll(false);
+      toast('Todos os itens foram removidos', { tone: 'success', icon: 'check' });
+    } catch (e) {
+      console.error('[orcamento] falha inesperada ao limpar itens', e);
+      toast('Erro ao limpar itens: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
+    } finally {
+      setClearing(false);
     }
-    setDeleting(true);
-    await onDelete(orcamento.id);
   };
 
   const handleExportPDF = async () => {
@@ -1024,12 +1048,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
         <div className="page-actions">
           {!readOnly && (
             <button
-              className={'btn ' + (confirmDelete ? 'btn-danger' : 'btn-ghost')}
-              onClick={handleDeleteClick}
-              disabled={deleting}
+              className="btn btn-ghost"
+              onClick={() => setShowClearAll(true)}
+              disabled={clearing || items.length === 0}
+              title={items.length === 0 ? 'Não há itens para limpar' : 'Remover todos os itens deste orçamento'}
             >
               <Icon name="trash" size={15} />
-              {deleting ? 'Excluindo…' : confirmDelete ? 'Confirmar exclusão' : 'Excluir'}
+              {clearing ? 'Limpando…' : 'Limpar itens'}
             </button>
           )}
           <button className="btn btn-ghost" onClick={handleExportPDF} disabled={exportingPDF}>
@@ -1342,6 +1367,33 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
           </p>
         </Modal>
       )}
+
+      {showClearAll && (
+        <Modal
+          title="Limpar todos os itens"
+          onClose={() => setShowClearAll(false)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setShowClearAll(false)}>Cancelar</button>
+              <button
+                className="btn"
+                style={{ background: 'var(--danger)', color: 'white', fontWeight: 600 }}
+                onClick={handleClearAll}
+                disabled={clearing}
+              >
+                {clearing ? 'Limpando…' : 'Sim, limpar tudo'}
+              </button>
+            </>
+          }
+        >
+          <p style={{ fontSize: 14 }}>
+            Esta ação remove <strong>todos os {items.length} itens</strong> da composição do
+            orçamento <strong>{orcamento.id}</strong> e é{' '}
+            <strong style={{ color: 'var(--danger)' }}>irreversível</strong>.
+            O orçamento é mantido, mas ficará sem itens.
+          </p>
+        </Modal>
+      )}
     </>
   );
 };
@@ -1398,7 +1450,6 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
       <OrcamentoDetalhe
         orcamento={selected}
         onBack={() => setSelected(null)}
-        onDelete={handleDelete}
         user={user}
         userProfile={userProfile}
       />
