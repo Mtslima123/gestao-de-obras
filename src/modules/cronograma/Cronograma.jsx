@@ -2499,6 +2499,57 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const [painterOn,      setPainterOn]      = React.useState(false); // pincel de formatação ativo
   const painterRef = React.useRef(null); // fmt capturado pelo pincel
   const isSelectingRef = React.useRef(false); // arraste de seleção de intervalo em andamento
+  // Altura real da topbar (para congelar o cabeçalho exatamente abaixo dela, sem corte)
+  const [topbarH, setTopbarH] = React.useState(60);
+  React.useEffect(() => {
+    const measure = () => { const tb = document.querySelector('.topbar'); if (tb) setTopbarH(tb.offsetHeight); };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  // Altura da linha de banda (para empilhar o cabeçalho de colunas logo abaixo dela, ambos fixos)
+  const bandRowRef = React.useRef(null);
+  const [bandH, setBandH] = React.useState(26);
+  React.useEffect(() => {
+    if (bandRowRef.current) {
+      const h = bandRowRef.current.offsetHeight;
+      if (h && h !== bandH) setBandH(h);
+    }
+  }); // sem deps: mede após cada render (leitura barata; auto-estabiliza pelo guard acima)
+
+  // Fixa o bloco (formatação+banda+cabeçalho+tabela) sob a topbar ao rolar a página.
+  // sticky não serve aqui (o card é o último elemento e preenche a viewport), então
+  // usamos um sentinela + position:fixed via JS. `listaPinned` = null (fluxo normal) ou
+  // { left, width } (fixado). Um espaçador preserva a altura para não haver salto.
+  const listaSentinelRef = React.useRef(null);
+  const [listaPinned, setListaPinned] = React.useState(null);
+  React.useEffect(() => {
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      const s = listaSentinelRef.current;
+      if (!s) return;
+      const r = s.getBoundingClientRect();
+      if (r.top <= topbarH) {
+        setListaPinned(prev => (prev && Math.abs(prev.left - r.left) < 0.5 && Math.abs(prev.width - r.width) < 0.5) ? prev : { left: r.left, width: r.width });
+      } else {
+        setListaPinned(prev => (prev ? null : prev));
+      }
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(check); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    // Reajusta left/width quando a largura do conteúdo muda sem scroll/resize
+    // (ex.: fixar/soltar a sidebar, que anima o padding). Observa o sentinela (largura do conteúdo).
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined' && listaSentinelRef.current) {
+      ro = new ResizeObserver(onScroll);
+      ro.observe(listaSentinelRef.current);
+    }
+    const id = setTimeout(check, 0);
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); clearTimeout(id); if (raf) cancelAnimationFrame(raf); if (ro) ro.disconnect(); };
+  }, [topbarH]);
+
   const dragRowRef   = React.useRef(null);
   const hoverRowRef  = React.useRef(null);   // linha sob o cursor (para o arraste manual de linha)
   const rowDragMovedRef = React.useRef(false); // houve movimento de linha (suprime o clique seguinte)
@@ -2661,7 +2712,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         className={dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : undefined}
         style={{
           width: w, minWidth: w,
-          position: 'sticky', top: 0, zIndex: isFrozen ? 6 : 3,
+          position: 'sticky', top: bandH, zIndex: isFrozen ? 6 : 3,
           ...(isFrozen ? { left: frozenLeft[colId] } : {}),
           cursor: !isFrozen ? 'grab' : undefined,
           userSelect: 'none',
@@ -2707,25 +2758,65 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     if (colId?.startsWith('cc_')) return { kind: 'text', get: e => (e.customCols || {})[colId] ?? '', field: colId };
     return COPY_COLS[colId] || null;
   };
+  // Copia o RETÂNGULO selecionado (grade valores+fmt) e também as LINHAS distintas do
+  // intervalo (para o Ctrl++ inserir N cópias).
   const copyCell = () => {
     if (!selectedCell) return;
-    const spec = cellSpec(selectedCell.colId);
-    if (!spec) return;
-    const e = etapas.find(x => x.id === selectedCell.taskId);
-    if (!e) return;
-    const value = spec.get(e);
-    cellClipRef.current = { value, kind: spec.kind, fmt: e.fmt?.[selectedCell.colId] };
-    try { navigator.clipboard?.writeText(String(value ?? '')); } catch { /* best-effort */ }
-    toast('Célula copiada', { tone: 'success', icon: 'check' });
+    const rows = filtrada.map(x => x.id);
+    const cols = visibleColIds();
+    const a = selAnchor || selectedCell;
+    let r1 = rows.indexOf(a.taskId), r2 = rows.indexOf(selectedCell.taskId);
+    let c1 = cols.indexOf(a.colId), c2 = cols.indexOf(selectedCell.colId);
+    if (r1 < 0 || r2 < 0 || c1 < 0 || c2 < 0) return;
+    if (r1 > r2) [r1, r2] = [r2, r1];
+    if (c1 > c2) [c1, c2] = [c2, c1];
+    const grid = [];
+    const rowClones = [];
+    for (let r = r1; r <= r2; r++) {
+      const e = etapas.find(x => x.id === rows[r]);
+      if (!e) continue;
+      rowClones.push(JSON.parse(JSON.stringify(e)));
+      const gr = [];
+      for (let c = c1; c <= c2; c++) {
+        const colId = cols[c];
+        const spec = cellSpec(colId);
+        gr.push({ colId, value: spec ? spec.get(e) : null, kind: spec?.kind, fmt: e.fmt?.[colId] });
+      }
+      grid.push(gr);
+    }
+    cellClipRef.current = { grid };
+    rowClipRef.current = rowClones; // permite Ctrl++ inserir o nº de linhas copiadas
+    try { navigator.clipboard?.writeText(grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n')); } catch { /* best-effort */ }
+    const nCel = grid.length * (grid[0]?.length || 0);
+    toast(nCel > 1 ? 'Seleção copiada' : 'Célula copiada', { tone: 'success', icon: 'check' });
   };
+  // Cola o bloco a partir da célula selecionada (canto superior esquerdo), estilo Excel.
   const pasteCell = () => {
     if (readOnly || !selectedCell) return;
     const clip = cellClipRef.current;
-    if (!clip) return;
-    const spec = cellSpec(selectedCell.colId);
-    if (!spec) return; // coluna calculada / não editável
-    if (spec.kind !== 'text' && clip.kind !== spec.kind) return; // evita colar tipo incompatível
-    handleCellSave(selectedCell.taskId, spec.field, clip.value);
+    if (!clip || !clip.grid) return;
+    const rows = filtrada.map(x => x.id);
+    const cols = visibleColIds();
+    const r0 = rows.indexOf(selectedCell.taskId);
+    const c0 = cols.indexOf(selectedCell.colId);
+    if (r0 < 0 || c0 < 0) return;
+    const edits = [];
+    clip.grid.forEach((gr, dr) => {
+      const taskId = rows[r0 + dr];
+      if (!taskId) return;
+      gr.forEach((cellData, dc) => {
+        const colId = cols[c0 + dc];
+        if (!colId) return;
+        const spec = cellSpec(colId);
+        const compat = spec && cellData.value != null && (spec.kind === 'text' || cellData.kind == null || cellData.kind === spec.kind);
+        edits.push({
+          taskId, colId,
+          ...(compat ? { field: spec.field, rawValue: cellData.value } : {}),
+          fmt: cellData.fmt || null, // cola a formatação da origem (limpa se origem não tinha)
+        });
+      });
+    });
+    applyBlockEdits(edits);
   };
   const moveSelCell = (key, extend) => {
     const rows = filtrada.map(x => x.id);
@@ -2751,7 +2842,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     if (!selectedId) return;
     const e = etapas.find(x => x.id === selectedId);
     if (!e) return;
-    rowClipRef.current = JSON.parse(JSON.stringify(e)); // clone profundo (customCols/fmt/dep)
+    rowClipRef.current = [JSON.parse(JSON.stringify(e))]; // array (uma linha)
     toast('Linha copiada', { tone: 'success', icon: 'check' });
   };
   const pasteRow = () => {
@@ -2759,28 +2850,34 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     const idx = etapas.findIndex(x => x.id === selectedId);
     if (idx < 0) return;
     const ref = etapas[idx];
-    if (rowClipRef.current) {
-      // Insere uma CÓPIA da linha copiada logo abaixo da linha selecionada
-      const src = JSON.parse(JSON.stringify(rowClipRef.current));
-      const clone = {
-        ...src,
-        id: nextEtapaId(etapas),
-        displayId: nextDisplayId(etapas),
-        dep: [],
-        isGroup: false,
-        collapsed: false,
-        nivel: ref.nivel,
-        parentId: ref.parentId,
-        customCols: { ...emptyCustomCols(customCols), ...(src.customCols || {}) },
-      };
+    const clips = rowClipRef.current;
+    if (clips && clips.length) {
+      // Insere N CÓPIAS (uma por linha copiada) ACIMA da linha selecionada, estilo Excel
+      let base = [...etapas];
+      const clones = clips.map(src => {
+        const clone = {
+          ...JSON.parse(JSON.stringify(src)),
+          id: nextEtapaId(base),
+          displayId: nextDisplayId(base),
+          dep: [],
+          isGroup: false,
+          collapsed: false,
+          nivel: ref.nivel,
+          parentId: ref.parentId,
+          customCols: { ...emptyCustomCols(customCols), ...(src.customCols || {}) },
+        };
+        base = [...base, clone]; // garante ids/displayIds únicos incrementais
+        return clone;
+      });
       const novas = [...etapas];
-      novas.splice(idx, 0, clone); // insere ACIMA da linha selecionada (estilo Excel)
+      novas.splice(idx, 0, ...clones);
       onCommit(novas);
-      setSelectedId(clone.id);
-      rowClipRef.current = null; // cópia de uso único: não persiste no histórico
+      setSelectedId(clones[0].id);
+      rowClipRef.current = null; // cópia de uso único
     } else {
-      // Nada copiado: insere linha em branco acima
-      insertTask(selectedId, 'above');
+      // Nada copiado: insere N linhas em branco (N = nº de linhas do intervalo, ou 1)
+      const n = Math.max(1, new Set(rangeCellList().map(x => x.taskId)).size);
+      for (let i = 0; i < n; i++) insertTask(selectedId, 'above');
     }
   };
 
@@ -3135,6 +3232,54 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   }, [multiSel, etapas, selectedId]);
 
   // ── Atualização de campo ────────────────────────────────────────────────────
+  // Campos que exigem reprogramação (recalcular datas via dependências)
+  const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricaoTipo', 'restricaoData'];
+  // Aplica um único campo a uma etapa (conversões de valor). Reutilizado por handleCellSave
+  // e pelo colar de bloco (applyBlockEdits). NÃO trata 'id' (caso especial em handleCellSave).
+  const applyFieldToEtapa = (e, field, rawValue) => {
+    if (field === 'inicio')      { return { ...e, inicio: Math.round(dateToOffset(rawValue)) }; }
+    if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)); return { ...e, dur: Math.max(1, offset - e.inicio) }; }
+    if (field === 'duracaoDias') { return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) }; }
+    if (field === 'avanco')      { return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) }; }
+    if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, etapas) }; }
+    if (field === 'restricaoTipo') { return { ...e, restricaoTipo: rawValue }; }
+    if (field === 'restricaoData') { return { ...e, restricaoData: rawValue }; }
+    if (field === 'custo' || field === 'custoRealizado') { return { ...e, [field]: parseBRL(rawValue) }; }
+    if (field === 'fator_peso')  { const v = parseFloat(rawValue); return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) }; }
+    if (field.startsWith('cc_')) { return { ...e, customCols: { ...(e.customCols || {}), [field]: rawValue } }; }
+    return { ...e, [field]: rawValue };
+  };
+  // Aplica um lote de edições (valor e/ou fmt por célula) num ÚNICO commit — usado no colar
+  // de bloco (estilo Excel). Cada edição: { taskId, colId, field?, rawValue?, fmt? }.
+  // fmt (quando presente) SUBSTITUI a formatação da coluna alvo (cola formatação da origem).
+  const applyBlockEdits = (edits) => {
+    if (readOnly || !edits.length) return;
+    const byTask = new Map();
+    edits.forEach(ed => { if (!byTask.has(ed.taskId)) byTask.set(ed.taskId, []); byTask.get(ed.taskId).push(ed); });
+    let reschedule = false;
+    const novas = etapas.map(e => {
+      const list = byTask.get(e.id);
+      if (!list) return e;
+      let ne = e;
+      let fmt = { ...(e.fmt || {}) };
+      let fmtChanged = false;
+      list.forEach(ed => {
+        if (ed.field !== undefined) {
+          ne = applyFieldToEtapa(ne, ed.field, ed.rawValue);
+          if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
+        }
+        if ('fmt' in ed) {
+          const nk = cleanFmtObj({ ...(ed.fmt || {}) });
+          if (Object.keys(nk).length) fmt[ed.colId] = nk; else delete fmt[ed.colId];
+          fmtChanged = true;
+        }
+      });
+      if (fmtChanged) ne = { ...ne, fmt };
+      return ne;
+    });
+    onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
+  };
+
   const handleCellSave = (id, field, rawValue) => {
     // Tratamento especial para mudança de ID (propaga referências)
     if (field === 'id') {
@@ -3159,47 +3304,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       return;
     }
 
-    const novas = etapas.map(e => {
-      if (e.id !== id) return e;
-      if (field === 'inicio') {
-        const offset = Math.round(dateToOffset(rawValue));
-        return { ...e, inicio: offset };
-      }
-      if (field === 'fim') {
-        const offset = Math.round(dateToOffset(rawValue));
-        const newDur = Math.max(1, offset - e.inicio);
-        return { ...e, dur: newDur };
-      }
-      if (field === 'duracaoDias') {
-        return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) };
-      }
-      if (field === 'avanco') {
-        return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) };
-      }
-      if (field === 'dep') {
-        return { ...e, dep: parseDep(rawValue, etapas) };
-      }
-      if (field === 'restricaoTipo') {
-        return { ...e, restricaoTipo: rawValue };
-      }
-      if (field === 'restricaoData') {
-        return { ...e, restricaoData: rawValue };
-      }
-      if (field === 'custo' || field === 'custoRealizado') {
-        return { ...e, [field]: parseBRL(rawValue) };
-      }
-      if (field === 'fator_peso') {
-        const v = parseFloat(rawValue);
-        return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) };
-      }
-      if (field.startsWith('cc_')) {
-        return { ...e, customCols: { ...(e.customCols || {}), [field]: rawValue } };
-      }
-      return { ...e, [field]: rawValue };
-    });
-
-    const reescalonar = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricaoTipo', 'restricaoData'];
-    onCommit(reescalonar.includes(field) ? autoScheduleFromDeps(novas) : novas, { silent: true });
+    const novas = etapas.map(e => e.id !== id ? e : applyFieldToEtapa(e, field, rawValue));
+    onCommit(RESCHEDULE_FIELDS.includes(field) ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
 
   const handleToggleCollapse = (id) => {
@@ -3447,7 +3553,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const btnStyle = { fontSize: 12, padding: '4px 10px', height: 30, gap: 5, display: 'flex', alignItems: 'center' };
 
   return (
-    <div ref={listaRef} className="card" style={{ marginTop: 'var(--gap)' }}>
+    <>
+    {/* Card comum: ações + filtro — rolam para fora ao rolar a página */}
+    <div className="card" style={{ marginTop: 'var(--gap)' }}>
 
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
       <div style={{
@@ -3709,6 +3817,19 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
           </span>
         )}
       </div>
+    </div>{/* fim card comum (ações + filtro) */}
+
+    {/* Sentinela: marca onde o card fixo começa (para detectar quando prender) */}
+    <div ref={listaSentinelRef} aria-hidden="true" style={{ height: 0 }} />
+    {/* Espaçador: preserva a altura do fluxo quando o card fixo sai do fluxo (position:fixed) */}
+    {listaPinned && <div aria-hidden="true" style={{ marginTop: 8, height: `calc(100vh - ${topbarH}px - 8px)` }} />}
+
+    {/* Card FIXO: barra de formatação + banda + cabeçalho + tabela; congela sob a topbar */}
+    <div ref={listaRef} className="card"
+      style={listaPinned
+        ? { position: 'fixed', top: topbarH, left: listaPinned.left, width: listaPinned.width, height: `calc(100vh - ${topbarH}px - 8px)`, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
+        : { marginTop: 8, height: `calc(100vh - ${topbarH}px - 8px)`, display: 'flex', flexDirection: 'column' }
+      }>
 
       {/* ── Barra de formatação (célula/linha estilo Excel) ────────────────── */}
       {!readOnly && (() => {
@@ -3762,7 +3883,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       })()}
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
-      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} style={{ overflow: 'auto', maxHeight: 'calc(100vh - 240px)', outline: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}>
+      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}>
         <table className="tbl tbl-lista" style={{ minWidth: 1780, '--lista-row-h': rowH + 'px' }}>
           <thead>
             {(() => {
@@ -3779,9 +3900,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               });
               const custVis = customCols.filter(col => !hiddenCols.has(col.id));
               return (
-                <tr className="band-row">
+                <tr className="band-row" ref={bandRowRef}>
                   {frozenVis.length > 0 && (
-                    <th colSpan={frozenVis.length} className="band-th" style={{ position: 'sticky', left: 0, zIndex: 5, width: frozenW, minWidth: frozenW }}>
+                    <th colSpan={frozenVis.length} className="band-th" style={{ position: 'sticky', top: 0, left: 0, zIndex: 6, width: frozenW, minWidth: frozenW }}>
                       {LISTA_BAND_LABELS.etapa}
                     </th>
                   )}
@@ -3796,13 +3917,13 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             <tr>
               {colOrder.filter(c => !hiddenCols.has(c)).map(colId => renderTh(colId))}
               {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
-                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: 0, zIndex: 3, userSelect: 'none' }}>
+                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandH, zIndex: 3, userSelect: 'none' }}>
                   {col.label}
                   <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 5 }}
                     onMouseDown={(ev) => startColResize(ev, col.id)} />
                 </th>
               ))}
-              <th style={{ width: 36, padding: '0 8px', textAlign: 'center', position: 'sticky', top: 0, zIndex: 3 }}>
+              <th style={{ width: 36, padding: '0 8px', textAlign: 'center', position: 'sticky', top: bandH, zIndex: 3 }}>
                 <button
                   onClick={() => setShowAddCol(true)}
                   title="Adicionar coluna personalizada"
@@ -4323,6 +4444,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         </div>
       )}
     </div>
+    </>
   );
 };
 

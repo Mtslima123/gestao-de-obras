@@ -2458,7 +2458,7 @@ th.sticky-left { z-index: 4; }
 
 /* Cabeçalho em bandas da Lista (linha acima dos nomes de coluna) */
 .tbl thead tr.band-row th {
-  top: auto; /* não gruda no topo; só a linha de nomes de coluna fica sticky-top */
+  position: sticky; top: 0; z-index: 4; /* banda também fica fixa no topo (acima dos nomes) */
   background: var(--surface-muted);
   color: var(--text-faint);
   font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
