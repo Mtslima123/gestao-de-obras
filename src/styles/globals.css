@@ -1210,6 +1210,7 @@ a:hover { color: var(--brand-600); }
   overflow: hidden;
   animation: slideUp 0.16s ease-out;
 }
+.modal.sm { max-width: 300px; }
 .modal.lg { max-width: 880px; }
 .modal.xl { max-width: 1100px; }
 .modal-header {

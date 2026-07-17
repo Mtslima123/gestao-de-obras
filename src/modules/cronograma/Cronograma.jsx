@@ -2219,6 +2219,50 @@ const AddColModal = ({ onClose, onAdd }) => {
   );
 };
 
+// ─── RowHeightModal ───────────────────────────────────────────────────────────
+// Caixa "Altura da linha" (estilo Excel). A grade usa altura uniforme, então o valor
+// vale para todas as linhas da tabela.
+const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 }) => {
+  const [val, setVal] = React.useState(String(value));
+
+  const doApply = () => {
+    const n = parseInt(val, 10);
+    if (!Number.isFinite(n)) { onClose(); return; }
+    onApply(Math.min(max, Math.max(min, n)));
+    onClose();
+  };
+
+  return (
+    <Modal
+      title="Altura da linha"
+      onClose={onClose}
+      size="sm"
+      draggable
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doApply}>OK</button>
+        </>
+      }
+    >
+      <div className="form-grid">
+        <div className="field full">
+          <label>Altura da linha (px)</label>
+          <input
+            autoFocus type="number" className="input" value={val}
+            min={min} max={max}
+            onChange={e => setVal(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') doApply(); }}
+          />
+          <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4 }}>
+            Entre {min} e {max}px · vale para {count > 1 ? `as ${count} linhas selecionadas` : 'a linha selecionada'}.
+          </span>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 // ─── PavimentosModal ─────────────────────────────────────────────────────────
 const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
   const [step,          setStep]          = React.useState(1);
@@ -2410,6 +2454,7 @@ const respInitials = (name) => {
 const respColor = (name) => AV_PALETTE[[...(name || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % AV_PALETTE.length];
 const LISTA_DEFAULT_ORDER = Object.keys(LISTA_COL_DEFS);
 const LISTA_FROZEN = ['wbs', 'id', 'etapa'];
+const GUTTER_W = 40; // largura da calha de número de linha (estilo Excel/Project)
 // Antes WBS/ID eram pegadas de arraste; agora a linha se move pela borda (arraste manual),
 // então nenhuma coluna é excluída da seleção — todas podem ser selecionadas/formatadas.
 const ROW_DRAG_COLS = new Set();
@@ -2428,7 +2473,7 @@ const THEME_SHADES = [0.8, 0.6, 0.4, 0, -0.25, -0.5];
 const STD_COLORS = ['#C00000', '#FF0000', '#FFC000', '#FFFF00', '#92D050', '#00B050', '#00B0F0', '#0070C0', '#002060', '#7030A0'];
 
 // Menu de cores (paleta) que fecha ao escolher — usado para preenchimento e fonte.
-const ColorMenu = ({ label, title, value, onPick, onClear, clearLabel }) => {
+const ColorMenu = ({ label, title, value, onPick, onClear, clearLabel, icon }) => {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
   React.useEffect(() => {
@@ -2441,10 +2486,20 @@ const ColorMenu = ({ label, title, value, onPick, onClear, clearLabel }) => {
   const sw = { width: 16, height: 16, border: '1px solid rgba(0,0,0,.18)', borderRadius: 2, cursor: 'pointer', padding: 0 };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button title={title} onClick={() => setOpen(o => !o)}
-        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, height: 28, padding: '2px 8px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}>
-        {label}
-        <span style={{ width: 14, height: 14, borderRadius: 2, border: '1px solid rgba(0,0,0,.2)', background: value || 'transparent', backgroundImage: value ? undefined : 'linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(45deg,#ccc 25%,#fff 25%,#fff 75%,#ccc 75%)', backgroundSize: '6px 6px' }} />
+      <button title={title || label} onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 3, height: 28, padding: '2px 5px', background: open ? 'var(--brand-50)' : 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}>
+        {icon ? (
+          // Ícone com barra da cor atual embaixo (estilo Excel)
+          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1 }}>
+            {icon}
+            <span style={{ width: 16, height: 3, borderRadius: 1, background: value || 'transparent', backgroundImage: value ? undefined : 'linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(45deg,#ccc 25%,#fff 25%,#fff 75%,#ccc 75%)', backgroundSize: '4px 4px' }} />
+          </span>
+        ) : (
+          <>
+            <span style={{ fontSize: 11.5 }}>{label}</span>
+            <span style={{ width: 14, height: 14, borderRadius: 2, border: '1px solid rgba(0,0,0,.2)', background: value || 'transparent', backgroundImage: value ? undefined : 'linear-gradient(45deg,#ccc 25%,transparent 25%,transparent 75%,#ccc 75%),linear-gradient(45deg,#ccc 25%,#fff 25%,#fff 75%,#ccc 75%)', backgroundSize: '6px 6px' }} />
+          </>
+        )}
         <span style={{ fontSize: 8, color: 'var(--text-muted)' }}>▼</span>
       </button>
       {open && (
@@ -2484,6 +2539,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const [showAddCol,     setShowAddCol]     = React.useState(false);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id da tarefa a excluir
   const [showPavimentos, setShowPavimentos] = React.useState(false);
+  const [showRowHDialog, setShowRowHDialog] = React.useState(false); // caixa "Altura da linha"
+  const [rowHDialogTargets, setRowHDialogTargets] = React.useState([]); // linhas alvo da altura
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
@@ -2559,13 +2616,22 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const listaScrollRef = React.useRef(null); // container rolável da lista (foco p/ navegação por setas)
 
   // Altura das linhas da lista (ajustável na UI, estilo MS Project), persistida no navegador.
+  const ROW_H_MIN = 20, ROW_H_MAX = 120;
   const [rowH, setRowH] = React.useState(() => {
     const v = parseInt(localStorage.getItem('ls_crono_row_h') || '', 10);
-    return Number.isFinite(v) ? Math.min(60, Math.max(24, v)) : 34;
+    return Number.isFinite(v) ? Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, v)) : 34;
   });
   React.useEffect(() => {
     try { localStorage.setItem('ls_crono_row_h', String(rowH)); } catch { /* ignore */ }
   }, [rowH]);
+  // Alturas por linha (override só das linhas selecionadas), persistidas por obra.
+  const [rowHeights, setRowHeights] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(`ls_crono_rowheights_${obraId}`) || '{}') || {}; }
+    catch { return {}; }
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem(`ls_crono_rowheights_${obraId}`, JSON.stringify(rowHeights)); } catch { /* ignore */ }
+  }, [rowHeights, obraId]);
 
   const wbsMap      = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   const succMap     = React.useMemo(() => computeSuccessors(etapas), [etapas]);
@@ -2658,7 +2724,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const getColW = (colId) => colWidths[colId] ?? LISTA_COL_DEFS[colId]?.defWidth ?? 100;
 
   const frozenLeft = React.useMemo(() => {
-    const out = {}; let acc = 0;
+    const out = {}; let acc = GUTTER_W; // reserva a faixa da calha de número de linha
     for (const cid of LISTA_FROZEN) { out[cid] = acc; acc += (colWidths[cid] ?? LISTA_COL_DEFS[cid]?.defWidth ?? 100); }
     return out;
   }, [colWidths]);
@@ -2719,6 +2785,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
           ...(col.align === 'right' ? { textAlign: 'right' } : {}),
         }}
         draggable={!isFrozen}
+        onClick={() => selectColumn(colId)}
+        onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId }); }}
         onDragStart={!isFrozen ? (ev) => onColDragStart(ev, colId) : undefined}
         onDragOver={!isFrozen ? (ev) => onColDragOver(ev, colId) : undefined}
         onDragLeave={!isFrozen ? () => setDragOverCol(prev => prev?.id === colId ? null : prev) : undefined}
@@ -2727,7 +2795,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       >
         {col.label}
         <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 5 }}
-          draggable={false} onMouseDown={(ev) => startColResize(ev, colId)} />
+          draggable={false} onClick={(ev) => ev.stopPropagation()} onMouseDown={(ev) => { ev.stopPropagation(); startColResize(ev, colId); }} />
       </th>
     );
   };
@@ -2913,6 +2981,43 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     ...customCols.filter(c => !hiddenCols.has(c.id)).map(c => c.id),
   ];
   // Lista de células do intervalo (retângulo entre âncora e foco); ignora colunas-pegada
+  // Seleciona a COLUNA inteira (todas as linhas visíveis) — reaproveita o range de seleção,
+  // então a coluna fica selecionada/formatável/pintável como no Excel.
+  const selectColumn = (colId) => {
+    const rows = filtrada.map(x => x.id);
+    if (!rows.length) return;
+    setSelAnchor({ taskId: rows[0], colId });
+    setSelectedCell({ taskId: rows[rows.length - 1], colId });
+    setSelectedId(null);
+    setMultiSel([]);
+    listaScrollRef.current?.focus?.({ preventScroll: true });
+  };
+
+  // Conjunto de linhas atualmente selecionadas (intervalo de células + multi-seleção + linha ativa).
+  const selectedRowIds = () => {
+    const ids = new Set();
+    if (selectedCell) {
+      const rows = filtrada.map(x => x.id);
+      const a = selAnchor || selectedCell;
+      let r1 = rows.indexOf(a.taskId), r2 = rows.indexOf(selectedCell.taskId);
+      if (r1 >= 0 && r2 >= 0) { if (r1 > r2) [r1, r2] = [r2, r1]; for (let r = r1; r <= r2; r++) ids.add(rows[r]); }
+    }
+    multiSel.forEach(id => ids.add(id));
+    if (selectedId != null) ids.add(selectedId);
+    return ids;
+  };
+
+  // Seleciona a LINHA inteira (todas as colunas) — usado pelo clique no número da linha (calha).
+  const selectRow = (taskId) => {
+    const cols = visibleColIds();
+    if (!cols.length) return;
+    setSelAnchor({ taskId, colId: cols[0] });
+    setSelectedCell({ taskId, colId: cols[cols.length - 1] });
+    setSelectedId(taskId);
+    setMultiSel([]);
+    listaScrollRef.current?.focus?.({ preventScroll: true });
+  };
+
   const rangeCellList = () => {
     if (!selectedCell) return [];
     const a = selAnchor || selectedCell;
@@ -3051,11 +3156,20 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       return;
     }
     if (editingNow) return;
-    // Shift+Espaço: seleciona a LINHA inteira (estilo Excel) — a partir de uma célula
+    // Shift+Espaço: seleciona as LINHAS inteiras (estilo Excel) — cobre todas as colunas do
+    // intervalo atual, então funciona tanto com uma célula quanto com várias selecionadas.
     if (ev.shiftKey && (ev.key === ' ' || ev.key === 'Spacebar') && selectedCell) {
       ev.preventDefault();
-      setSelectedId(selectedCell.taskId);
-      setSelectedCell(null);
+      const rows = filtrada.map(x => x.id);
+      const a = selAnchor || selectedCell;
+      let r1 = rows.indexOf(a.taskId), r2 = rows.indexOf(selectedCell.taskId);
+      if (r1 < 0 || r2 < 0) return;
+      if (r1 > r2) [r1, r2] = [r2, r1];
+      const cols = visibleColIds();
+      const firstCol = cols[0], lastCol = cols[cols.length - 1];
+      setSelAnchor({ taskId: rows[r1], colId: firstCol });
+      setSelectedCell({ taskId: rows[r2], colId: lastCol });
+      setSelectedId(rows[r1]);
       return;
     }
     if (selectedCell && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.key)) {
@@ -3615,21 +3729,6 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 
         <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
 
-        {/* Altura das linhas (estilo MS Project) — ajustável e persistida no navegador */}
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Altura das linhas">
-          <button className="btn btn-ghost" style={{ ...btnStyle, padding: '4px 8px' }}
-            onClick={() => setRowH(h => Math.max(24, h - 4))} title="Diminuir altura das linhas">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          </button>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 34, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{rowH}px</span>
-          <button className="btn btn-ghost" style={{ ...btnStyle, padding: '4px 8px' }}
-            onClick={() => setRowH(h => Math.min(60, h + 4))} title="Aumentar altura das linhas">
-            <Icon name="plus" size={13} />
-          </button>
-        </div>
-
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-
         <button
           className="btn btn-ghost"
           style={{ ...btnStyle, color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.45 }}
@@ -3640,34 +3739,6 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
           </svg>
           Excluir
-        </button>
-
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-
-        <button
-          className="btn btn-ghost"
-          style={{ ...btnStyle, opacity: canIndent ? 1 : 0.4 }}
-          onClick={handleIndent}
-          title="Recuar tarefa — tornar subtarefa da linha acima (Ctrl+Shift+→)"
-          disabled={!canIndent}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-          Recuar
-        </button>
-
-        <button
-          className="btn btn-ghost"
-          style={{ ...btnStyle, opacity: canOutdent ? 1 : 0.4 }}
-          onClick={handleOutdent}
-          title="Promover tarefa — subir um nível hierárquico (Ctrl+Shift+←)"
-          disabled={!canOutdent}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-          Promover
         </button>
         </>
         )}
@@ -3842,49 +3913,69 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
         });
         const size = activeFmt.fontSize || 13;
         const clampSize = (n) => Math.min(24, Math.max(9, n));
+        const div = () => <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />;
+        const iconBtn = { ...btnStyle, height: 28, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6 };
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '6px 2px 8px', opacity: hasTarget ? 1 : 0.5, pointerEvents: hasTarget || painterOn ? 'auto' : 'none' }}>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 2 }}>
-              Formatar {alvo ? <strong>{alvo}</strong> : ''}:
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 2px 8px' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              Formatar {alvo ? <strong>{alvo}</strong> : ''}
             </span>
-            {/* Preenchimento */}
-            <ColorMenu label="Fundo" title="Cor de preenchimento" value={activeFmt.bg}
-              onPick={(c) => applyFmt({ bg: c })} onClear={() => applyFmt({ bg: false })} clearLabel="Sem preenchimento" />
-            {/* Cor da fonte */}
-            <ColorMenu label="Texto" title="Cor da fonte" value={activeFmt.color}
-              onPick={(c) => applyFmt({ color: c })} onClear={() => applyFmt({ color: false })} clearLabel="Cor automática" />
-            <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
-            {/* Negrito / Itálico / Sublinhado */}
-            <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito">N</button>
-            <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico">I</button>
-            <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado">S</button>
-            <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
-            {/* Tamanho da fonte */}
-            <button style={{ ...btnStyle, height: 28, padding: '2px 8px' }} onClick={() => applyFmt({ fontSize: clampSize(size - 1) })} title="Diminuir fonte">A−</button>
-            <span style={{ fontSize: 12, minWidth: 18, textAlign: 'center', color: 'var(--text-muted)' }}>{size}</span>
-            <button style={{ ...btnStyle, height: 28, padding: '2px 8px' }} onClick={() => applyFmt({ fontSize: clampSize(size + 1) })} title="Aumentar fonte">A+</button>
-            <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
-            {/* Pincel de formatação */}
-            <button style={tglStyle(painterOn)}
-              onClick={() => {
-                if (painterOn) { setPainterOn(false); return; }
-                painterRef.current = { ...activeFmt };
-                setPainterOn(true);
-              }}
-              title="Pincel: copia a formatação da seleção; clique numa célula para aplicar">
-              <Icon name="edit" size={13} /> Pincel
-            </button>
-            {/* Limpar formatação */}
-            <button style={{ ...btnStyle, height: 28, padding: '2px 9px', border: '1px solid var(--border)', borderRadius: 6 }} onClick={clearFmt} title="Limpar formatação da seleção">
-              Limpar
-            </button>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', padding: '3px 6px',
+              opacity: hasTarget ? 1 : 0.5, pointerEvents: hasTarget || painterOn ? 'auto' : 'none',
+            }}>
+              {/* Preenchimento (balde) */}
+              <ColorMenu label="Fundo" title="Cor de preenchimento" value={activeFmt.bg}
+                onPick={(c) => applyFmt({ bg: c })} onClear={() => applyFmt({ bg: false })} clearLabel="Sem preenchimento"
+                icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.5 8.5a2 2 0 0 0 0 3L8 20a2 2 0 0 0 3 0l8-8Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>} />
+              {/* Cor da fonte (A) */}
+              <ColorMenu label="Texto" title="Cor da fonte" value={activeFmt.color}
+                onPick={(c) => applyFmt({ color: c })} onClear={() => applyFmt({ color: false })} clearLabel="Cor automática"
+                icon={<span style={{ fontWeight: 800, fontSize: 13, lineHeight: 1 }}>A</span>} />
+              {div()}
+              {/* Negrito / Itálico / Sublinhado */}
+              <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito">N</button>
+              <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico">I</button>
+              <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado">S</button>
+              {div()}
+              {/* Tamanho da fonte */}
+              <button style={{ ...btnStyle, height: 28, padding: '2px 8px' }} onClick={() => applyFmt({ fontSize: clampSize(size - 1) })} title="Diminuir fonte">A−</button>
+              <span style={{ fontSize: 12, minWidth: 18, textAlign: 'center', color: 'var(--text-muted)' }}>{size}</span>
+              <button style={{ ...btnStyle, height: 28, padding: '2px 8px' }} onClick={() => applyFmt({ fontSize: clampSize(size + 1) })} title="Aumentar fonte">A+</button>
+              {div()}
+              {/* Recuar / Promover (indentação) — movidos da toolbar de cima */}
+              <button style={{ ...iconBtn, opacity: canOutdent ? 1 : 0.4 }} onClick={handleOutdent} disabled={!canOutdent}
+                title="Promover — subir um nível hierárquico (Ctrl+Shift+←)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="7 8 3 12 7 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
+              </button>
+              <button style={{ ...iconBtn, opacity: canIndent ? 1 : 0.4 }} onClick={handleIndent} disabled={!canIndent}
+                title="Recuar — tornar subtarefa da linha acima (Ctrl+Shift+→)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 8 7 12 3 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
+              </button>
+              {div()}
+              {/* Pincel de formatação */}
+              <button style={{ ...tglStyle(painterOn), width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                onClick={() => {
+                  if (painterOn) { setPainterOn(false); return; }
+                  painterRef.current = { ...activeFmt };
+                  setPainterOn(true);
+                }}
+                title="Pincel: copia a formatação da seleção; clique numa célula para aplicar">
+                <Icon name="edit" size={14} />
+              </button>
+              {/* Limpar formatação */}
+              <button style={iconBtn} onClick={clearFmt} title="Limpar formatação da seleção">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V4h16v3"/><path d="M5 20h6"/><path d="M13 4 8 20"/><line x1="15" y1="15" x2="20" y2="20"/><line x1="20" y1="15" x2="15" y2="20"/></svg>
+              </button>
+            </div>
           </div>
         );
       })()}
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
       <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}>
-        <table className="tbl tbl-lista" style={{ minWidth: 1780, '--lista-row-h': rowH + 'px' }}>
+        <table className="tbl tbl-lista" style={{ minWidth: 1780 + GUTTER_W, '--lista-row-h': rowH + 'px' }}>
           <thead>
             {(() => {
               // Linha de bandas (Etapa/Tarefa · Prazo · Avanço · Financeiro · Sequenciamento).
@@ -3901,8 +3992,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               const custVis = customCols.filter(col => !hiddenCols.has(col.id));
               return (
                 <tr className="band-row" ref={bandRowRef}>
+                  <th className="band-th" style={{ position: 'sticky', top: 0, left: 0, zIndex: 7, width: GUTTER_W, minWidth: GUTTER_W }} />
                   {frozenVis.length > 0 && (
-                    <th colSpan={frozenVis.length} className="band-th" style={{ position: 'sticky', top: 0, left: 0, zIndex: 6, width: frozenW, minWidth: frozenW }}>
+                    <th colSpan={frozenVis.length} className="band-th" style={{ position: 'sticky', top: 0, left: GUTTER_W, zIndex: 6, width: frozenW, minWidth: frozenW }}>
                       {LISTA_BAND_LABELS.etapa}
                     </th>
                   )}
@@ -3915,12 +4007,15 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               );
             })()}
             <tr>
+              <th style={{ width: GUTTER_W, minWidth: GUTTER_W, position: 'sticky', top: bandH, left: 0, zIndex: 7, userSelect: 'none' }} />
               {colOrder.filter(c => !hiddenCols.has(c)).map(colId => renderTh(colId))}
               {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
-                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandH, zIndex: 3, userSelect: 'none' }}>
+                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandH, zIndex: 3, userSelect: 'none', cursor: 'pointer' }}
+                  onClick={() => selectColumn(col.id)}
+                  onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId: col.id }); }}>
                   {col.label}
                   <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 5 }}
-                    onMouseDown={(ev) => startColResize(ev, col.id)} />
+                    onClick={(ev) => ev.stopPropagation()} onMouseDown={(ev) => { ev.stopPropagation(); startColResize(ev, col.id); }} />
                 </th>
               ))}
               <th style={{ width: 36, padding: '0 8px', textAlign: 'center', position: 'sticky', top: bandH, zIndex: 3 }}>
@@ -3933,7 +4028,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             </tr>
           </thead>
           <tbody>
-            {filtrada.map((e) => {
+            {filtrada.map((e, rowIdx) => {
               // Realce de LINHA só quando a linha está selecionada e não há uma CÉLULA
               // selecionada nessa linha (seleção de célula tem prioridade visual).
               const cellSelHere = selectedCell?.taskId === e.id;
@@ -4216,7 +4311,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
                     dragOverId === e.id ? 'drag-over-row' : '',
                   ].filter(Boolean).join(' ')}
-                  onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, taskId: e.id }); }}
+                  onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'row', taskId: e.id }); }}
                   onClick={(ev) => {
                     // Acabou de mover a linha pela borda: não alterna a seleção neste clique
                     if (rowDragMovedRef.current) { rowDragMovedRef.current = false; return; }
@@ -4272,8 +4367,22 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                     document.addEventListener('mousemove', onMove);
                     document.addEventListener('mouseup', onUp);
                   }}
-                  style={{ cursor: 'grab', fontWeight: e.isGroup ? 600 : undefined }}
+                  style={{ cursor: 'grab', fontWeight: e.isGroup ? 600 : undefined, '--lista-row-h': (rowHeights[e.id] ?? rowH) + 'px' }}
                 >
+                  {/* Calha: número da linha (estilo Excel/Project) — clique seleciona a linha */}
+                  <td
+                    onClick={(ev) => { ev.stopPropagation(); selectRow(e.id); }}
+                    onMouseDown={(ev) => ev.stopPropagation()}
+                    title="Selecionar linha"
+                    style={{
+                      position: 'sticky', left: 0, zIndex: 2, background: frozenBg,
+                      width: GUTTER_W, minWidth: GUTTER_W, textAlign: 'center',
+                      cursor: 'pointer', userSelect: 'none', color: 'var(--text-faint)',
+                      fontSize: 11, fontFamily: 'var(--font-mono, monospace)',
+                    }}
+                  >
+                    {rowIdx + 1}
+                  </td>
                   {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeEdges.get(e.id + '|' + colId)))}
 
                   {/* Colunas personalizadas */}
@@ -4337,7 +4446,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             {/* Linha de adição rápida */}
             {filtrada.length === 0 && (
               <tr>
-                <td colSpan={colOrder.filter(c => !hiddenCols.has(c)).length + customCols.filter(col => !hiddenCols.has(col.id)).length + 1} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+                <td colSpan={colOrder.filter(c => !hiddenCols.has(c)).length + customCols.filter(col => !hiddenCols.has(col.id)).length + 2} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
                   {visible.length === 0
                     ? <>Nenhuma tarefa — clique em <strong>Adicionar tarefa</strong> para começar</>
                     : 'Nenhuma tarefa corresponde aos filtros aplicados'}
@@ -4370,6 +4479,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               };
               return (
                 <tr style={{ fontWeight: 600, borderTop: '2px solid var(--border)', background: footBg, height: 48 }}>
+                  <td style={{ position: 'sticky', left: 0, zIndex: 2, background: footBg, width: GUTTER_W, minWidth: GUTTER_W }} />
                   {colOrder.filter(c => !hiddenCols.has(c)).map(c => {
                     const cell = foot[c] || <td key={c} />;
                     if (dragOverCol?.id !== c) return cell;
@@ -4386,6 +4496,20 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       </div>
 
       {showAddCol && <AddColModal onClose={() => setShowAddCol(false)} onAdd={handleAddCol} />}
+
+      {showRowHDialog && (
+        <RowHeightModal
+          value={rowHeights[rowHDialogTargets[0]] ?? rowH}
+          min={ROW_H_MIN} max={ROW_H_MAX}
+          count={rowHDialogTargets.length}
+          onApply={(v) => setRowHeights(prev => {
+            const next = { ...prev };
+            rowHDialogTargets.forEach(id => { next[id] = v; });
+            return next;
+          })}
+          onClose={() => setShowRowHDialog(false)}
+        />
+      )}
 
       {/* Modal de confirmação de exclusão */}
       {deleteConfirm && (() => {
@@ -4429,7 +4553,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       )}
 
       {/* Menu de contexto — botão direito na linha */}
-      {ctxMenu && !readOnly && (
+      {ctxMenu?.kind !== 'col' && ctxMenu && !readOnly && (
         <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
           <button onClick={() => { insertTask(ctxMenu.taskId, 'above'); setCtxMenu(null); }}>
             ↑ Inserir linha acima
@@ -4438,9 +4562,41 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             ↓ Inserir linha abaixo
           </button>
           <hr />
+          <button onClick={() => {
+            const ids = selectedRowIds();
+            ids.add(ctxMenu.taskId); // inclui a linha clicada
+            setRowHDialogTargets([...ids]);
+            setShowRowHDialog(true);
+            setCtxMenu(null);
+          }}>
+            Altura da linha…
+          </button>
+          <hr />
           <button className="danger" onClick={() => { setDeleteConfirm(ctxMenu.taskId); setCtxMenu(null); }}>
             Excluir tarefa
           </button>
+        </div>
+      )}
+
+      {/* Menu de contexto — botão direito no cabeçalho de coluna */}
+      {ctxMenu?.kind === 'col' && (
+        <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+          <button onClick={() => { selectColumn(ctxMenu.colId); setCtxMenu(null); }}>
+            Selecionar coluna
+          </button>
+          {!LISTA_FROZEN.includes(ctxMenu.colId) && (
+            <button onClick={() => { toggleColVisibility(ctxMenu.colId); setCtxMenu(null); }}>
+              Ocultar coluna
+            </button>
+          )}
+          {hiddenCols.size > 0 && (
+            <>
+              <hr />
+              <button onClick={() => { setHiddenCols(new Set()); setCtxMenu(null); }}>
+                Reexibir todas
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

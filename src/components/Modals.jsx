@@ -61,7 +61,7 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     e.preventDefault();
   };
 
-  const sizeClass = size === 'lg' ? 'lg' : size === 'xl' ? 'xl' : '';
+  const sizeClass = size === 'sm' ? 'sm' : size === 'lg' ? 'lg' : size === 'xl' ? 'xl' : '';
   const modalStyle = draggable && pos ? { position: 'fixed', left: pos.x, top: pos.y, margin: 0 } : {};
   const headerStyle = draggable ? { cursor: 'grab', userSelect: 'none' } : {};
 
