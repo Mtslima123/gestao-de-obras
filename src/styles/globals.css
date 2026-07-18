@@ -2100,6 +2100,7 @@ tr:hover .obras-row-actions {
 /* ── Formatação de célula (vence estilos internos via !important) ─────────── */
 .fmt-color, .fmt-color * { color: var(--fmt-color) !important; }
 .fmt-size,  .fmt-size *  { font-size: var(--fmt-size) !important; }
+.fmt-family, .fmt-family * { font-family: var(--fmt-family) !important; }
 .fmt-b, .fmt-b * { font-weight: 700 !important; }
 .fmt-i, .fmt-i * { font-style: italic !important; }
 .fmt-u, .fmt-u * { text-decoration: underline !important; }

@@ -2541,6 +2541,12 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const [showPavimentos, setShowPavimentos] = React.useState(false);
   const [showRowHDialog, setShowRowHDialog] = React.useState(false); // caixa "Altura da linha"
   const [rowHDialogTargets, setRowHDialogTargets] = React.useState([]); // linhas alvo da altura
+  const [pendingFontSize, setPendingFontSize] = React.useState(null); // tamanho armado p/ texto novo
+  const [pendingFontFamily, setPendingFontFamily] = React.useState(null); // fonte armada p/ texto novo
+  const [fmtCollapsed, setFmtCollapsed] = React.useState(() => localStorage.getItem('ls_crono_fmt_collapsed') === '1');
+  React.useEffect(() => {
+    try { localStorage.setItem('ls_crono_fmt_collapsed', fmtCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [fmtCollapsed]);
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
@@ -2610,6 +2616,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const dragRowRef   = React.useRef(null);
   const hoverRowRef  = React.useRef(null);   // linha sob o cursor (para o arraste manual de linha)
   const rowDragMovedRef = React.useRef(false); // houve movimento de linha (suprime o clique seguinte)
+  const rowSelectingRef = React.useRef(false); // arraste de seleção de LINHAS pela calha em andamento
+  const rowSelAnchorRef = React.useRef(null);  // id da linha-âncora do arraste pela calha
   const colPanelRef  = React.useRef(null);
   const cellClipRef  = React.useRef(null); // clipboard interno de célula { value, kind, fmt }
   const rowClipRef   = React.useRef(null); // clipboard interno de LINHA (clone da tarefa copiada)
@@ -2886,6 +2894,19 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     });
     applyBlockEdits(edits);
   };
+  // Rola a linha em foco para dentro da área visível, respeitando o cabeçalho fixo.
+  const scrollRowIntoView = (taskId) => {
+    const sc = listaScrollRef.current;
+    if (!sc) return;
+    const tr = sc.querySelector(`tr[data-taskid="${CSS.escape(String(taskId))}"]`);
+    if (!tr) return;
+    const scRect = sc.getBoundingClientRect();
+    const trRect = tr.getBoundingClientRect();
+    const head = sc.querySelector('thead');
+    const headBottom = head ? head.getBoundingClientRect().bottom : scRect.top;
+    if (trRect.top < headBottom) sc.scrollTop -= (headBottom - trRect.top);
+    else if (trRect.bottom > scRect.bottom) sc.scrollTop += (trRect.bottom - scRect.bottom);
+  };
   const moveSelCell = (key, extend) => {
     const rows = filtrada.map(x => x.id);
     const cols = [
@@ -2901,6 +2922,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     if (key === 'ArrowRight') c = Math.min(cols.length - 1, c + 1);
     const next = { taskId: rows[r], colId: cols[c] };
     setSelectedCell(next);
+    scrollRowIntoView(next.taskId);
     if (extend) return;                       // Shift+seta: estende o intervalo (âncora fica)
     setSelAnchor(next);                        // seta sem shift: colapsa o intervalo
     setSelectedId(rows[r]);                    // linha atual acompanha para as ações da barra
@@ -3007,15 +3029,25 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     return ids;
   };
 
-  // Seleciona a LINHA inteira (todas as colunas) — usado pelo clique no número da linha (calha).
-  const selectRow = (taskId) => {
-    const cols = visibleColIds();
-    if (!cols.length) return;
-    setSelAnchor({ taskId, colId: cols[0] });
-    setSelectedCell({ taskId, colId: cols[cols.length - 1] });
-    setSelectedId(taskId);
-    setMultiSel([]);
-    listaScrollRef.current?.focus?.({ preventScroll: true });
+  // Cria uma tarefa raiz a partir de uma linha em branco (estilo Project: digitar o nome cria a tarefa).
+  const createFromBlank = (nome) => {
+    const name = (nome || '').trim();
+    if (!name || readOnly) return;
+    const novo = {
+      id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: name,
+      nivel: 0, parentId: null, isGroup: false, collapsed: false,
+      inicio: 0, dur: 1, avanco: 0, status: 'upcoming',
+      dep: [], milestone: false, responsavel: '',
+      customCols: emptyCustomCols(customCols), custo: 0,
+      restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
+    };
+    // Texto novo herda o tamanho/tipo de fonte "armados" na barra (aplicado na célula do nome).
+    const etapaFmt = {};
+    if (pendingFontSize) etapaFmt.fontSize = pendingFontSize;
+    if (pendingFontFamily) etapaFmt.fontFamily = pendingFontFamily;
+    if (Object.keys(etapaFmt).length) novo.fmt = { etapa: etapaFmt };
+    onCommit([...etapas, novo], { silent: true });
+    setSelectedId(novo.id);
   };
 
   const rangeCellList = () => {
@@ -3081,6 +3113,25 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     if (readOnly) return;
     if (selectedCell) { applyFmtToCells(rangeCellList(), patch); return; }
     if (selectedId)   { handleCellFormat(selectedId, '__row', patch); }
+  };
+  // Tamanho da fonte: aplica SÓ nas células selecionadas (nunca em __row, que vazaria para a linha
+  // toda) e "arma" o tamanho para valer no próximo texto novo (linhas em branco).
+  const applyFontSize = (fs) => {
+    if (!readOnly) {
+      if (selectedCell) applyFmtToCells(rangeCellList(), { fontSize: fs });
+      else if (selectedId) applyFmtToCells(visibleColIds().map(colId => ({ taskId: selectedId, colId })), { fontSize: fs });
+    }
+    setPendingFontSize(fs);
+  };
+  // Tipo da fonte: mesma lógica do tamanho (só nas células selecionadas + arma p/ texto novo).
+  // ff = string da família, ou false para voltar ao padrão.
+  const applyFontFamily = (ff) => {
+    if (!readOnly) {
+      const patch = { fontFamily: ff || false };
+      if (selectedCell) applyFmtToCells(rangeCellList(), patch);
+      else if (selectedId) applyFmtToCells(visibleColIds().map(colId => ({ taskId: selectedId, colId })), patch);
+    }
+    setPendingFontFamily(ff || null);
   };
   const clearFmt = () => {
     if (readOnly) return;
@@ -3189,7 +3240,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 
   // Fim do arraste de seleção de intervalo em qualquer soltar de botão
   React.useEffect(() => {
-    const up = () => { isSelectingRef.current = false; };
+    const up = () => { isSelectingRef.current = false; rowSelectingRef.current = false; };
     document.addEventListener('mouseup', up);
     return () => document.removeEventListener('mouseup', up);
   }, []);
@@ -3205,6 +3256,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     if (f.bg)       style.background = f.bg;
     if (f.color)    { style['--fmt-color'] = f.color; classes.push('fmt-color'); }
     if (f.fontSize) { style['--fmt-size'] = f.fontSize + 'px'; classes.push('fmt-size'); }
+    if (f.fontFamily) { style['--fmt-family'] = f.fontFamily; classes.push('fmt-family'); }
     if (f.bold)     classes.push('fmt-b');
     if (f.italic)   classes.push('fmt-i');
     if (f.underline) classes.push('fmt-u');
@@ -3428,8 +3480,6 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   };
 
   // ── Ações de toolbar ────────────────────────────────────────────────────────
-  const handleAddTask    = () => onCommit(createTask(selectedId, etapas, customCols), { silent: true });
-  const handleAddSubtask = () => { if (!selectedId) return; onCommit(createSubtask(selectedId, etapas, customCols), { silent: true }); };
   const handleAddGroup   = () => onCommit(createGroup(selectedId, etapas, customCols), { silent: true });
 
   const handleDelete = () => {
@@ -3679,39 +3729,6 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       }}>
         {!readOnly && (
         <>
-        <button className="btn btn-dark" style={btnStyle} onClick={handleAddTask}>
-          <Icon name="plus" size={13} /> Adicionar tarefa
-        </button>
-
-        <button className="btn btn-ghost"
-          style={{ ...btnStyle, opacity: selectedId ? 1 : 0.45 }}
-          onClick={() => selectedId && insertTask(selectedId, 'above')}
-          disabled={!selectedId}
-          title="Inserir linha acima da selecionada (botão direito na linha também funciona)">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"/><polyline points="5 12 12 5 19 12"/>
-          </svg>
-          Ins. acima
-        </button>
-
-        <button className="btn btn-ghost"
-          style={{ ...btnStyle, opacity: selectedId ? 1 : 0.45 }}
-          onClick={() => selectedId && insertTask(selectedId, 'below')}
-          disabled={!selectedId}
-          title="Inserir linha abaixo da selecionada (atalho: Insert)">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
-          </svg>
-          Ins. abaixo
-        </button>
-
-        <button className="btn btn-ghost" style={{ ...btnStyle, opacity: selectedId ? 1 : 0.45 }} onClick={handleAddSubtask} disabled={!selectedId}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/>
-          </svg>
-          Subtarefa
-        </button>
-
         <button className="btn btn-ghost" style={btnStyle} onClick={handleAddGroup}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -3911,64 +3928,113 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
           background: on ? 'var(--brand)' : 'var(--surface)', color: on ? '#fff' : 'var(--text)',
           border: '1px solid var(--border)', borderRadius: 6,
         });
-        const size = activeFmt.fontSize || 13;
+        const size = activeFmt.fontSize || pendingFontSize || 13;
         const clampSize = (n) => Math.min(24, Math.max(9, n));
         const div = () => <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />;
         const iconBtn = { ...btnStyle, height: 28, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6 };
+        // Estilos dos grupos estilo ribbon (Excel)
+        const groupBox = { display: 'inline-flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', padding: '4px 6px 2px' };
+        const groupContent = { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, justifyContent: 'center' };
+        const rowStyle = { display: 'flex', alignItems: 'center', gap: 4 };
+        const caption = { textAlign: 'center', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 3 };
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 2px 8px' }}>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
               Formatar {alvo ? <strong>{alvo}</strong> : ''}
             </span>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', padding: '3px 6px',
-              opacity: hasTarget ? 1 : 0.5, pointerEvents: hasTarget || painterOn ? 'auto' : 'none',
-            }}>
-              {/* Preenchimento (balde) */}
-              <ColorMenu label="Fundo" title="Cor de preenchimento" value={activeFmt.bg}
-                onPick={(c) => applyFmt({ bg: c })} onClear={() => applyFmt({ bg: false })} clearLabel="Sem preenchimento"
-                icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.5 8.5a2 2 0 0 0 0 3L8 20a2 2 0 0 0 3 0l8-8Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>} />
-              {/* Cor da fonte (A) */}
-              <ColorMenu label="Texto" title="Cor da fonte" value={activeFmt.color}
-                onPick={(c) => applyFmt({ color: c })} onClear={() => applyFmt({ color: false })} clearLabel="Cor automática"
-                icon={<span style={{ fontWeight: 800, fontSize: 13, lineHeight: 1 }}>A</span>} />
-              {div()}
-              {/* Negrito / Itálico / Sublinhado */}
-              <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito">N</button>
-              <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico">I</button>
-              <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado">S</button>
-              {div()}
-              {/* Tamanho da fonte */}
-              <button style={{ ...btnStyle, height: 28, padding: '2px 8px' }} onClick={() => applyFmt({ fontSize: clampSize(size - 1) })} title="Diminuir fonte">A−</button>
-              <span style={{ fontSize: 12, minWidth: 18, textAlign: 'center', color: 'var(--text-muted)' }}>{size}</span>
-              <button style={{ ...btnStyle, height: 28, padding: '2px 8px' }} onClick={() => applyFmt({ fontSize: clampSize(size + 1) })} title="Aumentar fonte">A+</button>
-              {div()}
-              {/* Recuar / Promover (indentação) — movidos da toolbar de cima */}
-              <button style={{ ...iconBtn, opacity: canOutdent ? 1 : 0.4 }} onClick={handleOutdent} disabled={!canOutdent}
-                title="Promover — subir um nível hierárquico (Ctrl+Shift+←)">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="7 8 3 12 7 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
-              </button>
-              <button style={{ ...iconBtn, opacity: canIndent ? 1 : 0.4 }} onClick={handleIndent} disabled={!canIndent}
-                title="Recuar — tornar subtarefa da linha acima (Ctrl+Shift+→)">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 8 7 12 3 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
-              </button>
-              {div()}
-              {/* Pincel de formatação */}
-              <button style={{ ...tglStyle(painterOn), width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                onClick={() => {
-                  if (painterOn) { setPainterOn(false); return; }
-                  painterRef.current = { ...activeFmt };
-                  setPainterOn(true);
-                }}
-                title="Pincel: copia a formatação da seleção; clique numa célula para aplicar">
-                <Icon name="edit" size={14} />
-              </button>
-              {/* Limpar formatação */}
-              <button style={iconBtn} onClick={clearFmt} title="Limpar formatação da seleção">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V4h16v3"/><path d="M5 20h6"/><path d="M13 4 8 20"/><line x1="15" y1="15" x2="20" y2="20"/><line x1="20" y1="15" x2="15" y2="20"/></svg>
-              </button>
+            {!fmtCollapsed && (
+            <div style={{ display: 'inline-flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', opacity: hasTarget ? 1 : 0.5, pointerEvents: hasTarget || painterOn ? 'auto' : 'none' }}>
+
+              {/* ── Grupo FONTE (2 linhas) ── */}
+              <div style={groupBox}>
+                <div style={groupContent}>
+                  {/* Linha 1: tipo da fonte + tamanho */}
+                  <div style={rowStyle}>
+                    <select
+                      value={activeFmt.fontFamily || pendingFontFamily || ''}
+                      onChange={(ev) => applyFontFamily(ev.target.value || false)}
+                      title="Tipo da fonte"
+                      style={{ height: 26, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 4px', maxWidth: 128, cursor: 'pointer' }}
+                    >
+                      <option value="">Padrão</option>
+                      <option value="Arial, sans-serif">Arial</option>
+                      <option value="Calibri, 'Segoe UI', sans-serif">Calibri</option>
+                      <option value="Verdana, sans-serif">Verdana</option>
+                      <option value="Tahoma, sans-serif">Tahoma</option>
+                      <option value="Georgia, serif">Georgia</option>
+                      <option value="'Times New Roman', serif">Times New Roman</option>
+                      <option value="'Courier New', monospace">Courier New</option>
+                    </select>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      <button style={{ ...btnStyle, height: 26, padding: '2px 7px' }} onClick={() => applyFontSize(clampSize(size - 1))} title="Diminuir fonte">A−</button>
+                      <span style={{ fontSize: 12, minWidth: 18, textAlign: 'center', color: 'var(--text-muted)' }}>{size}</span>
+                      <button style={{ ...btnStyle, height: 26, padding: '2px 7px' }} onClick={() => applyFontSize(clampSize(size + 1))} title="Aumentar fonte">A+</button>
+                    </span>
+                  </div>
+                  {/* Linha 2: N I S + cores */}
+                  <div style={rowStyle}>
+                    <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito">N</button>
+                    <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico">I</button>
+                    <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado">S</button>
+                    {div()}
+                    <ColorMenu label="Fundo" title="Cor de preenchimento" value={activeFmt.bg}
+                      onPick={(c) => applyFmt({ bg: c })} onClear={() => applyFmt({ bg: false })} clearLabel="Sem preenchimento"
+                      icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.5 8.5a2 2 0 0 0 0 3L8 20a2 2 0 0 0 3 0l8-8Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>} />
+                    <ColorMenu label="Texto" title="Cor da fonte" value={activeFmt.color}
+                      onPick={(c) => applyFmt({ color: c })} onClear={() => applyFmt({ color: false })} clearLabel="Cor automática"
+                      icon={<span style={{ fontWeight: 800, fontSize: 13, lineHeight: 1 }}>A</span>} />
+                  </div>
+                </div>
+                <div style={caption}>Fonte</div>
+              </div>
+
+              {/* ── Grupo RECUO ── */}
+              <div style={groupBox}>
+                <div style={{ ...groupContent, justifyContent: 'center' }}>
+                  <div style={rowStyle}>
+                    <button style={{ ...iconBtn, opacity: canOutdent ? 1 : 0.4 }} onClick={handleOutdent} disabled={!canOutdent}
+                      title="Promover — subir um nível hierárquico (Ctrl+Shift+←)">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="7 8 3 12 7 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
+                    </button>
+                    <button style={{ ...iconBtn, opacity: canIndent ? 1 : 0.4 }} onClick={handleIndent} disabled={!canIndent}
+                      title="Recuar — tornar subtarefa da linha acima (Ctrl+Shift+→)">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 8 7 12 3 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div style={caption}>Recuo</div>
+              </div>
+
+              {/* ── Grupo FORMATAÇÃO ── */}
+              <div style={groupBox}>
+                <div style={{ ...groupContent, justifyContent: 'center' }}>
+                  <div style={rowStyle}>
+                    <button style={{ ...tglStyle(painterOn), width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                      onClick={() => {
+                        if (painterOn) { setPainterOn(false); return; }
+                        painterRef.current = { ...activeFmt };
+                        setPainterOn(true);
+                      }}
+                      title="Pincel: copia a formatação da seleção; clique numa célula para aplicar">
+                      <Icon name="edit" size={14} />
+                    </button>
+                    <button style={iconBtn} onClick={clearFmt} title="Limpar formatação da seleção">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V4h16v3"/><path d="M5 20h6"/><path d="M13 4 8 20"/><line x1="15" y1="15" x2="20" y2="20"/><line x1="20" y1="15" x2="15" y2="20"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div style={caption}>Formatação</div>
+              </div>
+
             </div>
+            )}
+            <button
+              onClick={() => setFmtCollapsed(v => !v)}
+              title={fmtCollapsed ? 'Mostrar formatação' : 'Ocultar formatação'}
+              style={{ marginLeft: 'auto', alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: fmtCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .12s' }}><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
           </div>
         );
       })()}
@@ -4307,6 +4373,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
 
               return (
                 <tr key={e.id}
+                  data-taskid={e.id}
                   className={[
                     isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
                     dragOverId === e.id ? 'drag-over-row' : '',
@@ -4371,9 +4438,27 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 >
                   {/* Calha: número da linha (estilo Excel/Project) — clique seleciona a linha */}
                   <td
-                    onClick={(ev) => { ev.stopPropagation(); selectRow(e.id); }}
-                    onMouseDown={(ev) => ev.stopPropagation()}
-                    title="Selecionar linha"
+                    onMouseDown={(ev) => {
+                      ev.stopPropagation(); ev.preventDefault();
+                      const cols = visibleColIds();
+                      if (!cols.length) return;
+                      rowSelectingRef.current = true;
+                      rowSelAnchorRef.current = e.id;
+                      isSelectingRef.current = false;
+                      setSelAnchor({ taskId: e.id, colId: cols[0] });
+                      setSelectedCell({ taskId: e.id, colId: cols[cols.length - 1] });
+                      setSelectedId(e.id);
+                      setMultiSel([]);
+                      listaScrollRef.current?.focus?.({ preventScroll: true });
+                    }}
+                    onMouseEnter={() => {
+                      if (!rowSelectingRef.current) return;
+                      const cols = visibleColIds();
+                      if (!cols.length) return;
+                      setSelAnchor({ taskId: rowSelAnchorRef.current, colId: cols[0] });
+                      setSelectedCell({ taskId: e.id, colId: cols[cols.length - 1] });
+                    }}
+                    title="Clique e arraste para selecionar linhas"
                     style={{
                       position: 'sticky', left: 0, zIndex: 2, background: frozenBg,
                       width: GUTTER_W, minWidth: GUTTER_W, textAlign: 'center',
@@ -4443,16 +4528,53 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               );
             })}
 
-            {/* Linha de adição rápida */}
-            {filtrada.length === 0 && (
-              <tr>
-                <td colSpan={colOrder.filter(c => !hiddenCols.has(c)).length + customCols.filter(col => !hiddenCols.has(col.id)).length + 2} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
-                  {visible.length === 0
-                    ? <>Nenhuma tarefa — clique em <strong>Adicionar tarefa</strong> para começar</>
-                    : 'Nenhuma tarefa corresponde aos filtros aplicados'}
-                </td>
-              </tr>
-            )}
+            {/* Linhas em branco (estilo Project/Excel): digitar o nome cria a tarefa.
+               Só quando editável e sem filtro; caso contrário mostra a mensagem de estado vazio. */}
+            {(() => {
+              const semFiltro = !busca && !filtroStatus && !filtroResp;
+              const visCols = colOrder.filter(c => !hiddenCols.has(c));
+              const visCustom = customCols.filter(col => !hiddenCols.has(col.id));
+              const blankFrozen = (colId) => ({ position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: 'var(--surface)' });
+              if (!readOnly && semFiltro) {
+                const nBlanks = Math.max(4, 25 - filtrada.length);
+                return Array.from({ length: nBlanks }).map((_, k) => (
+                  <tr key={'blank-' + k} className="lista-row-blank" style={{ '--lista-row-h': rowH + 'px' }}>
+                    <td style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)', width: GUTTER_W, minWidth: GUTTER_W, textAlign: 'center', color: 'var(--text-faint)', fontSize: 11, fontFamily: 'var(--font-mono, monospace)' }}>
+                      {filtrada.length + k + 1}
+                    </td>
+                    {visCols.map(colId => {
+                      if (colId === 'etapa') return (
+                        <td key="etapa" style={{ ...blankFrozen('etapa'), padding: 0 }}>
+                          <input
+                            className="lista-blank-input"
+                            placeholder={k === 0 ? 'Nova tarefa…' : ''}
+                            onKeyDown={(ev) => { if (ev.key === 'Enter') { const v = ev.currentTarget.value; ev.currentTarget.value = ''; createFromBlank(v); } }}
+                            onBlur={(ev) => { const v = ev.currentTarget.value; if (v.trim()) { ev.currentTarget.value = ''; createFromBlank(v); } }}
+                            style={{ width: '100%', height: '100%', border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: 13, color: 'var(--text)', padding: '0 10px 0 30px' }}
+                          />
+                        </td>
+                      );
+                      if (colId === 'wbs' || colId === 'id') return <td key={colId} style={blankFrozen(colId)} />;
+                      return <td key={colId} />;
+                    })}
+                    {visCustom.map(col => <td key={col.id} />)}
+                    <td />
+                  </tr>
+                ));
+              }
+              if (filtrada.length === 0) {
+                return (
+                  <tr>
+                    <td colSpan={visCols.length + visCustom.length + 2} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+                      {visible.length === 0
+                        ? 'Nenhuma tarefa cadastrada'
+                        : 'Nenhuma tarefa corresponde aos filtros aplicados'}
+                    </td>
+                  </tr>
+                );
+              }
+              return null;
+            })()}
           </tbody>
           <tfoot>
             {(() => {
