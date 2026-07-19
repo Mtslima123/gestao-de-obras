@@ -163,7 +163,9 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
             </div>
           )}
           {filtered.map((o) => (
-            <div key={o.id} className="obra-card" onClick={() => onOpenObra(o)}>
+            <div key={o.id} className="obra-card" onClick={() => onOpenObra(o)}
+                 role="button" tabIndex={0}
+                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenObra(o); } }}>
               <div className="obra-card-img">
                 {capaUrls[o.id]
                   ? <img src={capaUrls[o.id]} alt={o.nome} />

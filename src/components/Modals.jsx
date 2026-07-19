@@ -67,13 +67,14 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
 
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={nodeRef} className={'modal ' + sizeClass} style={modalStyle}>
+      <div ref={nodeRef} className={'modal ' + sizeClass} style={modalStyle}
+           role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
         <div className="modal-header" style={headerStyle} onMouseDown={handleHeaderDown}>
           <div>
             <div className="modal-title">{title}</div>
             {subtitle && <div className="modal-sub">{subtitle}</div>}
           </div>
-          <button className="modal-close" onClick={onClose}><Icon name="dots" size={16} style={{ display: 'none' }} />
+          <button className="modal-close" onClick={onClose} aria-label="Fechar" title="Fechar"><Icon name="dots" size={16} style={{ display: 'none' }} />
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -98,7 +99,7 @@ const ToastProvider = ({ children }) => {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="toast-stack">
+      <div className="toast-stack" role="status" aria-live="polite" aria-atomic="false">
         {toasts.map(t => (
           <div key={t.id} className={'toast ' + (t.tone !== 'success' ? t.tone : '')}>
             <div className="toast-icon"><Icon name={t.icon} size={13} stroke={2.5} /></div>
