@@ -169,42 +169,6 @@ export const AppData = (function () {
     ],
   };
 
-  const medicoes = [
-    { num: '12', periodo: '01/04 — 30/04', medido: 4860000, acumulado: 51230000, contratual: 4720000, status: 'aprovada', data: '02/05/2026' },
-    { num: '11', periodo: '01/03 — 31/03', medido: 5120000, acumulado: 46370000, contratual: 4980000, status: 'aprovada', data: '01/04/2026' },
-    { num: '10', periodo: '01/02 — 28/02', medido: 4380000, acumulado: 41250000, contratual: 4520000, status: 'aprovada', data: '03/03/2026' },
-    { num: '09', periodo: '01/01 — 31/01', medido: 4720000, acumulado: 36870000, contratual: 4680000, status: 'aprovada', data: '02/02/2026' },
-    { num: '08', periodo: '01/12 — 31/12', medido: 5860000, acumulado: 32150000, contratual: 5740000, status: 'aprovada', data: '03/01/2026' },
-    { num: '07', periodo: '01/11 — 30/11', medido: 4920000, acumulado: 26290000, contratual: 4860000, status: 'aprovada', data: '02/12/2025' },
-  ];
-
-  const insumos = [
-    { item: 'Insumo 01 — Cimento estrutural', un: 'SC',  consumo: 12480, estoque: 1850, minimo: 1200, status: 'ok' },
-    { item: 'Insumo 02 — Aço estrutural',     un: 'KG',  consumo: 84300, estoque: 4220, minimo: 6000, status: 'baixo' },
-    { item: 'Insumo 03 — Bloco cerâmico',     un: 'PC',  consumo: 142800, estoque: 18400, minimo: 12000, status: 'ok' },
-    { item: 'Insumo 04 — Agregado fino',      un: 'M³',  consumo: 1480, estoque: 142, minimo: 80, status: 'ok' },
-    { item: 'Insumo 05 — Agregado graúdo',    un: 'M³',  consumo: 920, estoque: 38, minimo: 60, status: 'critico' },
-    { item: 'Insumo 06 — Tubulação',          un: 'M',   consumo: 4280, estoque: 620, minimo: 400, status: 'ok' },
-  ];
-
-  const fornecedores = [
-    { nome: 'Fornecedor 01', cnpj: '00.000.000/0001-01', categoria: 'Concreto usinado',         volume: 8420000, status: 'ativo', avaliacao: 4.8 },
-    { nome: 'Fornecedor 02', cnpj: '00.000.000/0001-02', categoria: 'Estrutura metálica',       volume: 6180000, status: 'ativo', avaliacao: 4.6 },
-    { nome: 'Fornecedor 03', cnpj: '00.000.000/0001-03', categoria: 'Alvenaria',                volume: 1840000, status: 'ativo', avaliacao: 4.4 },
-    { nome: 'Fornecedor 04', cnpj: '00.000.000/0001-04', categoria: 'Instalações elétricas',    volume: 2410000, status: 'pendencia', avaliacao: 3.9 },
-    { nome: 'Fornecedor 05', cnpj: '00.000.000/0001-05', categoria: 'Instalações hidráulicas',  volume: 1280000, status: 'ativo', avaliacao: 4.5 },
-    { nome: 'Fornecedor 06', cnpj: '00.000.000/0001-06', categoria: 'Esquadrias',               volume: 940000,  status: 'ativo', avaliacao: 4.2 },
-  ];
-
-  const equipe = [
-    { nome: 'Membro 01', cargo: 'Engenheiro responsável',     iniciais: '01', cor: 'av-1' },
-    { nome: 'Membro 02', cargo: 'Engenheiro de planejamento', iniciais: '02', cor: 'av-2' },
-    { nome: 'Membro 03', cargo: 'Mestre de obras',            iniciais: '03', cor: 'av-3' },
-    { nome: 'Membro 04', cargo: 'Encarregado elétrica',       iniciais: '04', cor: 'av-4' },
-    { nome: 'Membro 05', cargo: 'Administrativo de obra',     iniciais: '05', cor: 'av-5' },
-    { nome: 'Membro 06', cargo: 'Técnico de segurança',       iniciais: '06', cor: 'av-6' },
-  ];
-
   const avancoSerie = [
     { m: 'Mai/25', fis:  8, fin:  7 },
     { m: 'Jun/25', fis: 14, fin: 12 },
@@ -305,7 +269,6 @@ export const AppData = (function () {
 
   return {
     obras, obraAtual, cronograma, cronogramaCustomCols: [], baselines: {},
-    medicoes, insumos, fornecedores, equipe,
     avancoSerie, faturamentoSerie, distribuicaoStatus, alertas, eventos,
     orcamentoItens, orcamentosLista, contratos,
     brl,

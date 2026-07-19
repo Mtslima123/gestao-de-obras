@@ -315,8 +315,6 @@ const AppInner = () => {
               obra={selectedObra}
               userProfile={userProfile}
               onBack={() => handleNavigate('obras')}
-              onNovaMedicao={() => setModal('nova-medicao')}
-              onSolicitarCompra={(insumo) => setModal({ type: 'compra', insumo })}
               onObraUpdate={handleObraUpdate}
               onObraDelete={handleObraDelete}
               onOpenCronograma={handleOpenCronograma}
