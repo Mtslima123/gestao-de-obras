@@ -4,7 +4,7 @@
 // têm state, JSX nem efeitos colaterais. Datas/dias úteis vêm de ./cronogramaDateUtils.
 
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
-import { offsetToDate, dateToOffset, taskEnd } from './cronogramaDateUtils';
+import { offsetToDate, dateToOffset, taskEnd, workStart } from './cronogramaDateUtils';
 
 // ─── Funções puras de dados ──────────────────────────────────────────────────
 
@@ -350,10 +350,12 @@ export function autoScheduleFromDeps(etapas) {
       if (!pred) return;
       let req;
       const predFim = taskEnd(pred); // término do predecessor em dias úteis (folha) / envelope (grupo)
+      // TT/IT agendam por TÉRMINO: o início que faz a tarefa terminar no alvo é o
+      // reverso em DIAS ÚTEIS (workStart), não `alvo - dur` em dias corridos.
       if      (dt === 'TI') req = predFim + lag;
-      else if (dt === 'TT') req = predFim + lag - e.dur;
+      else if (dt === 'TT') req = workStart(predFim + lag, e.dur);
       else if (dt === 'II') req = pred.inicio + lag;
-      else if (dt === 'IT') req = pred.inicio + lag - e.dur;
+      else if (dt === 'IT') req = workStart(pred.inicio + lag, e.dur);
       else                  req = predFim + lag;
       if (req > minStart) minStart = req;
     });
@@ -362,10 +364,11 @@ export function autoScheduleFromDeps(etapas) {
     // snlt e fnlt são soft (só avisam via verificarRestricoes, não forçam movimento)
     if (tipo && e.restricaoData) {
       const cd = dateToOffset(e.restricaoData);
+      // mfo/fnet miram um TÉRMINO (cd): o início é o reverso em dias úteis (workStart).
       if (tipo === 'snet') minStart = Math.max(minStart, cd);
       if (tipo === 'mso')  minStart = cd;
-      if (tipo === 'mfo')  minStart = cd - e.dur;
-      if (tipo === 'fnet') minStart = Math.max(minStart, cd - e.dur);
+      if (tipo === 'mfo')  minStart = workStart(cd, e.dur);
+      if (tipo === 'fnet') minStart = Math.max(minStart, workStart(cd, e.dur));
     }
 
     const novoInicio = Math.max(0, minStart);

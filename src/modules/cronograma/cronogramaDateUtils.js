@@ -70,5 +70,17 @@ export function workDur(inicio, fimExcl) {
   for (let o = inicio; o < fimExcl; o++) if (isWorkDay(o)) c++;
   return Math.max(1, c);
 }
+// Início (offset) tal que [início, fimExcl) contém exatamente `dur` dias úteis,
+// terminando em fimExcl (exclusivo). Reverso de workEnd: workEnd(workStart(f,d),d) === f.
+// Usado para agendar por TÉRMINO (dependências TT/IT, restrições mfo/fnet) em dias úteis.
+export function workStart(fimExcl, dur) {
+  if (!(dur > 0)) return fimExcl;
+  let off = fimExcl - 1, c = 0, guard = 0;
+  while (guard++ < 100000) {
+    if (isWorkDay(off)) { c++; if (c === dur) return off; }
+    off--;
+  }
+  return off;
+}
 // Término universal: grupo = envelope (inicio+dur já é o envelope dos filhos); folha = dias úteis.
 export function taskEnd(e) { return e && e.isGroup ? (e.inicio + e.dur) : workEnd(e.inicio, e.dur); }
