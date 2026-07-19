@@ -157,6 +157,11 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
       )}
 
       <div className="obra-card-grid">
+          {filtered.length === 0 && (
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)', fontSize: 14 }}>
+              {obras.length === 0 ? 'Nenhuma obra cadastrada.' : 'Nenhuma obra encontrada para os filtros atuais.'}
+            </div>
+          )}
           {filtered.map((o) => (
             <div key={o.id} className="obra-card" onClick={() => onOpenObra(o)}>
               <div className="obra-card-img">
