@@ -9,9 +9,10 @@ import { buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
 import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd } from './cronogramaDateUtils';
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes, computeGroupValues } from './scheduleEngine';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_ROW_ANO, GM_ROW_TRI, GM_ROW_MES, GM_ROW_FINE, ZOOM_PX_DIA, GM_REF_DATE,
-         GM_MN, gmCalcToday, gmMonthLabel, gmConflicts } from './cronogramaShared';
+         GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN } from './cronogramaShared';
 
 export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false }) => {
   const toast = useToast();
@@ -550,6 +551,23 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
 
   // Filtra linhas ocultas por collapse — respeita grupos recolhidos
   const visible = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+  // Índice por id no conjunto VISÍVEL (para as setas de dependência casarem com as barras
+  // mesmo com grupos recolhidos — antes usava o índice em `etapas`, um bug latente).
+  const visIdx = React.useMemo(() => new Map(visible.map((e, i) => [e.id, i])), [visible]);
+  // Virtualização (windowing) das linhas do Gantt — altura uniforme GM_ROW_H.
+  // Ativa só acima de VIRT_MIN; abaixo renderiza todas (comportamento atual).
+  const rowVirt = useVirtualizer({
+    count: visible.length,
+    getScrollElement: () => cRef.current,
+    estimateSize: () => GM_ROW_H,
+    overscan: 10,
+    getItemKey: (i) => visible[i]?.id ?? i,
+  });
+  const virtualize = visible.length > VIRT_MIN;
+  const vItems  = rowVirt.getVirtualItems();
+  const winRows = virtualize ? vItems.map(vi => [visible[vi.index], vi.index]) : visible.map((e, i) => [e, i]);
+  const topPad  = virtualize && vItems.length ? vItems[0].start : 0;
+  const botPad  = virtualize && vItems.length ? rowVirt.getTotalSize() - vItems[vItems.length - 1].end : 0;
 
   const handleToggleCollapse = (id) => {
     const novas = etapas.map(e => e.id === id ? { ...e, collapsed: !e.collapsed } : e);
@@ -831,6 +849,9 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           overflow: 'auto', maxWidth: '100%', userSelect: 'none', cursor: editMode ? 'grab' : 'default',
           // Altura mínima: não deixa a caixa encolher ao recolher grupos (piso = até 10 linhas, ou todas se forem menos)
           minHeight: headerH + Math.min(etapas.length, 10) * GM_ROW_H,
+          // Viewport de altura limitada: o Gantt ganha scroll vertical próprio (necessário
+          // para a virtualização). Tunável conforme a topbar/cabeçalho do card.
+          maxHeight: 'calc(100vh - 240px)',
         }}
         onMouseDown={onContDown}
         onClick={() => { if (!dragged.current) setSel(new Set()); }}
@@ -944,8 +965,9 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
             )}
           </div>
 
-          {/* ── Linhas das etapas ────────────────────────────────────────── */}
-          {visible.map((e, i) => {
+          {/* ── Linhas das etapas (virtualizadas acima de VIRT_MIN) ───────── */}
+          {topPad > 0 && <div style={{ gridColumn: '1 / -1', height: topPad }} />}
+          {winRows.map(([e, i]) => {
             const bar    = getBar(e);
             const isSel  = selected.has(e.id);
             const isConf = conflictIds.has(e.id);
@@ -1209,6 +1231,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
               </React.Fragment>
             );
           })}
+          {botPad > 0 && <div style={{ gridColumn: '1 / -1', height: botPad }} />}
 
           {/* ── Linha HOJE ────────────────────────────────────────────────── */}
           <div style={{
@@ -1242,11 +1265,13 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                 <path d="M0,0.5 L6,3.5 L0,6.5 Z" fill="#d97706" />
               </marker>
             </defs>
-            {etapas.map((e, i) =>
+            {visible.map((e, i) =>
               (e.dep || []).map(depObj => {
                 const dId  = typeof depObj === 'string' ? depObj : depObj.id;
                 const tipo = typeof depObj === 'string' ? 'TI' : (depObj.tipo || 'TI');
                 const lag  = typeof depObj === 'string' ? 0 : (depObj.lag || 0);
+                const depIdx = visIdx.get(dId);
+                if (depIdx === undefined) return null; // predecessor recolhido: sem seta
                 const dep  = findEt(dId);
                 if (!dep) return null;
                 const dBar = getBar(dep);
@@ -1260,7 +1285,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                 else if (tipo === 'II') { fx = dBar.inicio * zoomDayW; tx = eBar.inicio * zoomDayW + 4; }
                 else /* IT */           { fx = dBar.inicio * zoomDayW; tx = (eBar.inicio + eBar.dur) * zoomDayW - 4; }
 
-                const fy  = idxEt(dId) * GM_ROW_H + GM_ROW_H / 2;
+                const fy  = depIdx * GM_ROW_H + GM_ROW_H / 2;
                 const ty  = i * GM_ROW_H + GM_ROW_H / 2;
                 const midY = (fy + ty) / 2;
                 const CONN_MARGIN = 12;
