@@ -2102,6 +2102,23 @@ tr:hover .obras-row-actions {
 .fmt-size,  .fmt-size *  { font-size: var(--fmt-size) !important; }
 .fmt-family, .fmt-family * { font-family: var(--fmt-family) !important; }
 .fmt-b, .fmt-b * { font-weight: 700 !important; }
+
+/* Marching ants — borda tracejada animada da seleção copiada (Ctrl+C, estilo Excel) */
+.copy-marquee {
+  --ants: var(--brand, #1c4584);
+  background-image:
+    linear-gradient(90deg, var(--ants) 50%, transparent 0),
+    linear-gradient(90deg, var(--ants) 50%, transparent 0),
+    linear-gradient(0deg, var(--ants) 50%, transparent 0),
+    linear-gradient(0deg, var(--ants) 50%, transparent 0);
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+  background-size: 8px 2px, 8px 2px, 2px 8px, 2px 8px;
+  background-position: 0 0, 0 100%, 0 0, 100% 0;
+  animation: copy-marching 0.5s infinite linear;
+}
+@keyframes copy-marching {
+  to { background-position: 8px 0, -8px 100%, 0 -8px, 100% 8px; }
+}
 .fmt-i, .fmt-i * { font-style: italic !important; }
 .fmt-u, .fmt-u * { text-decoration: underline !important; }
 

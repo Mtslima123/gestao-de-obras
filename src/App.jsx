@@ -141,7 +141,7 @@ const AppInner = () => {
     if (!email) return null;
     const { data } = await supabase
       .from('user_profiles')
-      .select('id, perfil, status, modulos_ids, abas_ids, deve_alterar_senha, user_obras(obra_id)')
+      .select('id, perfil, status, modulos_ids, modulos_readonly_ids, abas_ids, deve_alterar_senha, user_obras(obra_id)')
       .eq('email', email)
       .single();
     setUserProfile(data ?? null);

@@ -13,11 +13,6 @@ import { podeVerAba, moduloSomenteLeitura, isAdmin } from '../../utils/permissio
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
 import { taskDetailStore } from './taskDetailStore';
 import { usuariosService } from '../admin/usuarios.service';
-// ganttUtils exporta as funções puras do Gantt — disponíveis para testes e reutilização
-export { gmConflicts, computeAllWBS, recomputeHierarchy, computeSuccessors, getVisibleEtapas,
-         computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist, verificarRestricoes,
-         computeGroupValues, migrateEtapas, formatDepList, parseDep,
-         computeValorVinculadoMap } from './ganttUtils';
 // Alias local para uso interno neste módulo
 const computeValorVinculadoMap = _computeValorVinculadoMap;
 
@@ -113,10 +108,10 @@ const gmConflicts = (etapas, overrides) => {
       const d = map[dId];
       if (!d) return;
       let conflict = false;
-      if (tipo === 'TI') conflict = e.inicio < d.inicio + d.dur + lag;
-      if (tipo === 'TT') conflict = (e.inicio + e.dur) < (d.inicio + d.dur + lag);
+      if (tipo === 'TI') conflict = e.inicio < taskEnd(d) + lag;
+      if (tipo === 'TT') conflict = taskEnd(e) < (taskEnd(d) + lag);
       if (tipo === 'II') conflict = e.inicio < d.inicio + lag;
-      if (tipo === 'IT') conflict = (e.inicio + e.dur) < (d.inicio + lag);
+      if (tipo === 'IT') conflict = taskEnd(e) < (d.inicio + lag);
       if (conflict) out.push({ pred: dId, succ: e.id, tipo, lag });
     });
   });
@@ -156,6 +151,37 @@ function dateToOffset(iso) {
   const dt = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
   return Math.max(0, Math.round((dt - GM_REF) / 86400000));
 }
+
+// ─── Calendário de trabalho (feriados / dias não trabalhados) ────────────────
+// Módulo mutável definido a partir da config de feriados da obra (setWorkCal).
+let WORK_CAL = { holidays: new Set(), sabadoUtil: false };
+function setWorkCal(cfg) {
+  WORK_CAL = {
+    holidays: new Set((cfg?.dias || []).map(d => dateToOffset(d.data))),
+    sabadoUtil: !!cfg?.sabadoUtil,
+  };
+}
+function isWorkDay(off) {
+  const wd = offsetToDate(off).getDay(); // 0=domingo, 6=sábado
+  if (wd === 0) return false;
+  if (wd === 6 && !WORK_CAL.sabadoUtil) return false;
+  return !WORK_CAL.holidays.has(off);
+}
+// Término (offset exclusivo) após `dur` dias ÚTEIS a partir de `inicio` (mantém a convenção inicio+dur).
+function workEnd(inicio, dur) {
+  if (!(dur > 0)) return inicio;
+  let off = inicio, c = 0, guard = 0;
+  while (c < dur && guard++ < 100000) { if (isWorkDay(off)) c++; off++; }
+  return off;
+}
+// Nº de dias úteis em [inicio, fimExcl) (mínimo 1).
+function workDur(inicio, fimExcl) {
+  let c = 0;
+  for (let o = inicio; o < fimExcl; o++) if (isWorkDay(o)) c++;
+  return Math.max(1, c);
+}
+// Término universal: grupo = envelope (inicio+dur já é o envelope dos filhos); folha = dias úteis.
+function taskEnd(e) { return e && e.isGroup ? (e.inicio + e.dur) : workEnd(e.inicio, e.dur); }
 
 // ─── Funções puras de dados ──────────────────────────────────────────────────
 
@@ -500,11 +526,12 @@ function autoScheduleFromDeps(etapas) {
       const pred = upd[pid];
       if (!pred) return;
       let req;
-      if      (dt === 'TI') req = pred.inicio + pred.dur + lag;
-      else if (dt === 'TT') req = pred.inicio + pred.dur + lag - e.dur;
+      const predFim = taskEnd(pred); // término do predecessor em dias úteis (folha) / envelope (grupo)
+      if      (dt === 'TI') req = predFim + lag;
+      else if (dt === 'TT') req = predFim + lag - e.dur;
       else if (dt === 'II') req = pred.inicio + lag;
       else if (dt === 'IT') req = pred.inicio + lag - e.dur;
-      else                  req = pred.inicio + pred.dur + lag;
+      else                  req = predFim + lag;
       if (req > minStart) minStart = req;
     });
 
@@ -535,7 +562,7 @@ function updateParentBounds(etapas) {
     const children = result.filter(c => c.parentId === g.id);
     if (!children.length) continue;
     const inicio = Math.min(...children.map(c => c.inicio));
-    const fim    = Math.max(...children.map(c => c.inicio + c.dur));
+    const fim    = Math.max(...children.map(c => taskEnd(c)));
     result = result.map(e => e.id === g.id ? { ...e, inicio, dur: Math.max(1, fim - inicio) } : e);
   }
   return result;
@@ -675,7 +702,7 @@ function verificarRestricoes(etapas) {
   etapas.forEach(e => {
     if (!e.restricaoTipo || e.restricaoTipo === 'asap' || !e.restricaoData) return;
     const d = dateToOffset(e.restricaoData);
-    const ini = e.inicio, fim = e.inicio + e.dur;
+    const ini = e.inicio, fim = taskEnd(e);
     let violou = false;
     let msg = '';
     if (e.restricaoTipo === 'snet' && ini < d)  { violou = true; msg = `Não deve iniciar antes de ${e.restricaoData}`; }
@@ -723,7 +750,8 @@ function computeGroupValues(etapas) {
       ? childVals.reduce((s, c) => s + (c.avanco || 0) * (c.custo || 0), 0) / totalCusto
       : childVals.reduce((s, c) => s + (c.avanco || 0), 0) / childVals.length;
     const inicio = Math.min(...childVals.map(c => c.inicio));
-    const fim    = Math.max(...childVals.map(c => c.inicio + c.dur));
+    // Término do filho: grupo → envelope já calculado (result); folha → dias úteis (taskEnd).
+    const fim    = Math.max(...children.map(c => { const v = result[c.id]; return v ? v.inicio + v.dur : taskEnd(c); }));
     result[g.id] = {
       avanco:  Math.round(avanco),
       inicio,
@@ -753,7 +781,7 @@ function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
 
 // ─── GanttInterativo ─────────────────────────────────────────────────────────
 // Barras coloridas por STATUS (done/exec/late/upcoming), grupos em ardósia.
-const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, onTaskSelect, readOnly = false }) => {
+const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
@@ -813,7 +841,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
       .map(id => byId[id])
       .filter(p => p && !p.isGroup);
     let end = leaves[0];
-    leaves.forEach(e => { if ((e.inicio + e.dur) > (end.inicio + end.dur)) end = e; });
+    leaves.forEach(e => { if (taskEnd(e) > taskEnd(end)) end = e; });
     const set = new Set();
     let cur = end;
     while (cur && !set.has(cur.id)) {
@@ -821,7 +849,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
       const ps = preds(cur);
       if (!ps.length) break;
       let drv = ps[0];
-      ps.forEach(p => { if ((p.inicio + p.dur) > (drv.inicio + drv.dur)) drv = p; });
+      ps.forEach(p => { if (taskEnd(p) > taskEnd(drv)) drv = p; });
       cur = drv;
     }
     return set;
@@ -1359,6 +1387,16 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
     return calMonths.map(m => ({ offset: m.startOffset, strong: m.isQ }));
   }, [zoom, calMonths, calQuarters, calWeeks, calDays]);
 
+  // Feriados dentro da janela do timeline (offset -> descrição), para marcar no Gantt.
+  const holidayMap = React.useMemo(() => {
+    const m = new Map();
+    (feriadosCfg?.dias || []).forEach(d => {
+      const off = dateToOffset(d.data);
+      if (off >= 0 && off < calTotalDays) m.set(off, d.descricao || 'Feriado');
+    });
+    return m;
+  }, [feriadosCfg, calTotalDays]);
+
   // Altura do cabeçalho varia com o zoom: Trimestre esconde a linha de Mês; Semana/Dia somam uma linha extra.
   const headerH = GM_ROW_ANO + GM_ROW_TRI
     + (zoom !== 'trimestre' ? GM_ROW_MES : 0)
@@ -1657,16 +1695,19 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
             {/* Dia — número do dia, com destaque leve para fins de semana (zoom "dia") */}
             {zoom === 'dia' && (
               <div style={{ display: 'flex', height: GM_ROW_FINE }}>
-                {calDays.map((d, di) => (
-                  <div key={di} style={{
+                {calDays.map((d, di) => {
+                  const fer = holidayMap.get(d.offset);
+                  return (
+                  <div key={di} title={fer || undefined} style={{
                     width: zoomDayW, textAlign: 'center', padding: '5px 0', fontSize: 9.5,
                     borderRight: '1px solid var(--border)', fontFamily: 'var(--font-mono)',
-                    color: d.isWeekend ? 'var(--text-faint)' : 'var(--text-muted)',
-                    background: d.isWeekend ? 'rgba(1,67,134,0.03)' : 'transparent',
+                    color: fer ? 'rgb(220,38,38)' : d.isWeekend ? 'var(--text-faint)' : 'var(--text-muted)',
+                    background: fer ? 'rgba(220,38,38,0.12)' : d.isWeekend ? 'rgba(1,67,134,0.03)' : 'transparent',
                   }}>
                     {d.day}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1796,6 +1837,15 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                     }} />
                   ))}
 
+                  {/* Feriados (dias não trabalhados) — faixa vertical destacada */}
+                  {[...holidayMap.keys()].map(off => (
+                    <div key={'fer-' + off} style={{
+                      position: 'absolute', left: off * zoomDayW, top: 0, bottom: 0,
+                      width: Math.max(zoomDayW, 2), background: 'rgba(220,38,38,0.10)',
+                      borderLeft: '1px solid rgba(220,38,38,0.35)', pointerEvents: 'none',
+                    }} />
+                  ))}
+
                   {/* Sombreamento do passado */}
                   <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
@@ -1851,7 +1901,7 @@ const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId,
                         style={{
                           position: 'absolute',
                           left: bar.inicio * zoomDayW + 3,
-                          width: Math.max(bar.dur * zoomDayW - 6, 10),
+                          width: Math.max((workEnd(bar.inicio, bar.dur) - bar.inicio) * zoomDayW - 6, 10),
                           top: '50%', transform: 'translateY(-50%)',
                           height: GM_BAR_H - 4,
                           backgroundColor: sc.track,
@@ -2559,6 +2609,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const [showColPanel,   setShowColPanel]   = React.useState(false);
   const [selectedCell,   setSelectedCell]   = React.useState(null); // { taskId, colId } — foco ativo (planilha)
   const [selAnchor,      setSelAnchor]      = React.useState(null); // { taskId, colId } — âncora do intervalo
+  const [marquee,        setMarquee]        = React.useState(null); // retângulo "marching ants" da cópia
   const [painterOn,      setPainterOn]      = React.useState(false); // pincel de formatação ativo
   const painterRef = React.useRef(null); // fmt capturado pelo pincel
   const isSelectingRef = React.useRef(false); // arraste de seleção de intervalo em andamento
@@ -2823,7 +2874,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   const COPY_COLS = {
     etapa:     { kind: 'text',   get: e => e.etapa || '',                    field: 'etapa' },
     inicio:    { kind: 'date',   get: e => offsetToISO(e.inicio),            field: 'inicio' },
-    fim:       { kind: 'date',   get: e => offsetToISO(e.inicio + e.dur),    field: 'fim' },
+    fim:       { kind: 'date',   get: e => offsetToISO(taskEnd(e)),          field: 'fim' },
     duracao:   { kind: 'number', get: e => String(e.dur ?? ''),             field: 'duracaoDias' },
     avanco:    { kind: 'number', get: e => String(e.avanco ?? 0),           field: 'avanco' },
     custo:     { kind: 'number', get: e => String(e.custo ?? 0),            field: 'custo' },
@@ -2836,6 +2887,23 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   };
   // Copia o RETÂNGULO selecionado (grade valores+fmt) e também as LINHAS distintas do
   // intervalo (para o Ctrl++ inserir N cópias).
+  // Marching ants: retângulo tracejado animado sobre a seleção copiada (estilo Excel).
+  const showMarquee = () => {
+    const sc = listaScrollRef.current;
+    if (!sc || !selectedCell) return;
+    const a = selAnchor || selectedCell;
+    const el1 = sc.querySelector(`td[data-ck="${a.taskId}|${a.colId}"]`);
+    const el2 = sc.querySelector(`td[data-ck="${selectedCell.taskId}|${selectedCell.colId}"]`);
+    if (!el1 || !el2) { setMarquee(null); return; }
+    const scr = sc.getBoundingClientRect();
+    const r1 = el1.getBoundingClientRect(), r2 = el2.getBoundingClientRect();
+    const left   = Math.min(r1.left, r2.left)     - scr.left + sc.scrollLeft;
+    const top    = Math.min(r1.top,  r2.top)      - scr.top  + sc.scrollTop;
+    const right  = Math.max(r1.right, r2.right)   - scr.left + sc.scrollLeft;
+    const bottom = Math.max(r1.bottom, r2.bottom) - scr.top  + sc.scrollTop;
+    setMarquee({ left, top, width: right - left, height: bottom - top });
+  };
+
   const copyCell = () => {
     if (!selectedCell) return;
     const rows = filtrada.map(x => x.id);
@@ -2863,8 +2931,6 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     cellClipRef.current = { grid };
     rowClipRef.current = rowClones; // permite Ctrl++ inserir o nº de linhas copiadas
     try { navigator.clipboard?.writeText(grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n')); } catch { /* best-effort */ }
-    const nCel = grid.length * (grid[0]?.length || 0);
-    toast(nCel > 1 ? 'Seleção copiada' : 'Célula copiada', { tone: 'success', icon: 'check' });
   };
   // Cola o bloco a partir da célula selecionada (canto superior esquerdo), estilo Excel.
   const pasteCell = () => {
@@ -2933,7 +2999,6 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     const e = etapas.find(x => x.id === selectedId);
     if (!e) return;
     rowClipRef.current = [JSON.parse(JSON.stringify(e))]; // array (uma linha)
-    toast('Linha copiada', { tone: 'success', icon: 'check' });
   };
   const pasteRow = () => {
     if (readOnly || !selectedId) return;
@@ -2961,7 +3026,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       });
       const novas = [...etapas];
       novas.splice(idx, 0, ...clones);
-      onCommit(novas);
+      onCommit(novas, { silent: true });
       setSelectedId(clones[0].id);
       rowClipRef.current = null; // cópia de uso único
     } else {
@@ -2969,6 +3034,33 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       const n = Math.max(1, new Set(rangeCellList().map(x => x.taskId)).size);
       for (let i = 0; i < n; i++) insertTask(selectedId, 'above');
     }
+  };
+  // Ctrl++ (inserir cópia): duplica as LINHAS SELECIONADAS acima da primeira — determinístico,
+  // funciona com 1 ou várias linhas, sem depender do clipboard (rowClipRef).
+  const duplicateSelectedRows = () => {
+    if (readOnly) return;
+    const ids = [...selectedRowIds()];
+    const idxs = ids.map(id => etapas.findIndex(x => x.id === id)).filter(i => i >= 0).sort((a, b) => a - b);
+    if (!idxs.length) return;
+    const insertAt = idxs[0];
+    const ref = etapas[insertAt];
+    let base = [...etapas];
+    const clones = idxs.map(i => {
+      const src = etapas[i];
+      const clone = {
+        ...JSON.parse(JSON.stringify(src)),
+        id: nextEtapaId(base), displayId: nextDisplayId(base),
+        dep: [], isGroup: false, collapsed: false,
+        nivel: ref.nivel, parentId: ref.parentId,
+        customCols: { ...emptyCustomCols(customCols), ...(src.customCols || {}) },
+      };
+      base = [...base, clone];
+      return clone;
+    });
+    const novas = [...etapas];
+    novas.splice(insertAt, 0, ...clones);
+    onCommit(novas, { silent: true });
+    setSelectedId(clones[0].id);
   };
 
   // ── Formatação de célula/linha (compartilhada, salva no JSON do cronograma) ──
@@ -3011,6 +3103,18 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     setSelAnchor({ taskId: rows[0], colId });
     setSelectedCell({ taskId: rows[rows.length - 1], colId });
     setSelectedId(null);
+    setMultiSel([]);
+    listaScrollRef.current?.focus?.({ preventScroll: true });
+  };
+
+  // Seleciona a tabela inteira (clique na célula-canto da calha, estilo Excel).
+  const selectAll = () => {
+    const rows = filtrada.map(x => x.id);
+    const cols = visibleColIds();
+    if (!rows.length || !cols.length) return;
+    setSelAnchor({ taskId: rows[0], colId: cols[0] });
+    setSelectedCell({ taskId: rows[rows.length - 1], colId: cols[cols.length - 1] });
+    setSelectedId(rows[0]);
     setMultiSel([]);
     listaScrollRef.current?.focus?.({ preventScroll: true });
   };
@@ -3184,18 +3288,22 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   // Teclado da lista: ligado ao container focável (onKeyDown), não ao document,
   // para as setas moverem a seleção de célula em vez de rolar a página.
   const handleListKeyDown = (ev) => {
+    if (ev.key === 'Escape') { setMarquee(null); return; } // limpa marching ants
     if (!selectedCell && !selectedId) return;
     const tag = ev.target?.tagName;
     const editingNow = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'c' || ev.key === 'C')) {
       if (editingNow) return; // deixa o navegador copiar o texto do input em edição
+      // copyCell já grava rowClipRef com as linhas da seleção (≥1), então Ctrl++ insere a cópia.
       if (selectedCell) copyCell(); else copyRow();
+      showMarquee(); // borda tracejada animada na seleção copiada
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V')) {
       if (editingNow || readOnly) return;
       ev.preventDefault();
       if (selectedCell) pasteCell(); else pasteRow();
+      setMarquee(null);
       return;
     }
     // Ctrl + '+' (estilo Excel): insere item (cópia da linha se houver, senão linha em
@@ -3203,7 +3311,8 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === '+' || ev.key === '=' || ev.code === 'NumpadAdd')) {
       if (editingNow || readOnly) return;
       ev.preventDefault();
-      pasteRow();
+      duplicateSelectedRows(); // insere cópia da(s) linha(s) selecionada(s) — funciona com 1 também
+      setMarquee(null);
       return;
     }
     if (editingNow) return;
@@ -3294,6 +3403,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     return React.cloneElement(cell, {
       className: cls || undefined,
       style: styled,
+      'data-ck': taskId + '|' + colId,
       onMouseDown: (ev) => {
         // Pincel de formatação ativo: aplica a formatação capturada nesta célula e desliga
         if (painterOn && painterRef.current) {
@@ -3354,7 +3464,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
     };
     const novas = [...etapas];
     novas.splice(position === 'above' ? refIdx : refIdx + 1, 0, newTask);
-    onCommit(novas);
+    onCommit(novas, { silent: true });
     setSelectedId(newTask.id);
   };
 
@@ -3404,7 +3514,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
   // e pelo colar de bloco (applyBlockEdits). NÃO trata 'id' (caso especial em handleCellSave).
   const applyFieldToEtapa = (e, field, rawValue) => {
     if (field === 'inicio')      { return { ...e, inicio: Math.round(dateToOffset(rawValue)) }; }
-    if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)); return { ...e, dur: Math.max(1, offset - e.inicio) }; }
+    if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)); return { ...e, dur: workDur(e.inicio, offset) }; }
     if (field === 'duracaoDias') { return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) }; }
     if (field === 'avanco')      { return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) }; }
     if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, etapas) }; }
@@ -4040,7 +4150,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
       })()}
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
-      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}>
+      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} onScroll={() => { if (marquee) setMarquee(null); }} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none', position: 'relative' }}>
         <table className="tbl tbl-lista" style={{ minWidth: 1780 + GUTTER_W, '--lista-row-h': rowH + 'px' }}>
           <thead>
             {(() => {
@@ -4058,7 +4168,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               const custVis = customCols.filter(col => !hiddenCols.has(col.id));
               return (
                 <tr className="band-row" ref={bandRowRef}>
-                  <th className="band-th" style={{ position: 'sticky', top: 0, left: 0, zIndex: 7, width: GUTTER_W, minWidth: GUTTER_W }} />
+                  <th className="band-th" onClick={selectAll} title="Selecionar tudo" style={{ position: 'sticky', top: 0, left: 0, zIndex: 7, width: GUTTER_W, minWidth: GUTTER_W, cursor: 'pointer' }} />
                   {frozenVis.length > 0 && (
                     <th colSpan={frozenVis.length} className="band-th" style={{ position: 'sticky', top: 0, left: GUTTER_W, zIndex: 6, width: frozenW, minWidth: frozenW }}>
                       {LISTA_BAND_LABELS.etapa}
@@ -4073,7 +4183,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
               );
             })()}
             <tr>
-              <th style={{ width: GUTTER_W, minWidth: GUTTER_W, position: 'sticky', top: bandH, left: 0, zIndex: 7, userSelect: 'none' }} />
+              <th onClick={selectAll} title="Selecionar tudo" style={{ width: GUTTER_W, minWidth: GUTTER_W, position: 'sticky', top: bandH, left: 0, zIndex: 7, userSelect: 'none', cursor: 'pointer' }} />
               {colOrder.filter(c => !hiddenCols.has(c)).map(colId => renderTh(colId))}
               {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
                 <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandH, zIndex: 3, userSelect: 'none', cursor: 'pointer' }}
@@ -4156,7 +4266,7 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
                 ),
                 fim: (
                   <td key="fim" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell type="date" value={offsetToISO(eInicio + eDur)}
+                    <EditableCell type="date" value={offsetToISO(e.isGroup ? eInicio + eDur : workEnd(eInicio, eDur))}
                       onSave={v => handleCellSave(e.id, 'fim', v)} readOnly={readOnly || e.isGroup} />
                   </td>
                 ),
@@ -4615,6 +4725,9 @@ const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obr
             })()}
           </tfoot>
         </table>
+        {marquee && (
+          <div className="copy-marquee" style={{ position: 'absolute', left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height, pointerEvents: 'none', zIndex: 4 }} />
+        )}
       </div>
 
       {showAddCol && <AddColModal onClose={() => setShowAddCol(false)} onAdd={handleAddCol} />}
@@ -4888,7 +5001,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
             wbsMap[e.id] || '',
             '  '.repeat(e.nivel || 0) + e.etapa,
             isoToBR(offsetToISO(e.inicio)),
-            isoToBR(offsetToISO(e.inicio + e.dur)),
+            isoToBR(offsetToISO(taskEnd(e))),
             e.dur + 'd',
             e.avanco + '%',
             e.isGroup ? '—' : fmtBRL(e.custo || 0),
@@ -4993,7 +5106,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                 const idText   = String(e.displayId ?? e.id);
                 const wbsText  = wbsMap[e.id] || '';
                 const iniText  = isoToBR(offsetToISO(e.inicio));
-                const fimText  = isoToBR(offsetToISO(e.inicio + e.dur));
+                const fimText  = isoToBR(offsetToISO(taskEnd(e)));
                 const durText  = `${e.dur}d`;
                 const avText   = `${e.avanco}%`;
                 return (
@@ -6154,6 +6267,101 @@ const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDuplicar, on
   );
 };
 
+// ─── Modal: Feriados / dias não trabalhados ──────────────────────────────────
+const FeriadosModal = ({ cfg, onChange, onClose }) => {
+  const toast = useToast();
+  const [data, setData] = React.useState('');
+  const [descricao, setDescricao] = React.useState('');
+  const dias = cfg.dias || [];
+  const add = () => {
+    if (!data) return;
+    if (!descricao.trim()) { toast('Informe a descrição do feriado', { tone: 'error', icon: 'alert' }); return; }
+    if (dias.some(d => d.data === data)) { toast('Essa data já está cadastrada', { tone: 'error', icon: 'alert' }); return; }
+    const next = { ...cfg, dias: [...dias, { data, descricao: descricao.trim() }].sort((a, b) => a.data.localeCompare(b.data)) };
+    onChange(next); setData(''); setDescricao('');
+  };
+  const remove = (d) => onChange({ ...cfg, dias: dias.filter(x => x.data !== d) });
+  const [editKey, setEditKey]   = React.useState(null); // data original em edição
+  const [editDate, setEditDate] = React.useState('');
+  const [editDesc, setEditDesc] = React.useState('');
+  const startEdit = (d) => { setEditKey(d.data); setEditDate(d.data); setEditDesc(d.descricao || ''); };
+  const saveEdit = () => {
+    if (!editDate) return;
+    if (!editDesc.trim()) { toast('Informe a descrição do feriado', { tone: 'error', icon: 'alert' }); return; }
+    if (editDate !== editKey && dias.some(x => x.data === editDate)) { toast('Essa data já está cadastrada', { tone: 'error', icon: 'alert' }); return; }
+    const next = { ...cfg, dias: dias.map(x => x.data === editKey ? { data: editDate, descricao: editDesc.trim() } : x).sort((a, b) => a.data.localeCompare(b.data)) };
+    onChange(next); setEditKey(null);
+  };
+  return (
+    <Modal
+      title="Feriados / dias não trabalhados"
+      subtitle="Domingos e feriados não são trabalhados; o sábado é configurável."
+      onClose={onClose} size="md" draggable
+      footer={<button className="btn btn-primary" onClick={onClose}>Concluir</button>}
+    >
+      <div className="stack" style={{ gap: 14 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div className="field">
+            <label>Data</label>
+            <input type="date" className="input" value={data} onChange={e => setData(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }} />
+          </div>
+          <div className="field" style={{ flex: 1, minWidth: 180 }}>
+            <label>Descrição</label>
+            <input className="input" placeholder="Ex.: Natal, Independência…" value={descricao} onChange={e => setDescricao(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }} />
+          </div>
+          <button className="btn btn-primary" onClick={add} disabled={!data || !descricao.trim()}><Icon name="plus" size={14} />Adicionar</button>
+        </div>
+
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+          <input type="checkbox" checked={!!cfg.sabadoUtil} onChange={() => onChange({ ...cfg, sabadoUtil: !cfg.sabadoUtil })} />
+          Trabalhar aos sábados (sábado conta como dia útil)
+        </label>
+
+        {dias.length === 0 ? (
+          <div className="text-muted" style={{ textAlign: 'center', padding: '16px 0', fontSize: 13 }}>Nenhum feriado cadastrado.</div>
+        ) : (
+          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <table className="tbl">
+              <thead><tr><th style={{ width: 120 }}>Data</th><th>Descrição</th><th></th></tr></thead>
+              <tbody>
+                {dias.map(d => (
+                  editKey === d.data ? (
+                    <tr key={d.data}>
+                      <td>
+                        <input type="date" className="input" value={editDate} style={{ height: 30 }}
+                          onChange={e => setEditDate(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditKey(null); }} />
+                      </td>
+                      <td>
+                        <input className="input" value={editDesc} style={{ height: 30 }} autoFocus
+                          onChange={e => setEditDesc(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditKey(null); }} />
+                      </td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editDate || !editDesc.trim()}>Salvar</button>
+                        <button className="btn btn-sm btn-ghost" onClick={() => setEditKey(null)}>Cancelar</button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={d.data}>
+                      <td className="mono">{isoToBR(d.data)}</td>
+                      <td>{d.descricao || <span className="text-muted">—</span>}</td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button className="btn btn-sm btn-ghost" onClick={() => startEdit(d)}>Editar</button>
+                        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => remove(d.data)}>Remover</button>
+                      </td>
+                    </tr>
+                  )
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+};
+
 // ─── Modal: Salvar Reprogramação ─────────────────────────────────────────────
 const CriarReprogramacaoModal = ({ totalEtapas, onClose, onCreate }) => {
   const hoje = new Date();
@@ -6311,6 +6519,21 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const [iniciando,    setIniciando]    = React.useState(false);
   const [showGerenciar, setShowGerenciar] = React.useState(false);
   const [outlineOpen,  setOutlineOpen]  = React.useState(false);
+  // Feriados por obra (dias não trabalhados) — persistidos por obra no navegador.
+  const [showFeriados, setShowFeriados] = React.useState(false);
+  const [feriadosCfg,  setFeriadosCfg]  = React.useState({ dias: [], sabadoUtil: false });
+  React.useEffect(() => {
+    try { const raw = localStorage.getItem('ls_crono_feriados_' + obraSel); setFeriadosCfg(raw ? JSON.parse(raw) : { dias: [], sabadoUtil: false }); }
+    catch { setFeriadosCfg({ dias: [], sabadoUtil: false }); }
+  }, [obraSel]);
+  // Salva explicitamente (evita corromper ao trocar de obra com um efeito keyed em obraSel).
+  const saveFeriados = (next) => {
+    setFeriadosCfg(next);
+    try { localStorage.setItem('ls_crono_feriados_' + obraSel, JSON.stringify(next)); } catch { /* ignore */ }
+  };
+  // Aplica o calendário de trabalho (feriados/sábado) globalmente antes de renderizar os filhos,
+  // para que término/barras/duração usem dias úteis. Roda no render (síncrono).
+  React.useMemo(() => { setWorkCal(feriadosCfg); return feriadosCfg; }, [feriadosCfg]);
   const [loadedObraId, setLoadedObraId] = React.useState(null);
   // Bloqueio otimista: conflito quando outra sessão salvou o mesmo cronograma
   const [conflito,     setConflito]     = React.useState(false);
@@ -6776,6 +6999,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               <Icon name="layers" size={15} />Gerenciar
             </button>
           )}
+          <button className="btn btn-ghost" onClick={() => setShowFeriados(true)} title="Cadastrar feriados / dias não trabalhados">
+            <Icon name="calendar" size={15} />Feriados
+          </button>
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
         </div>
       </div>
@@ -6822,7 +7048,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 const plannedPct = totalPlan > 0 ? Math.round(planToDate / totalPlan * 100) : 0;
                 const deltaPp = avancoTotal - plannedPct;
                 // Término projetado = maior data de término das tarefas (real). Comparação com base = TODO.
-                const maxEnd = leaves.length ? Math.max(...leaves.map(e => e.inicio + e.dur)) : 0;
+                const maxEnd = leaves.length ? Math.max(...leaves.map(e => taskEnd(e))) : 0;
                 const termino = leaves.length ? offsetToDate(maxEnd).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }) : '—';
                 // ── Derivações por-view da Curva Física (aba view === 'curva') ────────
                 const mesAtual     = todayKey; // "YYYY-MM" do mês corrente
@@ -6946,7 +7172,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                         </div>
                       </div>
                       <div className="card-body" style={{ padding: 0 }}>
-                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} />
+                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} />
                       </div>
                     </div>
 
@@ -7000,7 +7226,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 14px', marginBottom: 16 }}>
                                 {[
                                   ['Início', isoToBR(offsetToISO(detailTask.inicio))],
-                                  ['Término', isoToBR(offsetToISO(detailTask.inicio + detailTask.dur))],
+                                  ['Término', isoToBR(offsetToISO(taskEnd(detailTask)))],
                                   ['Duração', `${detailTask.dur} dias`],
                                   ['EAP', detailTask.displayId ?? detailTask.id],
                                 ].map(([label, val]) => (
@@ -7180,6 +7406,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
           onExcluir={excluirReprogramacao}
           onClose={() => setShowGerenciarRep(false)}
         />
+      )}
+      {showFeriados && (
+        <FeriadosModal cfg={feriadosCfg} onChange={saveFeriados} onClose={() => setShowFeriados(false)} />
       )}
     </>
   );

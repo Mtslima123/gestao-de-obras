@@ -149,6 +149,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
 
 // ── Importação de base orçamentária (Excel/CSV) ───────────────────────────────
 const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onClose }) => {
+  const toast = useToast();
   const [step, setStep]         = React.useState(1);
   const [rows, setRows]         = React.useState([]);
   const [erros, setErros]       = React.useState([]);
@@ -198,7 +199,7 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
 
   const parseFile = async (file) => {
     if (file.size > 25 * 1024 * 1024) {
-      toast('Arquivo muito grande. Máximo: 25 MB', { tone: 'danger' });
+      toast('Arquivo muito grande. Máximo: 25 MB', { tone: 'error', icon: 'alert' });
       return;
     }
     setParsing(true);
@@ -208,7 +209,7 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
       const ws  = wb.Sheets[wb.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
       const hdrIdx = raw.findIndex(r => r.some(c => String(c).trim()));
-      if (hdrIdx === -1) return;
+      if (hdrIdx === -1) { toast('Planilha vazia ou sem cabeçalho reconhecível', { tone: 'error', icon: 'alert' }); return; }
       const headers = raw[hdrIdx].map(c => String(c).toLowerCase().trim());
       const cols = {
         codigo:         detectCol(headers, 'codigo'),
@@ -231,6 +232,9 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
       setErros(validate(parsed, modo));
       setRemo(new Set());
       setStep(2);
+    } catch (e) {
+      console.error('[orcamento] erro ao ler planilha', e);
+      toast('Erro ao ler a planilha: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
     } finally {
       setParsing(false);
     }
