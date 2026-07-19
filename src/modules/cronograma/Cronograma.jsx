@@ -1384,9 +1384,12 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const saveFeriados = (next) => {
     setFeriadosCfg(next);
     try { localStorage.setItem('ls_crono_feriados_' + obraSel, JSON.stringify(next)); } catch { /* ignore */ }
-    // Sincroniza no banco (coluna feriados) para valer entre usuários da mesma obra.
-    // localStorage acima fica como cache/fallback instantâneo.
-    salvarCronograma(obraSel, etapas, customCols, baselines, reprogramacoes, next).then(handleSaveResult);
+    // Aplica o novo calendário JÁ e re-cascateia: reposiciona as dependentes
+    // (TI/TT/II/IT) conforme os novos dias úteis. O commit persiste, num único save,
+    // as etapas reposicionadas + a config de feriados (coluna feriados no banco),
+    // com entrada no histórico de undo/redo. localStorage acima = cache/fallback.
+    setWorkCal(next);
+    commit(autoScheduleFromDeps(etapas), { silent: true, feriados: next });
   };
   // Aplica o calendário de trabalho (feriados/sábado) globalmente antes de renderizar os filhos,
   // para que término/barras/duração usem dias úteis. Roda no render (síncrono).
@@ -1680,7 +1683,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     // O toast reflete o RESULTADO real da persistência (após o await), não a intenção.
     saveTimerRef.current = setTimeout(async () => {
-      const res = await salvarCronograma(obraSel, clean, customCols, baselines, reprogramacoes);
+      const res = await salvarCronograma(obraSel, clean, customCols, baselines, reprogramacoes, opts.feriados);
       if (handleSaveResult(res)) return;   // conflito ou erro: sempre avisa (mesmo em save silencioso)
       if (opts.silent) return;
       const cfls = gmConflicts(clean);
