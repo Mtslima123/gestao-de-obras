@@ -17,6 +17,10 @@ export const GM_LABEL_W     = 280;  // px da coluna de rótulos
 export const GM_ROW_H       = 44;   // altura por linha
 export const GM_BAR_H       = 24;   // altura das barras
 
+// Limiar de virtualização: abaixo disso, Lista e Gantt renderizam todas as linhas
+// (comportamento comprovado). Acima, renderizam só a janela visível (windowing).
+export const VIRT_MIN = 60;
+
 // Altura de cada linha do cabeçalho (Ano / Trimestre / Mês / linha extra de Semana ou Dia).
 // A altura total varia com o zoom — ver `headerH` dentro de GanttInterativo.
 export const GM_ROW_ANO  = 20;
