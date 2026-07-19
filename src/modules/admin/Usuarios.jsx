@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
+import { useToast } from '../../components/Modals';
 import { AppData } from '../../utils/data';
 import { usuariosService } from './usuarios.service';
 import { MODULOS as TODOS_MODULOS, MODULOS_IDS as TODOS_MODULOS_IDS, MODULO_ABAS } from '../../config/modulos';
@@ -50,6 +51,7 @@ const transformar = (u) => ({
 });
 
 const UsuariosScreen = ({ obras = [] }) => {
+  const toast = useToast();
   const listaObras = obras.length > 0 ? obras : AppData.obras;
 
   const [usuarios, setUsuarios] = React.useState([]);
@@ -143,14 +145,14 @@ const UsuariosScreen = ({ obras = [] }) => {
       await carregarUsuarios();
       fecharForm();
     } catch (err) {
-      alert('Erro ao salvar: ' + err.message);
+      toast('Erro ao salvar: ' + err.message, { tone: 'error', icon: 'alert' });
     }
     setSalvando(false);
   };
 
   const handleExcluir = async (u) => {
     const { error } = await usuariosService.excluir(u.id);
-    if (error) { alert('Erro ao excluir: ' + error.message); return; }
+    if (error) { toast('Erro ao excluir: ' + error.message, { tone: 'error', icon: 'alert' }); return; }
     setConfirmDelete(null);
     if (editando && editando !== 'novo' && editando.id === u.id) fecharForm();
     await carregarUsuarios();

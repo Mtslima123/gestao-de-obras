@@ -141,11 +141,14 @@ const AppInner = () => {
   // para o portão de acesso decidir se libera a entrada.
   const loadUserProfile = async (email) => {
     if (!email) return null;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('user_profiles')
       .select('id, perfil, status, modulos_ids, modulos_readonly_ids, abas_ids, deve_alterar_senha, user_obras(obra_id)')
       .eq('email', email)
       .single();
+    // PGRST116 = 0 linhas (usuário sem perfil cadastrado) — caso legítimo, não é erro.
+    // Qualquer outro erro (rede/RLS/SQL) era engolido e virava "acesso negado" silencioso.
+    if (error && error.code !== 'PGRST116') console.error('[app] falha ao carregar perfil do usuário', error);
     setUserProfile(data ?? null);
     return data ?? null;
   };
@@ -170,7 +173,7 @@ const AppInner = () => {
   React.useEffect(() => {
     authService.getSession().then(({ data: { session } }) => {
       if (session?.user) aplicarSessao(session);
-    });
+    }).catch(err => console.error('[app] falha ao restaurar sessão', err));
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecovery(true);

@@ -546,8 +546,8 @@ const NotifPanel = ({ onClose, onChange }) => {
     const handler = (e) => {
       if (!e.target.closest('.notif-panel') && !e.target.closest('[data-notif-trigger]')) onClose();
     };
-    setTimeout(() => document.addEventListener('click', handler), 0);
-    return () => document.removeEventListener('click', handler);
+    const tid = setTimeout(() => document.addEventListener('click', handler), 0);
+    return () => { clearTimeout(tid); document.removeEventListener('click', handler); };
   }, [onClose]);
 
   const naoLidas = items.filter(n => !n.lido).length;

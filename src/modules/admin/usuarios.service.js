@@ -18,7 +18,14 @@ export const usuariosService = {
       .order('created_at', { ascending: false })
       .range((page - 1) * pp, page * pp - 1);
     if (status && status !== 'todos') q = q.eq('status', status);
-    if (busca) q = q.or(`nome.ilike.%${busca}%,email.ilike.%${busca}%`);
+    if (busca) {
+      // Sanitiza a busca antes de interpolar no filtro PostgREST: remove os
+      // metacaracteres do grammar do .or() (vírgula, parênteses, aspas, barra) e
+      // os curingas do LIKE (% *). Evita injeção/quebra do filtro. Nomes e e-mails
+      // legítimos não usam esses caracteres.
+      const termo = String(busca).replace(/[,()"\\%*]/g, ' ').trim();
+      if (termo) q = q.or(`nome.ilike.%${termo}%,email.ilike.%${termo}%`);
+    }
     return q;
   },
 
