@@ -341,7 +341,9 @@ const Dashboard = ({ onOpenObra, onAcao }) => {
               </thead>
               <tbody>
                 {D.obras.filter(o => o.status === 'em_andamento').slice(0, 6).map((o) => (
-                  <tr key={o.id} onClick={() => onOpenObra(o)}>
+                  <tr key={o.id} onClick={() => onOpenObra(o)}
+                      role="button" tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenObra(o); } }}>
                     <td>
                       <div className="strong" style={{ marginBottom: 2 }}>{o.nome}</div>
                       <div className="text-xs text-muted mono">{o.sigla || o.id} · {o.tipo}</div>
