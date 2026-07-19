@@ -32,7 +32,7 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
         map[row.obra_id] = offsetToISO(fimMax);
       });
       setCronFinal(map);
-    });
+    }).catch(err => console.error('[obras] falha ao carregar términos do cronograma', err));
   }, [obras]);
 
   // Capas via URL assinada (bucket obras-images privado). Path determinístico: obras/<id>/capa.jpg
@@ -45,7 +45,7 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
       const map = {};
       (data || []).forEach(u => { if (u.signedUrl && !u.error && pathToId[u.path]) map[pathToId[u.path]] = u.signedUrl; });
       setCapaUrls(map);
-    });
+    }).catch(err => console.error('[obras] falha ao carregar capas', err));
   }, [obras]);
 
   const filtered = React.useMemo(() =>

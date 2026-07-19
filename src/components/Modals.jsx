@@ -618,7 +618,7 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
   React.useEffect(() => {
     orcamentosService.listar().then(({ data }) => {
       setUsedObraIds(new Set((data || []).map(o => String(o.obra_id))));
-    });
+    }).catch(err => console.error('[orcamento] falha ao listar orçamentos existentes', err));
   }, []);
 
   const obrasDisponiveis = React.useMemo(

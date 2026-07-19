@@ -593,6 +593,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
   }, [items]);
 
   // Calcula totais bottom-up: folha = qty × unit; grupo = soma dos filhos diretos
+  // Arredonda para centavos por linha ANTES de somar, evitando acúmulo de erro de
+  // ponto flutuante ao propagar os totais de baixo para cima (folha → grupos).
+  const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   const calcTotals = (list) => {
     const map = {};
     [...list]
@@ -603,9 +606,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
             ch.codigo.startsWith(it.codigo + '.') &&
             getNivel(ch.codigo) === getNivel(it.codigo) + 1
           );
-          map[it.codigo] = children.reduce((s, ch) => s + (map[ch.codigo] ?? 0), 0);
+          map[it.codigo] = round2(children.reduce((s, ch) => s + (map[ch.codigo] ?? 0), 0));
         } else {
-          map[it.codigo] = (Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0);
+          map[it.codigo] = round2((Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0));
         }
       });
     return list.map(it => ({ ...it, valor_total: map[it.codigo] ?? it.valor_total ?? 0 }));

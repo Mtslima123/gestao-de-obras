@@ -557,21 +557,27 @@ const Fotos = ({ obra, readOnly = false }) => {
 
   const carregarFotos = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('fotos_obra')
-      .select('*').eq('obra_id', obra.id).order('created_at', { ascending: false });
-    if (!error && data) {
-      // Bucket privado: exibe via URL assinada gerada do storage_path (funciona também
-      // em bucket público, então não depende da ordem de deploy). A coluna `url` pública
-      // fica só como fallback.
-      const paths = data.map(f => f.storage_path).filter(Boolean);
-      const signed = {};
-      if (paths.length) {
-        const { data: urls } = await supabase.storage.from('obras-images').createSignedUrls(paths, 3600);
-        (urls || []).forEach(u => { if (u.signedUrl && !u.error) signed[u.path] = u.signedUrl; });
+    try {
+      const { data, error } = await supabase.from('fotos_obra')
+        .select('*').eq('obra_id', obra.id).order('created_at', { ascending: false });
+      if (error) throw error;
+      if (data) {
+        // Bucket privado: exibe via URL assinada gerada do storage_path (funciona também
+        // em bucket público, então não depende da ordem de deploy). A coluna `url` pública
+        // fica só como fallback.
+        const paths = data.map(f => f.storage_path).filter(Boolean);
+        const signed = {};
+        if (paths.length) {
+          const { data: urls } = await supabase.storage.from('obras-images').createSignedUrls(paths, 3600);
+          (urls || []).forEach(u => { if (u.signedUrl && !u.error) signed[u.path] = u.signedUrl; });
+        }
+        setFotos(data.map(f => ({ ...f, url: signed[f.storage_path] || f.url })));
       }
-      setFotos(data.map(f => ({ ...f, url: signed[f.storage_path] || f.url })));
+    } catch (err) {
+      console.error('[obra] falha ao carregar fotos', err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   React.useEffect(() => { carregarFotos(); }, [obra.id]);
@@ -822,7 +828,8 @@ const HeroImage = ({ obra, onObraUpdate }) => {
     if (!obra.imageUrl) { setHeroSrc(null); return; }
     supabase.storage.from('obras-images')
       .createSignedUrl(`obras/${obra.id}/capa.jpg`, 3600)
-      .then(({ data }) => { if (alive) setHeroSrc(data?.signedUrl || null); });
+      .then(({ data }) => { if (alive) setHeroSrc(data?.signedUrl || null); })
+      .catch(err => console.error('[obra] falha ao carregar capa', err));
     return () => { alive = false; };
   }, [obra.id, obra.imageUrl]);
 
