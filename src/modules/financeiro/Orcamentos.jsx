@@ -1,5 +1,4 @@
 import React from 'react';
-import * as XLSX from 'xlsx';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { useToast, Modal } from '../../components/Modals';
@@ -204,6 +203,7 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
     }
     setParsing(true);
     try {
+      const XLSX = await import('xlsx');       // carregado sob demanda (fora do bundle inicial)
       const buf = await file.arrayBuffer();
       const wb  = XLSX.read(buf, { type: 'array' });
       const ws  = wb.Sheets[wb.SheetNames[0]];
@@ -240,7 +240,8 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
     }
   };
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
+    const XLSX = await import('xlsx');           // carregado sob demanda (fora do bundle inicial)
     const wb   = XLSX.utils.book_new();
     const data = [
       ['Código', 'Nome', 'Quantidade', 'Unidade', 'Valor Unitário'],

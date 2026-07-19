@@ -9,14 +9,16 @@ import { authService } from './modules/auth/auth.service';
 import { supabase } from './services/supabase';
 import { moduloLiberado, obraLiberada, obrasPermitidas } from './utils/permissions';
 import { obrasService } from './modules/obras/obras.service';
-import { Dashboard } from './modules/dashboard/Dashboard';
-import { ObrasList } from './modules/obras/ObrasList';
-import { ObraDetail } from './modules/obras/ObraDetail';
-import { OrcamentosScreen } from './modules/financeiro/Orcamentos';
-import { CronogramaFull } from './modules/cronograma/Cronograma';
-import { OrcamentoCronogramaScreen } from './modules/financeiro/OrcamentoCronograma';
-import { UsuariosScreen } from './modules/admin/Usuarios';
-import { AuditoriaScreen } from './modules/admin/Auditoria';
+// Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
+// Renderizadas dentro de <Suspense> no corpo do App.
+const Dashboard                 = React.lazy(() => import('./modules/dashboard/Dashboard').then(m => ({ default: m.Dashboard })));
+const ObrasList                 = React.lazy(() => import('./modules/obras/ObrasList').then(m => ({ default: m.ObrasList })));
+const ObraDetail                = React.lazy(() => import('./modules/obras/ObraDetail').then(m => ({ default: m.ObraDetail })));
+const OrcamentosScreen          = React.lazy(() => import('./modules/financeiro/Orcamentos').then(m => ({ default: m.OrcamentosScreen })));
+const CronogramaFull            = React.lazy(() => import('./modules/cronograma/Cronograma').then(m => ({ default: m.CronogramaFull })));
+const OrcamentoCronogramaScreen = React.lazy(() => import('./modules/financeiro/OrcamentoCronograma').then(m => ({ default: m.OrcamentoCronogramaScreen })));
+const UsuariosScreen            = React.lazy(() => import('./modules/admin/Usuarios').then(m => ({ default: m.UsuariosScreen })));
+const AuditoriaScreen           = React.lazy(() => import('./modules/admin/Auditoria').then(m => ({ default: m.AuditoriaScreen })));
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
 // Captura erros de render e exibe mensagem em vez de tela branca
@@ -301,6 +303,7 @@ const AppInner = () => {
           ) : viewBloqueada ? (
             <AcessoNegado onVoltar={() => handleNavigate(primeiraViewLiberada)} />
           ) : (
+          <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
           <>
           {view === 'dashboard' && <Dashboard onOpenObra={handleOpenObra} onAcao={(a) => setModal(a)} />}
           {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} obras={obrasVisiveis} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} userProfile={userProfile} />}
@@ -350,6 +353,7 @@ const AppInner = () => {
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </>
+          </React.Suspense>
           )}
           </ErrorBoundary>
         </div>
