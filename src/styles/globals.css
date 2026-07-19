@@ -2015,11 +2015,12 @@ a:hover { color: var(--brand-600); }
   border-right: 1px solid var(--border);
 }
 .tbl-lista tbody td:last-child { border-right: none; }
-.tbl-lista tbody tr:nth-child(even) td {
+/* Zebra por CLASSE (índice de dados), não por nth-child — funciona com as linhas
+   espaçadoras da virtualização, que deslocariam a paridade do DOM. */
+.tbl-lista tbody tr.lista-row-alt td {
   background: rgba(0, 0, 0, 0.012);
 }
-.tbl-lista tbody tr:nth-child(even).lista-row-selected td,
-.tbl-lista tbody tr:nth-child(odd).lista-row-selected td {
+.tbl-lista tbody tr.lista-row-selected td {
   background: color-mix(in srgb, var(--brand) 8%, var(--surface)) !important;
 }
 

@@ -2,6 +2,7 @@
 // Cronograma.jsx (movimento verbatim). Recebe etapas/callbacks via props.
 
 import React from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { Modal, useToast } from '../../components/Modals';
@@ -16,7 +17,7 @@ import {
 import { AddColModal, RowHeightModal, PavimentosModal } from './cronogramaModais';
 import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
-  LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, respInitials, respColor,
+  LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, respInitials, respColor, VIRT_MIN,
 } from './cronogramaShared';
 
 export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false }) => {
@@ -305,6 +306,22 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     [visible, busca, filtroStatus, filtroResp]
   );
 
+  // Virtualização (windowing) da Lista — ativa só acima de VIRT_MIN. Abaixo, renderiza
+  // todas as linhas (comportamento atual). Altura variável (rowH + overrides por linha)
+  // é MEDIDA de verdade via measureElement (o height do <td> funciona como min-height).
+  const virtualize = filtrada.length > VIRT_MIN;
+  const rowVirt = useVirtualizer({
+    count: filtrada.length,
+    getScrollElement: () => listaScrollRef.current,
+    estimateSize: (i) => rowHeights[filtrada[i]?.id] ?? rowH,
+    overscan: 10,
+    getItemKey: (i) => filtrada[i]?.id ?? i,
+  });
+  const vItems  = rowVirt.getVirtualItems();
+  const winRows = virtualize ? vItems.map(vi => [filtrada[vi.index], vi.index]) : filtrada.map((e, i) => [e, i]);
+  const topPad  = virtualize && vItems.length ? vItems[0].start : 0;
+  const botPad  = virtualize && vItems.length ? rowVirt.getTotalSize() - vItems[vItems.length - 1].end : 0;
+
   // ── Seleção de célula estilo planilha: copiar/colar + navegação ──────────────
   // Colunas cujo valor pode ser copiado/colado (por tipo). 'text' aceita colar de qualquer origem.
   const COPY_COLS = {
@@ -401,7 +418,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const sc = listaScrollRef.current;
     if (!sc) return;
     const tr = sc.querySelector(`tr[data-taskid="${CSS.escape(String(taskId))}"]`);
-    if (!tr) return;
+    if (!tr) {
+      // Fora da janela virtual: a linha não está no DOM. Rola por índice.
+      const idx = filtrada.findIndex(x => x.id === taskId);
+      if (idx >= 0) rowVirt.scrollToIndex(idx, { align: 'auto' });
+      return;
+    }
     const scRect = sc.getBoundingClientRect();
     const trRect = tr.getBoundingClientRect();
     const head = sc.querySelector('thead');
@@ -1640,7 +1662,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             </tr>
           </thead>
           <tbody>
-            {filtrada.map((e, rowIdx) => {
+            {virtualize && topPad > 0 && (
+              <tr aria-hidden="true"><td colSpan={99} style={{ height: topPad, padding: 0, border: 'none' }} /></tr>
+            )}
+            {winRows.map(([e, rowIdx]) => {
               // Realce de LINHA só quando a linha está selecionada e não há uma CÉLULA
               // selecionada nessa linha (seleção de célula tem prioridade visual).
               const cellSelHere = selectedCell?.taskId === e.id;
@@ -1920,8 +1945,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               return (
                 <tr key={e.id}
                   data-taskid={e.id}
+                  data-index={rowIdx}
+                  ref={virtualize ? rowVirt.measureElement : undefined}
                   className={[
                     isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
+                    rowIdx % 2 === 1 ? 'lista-row-alt' : '',
                     dragOverId === e.id ? 'drag-over-row' : '',
                   ].filter(Boolean).join(' ')}
                   onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'row', taskId: e.id }); }}
@@ -2073,6 +2101,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 </tr>
               );
             })}
+            {virtualize && botPad > 0 && (
+              <tr aria-hidden="true"><td colSpan={99} style={{ height: botPad, padding: 0, border: 'none' }} /></tr>
+            )}
 
             {/* Linhas em branco (estilo Project/Excel): digitar o nome cria a tarefa.
                Só quando editável e sem filtro; caso contrário mostra a mensagem de estado vazio. */}
