@@ -390,8 +390,9 @@ const Fotos = ({ obra, readOnly = false }) => {
     const blob = await compressImagem(file, 1200, 0.82);
     const { error: upErr } = await supabase.storage.from('obras-images').upload(path, blob, { contentType: 'image/jpeg' });
     if (upErr) { toast('Erro no upload: ' + upErr.message, { tone: 'danger' }); return; }
-    const { data: { publicUrl } } = supabase.storage.from('obras-images').getPublicUrl(path);
-    const { error: dbErr } = await supabase.from('fotos_obra').insert([{ obra_id: obra.id, url: publicUrl, storage_path: path, ...metadados }]);
+    // Bucket privado: a exibição é por URL assinada gerada do storage_path. A coluna
+    // `url` é legada e NOT NULL — guardamos o próprio path (não geramos mais URL pública).
+    const { error: dbErr } = await supabase.from('fotos_obra').insert([{ obra_id: obra.id, url: path, storage_path: path, ...metadados }]);
     if (dbErr) { toast('Erro ao salvar foto', { tone: 'danger' }); return; }
     toast('Foto salva', { tone: 'success', icon: 'check' });
     carregarFotos();
