@@ -7,8 +7,7 @@ import { useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap } from './ganttUtils';
 import { podeVerAba, moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
-import { offsetToDate, offsetToISO, isoToBR, dateToOffset,
-         setWorkCal, workEnd, workDur, taskEnd } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd } from './cronogramaDateUtils';
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
@@ -18,10 +17,7 @@ import {
   CriarLinhaModal, GerenciarLinhasModal, FeriadosModal,
   CriarReprogramacaoModal, GerenciarReprogramacoesModal,
 } from './cronogramaModais';
-import {
-  GM_TOTAL, GROUP_PALETTE, GM_MONTHS, gmCalcToday, gmMonthLabel, gmConflicts,
-  EditableCell, ColorMenu,
-} from './cronogramaShared';
+import { GM_TOTAL, gmConflicts } from './cronogramaShared';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
@@ -454,6 +450,7 @@ const SCurveChart = ({ months = [], planned = [], realized = [], monthlyPct = []
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
 const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, reprogramacoes, repVisivelId, valorVinculadoMap = {}, onCommit }) => {
+  const toast = useToast();
   // Custo efetivo: com vínculos, usa o valor vinculado distribuído (cobre folhas e grupos)
   const hasVinc  = Object.keys(valorVinculadoMap).length > 0;
   const custoEf  = (e, gv) => hasVinc
