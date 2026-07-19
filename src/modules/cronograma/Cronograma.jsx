@@ -1272,9 +1272,12 @@ const _cronSavedAt = {};
 //   { error }                  em falha de rede/SQL
 //   { error:null }             sucesso (grava e avança o _cronSavedAt)
 //   { error:null, conflict:true } outra sessão gravou no meio (NÃO sobrescreve)
-async function salvarCronograma(obraId, etapas, customCols, baselines, reprogramacoes) {
+async function salvarCronograma(obraId, etapas, customCols, baselines, reprogramacoes, feriados) {
   const nowISO = new Date().toISOString();
   const payload = { etapas, custom_cols: customCols, baselines, reprogramacoes, updated_at: nowISO };
+  // Feriados só entram no payload quando fornecidos (edição de feriados). Assim os saves
+  // de etapas não sobrescrevem a config de feriados já gravada na obra.
+  if (feriados !== undefined) payload.feriados = feriados;
   const expected = _cronSavedAt[obraId];
 
   // Sem baseline conhecida (1ª sessão sem ter carregado do banco): upsert simples (comportamento anterior).
@@ -1308,7 +1311,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
 
 async function carregarCronogramaDB(obraId) {
   const { data, error } = await supabase.from('cronogramas')
-    .select('etapas, custom_cols, baselines, reprogramacoes, updated_at')
+    .select('etapas, custom_cols, baselines, reprogramacoes, feriados, updated_at')
     .eq('obra_id', obraId)
     .single();
   if (error) return null;
@@ -1381,6 +1384,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const saveFeriados = (next) => {
     setFeriadosCfg(next);
     try { localStorage.setItem('ls_crono_feriados_' + obraSel, JSON.stringify(next)); } catch { /* ignore */ }
+    // Sincroniza no banco (coluna feriados) para valer entre usuários da mesma obra.
+    // localStorage acima fica como cache/fallback instantâneo.
+    salvarCronograma(obraSel, etapas, customCols, baselines, reprogramacoes, next).then(handleSaveResult);
   };
   // Aplica o calendário de trabalho (feriados/sábado) globalmente antes de renderizar os filhos,
   // para que término/barras/duração usem dias úteis. Roda no render (síncrono).
@@ -1495,6 +1501,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         setReprogramacoes(reps);
         if (db.reprogramacoes?.length) salvarReprogramacoesLocal(obraSel, db.reprogramacoes);
         setRepVisivelId(defaultRepId(reps));
+        // Feriados: DB é a fonte de verdade quando tem conteúdo; senão mantém o valor do
+        // localStorage (setado no efeito keyed em obraSel) para migração suave.
+        if (db.feriados && (db.feriados.dias?.length || db.feriados.sabadoUtil)) setFeriadosCfg(db.feriados);
       } else {
         const mock = sanitizarERecuperar(migrateEtapas(D.cronograma[obraSel] || []));
         setEtapas(mock);
