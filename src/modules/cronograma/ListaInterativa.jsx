@@ -420,8 +420,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const tr = sc.querySelector(`tr[data-taskid="${CSS.escape(String(taskId))}"]`);
     if (!tr) {
       // Fora da janela virtual: a linha não está no DOM. Rola por índice.
+      // 'center' garante que o alvo caia claramente abaixo do cabeçalho fixo
+      // (evita parar parcialmente sob o thead sticky).
       const idx = filtrada.findIndex(x => x.id === taskId);
-      if (idx >= 0) rowVirt.scrollToIndex(idx, { align: 'auto' });
+      if (idx >= 0) rowVirt.scrollToIndex(idx, { align: 'center' });
       return;
     }
     const scRect = sc.getBoundingClientRect();
