@@ -749,6 +749,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // para as setas moverem a seleção de célula em vez de rolar a página.
   const handleListKeyDown = (ev) => {
     if (ev.key === 'Escape') { setMarquee(null); return; } // limpa marching ants
+    // Ctrl/Cmd + Shift + ←/→ : recuar/avançar a seleção. Vem ANTES da navegação por
+    // seta (senão a seta moveria a célula) e ANTES do guard de seleção (funciona também
+    // com multiSel puro). handleIndent/handleOutdent já usam selectedRowIds().
+    if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft')) {
+      if (readOnly) return;
+      ev.preventDefault();
+      if (ev.key === 'ArrowRight') handleIndent(); else handleOutdent();
+      return;
+    }
     if (!selectedCell && !selectedId) return;
     const tag = ev.target?.tagName;
     const editingNow = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
@@ -1075,17 +1084,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const canIndent  = [...selForIndent].some(id => etapas.findIndex(e => e.id === id) > 0);
   const canOutdent = [...selForIndent].some(id => (etapas.find(e => e.id === id)?.nivel || 0) > 0);
 
-  // Atalhos Ctrl+Shift+→ / Ctrl+Shift+← para recuar/promover tarefa selecionada
-  React.useEffect(() => {
-    const h = (e) => {
-      if (readOnly) return;
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); handleIndent(); }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'ArrowLeft')  { e.preventDefault(); handleOutdent(); }
-    };
-    document.addEventListener('keydown', h);
-    return () => document.removeEventListener('keydown', h);
-  }, [selectedId, multiSel, selectedCell, selAnchor, etapas, readOnly]);
+  // Atalho Ctrl+Shift+←/→ (recuar/avançar) é tratado dentro do handleListKeyDown,
+  // antes da navegação por seta — senão a seta move a célula e "rouba" o atalho.
 
   const confirmDelete = () => {
     if (!deleteConfirm) return;
