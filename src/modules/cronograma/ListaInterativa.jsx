@@ -67,6 +67,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (h && h !== bandH) setBandH(h);
     }
   }); // sem deps: mede após cada render (leitura barata; auto-estabiliza pelo guard acima)
+  // Onde a linha de nomes gruda: 1px acima de bandH para sobrepor a banda e cobrir a
+  // costura sub-pixel (offsetHeight arredonda; sem isso abre uma fresta e o corpo aparece rolando).
+  const bandTop = Math.max(0, bandH - 1);
 
   // Fixa o bloco (formatação+banda+cabeçalho+tabela) sob a topbar ao rolar a página.
   // sticky não serve aqui (o card é o último elemento e preenche a viewport), então
@@ -274,7 +277,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         className={dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : undefined}
         style={{
           width: w, minWidth: w,
-          position: 'sticky', top: bandH, zIndex: isFrozen ? 6 : 3,
+          position: 'sticky', top: bandTop, zIndex: isFrozen ? 6 : 3,
           ...(isFrozen ? { left: frozenLeft[colId] } : {}),
           cursor: !isFrozen ? 'grab' : undefined,
           userSelect: 'none',
@@ -318,7 +321,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     getItemKey: (i) => filtrada[i]?.id ?? i,
   });
   const vItems  = rowVirt.getVirtualItems();
-  const winRows = virtualize ? vItems.map(vi => [filtrada[vi.index], vi.index]) : filtrada.map((e, i) => [e, i]);
+  // Rede de segurança: se a janela virtual ficar vazia por um instante (relayout ao editar/
+  // confirmar ou ao fixar o card), renderiza a lista inteira neste frame para nunca ficar em
+  // branco nem perder a marcação da célula; measureElement repovoa a janela no frame seguinte.
+  const winRows = !virtualize
+    ? filtrada.map((e, i) => [e, i])
+    : (vItems.length ? vItems.map(vi => [filtrada[vi.index], vi.index]) : filtrada.map((e, i) => [e, i]));
   const topPad  = virtualize && vItems.length ? vItems[0].start : 0;
   const botPad  = virtualize && vItems.length ? rowVirt.getTotalSize() - vItems[vItems.length - 1].end : 0;
 
@@ -1614,7 +1622,20 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
       <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} onScroll={() => { if (marquee) setMarquee(null); }} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none', position: 'relative' }}>
-        <table className="tbl tbl-lista" style={{ minWidth: 1780 + GUTTER_W, '--lista-row-h': rowH + 'px' }}>
+        <table className="tbl tbl-lista" style={{ minWidth: 1780 + GUTTER_W, tableLayout: 'fixed', '--lista-row-h': rowH + 'px' }}>
+          {/* Larguras autoritativas por coluna. Com table-layout: fixed as larguras vêm do
+              colgroup (não do conteúdo montado), então as colunas param de "dançar" ao rolar
+              com a virtualização. Mesma ordem e contagem que o corpo emite. */}
+          <colgroup>
+            <col style={{ width: GUTTER_W }} />
+            {colOrder.filter(c => !hiddenCols.has(c)).map(colId => (
+              <col key={colId} style={{ width: getColW(colId) }} />
+            ))}
+            {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
+              <col key={col.id} style={{ width: getColW(col.id) || 110 }} />
+            ))}
+            <col style={{ width: 36 }} />
+          </colgroup>
           <thead>
             {(() => {
               // Linha de bandas (Etapa/Tarefa · Prazo · Avanço · Financeiro · Sequenciamento).
@@ -1646,10 +1667,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               );
             })()}
             <tr>
-              <th onClick={selectAll} title="Selecionar tudo" style={{ width: GUTTER_W, minWidth: GUTTER_W, position: 'sticky', top: bandH, left: 0, zIndex: 7, userSelect: 'none', cursor: 'pointer' }} />
+              <th onClick={selectAll} title="Selecionar tudo" style={{ width: GUTTER_W, minWidth: GUTTER_W, position: 'sticky', top: bandTop, left: 0, zIndex: 7, userSelect: 'none', cursor: 'pointer' }} />
               {colOrder.filter(c => !hiddenCols.has(c)).map(colId => renderTh(colId))}
               {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
-                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandH, zIndex: 3, userSelect: 'none', cursor: 'pointer' }}
+                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandTop, zIndex: 3, userSelect: 'none', cursor: 'pointer' }}
                   onClick={() => selectColumn(col.id)}
                   onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId: col.id }); }}>
                   {col.label}
@@ -1657,7 +1678,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     onClick={(ev) => ev.stopPropagation()} onMouseDown={(ev) => { ev.stopPropagation(); startColResize(ev, col.id); }} />
                 </th>
               ))}
-              <th style={{ width: 36, padding: '0 8px', textAlign: 'center', position: 'sticky', top: bandH, zIndex: 3 }}>
+              <th style={{ width: 36, padding: '0 8px', textAlign: 'center', position: 'sticky', top: bandTop, zIndex: 3 }}>
                 <button
                   onClick={() => setShowAddCol(true)}
                   title="Adicionar coluna personalizada"
