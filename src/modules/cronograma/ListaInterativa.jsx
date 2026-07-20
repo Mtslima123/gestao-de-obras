@@ -865,6 +865,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       style: styled,
       'data-ck': taskId + '|' + colId,
       onMouseDown: (ev) => {
+        if (ev.button !== 0) return; // só o clique esquerdo mexe na seleção; o direito abre o menu
         // Pincel de formatação ativo: aplica a formatação capturada nesta célula e desliga
         if (painterOn && painterRef.current) {
           ev.preventDefault();
@@ -1057,20 +1058,22 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     setDeleteConfirm(selectedId);
   };
 
+  // Recuar/Avançar operam sobre TODA a seleção (calha/célula-range, multiSel ou linha única).
   const handleIndent = () => {
-    if (!selectedId) return;
-    const novas = indentTasks(etapas, [selectedId]);
-    onCommit(novas);
+    const ids = [...selectedRowIds()];
+    if (!ids.length) return;
+    onCommit(indentTasks(etapas, ids));
   };
 
   const handleOutdent = () => {
-    if (!selectedId) return;
-    const novas = outdentTasks(etapas, [selectedId]);
-    onCommit(novas);
+    const ids = [...selectedRowIds()];
+    if (!ids.length) return;
+    onCommit(outdentTasks(etapas, ids));
   };
 
-  const canIndent  = !!selectedId && etapas.findIndex(e => e.id === selectedId) > 0;
-  const canOutdent = !!selectedId && (etapas.find(e => e.id === selectedId)?.nivel || 0) > 0;
+  const selForIndent = selectedRowIds();
+  const canIndent  = [...selForIndent].some(id => etapas.findIndex(e => e.id === id) > 0);
+  const canOutdent = [...selForIndent].some(id => (etapas.find(e => e.id === id)?.nivel || 0) > 0);
 
   // Atalhos Ctrl+Shift+→ / Ctrl+Shift+← para recuar/promover tarefa selecionada
   React.useEffect(() => {
@@ -1082,7 +1085,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     };
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
-  }, [selectedId, etapas, readOnly]);
+  }, [selectedId, multiSel, selectedCell, selAnchor, etapas, readOnly]);
 
   const confirmDelete = () => {
     if (!deleteConfirm) return;
@@ -1981,6 +1984,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   }}
                   onMouseLeave={(ev) => { ev.currentTarget.style.cursor = 'grab'; }}
                   onMouseDown={(ev) => {
+                    if (ev.button !== 0) return; // direito preserva a seleção (abre o menu)
                     if (readOnly) return;
                     const rect = ev.currentTarget.getBoundingClientRect();
                     const nearBorder = (ev.clientY - rect.top <= 5) || (rect.bottom - ev.clientY <= 5);
@@ -2015,6 +2019,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   {/* Calha: número da linha (estilo Excel/Project) — clique seleciona a linha */}
                   <td
                     onMouseDown={(ev) => {
+                      if (ev.button !== 0) return; // direito preserva a seleção (abre o menu)
                       ev.stopPropagation(); ev.preventDefault();
                       const cols = visibleColIds();
                       if (!cols.length) return;
@@ -2264,6 +2269,19 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           </button>
           <button onClick={() => { insertTask(ctxMenu.taskId, 'below'); setCtxMenu(null); }}>
             ↓ Inserir linha abaixo
+          </button>
+          <hr />
+          <button onClick={() => {
+            const ids = selectedRowIds(); ids.add(ctxMenu.taskId);
+            onCommit(indentTasks(etapas, [...ids])); setCtxMenu(null);
+          }}>
+            → Recuar (subtarefa)
+          </button>
+          <button onClick={() => {
+            const ids = selectedRowIds(); ids.add(ctxMenu.taskId);
+            onCommit(outdentTasks(etapas, [...ids])); setCtxMenu(null);
+          }}>
+            ← Avançar (promover)
           </button>
           <hr />
           <button onClick={() => {

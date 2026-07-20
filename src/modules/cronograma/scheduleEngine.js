@@ -100,6 +100,7 @@ export function indentTasks(etapas, selectedIds) {
     // sobe a lista parando se encontrar um ancestral (nível menor) antes de uma irmã
     let above = null;
     for (let i = idx - 1; i >= 0; i--) {
+      if (selSet.has(etapas[i].id)) continue; // ignora o próprio bloco selecionado (recua todos sob a mesma irmã)
       const n = etapas[i].nivel || 0;
       if (n < nivelAtual) break;            // chegou ao pai sem achar irmã -> não recua
       if (n === nivelAtual) { above = etapas[i]; break; }
