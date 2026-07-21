@@ -814,8 +814,25 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       moveSelCell(ev.key, ev.shiftKey);
     }
     if (ev.key === 'Enter' || ev.key === 'F2') {
-      // duplo-clique é o gatilho principal de edição; Enter/F2 apenas evita rolagem
-      ev.preventDefault();
+      ev.preventDefault(); // evita a rolagem
+      // F2 (estilo Excel): abre a célula selecionada para digitação.
+      if (ev.key === 'F2' && selectedCell && !readOnly) {
+        const { taskId, colId } = selectedCell;
+        const task = filtrada.find(x => x.id === taskId);
+        const leaf = task && !task.isGroup;
+        if      (colId === 'custo'     && leaf) setEditingCusto(taskId + '_custo');
+        else if (colId === 'custoReal' && leaf) setEditingCusto(taskId + '_real');
+        else if (colId === 'fatorPeso' && leaf) setEditingFatorPeso(taskId);
+        else if (colId === 'dep'       && leaf) setEditingDep(taskId);
+        else {
+          // Demais colunas (etapa, datas, duração, avanço, responsável, personalizadas)
+          // usam EditableCell: dispara o mesmo caminho do duplo-clique.
+          const sc = listaScrollRef.current;
+          const td = sc?.querySelector(`td[data-ck="${taskId}|${colId}"]`);
+          td?.querySelector('[title="Duplo-clique para editar"]')
+            ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        }
+      }
     }
   };
 
