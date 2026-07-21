@@ -30,10 +30,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [rowHDialogTargets, setRowHDialogTargets] = React.useState([]); // linhas alvo da altura
   const [pendingFontSize, setPendingFontSize] = React.useState(null); // tamanho armado p/ texto novo
   const [pendingFontFamily, setPendingFontFamily] = React.useState(null); // fonte armada p/ texto novo
-  const [fmtCollapsed, setFmtCollapsed] = React.useState(() => localStorage.getItem('ls_crono_fmt_collapsed') === '1');
+  // Recolher o ribbon inteiro. Chave nova (não reaproveita 'ls_crono_fmt_collapsed') para
+  // começar expandido — senão quem tinha a barra de formatação recolhida abriria com todas as ações ocultas.
+  const [ribbonCollapsed, setRibbonCollapsed] = React.useState(() => localStorage.getItem('ls_crono_ribbon_collapsed') === '1');
   React.useEffect(() => {
-    try { localStorage.setItem('ls_crono_fmt_collapsed', fmtCollapsed ? '1' : '0'); } catch { /* ignore */ }
-  }, [fmtCollapsed]);
+    try { localStorage.setItem('ls_crono_ribbon_collapsed', ribbonCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [ribbonCollapsed]);
+  // Aba ativa do menu (ribbon): Tarefa | Inserir | Exibir. Persistida por sessão.
+  const [activeTab, setActiveTab] = React.useState(() => localStorage.getItem('ls_crono_ribbon_tab') || 'tarefa');
+  React.useEffect(() => {
+    try { localStorage.setItem('ls_crono_ribbon_tab', activeTab); } catch { /* ignore */ }
+  }, [activeTab]);
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
@@ -1133,7 +1140,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     onCommit(novas, { silent: true });
   };
 
-  // ── Ações de toolbar ────────────────────────────────────────────────────────
+  // ── Ações (usadas pelo ribbon, menu de contexto e atalhos) ───────────────────
   const handleAddGroup   = () => onCommit(createGroup(selectedId, etapas, customCols), { silent: true });
 
   const handleDelete = () => {
@@ -1365,155 +1372,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   return (
     <>
-    {/* Card comum: ações + filtro — rolam para fora ao rolar a página */}
+    {/* Card comum: barra de filtros — rola para fora ao rolar a página (as ações ficam no ribbon do card fixo) */}
     <div className="card" style={{ marginTop: 'var(--gap)' }}>
-
-      {/* ── Toolbar ──────────────────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', gap: 8, padding: '10px 16px', alignItems: 'center',
-        flexWrap: 'wrap', background: 'var(--surface-muted)',
-        borderBottom: '1px solid var(--border)',
-      }}>
-        {!readOnly && (
-        <>
-        <button className="btn btn-ghost" style={btnStyle} onClick={handleAddGroup}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-          </svg>
-          Grupo
-        </button>
-
-        <button className="btn btn-ghost" style={btnStyle} onClick={() => setShowPavimentos(true)}
-          title="Inserir pavimentos automaticamente como subtarefas">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/>
-          </svg>
-          Pavimentos
-        </button>
-
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-
-        <button
-          className="btn btn-ghost"
-          style={{ ...btnStyle, color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.45 }}
-          onClick={handleDelete}
-          disabled={!selectedId}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-          </svg>
-          Excluir
-        </button>
-        </>
-        )}
-
-        <div style={{ flex: 1 }} />
-
-        {!readOnly && (
-        <>
-        <button className="btn btn-ghost" style={btnStyle} onClick={undo} title="Desfazer (Ctrl+Z)">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/>
-          </svg>
-          Desfazer
-        </button>
-
-        <button className="btn btn-ghost" style={btnStyle} onClick={redo} title="Refazer (Ctrl+Y)">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/>
-          </svg>
-          Refazer
-        </button>
-        </>
-        )}
-
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-
-        {multiSel.length > 0 && (
-          <span style={{ fontSize: 11.5, color: 'var(--brand)', fontWeight: 600, padding: '3px 10px', background: 'var(--brand-tint)', borderRadius: 20 }}>
-            {multiSel.length} selecionadas · Ctrl+F2 para vincular
-          </span>
-        )}
-
-        {selectedId && !multiSel.length && (
-          <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            {selectedId} selecionado
-          </span>
-        )}
-
-        <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>
-          {visible.length} de {etapas.length} tarefas
-        </span>
-
-        {/* Botão de visibilidade de colunas */}
-        <div ref={colPanelRef} style={{ position: 'relative' }}>
-          <button className="btn btn-ghost" style={{ ...btnStyle, position: 'relative' }}
-            onClick={() => setShowColPanel(v => !v)}
-            title="Mostrar/ocultar colunas">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
-            </svg>
-            Colunas{hiddenCols.size > 0 && <span style={{ marginLeft: 4, background: 'var(--brand)', color: 'white', borderRadius: 10, fontSize: 10, padding: '0 5px' }}>{hiddenCols.size}</span>}
-          </button>
-
-          {showColPanel && (
-            <div style={{
-              position: 'absolute', right: 0, top: '100%', marginTop: 4,
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.13)',
-              padding: '8px 0', zIndex: 9999, minWidth: 200,
-            }}>
-              <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 600, color: 'var(--text-soft)', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid var(--border-subtle)' }}>
-                Visibilidade das colunas
-              </div>
-              {colOrder.filter(c => !LISTA_FROZEN.includes(c)).map(colId => {
-                const col = LISTA_COL_DEFS[colId];
-                if (!col) return null;
-                const visible = !hiddenCols.has(colId);
-                return (
-                  <label key={colId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, color: visible ? 'var(--text)' : 'var(--text-faint)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hover, rgba(0,0,0,0.04))'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    <input type="checkbox" checked={visible} onChange={() => toggleColVisibility(colId)}
-                      style={{ accentColor: 'var(--brand)', width: 14, height: 14, cursor: 'pointer' }} />
-                    {col.label}
-                  </label>
-                );
-              })}
-              {/* Colunas personalizadas */}
-              {customCols.length > 0 && customCols.map(col => {
-                const visible = !hiddenCols.has(col.id);
-                return (
-                  <label key={col.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, color: visible ? 'var(--text)' : 'var(--text-faint)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hover, rgba(0,0,0,0.04))'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    <input type="checkbox" checked={visible} onChange={() => toggleColVisibility(col.id)}
-                      style={{ accentColor: 'var(--brand)', width: 14, height: 14, cursor: 'pointer' }} />
-                    {col.label}
-                  </label>
-                );
-              })}
-              {hiddenCols.size > 0 && (
-                <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '6px 14px 2px' }}>
-                  <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 0', color: 'var(--brand)' }}
-                    onClick={() => setHiddenCols(new Set())}>
-                    Mostrar todas
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div style={{ flex: 1 }} />
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-        <button className="btn btn-ghost" style={btnStyle} onClick={exportExcelLista} title="Exportar para Excel (.xlsx)">
-          <Icon name="download" size={13} /> Excel
-        </button>
-        <button className="btn btn-ghost" style={{ ...btnStyle, minWidth: 72 }} onClick={exportPDFLista} disabled={exportingPDF} title="Exportar para PDF">
-          <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
-        </button>
-      </div>
 
       {/* ── Barra de filtros ─────────────────────────────────────────────── */}
       <div style={{
@@ -1552,24 +1412,24 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           </span>
         )}
       </div>
-    </div>{/* fim card comum (ações + filtro) */}
+    </div>{/* fim card comum (filtros) */}
 
     {/* Sentinela: marca onde o card fixo começa (para detectar quando prender) */}
     <div ref={listaSentinelRef} aria-hidden="true" style={{ height: 0 }} />
     {/* Espaçador: preserva a altura do fluxo quando o card fixo sai do fluxo (position:fixed) */}
     {listaPinned && <div aria-hidden="true" style={{ marginTop: 8, height: `calc(100vh - ${topbarH}px - 8px)` }} />}
 
-    {/* Card FIXO: barra de formatação + banda + cabeçalho + tabela; congela sob a topbar */}
+    {/* Card FIXO: menu em abas (ribbon) + banda + cabeçalho + tabela; congela sob a topbar */}
     <div ref={listaRef} className="card"
       style={listaPinned
         ? { position: 'fixed', top: topbarH + 10, left: listaPinned.left, width: listaPinned.width, height: `calc(100vh - ${topbarH + 10}px - 8px)`, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
         : { marginTop: 8, height: `calc(100vh - ${topbarH}px - 8px)`, display: 'flex', flexDirection: 'column' }
       }>
 
-      {/* ── Barra de formatação (célula/linha estilo Excel) ────────────────── */}
-      {!readOnly && (() => {
+      {/* ── Menu em abas (ribbon estilo MS Project): Tarefa | Inserir | Exibir ─── */}
+      {(() => {
         const hasTarget = !!(selectedCell || selectedId);
-        const alvo = selectedCell ? 'célula' : (selectedId ? 'linha' : '');
+        const temFiltro = !!(busca || filtroStatus || filtroResp);
         const tglStyle = (on) => ({
           ...btnStyle, height: 28, padding: '2px 9px', fontWeight: 700,
           background: on ? 'var(--brand)' : 'var(--surface)', color: on ? '#fff' : 'var(--text)',
@@ -1579,110 +1439,315 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const clampSize = (n) => Math.min(24, Math.max(9, n));
         const div = () => <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />;
         const iconBtn = { ...btnStyle, height: 28, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6 };
+        // Botão de comando com rótulo (estilo ribbon)
+        const cmdBtn = { ...btnStyle, height: 28, fontSize: 12, padding: '2px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' };
         // Estilos dos grupos estilo ribbon (Excel)
         const groupBox = { display: 'inline-flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', padding: '4px 6px 2px' };
         const groupContent = { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, justifyContent: 'center' };
         const rowStyle = { display: 'flex', alignItems: 'center', gap: 4 };
         const caption = { textAlign: 'center', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 3 };
+        const tabBtn = (on) => ({ padding: '6px 15px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? 'var(--surface)' : 'transparent', color: on ? 'var(--brand)' : 'var(--text-muted)', borderBottom: on ? '2px solid var(--brand)' : '2px solid transparent' });
+
+        // Abas: Tarefa/Inserir só quando editável; Exibir sempre.
+        const tabs = readOnly
+          ? [{ id: 'exibir', label: 'Exibir' }]
+          : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }];
+        const curTab = tabs.some(t => t.id === activeTab) ? activeTab : tabs[0].id;
+
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 2px 8px' }}>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              Formatar {alvo ? <strong>{alvo}</strong> : ''}
-            </span>
-            {!fmtCollapsed && (
-            <div style={{ display: 'inline-flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', opacity: hasTarget ? 1 : 0.5, pointerEvents: hasTarget || painterOn ? 'auto' : 'none' }}>
-
-              {/* ── Grupo FONTE (2 linhas) ── */}
-              <div style={groupBox}>
-                <div style={groupContent}>
-                  {/* Linha 1: tipo da fonte + tamanho */}
-                  <div style={rowStyle}>
-                    <select
-                      value={activeFmt.fontFamily || pendingFontFamily || ''}
-                      onChange={(ev) => applyFontFamily(ev.target.value || false)}
-                      title="Tipo da fonte"
-                      style={{ height: 26, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 4px', maxWidth: 128, cursor: 'pointer' }}
-                    >
-                      <option value="">Padrão</option>
-                      <option value="Arial, sans-serif">Arial</option>
-                      <option value="Calibri, 'Segoe UI', sans-serif">Calibri</option>
-                      <option value="Verdana, sans-serif">Verdana</option>
-                      <option value="Tahoma, sans-serif">Tahoma</option>
-                      <option value="Georgia, serif">Georgia</option>
-                      <option value="'Times New Roman', serif">Times New Roman</option>
-                      <option value="'Courier New', monospace">Courier New</option>
-                    </select>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                      <button style={{ ...btnStyle, height: 26, padding: '2px 7px' }} onClick={() => applyFontSize(clampSize(size - 1))} title="Diminuir fonte">A−</button>
-                      <span style={{ fontSize: 12, minWidth: 18, textAlign: 'center', color: 'var(--text-muted)' }}>{size}</span>
-                      <button style={{ ...btnStyle, height: 26, padding: '2px 7px' }} onClick={() => applyFontSize(clampSize(size + 1))} title="Aumentar fonte">A+</button>
-                    </span>
-                  </div>
-                  {/* Linha 2: N I S + cores */}
-                  <div style={rowStyle}>
-                    <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito">N</button>
-                    <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico">I</button>
-                    <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado">S</button>
-                    {div()}
-                    <ColorMenu label="Fundo" title="Cor de preenchimento" value={activeFmt.bg}
-                      onPick={(c) => applyFmt({ bg: c })} onClear={() => applyFmt({ bg: false })} clearLabel="Sem preenchimento"
-                      icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.5 8.5a2 2 0 0 0 0 3L8 20a2 2 0 0 0 3 0l8-8Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>} />
-                    <ColorMenu label="Texto" title="Cor da fonte" value={activeFmt.color}
-                      onPick={(c) => applyFmt({ color: c })} onClear={() => applyFmt({ color: false })} clearLabel="Cor automática"
-                      icon={<span style={{ fontWeight: 800, fontSize: 13, lineHeight: 1 }}>A</span>} />
-                  </div>
-                </div>
-                <div style={caption}>Fonte</div>
-              </div>
-
-              {/* ── Grupo RECUO ── */}
-              <div style={groupBox}>
-                <div style={{ ...groupContent, justifyContent: 'center' }}>
-                  <div style={rowStyle}>
-                    <button style={{ ...iconBtn, opacity: canOutdent ? 1 : 0.4 }} onClick={handleOutdent} disabled={!canOutdent}
-                      title="Promover — subir um nível hierárquico (Ctrl+Shift+←)">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="7 8 3 12 7 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
-                    </button>
-                    <button style={{ ...iconBtn, opacity: canIndent ? 1 : 0.4 }} onClick={handleIndent} disabled={!canIndent}
-                      title="Recuar — tornar subtarefa da linha acima (Ctrl+Shift+→)">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 8 7 12 3 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
-                    </button>
-                  </div>
-                </div>
-                <div style={caption}>Recuo</div>
-              </div>
-
-              {/* ── Grupo FORMATAÇÃO ── */}
-              <div style={groupBox}>
-                <div style={{ ...groupContent, justifyContent: 'center' }}>
-                  <div style={rowStyle}>
-                    <button style={{ ...tglStyle(painterOn), width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                      onClick={() => {
-                        if (painterOn) { setPainterOn(false); return; }
-                        painterRef.current = { ...activeFmt };
-                        setPainterOn(true);
-                      }}
-                      title="Pincel: copia a formatação da seleção; clique numa célula para aplicar">
-                      <Icon name="edit" size={14} />
-                    </button>
-                    <button style={iconBtn} onClick={clearFmt} title="Limpar formatação da seleção">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V4h16v3"/><path d="M5 20h6"/><path d="M13 4 8 20"/><line x1="15" y1="15" x2="20" y2="20"/><line x1="20" y1="15" x2="15" y2="20"/></svg>
-                    </button>
-                  </div>
-                </div>
-                <div style={caption}>Formatação</div>
-              </div>
-
+          <>
+            {/* Tira de abas + status + recolher */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--surface-muted)', borderBottom: '1px solid var(--border)', padding: '0 6px' }}>
+              {tabs.map(t => (
+                <button key={t.id} style={tabBtn(t.id === curTab)} onClick={() => setActiveTab(t.id)}>{t.label}</button>
+              ))}
+              <div style={{ flex: 1 }} />
+              {multiSel.length > 0 && (
+                <span style={{ fontSize: 11.5, color: 'var(--brand)', fontWeight: 600, padding: '3px 10px', background: 'var(--brand-tint)', borderRadius: 20 }}>
+                  {multiSel.length} selecionadas · Ctrl+F2 para vincular
+                </span>
+              )}
+              {selectedId && !multiSel.length && (
+                <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{selectedId} selecionado</span>
+              )}
+              <span style={{ fontSize: 11.5, color: 'var(--text-faint)', marginLeft: 8 }}>{visible.length} de {etapas.length} tarefas</span>
+              <button
+                onClick={() => setRibbonCollapsed(v => !v)}
+                title={ribbonCollapsed ? 'Mostrar menu' : 'Ocultar menu'}
+                style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: ribbonCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .12s' }}><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
             </div>
+
+            {/* Corpo do ribbon (aba ativa). flexWrap sem overflow: os grupos quebram em telas
+               estreitas em vez de gerar um container de scroll (que recortaria o popover de Colunas). */}
+            {!ribbonCollapsed && (
+              <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', minHeight: 62 }}>
+
+                {/* ══ Aba TAREFA ══ */}
+                {curTab === 'tarefa' && !readOnly && (
+                  <>
+                    {/* Grupos de formatação — atenuados quando não há alvo (exceto pincel) */}
+                    <div style={{ display: 'inline-flex', alignItems: 'stretch', gap: 8, opacity: hasTarget ? 1 : 0.5, pointerEvents: hasTarget || painterOn ? 'auto' : 'none' }}>
+                      {/* Fonte */}
+                      <div style={groupBox}>
+                        <div style={groupContent}>
+                          <div style={rowStyle}>
+                            <select
+                              value={activeFmt.fontFamily || pendingFontFamily || ''}
+                              onChange={(ev) => applyFontFamily(ev.target.value || false)}
+                              title="Tipo da fonte"
+                              style={{ height: 26, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 4px', maxWidth: 128, cursor: 'pointer' }}
+                            >
+                              <option value="">Padrão</option>
+                              <option value="Arial, sans-serif">Arial</option>
+                              <option value="Calibri, 'Segoe UI', sans-serif">Calibri</option>
+                              <option value="Verdana, sans-serif">Verdana</option>
+                              <option value="Tahoma, sans-serif">Tahoma</option>
+                              <option value="Georgia, serif">Georgia</option>
+                              <option value="'Times New Roman', serif">Times New Roman</option>
+                              <option value="'Courier New', monospace">Courier New</option>
+                            </select>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                              <button style={{ ...btnStyle, height: 26, padding: '2px 7px' }} onClick={() => applyFontSize(clampSize(size - 1))} title="Diminuir fonte">A−</button>
+                              <span style={{ fontSize: 12, minWidth: 18, textAlign: 'center', color: 'var(--text-muted)' }}>{size}</span>
+                              <button style={{ ...btnStyle, height: 26, padding: '2px 7px' }} onClick={() => applyFontSize(clampSize(size + 1))} title="Aumentar fonte">A+</button>
+                            </span>
+                          </div>
+                          <div style={rowStyle}>
+                            <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito">N</button>
+                            <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico">I</button>
+                            <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado">S</button>
+                            {div()}
+                            <ColorMenu label="Fundo" title="Cor de preenchimento" value={activeFmt.bg}
+                              onPick={(c) => applyFmt({ bg: c })} onClear={() => applyFmt({ bg: false })} clearLabel="Sem preenchimento"
+                              icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m19 11-8-8-8.5 8.5a2 2 0 0 0 0 3L8 20a2 2 0 0 0 3 0l8-8Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>} />
+                            <ColorMenu label="Texto" title="Cor da fonte" value={activeFmt.color}
+                              onPick={(c) => applyFmt({ color: c })} onClear={() => applyFmt({ color: false })} clearLabel="Cor automática"
+                              icon={<span style={{ fontWeight: 800, fontSize: 13, lineHeight: 1 }}>A</span>} />
+                          </div>
+                        </div>
+                        <div style={caption}>Fonte</div>
+                      </div>
+
+                      {/* Recuo */}
+                      <div style={groupBox}>
+                        <div style={{ ...groupContent, justifyContent: 'center' }}>
+                          <div style={rowStyle}>
+                            <button style={{ ...iconBtn, opacity: canOutdent ? 1 : 0.4 }} onClick={handleOutdent} disabled={!canOutdent}
+                              title="Promover — subir um nível hierárquico (Ctrl+Shift+←)">
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="7 8 3 12 7 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
+                            </button>
+                            <button style={{ ...iconBtn, opacity: canIndent ? 1 : 0.4 }} onClick={handleIndent} disabled={!canIndent}
+                              title="Recuar — tornar subtarefa da linha acima (Ctrl+Shift+→)">
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 8 7 12 3 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
+                            </button>
+                          </div>
+                        </div>
+                        <div style={caption}>Recuo</div>
+                      </div>
+
+                      {/* Formatação */}
+                      <div style={groupBox}>
+                        <div style={{ ...groupContent, justifyContent: 'center' }}>
+                          <div style={rowStyle}>
+                            <button style={{ ...tglStyle(painterOn), width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                              onClick={() => {
+                                if (painterOn) { setPainterOn(false); return; }
+                                painterRef.current = { ...activeFmt };
+                                setPainterOn(true);
+                              }}
+                              title="Pincel: copia a formatação da seleção; clique numa célula para aplicar">
+                              <Icon name="edit" size={14} />
+                            </button>
+                            <button style={iconBtn} onClick={clearFmt} title="Limpar formatação da seleção">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V4h16v3"/><path d="M5 20h6"/><path d="M13 4 8 20"/><line x1="15" y1="15" x2="20" y2="20"/><line x1="20" y1="15" x2="15" y2="20"/></svg>
+                            </button>
+                          </div>
+                        </div>
+                        <div style={caption}>Formatação</div>
+                      </div>
+                    </div>
+
+                    {/* Edição (sempre ativa; Excluir depende de seleção) */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={{ ...cmdBtn, color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.5 }} onClick={handleDelete} disabled={!selectedId} title="Excluir a tarefa selecionada (Delete)">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                            Excluir
+                          </button>
+                          {div()}
+                          <button style={iconBtn} onClick={undo} title="Desfazer (Ctrl+Z)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/></svg>
+                          </button>
+                          <button style={iconBtn} onClick={redo} title="Refazer (Ctrl+Y)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/></svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Edição</div>
+                    </div>
+                  </>
+                )}
+
+                {/* ══ Aba INSERIR ══ */}
+                {curTab === 'inserir' && !readOnly && (
+                  <>
+                    <div style={groupBox}>
+                      <div style={groupContent}>
+                        <div style={rowStyle}>
+                          <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'above')} disabled={!selectedId} title="Inserir linha acima da selecionada">↑ Acima</button>
+                          <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'below')} disabled={!selectedId} title="Inserir linha abaixo da selecionada">↓ Abaixo</button>
+                        </div>
+                        <div style={rowStyle}>
+                          <button style={cmdBtn} onClick={handleAddGroup} title="Agrupar a seleção num grupo (resumo)">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            Grupo
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Tarefas</div>
+                    </div>
+
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={cmdBtn} onClick={() => setShowPavimentos(true)} title="Inserir pavimentos automaticamente como subtarefas">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
+                            Pavimentos
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Estrutura</div>
+                    </div>
+
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={cmdBtn} onClick={() => setShowAddCol(true)} title="Adicionar coluna personalizada">
+                            <Icon name="plus" size={13} /> Nova coluna
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Colunas</div>
+                    </div>
+                  </>
+                )}
+
+                {/* ══ Aba EXIBIR ══ (conjunto inicial; refinar depois) */}
+                {curTab === 'exibir' && (
+                  <>
+                    {/* Colunas (mostrar/ocultar) com popover ancorado */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <div ref={colPanelRef} style={{ position: 'relative' }}>
+                            <button style={{ ...cmdBtn, position: 'relative' }} onClick={() => setShowColPanel(v => !v)} title="Mostrar/ocultar colunas">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+                              Colunas{hiddenCols.size > 0 && <span style={{ marginLeft: 4, background: 'var(--brand)', color: 'white', borderRadius: 10, fontSize: 10, padding: '0 5px' }}>{hiddenCols.size}</span>}
+                            </button>
+                            {showColPanel && (
+                              <div style={{
+                                position: 'absolute', left: 0, top: '100%', marginTop: 4,
+                                background: 'var(--surface)', border: '1px solid var(--border)',
+                                borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.13)',
+                                padding: '8px 0', zIndex: 9999, minWidth: 200,
+                              }}>
+                                <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 600, color: 'var(--text-soft)', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid var(--border-subtle)' }}>
+                                  Visibilidade das colunas
+                                </div>
+                                {colOrder.filter(c => !LISTA_FROZEN.includes(c)).map(colId => {
+                                  const col = LISTA_COL_DEFS[colId];
+                                  if (!col) return null;
+                                  const colVis = !hiddenCols.has(colId);
+                                  return (
+                                    <label key={colId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, color: colVis ? 'var(--text)' : 'var(--text-faint)' }}
+                                      onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hover, rgba(0,0,0,0.04))'}
+                                      onMouseLeave={e => e.currentTarget.style.background = ''}>
+                                      <input type="checkbox" checked={colVis} onChange={() => toggleColVisibility(colId)}
+                                        style={{ accentColor: 'var(--brand)', width: 14, height: 14, cursor: 'pointer' }} />
+                                      {col.label}
+                                    </label>
+                                  );
+                                })}
+                                {customCols.length > 0 && customCols.map(col => {
+                                  const colVis = !hiddenCols.has(col.id);
+                                  return (
+                                    <label key={col.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, color: colVis ? 'var(--text)' : 'var(--text-faint)' }}
+                                      onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hover, rgba(0,0,0,0.04))'}
+                                      onMouseLeave={e => e.currentTarget.style.background = ''}>
+                                      <input type="checkbox" checked={colVis} onChange={() => toggleColVisibility(col.id)}
+                                        style={{ accentColor: 'var(--brand)', width: 14, height: 14, cursor: 'pointer' }} />
+                                      {col.label}
+                                    </label>
+                                  );
+                                })}
+                                {hiddenCols.size > 0 && (
+                                  <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '6px 14px 2px' }}>
+                                    <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 0', color: 'var(--brand)' }}
+                                      onClick={() => setHiddenCols(new Set())}>
+                                      Mostrar todas
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={caption}>Colunas</div>
+                    </div>
+
+                    {/* Exibição (altura da linha) */}
+                    {!readOnly && (
+                      <div style={groupBox}>
+                        <div style={{ ...groupContent, justifyContent: 'center' }}>
+                          <div style={rowStyle}>
+                            <button style={cmdBtn} title="Altura da(s) linha(s) selecionada(s), ou de todas se nada estiver selecionado"
+                              onClick={() => { const ids = [...selectedRowIds()]; setRowHDialogTargets(ids.length ? ids : filtrada.map(t => t.id)); setShowRowHDialog(true); }}>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="12" x2="3" y2="12"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+                              Altura da linha
+                            </button>
+                          </div>
+                        </div>
+                        <div style={caption}>Exibição</div>
+                      </div>
+                    )}
+
+                    {/* Dados (limpar filtros) */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={{ ...cmdBtn, opacity: temFiltro ? 1 : 0.5 }} disabled={!temFiltro} onClick={() => { setBusca(''); setFiltroStatus(''); setFiltroResp(''); }} title="Limpar todos os filtros">
+                            <Icon name="filter" size={13} /> Limpar filtros
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Dados</div>
+                    </div>
+
+                    {/* Exportar */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={cmdBtn} onClick={exportExcelLista} title="Exportar para Excel (.xlsx)">
+                            <Icon name="download" size={13} /> Excel
+                          </button>
+                          <button style={{ ...cmdBtn, minWidth: 70 }} onClick={exportPDFLista} disabled={exportingPDF} title="Exportar para PDF">
+                            <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Exportar</div>
+                    </div>
+                  </>
+                )}
+
+              </div>
             )}
-            <button
-              onClick={() => setFmtCollapsed(v => !v)}
-              title={fmtCollapsed ? 'Mostrar formatação' : 'Ocultar formatação'}
-              style={{ marginLeft: 'auto', alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: fmtCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .12s' }}><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-          </div>
+          </>
         );
       })()}
 
