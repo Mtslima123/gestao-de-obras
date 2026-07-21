@@ -12,7 +12,7 @@ const brlFull = formatBRL;
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
-const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, userProfile, pagina = 1, total = 0, perPage = 12, onPagina }) => {
+const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, userProfile, pagina = 1, total = 0, perPage = 12, onPagina, busca = '', onBusca, buscando = false }) => {
   const filtered = orcamentos;
   const totalPaginas = Math.max(1, Math.ceil(total / perPage));
   const readOnly = moduloSomenteLeitura(userProfile, 'orcamentos');
@@ -45,7 +45,8 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
       <div className="card" style={{ marginTop: 'var(--gap)' }}>
         <div className="card-header">
           <div className="card-actions">
-            <input className="input input-search" placeholder="Buscar orçamento…" style={{ minWidth: 220 }} />
+            <input className="input input-search" placeholder="Buscar por código ou obra…" style={{ minWidth: 220 }}
+              value={busca} onChange={e => onBusca?.(e.target.value)} />
           </div>
         </div>
         <div className="card-body flush">
@@ -68,6 +69,12 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
                     ))}
                   </tr>
                 ))
+              ) : filtered.length === 0 ? (
+                <tr style={{ pointerEvents: 'none' }}>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+                    {buscando ? 'Nenhum orçamento encontrado' : 'Nenhum orçamento cadastrado'}
+                  </td>
+                </tr>
               ) : (
                 filtered.map((o) => (
                   <tr key={o.id} onClick={() => onOpen(o)}>
@@ -95,12 +102,14 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
             </tbody>
           </table>
         </div>
-        {!loading && total > 0 && (
+        {!loading && (buscando || total > 0) && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-              Mostrando {(pagina - 1) * perPage + 1}–{Math.min(pagina * perPage, total)} de {total} orçamento{total !== 1 ? 's' : ''}
+              {buscando
+                ? `${filtered.length} resultado${filtered.length !== 1 ? 's' : ''}`
+                : `Mostrando ${(pagina - 1) * perPage + 1}–${Math.min(pagina * perPage, total)} de ${total} orçamento${total !== 1 ? 's' : ''}`}
             </span>
-            {totalPaginas > 1 && (
+            {!buscando && totalPaginas > 1 && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <button className="icon-btn" disabled={pagina === 1} onClick={() => onPagina(pagina - 1)} title="Página anterior"><Icon name="chevron-left" size={14} /></button>
                 <span style={{ fontSize: 12.5, minWidth: 60, textAlign: 'center' }}>{pagina} / {totalPaginas}</span>
@@ -1420,6 +1429,8 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
   const [loading, setLoading]       = React.useState(true);
   const [pagina, setPagina]         = React.useState(1);
   const [total, setTotal]           = React.useState(0);
+  const [busca, setBusca]           = React.useState('');
+  const [todos, setTodos]           = React.useState([]); // lista completa p/ busca (a paginação é no servidor)
 
   // Paginação no servidor: busca só a página atual (não a tabela inteira).
   const refetch = React.useCallback(() => {
@@ -1436,6 +1447,17 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
   }, [obras, pagina]);
 
   React.useEffect(() => { refetch(); }, [refetch, refreshKey]);
+
+  // Lista completa (todas as páginas) só para a busca — a paginação do servidor
+  // traz apenas a página atual, então filtrar por código/obra precisa do conjunto todo.
+  const refetchTodos = React.useCallback(() => {
+    orcamentosService.listar().then(({ data, error }) => {
+      if (!error && data) setTodos(data.map(o => ({ ...o, obra: obras.find(ob => ob.id === o.obra_id)?.nome || '—' })));
+      else setTodos([]);
+    });
+  }, [obras]);
+  React.useEffect(() => { refetchTodos(); }, [refetchTodos, refreshKey]);
+
   // Após criar um orçamento, volta para a 1ª página (onde ele aparece)
   const prevRefreshKeyRef = React.useRef(refreshKey);
   React.useEffect(() => {
@@ -1451,7 +1473,15 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
     toast('Orçamento excluído', { tone: 'success', icon: 'check' });
     setSelected(null);
     refetch();
+    refetchTodos();
   };
+
+  // Enquanto busca, filtra sobre a lista completa (código OU nome da obra); senão, página do servidor.
+  const q = busca.trim().toLowerCase();
+  const buscando = !!q;
+  const lista = buscando
+    ? todos.filter(o => (`${o.id} ${o.obra || ''} ${o.nome || ''}`).toLowerCase().includes(q))
+    : orcamentos;
 
   if (selected) {
     return (
@@ -1468,7 +1498,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
     <OrcamentoLista
       onOpen={setSelected}
       onNovo={onNovoOrcamento}
-      orcamentos={orcamentos}
+      orcamentos={lista}
       loading={loading}
       onDelete={handleDelete}
       userProfile={userProfile}
@@ -1476,6 +1506,9 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
       total={total}
       perPage={PER_PAGE_ORC}
       onPagina={setPagina}
+      busca={busca}
+      onBusca={setBusca}
+      buscando={buscando}
     />
   );
 };

@@ -1442,7 +1442,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         // Botão de comando com rótulo (estilo ribbon)
         const cmdBtn = { ...btnStyle, height: 28, fontSize: 12, padding: '2px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' };
         // Estilos dos grupos estilo ribbon (Excel)
-        const groupBox = { display: 'inline-flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', padding: '4px 6px 2px' };
+        const groupBox = { display: 'inline-flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', padding: '4px 6px 2px', flexShrink: 0 };
         const groupContent = { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, justifyContent: 'center' };
         const rowStyle = { display: 'flex', alignItems: 'center', gap: 4 };
         const caption = { textAlign: 'center', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 3 };
@@ -1498,7 +1498,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                               value={activeFmt.fontFamily || pendingFontFamily || ''}
                               onChange={(ev) => applyFontFamily(ev.target.value || false)}
                               title="Tipo da fonte"
-                              style={{ height: 26, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 4px', maxWidth: 128, cursor: 'pointer' }}
+                              style={{ height: 26, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 4px', width: 118, flexShrink: 0, cursor: 'pointer' }}
                             >
                               <option value="">Padrão</option>
                               <option value="Arial, sans-serif">Arial</option>
@@ -2285,7 +2285,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             ref={k === 0 ? blankFirstRef : undefined}
                             className="lista-blank-input"
                             placeholder={k === 0 ? 'Nova tarefa…' : ''}
-                            onKeyDown={(ev) => { if (ev.key === 'Enter') { const v = ev.currentTarget.value; ev.currentTarget.value = ''; createFromBlank(v, k); } }}
+                            onKeyDown={(ev) => {
+                              if (ev.key !== 'Enter') return;
+                              const v = ev.currentTarget.value;
+                              if (v.trim()) { ev.currentTarget.value = ''; createFromBlank(v, k); return; }
+                              // Linha vazia: Enter só desce para a próxima linha em branco (estilo Excel).
+                              ev.preventDefault();
+                              ev.currentTarget.closest('tr')?.nextElementSibling?.querySelector('input.lista-blank-input')?.focus();
+                            }}
                             onBlur={(ev) => { const v = ev.currentTarget.value; if (v.trim()) { ev.currentTarget.value = ''; createFromBlank(v, k); } }}
                             style={{ width: '100%', height: '100%', border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: 13, color: 'var(--text)', padding: '0 10px 0 30px' }}
                           />
@@ -2382,12 +2389,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         return (
           <Modal
             title="Excluir tarefa"
+            size="sm"
             onClose={() => setDeleteConfirm(null)}
             footer={
               <>
                 <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)}>Cancelar</button>
                 <button className="btn" style={{ background: 'var(--danger)', color: 'white' }} onClick={confirmDelete}>
-                  Excluir{childCount > 0 ? ` (+ ${childCount} subtarefa${childCount > 1 ? 's' : ''})` : ''}
+                  Excluir
                 </button>
               </>
             }
