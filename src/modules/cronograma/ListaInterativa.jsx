@@ -50,6 +50,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [painterOn,      setPainterOn]      = React.useState(false); // pincel de formatação ativo
   const painterRef = React.useRef(null); // fmt capturado pelo pincel
   const isSelectingRef = React.useRef(false); // arraste de seleção de intervalo em andamento
+  const blankFirstRef = React.useRef(null);   // input da 1ª linha em branco
+  const blankFocusPending = React.useRef(false); // após criar da linha em branco, foca a linha abaixo (blank-0)
   // Altura real da topbar (para congelar o cabeçalho exatamente abaixo dela, sem corte)
   const [topbarH, setTopbarH] = React.useState(60);
   React.useEffect(() => {
@@ -317,7 +319,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     count: filtrada.length,
     getScrollElement: () => listaScrollRef.current,
     estimateSize: (i) => rowHeights[filtrada[i]?.id] ?? rowH,
-    overscan: 10,
+    overscan: 24, // buffer maior: rolagem rápida (inércia) não expõe as linhas de spacer (em branco)
     getItemKey: (i) => filtrada[i]?.id ?? i,
   });
   const vItems  = rowVirt.getVirtualItems();
@@ -329,6 +331,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     : (vItems.length ? vItems.map(vi => [filtrada[vi.index], vi.index]) : filtrada.map((e, i) => [e, i]));
   const topPad  = virtualize && vItems.length ? vItems[0].start : 0;
   const botPad  = virtualize && vItems.length ? rowVirt.getTotalSize() - vItems[vItems.length - 1].end : 0;
+  // Conjunto de ids que são pai de alguém — evita o scan O(n) por linha (etapas.some(...))
+  // dentro do render de cada linha, que alonga o commit e piora o branco na rolagem rápida.
+  const parentIdSet = React.useMemo(
+    () => new Set(etapas.map(e => e.parentId).filter(Boolean)),
+    [etapas]
+  );
 
   // ── Seleção de célula estilo planilha: copiar/colar + navegação ──────────────
   // Colunas cujo valor pode ser copiado/colado (por tipo). 'text' aceita colar de qualquer origem.
@@ -629,7 +637,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     novos.push(novo);
     onCommit([...etapas, ...novos], { silent: true });
     setSelectedId(novo.id);
+    // Cursor desce para a linha logo ABAIXO da tarefa criada (1ª linha em branco = blank-0),
+    // em vez de ficar preso no input digitado (que salta k+1 linhas ao criar as vazias).
+    blankFocusPending.current = true;
   };
+  // Move o foco para o 1º input em branco após criar a partir de uma linha em branco.
+  React.useEffect(() => {
+    if (blankFocusPending.current) {
+      blankFocusPending.current = false;
+      blankFirstRef.current?.focus();
+    }
+  }, [etapas]);
 
   const rangeCellList = () => {
     if (!selectedCell) return [];
@@ -802,6 +820,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       return;
     }
     if (editingNow) return;
+    // Delete (estilo Excel/MS Project): exclui a linha selecionada na hora — Ctrl+Z desfaz.
+    // Grupo com subtarefas passa pela confirmação (o modal avisa a cascata "+N subtarefas").
+    if (ev.key === 'Delete' && !readOnly) {
+      const alvo = selectedId || selectedCell?.taskId;
+      if (!alvo) return;
+      ev.preventDefault();
+      if (etapas.some(x => x.parentId === alvo)) { setDeleteConfirm(alvo); return; }
+      const novas = deleteTask(alvo, etapas);
+      const count = etapas.length - novas.length;
+      onCommit(novas, { silent: true });
+      setSelectedId(null);
+      setSelectedCell(null);
+      toast(`${count} tarefa${count > 1 ? 's removidas' : ' removida'}`, { tone: 'neutral', icon: 'check' });
+      return;
+    }
     // Shift+Espaço: seleciona as LINHAS inteiras (estilo Excel) — cobre todas as colunas do
     // intervalo atual, então funciona tanto com uma célula quanto com várias selecionadas.
     if (ev.shiftKey && (ev.key === ' ' || ev.key === 'Spacebar') && selectedCell) {
@@ -841,6 +874,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           td?.querySelector('[title="Duplo-clique para editar"]')
             ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
         }
+      } else if (ev.key === 'Enter' && selectedCell) {
+        // Enter (estilo Excel): desce a célula ativa uma linha.
+        moveSelCell('ArrowDown', false);
       }
     }
   };
@@ -1729,7 +1765,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               // células selecionadas (senão a âncora fica com tom diferente do restante).
               const isSelected  = selectedId === e.id && !cellSelHere && !rangeRowIds.has(e.id);
               const indent      = (e.nivel || 0) * 20;
-              const hasChildren = etapas.some(x => x.parentId === e.id);
+              const hasChildren = parentIdSet.has(e.id);
               const gv          = e.isGroup ? groupVals[e.id] : null;
               const multiIdx    = multiSel.indexOf(e.id);
               const isMultiSel  = multiIdx >= 0;
@@ -2181,6 +2217,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       if (colId === 'etapa') return (
                         <td key="etapa" style={{ ...blankFrozen('etapa'), padding: 0 }}>
                           <input
+                            ref={k === 0 ? blankFirstRef : undefined}
                             className="lista-blank-input"
                             placeholder={k === 0 ? 'Nova tarefa…' : ''}
                             onKeyDown={(ev) => { if (ev.key === 'Enter') { const v = ev.currentTarget.value; ev.currentTarget.value = ''; createFromBlank(v, k); } }}

@@ -560,7 +560,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
     count: visible.length,
     getScrollElement: () => cRef.current,
     estimateSize: () => GM_ROW_H,
-    overscan: 10,
+    overscan: 24, // buffer maior: rolagem rápida não expõe os spacers (linhas em branco)
     getItemKey: (i) => visible[i]?.id ?? i,
   });
   const virtualize = visible.length > VIRT_MIN;
