@@ -602,23 +602,32 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
 
   // Cria uma tarefa raiz a partir de uma linha em branco (estilo Project: digitar o nome cria a tarefa).
-  const createFromBlank = (nome) => {
+  const createFromBlank = (nome, blankIndex = 0) => {
     const name = (nome || '').trim();
     if (!name || readOnly) return;
-    const novo = {
-      id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: name,
+    // Fábrica de tarefa-folha; recebe `base` para gerar id/displayId únicos ao criar
+    // várias de uma vez (evita colisão de id).
+    const mk = (base, etapa) => ({
+      id: nextEtapaId(base), displayId: nextDisplayId(base), etapa,
       nivel: 0, parentId: null, isGroup: false, collapsed: false,
       inicio: 0, dur: 1, avanco: 0, status: 'upcoming',
       dep: [], milestone: false, responsavel: '',
       customCols: emptyCustomCols(customCols), custo: 0,
       restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
-    };
+    });
+    // Preserva a linha onde foi digitado: cria tarefas de nome vazio para as linhas
+    // em branco puladas (blankIndex) ANTES da tarefa nomeada.
+    let base = etapas;
+    const novos = [];
+    for (let i = 0; i < blankIndex; i++) { const t = mk(base, ''); novos.push(t); base = [...base, t]; }
+    const novo = mk(base, name);
     // Texto novo herda o tamanho/tipo de fonte "armados" na barra (aplicado na célula do nome).
     const etapaFmt = {};
     if (pendingFontSize) etapaFmt.fontSize = pendingFontSize;
     if (pendingFontFamily) etapaFmt.fontFamily = pendingFontFamily;
     if (Object.keys(etapaFmt).length) novo.fmt = { etapa: etapaFmt };
-    onCommit([...etapas, novo], { silent: true });
+    novos.push(novo);
+    onCommit([...etapas, ...novos], { silent: true });
     setSelectedId(novo.id);
   };
 
@@ -979,18 +988,22 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (readOnly) return;
       if (e.ctrlKey && e.key === 'F2') {
         e.preventDefault();
-        if (multiSel.length < 2) { toast('Selecione ao menos 2 tarefas com Ctrl+clique', { tone: 'warning', icon: 'alert-triangle' }); return; }
+        // Ctrl+clique define a ordem da cadeia; senão usa a seleção (calha/célula-range)
+        // na ordem visual (de cima para baixo).
+        const sel = selectedRowIds();
+        const cadeia = multiSel.length >= 2 ? multiSel : filtrada.filter(t => sel.has(t.id)).map(t => t.id);
+        if (cadeia.length < 2) { toast('Selecione ao menos 2 tarefas (Ctrl+clique ou pela calha)', { tone: 'warning', icon: 'alert-triangle' }); return; }
         const novas = etapas.map(et => ({ ...et }));
-        for (let i = 1; i < multiSel.length; i++) {
-          const succ = novas.find(et => et.id === multiSel[i]);
-          const predId = multiSel[i - 1];
+        for (let i = 1; i < cadeia.length; i++) {
+          const succ = novas.find(et => et.id === cadeia[i]);
+          const predId = cadeia[i - 1];
           if (succ && !(succ.dep || []).some(d => (typeof d === 'string' ? d : d.id) === predId)) {
             succ.dep = [...(succ.dep || []), { id: predId, tipo: 'TI', lag: 0 }];
           }
         }
         onCommit(autoScheduleFromDeps(novas));
         setMultiSel([]);
-        toast(`${multiSel.length - 1} vínculo(s) criado(s)`, { tone: 'success', icon: 'check' });
+        toast(`${cadeia.length - 1} vínculo(s) criado(s)`, { tone: 'success', icon: 'check' });
       }
       // Insert — insere linha abaixo da tarefa selecionada
       if (e.key === 'Insert' && selectedId) {
@@ -1000,7 +1013,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [multiSel, etapas, selectedId]);
+  }, [multiSel, etapas, selectedId, selectedCell, selAnchor, filtrada]);
 
   // ── Atualização de campo ────────────────────────────────────────────────────
   // Campos que exigem reprogramação (recalcular datas via dependências)
@@ -2170,8 +2183,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           <input
                             className="lista-blank-input"
                             placeholder={k === 0 ? 'Nova tarefa…' : ''}
-                            onKeyDown={(ev) => { if (ev.key === 'Enter') { const v = ev.currentTarget.value; ev.currentTarget.value = ''; createFromBlank(v); } }}
-                            onBlur={(ev) => { const v = ev.currentTarget.value; if (v.trim()) { ev.currentTarget.value = ''; createFromBlank(v); } }}
+                            onKeyDown={(ev) => { if (ev.key === 'Enter') { const v = ev.currentTarget.value; ev.currentTarget.value = ''; createFromBlank(v, k); } }}
+                            onBlur={(ev) => { const v = ev.currentTarget.value; if (v.trim()) { ev.currentTarget.value = ''; createFromBlank(v, k); } }}
                             style={{ width: '100%', height: '100%', border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: 13, color: 'var(--text)', padding: '0 10px 0 30px' }}
                           />
                         </td>
