@@ -1446,9 +1446,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const cmdBtn = { ...btnStyle, height: 28, fontSize: 12, padding: '2px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' };
         // Estilos dos grupos estilo ribbon (Excel)
         const groupBox = { display: 'inline-flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', padding: '4px 6px 2px', flexShrink: 0 };
-        // minHeight = altura exata de 2 linhas (26 + gap 4 + 28); iguala todos os grupos
-        // (1 ou 2 linhas), então a faixa tem a mesma altura em todas as abas.
-        const groupContent = { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, justifyContent: 'center', minHeight: 58 };
+        // minHeight >= altura real de 2 linhas (selects podem passar de 26px em alguns
+        // navegadores, ~60px no total). Com margem, TODO grupo (1 ou 2 linhas) fica com a
+        // mesma altura, então a faixa não varia entre as abas.
+        const groupContent = { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, justifyContent: 'center', minHeight: 64 };
         const rowStyle = { display: 'flex', alignItems: 'center', gap: 4 };
         const caption = { textAlign: 'center', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 3 };
         const tabBtn = (on) => ({ padding: '6px 15px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? 'var(--surface)' : 'transparent', color: on ? 'var(--brand)' : 'var(--text-muted)', borderBottom: on ? '2px solid var(--brand)' : '2px solid transparent' });
