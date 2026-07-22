@@ -1997,7 +1997,7 @@ a:hover { color: var(--brand-600); }
 
 /* Tabela da Lista Interativa — tipografia e linhas alternadas */
 .tbl-lista {
-  font-size: 13px;
+  font-size: 11px;
 }
 .tbl-lista thead th {
   font-size: 10.5px;
@@ -2498,8 +2498,8 @@ th.sticky-left { z-index: 4; }
 
 /* Lista — alturas de linha e banda de grupo (contraste elevado).
    Altura vem de --lista-row-h (ajustável na UI); default fino, estilo MS Project. */
-.tbl-lista tbody tr td { height: var(--lista-row-h, 34px); }
-.tbl-lista tbody tr.lista-row-group td { height: var(--lista-row-h, 34px); background: var(--brand-50); }
+.tbl-lista tbody tr td { height: var(--lista-row-h, 21px); }
+.tbl-lista tbody tr.lista-row-group td { height: var(--lista-row-h, 21px); background: var(--brand-50); }
 
 /* Botão escuro (Adicionar tarefa) */
 .btn-dark { background: var(--text); color: #fff; border-color: transparent; }

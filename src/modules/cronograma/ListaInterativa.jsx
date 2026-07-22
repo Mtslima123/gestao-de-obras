@@ -125,12 +125,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   // Altura das linhas da lista (ajustável na UI, estilo MS Project), persistida no navegador.
   const ROW_H_MIN = 20, ROW_H_MAX = 120;
+  // Chave versionada (_v2): o padrão passou de 34 para 21px; a chave antiga já tinha 34
+  // gravado no 1º render de todos, então bumpar a chave faz todos caírem no novo padrão.
   const [rowH, setRowH] = React.useState(() => {
-    const v = parseInt(localStorage.getItem('ls_crono_row_h') || '', 10);
-    return Number.isFinite(v) ? Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, v)) : 34;
+    const v = parseInt(localStorage.getItem('ls_crono_row_h_v2') || '', 10);
+    return Number.isFinite(v) ? Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, v)) : 21;
   });
   React.useEffect(() => {
-    try { localStorage.setItem('ls_crono_row_h', String(rowH)); } catch { /* ignore */ }
+    try { localStorage.setItem('ls_crono_row_h_v2', String(rowH)); } catch { /* ignore */ }
   }, [rowH]);
   // Alturas por linha (override só das linhas selecionadas), persistidas por obra.
   const [rowHeights, setRowHeights] = React.useState(() => {
@@ -1435,8 +1437,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           background: on ? 'var(--brand)' : 'var(--surface)', color: on ? '#fff' : 'var(--text)',
           border: '1px solid var(--border)', borderRadius: 6,
         });
-        const size = activeFmt.fontSize || pendingFontSize || 13;
-        const clampSize = (n) => Math.min(24, Math.max(9, n));
+        const size = activeFmt.fontSize || pendingFontSize || 11;
+        const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36];
+        const sizeOpts = FONT_SIZES.includes(size) ? FONT_SIZES : [...FONT_SIZES, size].sort((a, b) => a - b);
         const div = () => <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />;
         const iconBtn = { ...btnStyle, height: 28, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6 };
         // Botão de comando com rótulo (estilo ribbon)
@@ -1509,11 +1512,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                               <option value="'Times New Roman', serif">Times New Roman</option>
                               <option value="'Courier New', monospace">Courier New</option>
                             </select>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                              <button style={{ ...btnStyle, height: 26, padding: '2px 7px' }} onClick={() => applyFontSize(clampSize(size - 1))} title="Diminuir fonte">A−</button>
-                              <span style={{ fontSize: 12, minWidth: 18, textAlign: 'center', color: 'var(--text-muted)' }}>{size}</span>
-                              <button style={{ ...btnStyle, height: 26, padding: '2px 7px' }} onClick={() => applyFontSize(clampSize(size + 1))} title="Aumentar fonte">A+</button>
-                            </span>
+                            <select
+                              value={size}
+                              onChange={(ev) => applyFontSize(Number(ev.target.value))}
+                              title="Tamanho da fonte"
+                              style={{ height: 26, width: 56, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 4px', flexShrink: 0, cursor: 'pointer' }}
+                            >
+                              {sizeOpts.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
                           </div>
                           <div style={rowStyle}>
                             <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito">N</button>
@@ -1871,7 +1877,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         <span style={{ width: 20, flexShrink: 0, display: 'inline-block' }} />
                       )}
                       <EditableCell value={e.etapa} onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
-                        readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 13.5 : 13 }} />
+                        readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 12 : 11 }} />
                       {isMultiSel && <span className="multi-sel-badge">{multiIdx + 1}</span>}
                     </div>
                   </td>
@@ -2294,7 +2300,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                               ev.currentTarget.closest('tr')?.nextElementSibling?.querySelector('input.lista-blank-input')?.focus();
                             }}
                             onBlur={(ev) => { const v = ev.currentTarget.value; if (v.trim()) { ev.currentTarget.value = ''; createFromBlank(v, k); } }}
-                            style={{ width: '100%', height: '100%', border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: 13, color: 'var(--text)', padding: '0 10px 0 30px' }}
+                            style={{ width: '100%', height: '100%', border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: 11, color: 'var(--text)', padding: '0 10px 0 30px' }}
                           />
                         </td>
                       );
