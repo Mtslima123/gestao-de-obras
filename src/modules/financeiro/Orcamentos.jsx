@@ -55,7 +55,6 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
               <tr>
                 <th>Código</th>
                 <th>Obra</th>
-                <th className="center">Versão</th>
                 <th>Data</th>
                 <th></th>
               </tr>
@@ -64,14 +63,14 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
               {loading ? (
                 Array.from({ length: 4 }).map((_, i) => (
                   <tr key={i} style={{ pointerEvents: 'none' }}>
-                    {Array.from({ length: 5 }).map((__, j) => (
+                    {Array.from({ length: 4 }).map((__, j) => (
                       <td key={j}><div className="skeleton" style={{ height: 14 }} /></td>
                     ))}
                   </tr>
                 ))
               ) : filtered.length === 0 ? (
                 <tr style={{ pointerEvents: 'none' }}>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+                  <td colSpan={4} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
                     {buscando ? 'Nenhum orçamento encontrado' : 'Nenhum orçamento cadastrado'}
                   </td>
                 </tr>
@@ -80,7 +79,6 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
                   <tr key={o.id} onClick={() => onOpen(o)}>
                     <td className="strong mono">{o.id}</td>
                     <td className="strong">{o.obra}</td>
-                    <td className="center mono text-muted">{o.versao}</td>
                     <td className="mono text-sm text-muted">{o.data}</td>
                     <td>
                       {!readOnly && (
@@ -994,7 +992,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       const BRAND = [28, 69, 132]; // #1C4584 (identidade Soter)
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
-      doc.setFontSize(14); doc.text(`Orçamento ${orcamento.id} (${orcamento.versao || 'v1'})`, 14, 14);
+      doc.setFontSize(14); doc.text(`Orçamento ${orcamento.id}`, 14, 14);
       doc.setFontSize(9); doc.setTextColor(120);
       doc.text(`${orcamento.obra || orcamento.cliente || ''} · Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
@@ -1035,7 +1033,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
           doc.setTextColor(0);
         },
       });
-      doc.save(`orcamento-${orcamento.id}-${orcamento.versao || 'v1'}.pdf`);
+      doc.save(`orcamento-${orcamento.id}.pdf`);
       toast('PDF exportado', { tone: 'success', icon: 'check' });
     } catch (e) {
       toast('Erro ao exportar PDF: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
@@ -1057,10 +1055,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
             <Icon name="chevron-left" size={13} />Orçamentos
           </button>
           <div className="row" style={{ gap: 10 }}>
-            <h1 className="page-title">{orcamento.id}</h1>
-            <span className="badge neutral mono">{orcamento.versao}</span>
+            <h1 className="page-title">{orcamento.obra}</h1>
           </div>
-          <div className="page-subtitle">{orcamento.obra} · {orcamento.cliente} · atualizado em {orcamento.data}</div>
+          <div className="page-subtitle">{[orcamento.cliente, `atualizado em ${orcamento.data}`].filter(Boolean).join(' · ')}</div>
         </div>
         <div className="page-actions">
           {!readOnly && (
@@ -1072,6 +1069,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
             >
               <Icon name="trash" size={15} />
               {clearing ? 'Limpando…' : 'Limpar itens'}
+            </button>
+          )}
+          {!readOnly && (
+            <button className="btn btn-ghost" onClick={() => setShowImport(true)}>
+              <Icon name="upload" size={15} />Importar
             </button>
           )}
           <button className="btn btn-ghost" onClick={handleExportPDF} disabled={exportingPDF}>
@@ -1130,11 +1132,6 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
                   </button>
                 ))}
               </div>
-              {!readOnly && (
-              <button className="btn btn-sm btn-ghost" onClick={() => setShowImport(true)}>
-                <Icon name="download" size={13} />Importar
-              </button>
-              )}
               {!readOnly && (
               <button
                 className="btn btn-sm btn-ghost"
