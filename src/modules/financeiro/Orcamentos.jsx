@@ -45,18 +45,24 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
       <div className="card" style={{ marginTop: 'var(--gap)' }}>
         <div className="card-header">
           <div className="card-actions">
-            <input className="input input-search" placeholder="Buscar por código ou obra…" style={{ minWidth: 220 }}
+            <input className="input input-search" placeholder="Buscar por código ou obra…" style={{ width: 300 }}
               value={busca} onChange={e => onBusca?.(e.target.value)} />
           </div>
         </div>
         <div className="card-body flush">
           <table className="tbl">
+            <colgroup>
+              <col style={{ width: 160 }} />
+              <col />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 90 }} />
+            </colgroup>
             <thead>
               <tr>
                 <th>Código</th>
                 <th>Obra</th>
                 <th>Data</th>
-                <th></th>
+                <th style={{ textAlign: 'right' }}></th>
               </tr>
             </thead>
             <tbody>
@@ -557,6 +563,17 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
   const [showClearAll, setShowClearAll] = React.useState(false);
   const [clearing, setClearing]     = React.useState(false);
   const [exportingPDF, setExportingPDF] = React.useState(false);
+  const [exportingExcel, setExportingExcel] = React.useState(false);
+  const [exportOpen, setExportOpen] = React.useState(false); // menu "Exportar" (Excel/PDF)
+  const exportRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!exportOpen) return;
+    const h = (e) => { if (exportRef.current && !exportRef.current.contains(e.target)) setExportOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [exportOpen]);
+  // Data de atualização exibida (bump para hoje ao alterar itens; o prop é um snapshot).
+  const [dataAtualizada, setDataAtualizada] = React.useState(orcamento.data);
 
   // Larguras de coluna ajustáveis (por orçamento, persistidas no navegador)
   const [colWidths, setColWidths] = React.useState(() => {
@@ -856,8 +873,10 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       const grandTotal = calcTotals(loaded)
         .filter(it => getNivel(it.codigo) === 0)
         .reduce((s, it) => s + it.valor_total, 0);
-      const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: grandTotal });
+      const hoje = new Date().toISOString().slice(0, 10);
+      const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: grandTotal, data: hoje });
       if (errHeader) console.error('[orcamento] erro ao atualizar total do orçamento', errHeader);
+      else setDataAtualizada(hoje);
 
       toast(`${toInsert.length} itens importados e salvos`, { tone: 'success', icon: 'check' });
     } catch (e) {
@@ -921,17 +940,19 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         setDeletedIds([]);
       }
 
-      // 4) Atualiza valor total do cabeçalho do orçamento
+      // 4) Atualiza valor total + data de atualização do cabeçalho do orçamento
       const grandTotal = withTotals
         .filter(it => getNivel(it.codigo) === 0)
         .reduce((s, it) => s + it.valor_total, 0);
-      const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: grandTotal });
+      const hoje = new Date().toISOString().slice(0, 10);
+      const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: grandTotal, data: hoje });
       if (errHeader) {
         console.error('[orcamento] erro ao atualizar total do orçamento', errHeader);
         toast('Erro ao atualizar total do orçamento: ' + errHeader.message, { tone: 'error', icon: 'alert' });
         setSaving(false);
         return;
       }
+      setDataAtualizada(hoje);
 
       // 5) Recarrega do banco para refletir os IDs reais (substitui os tmp-…)
       const { data } = await orcamentosService.itens.listar(orcamento.id);
@@ -965,9 +986,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         }
       }
 
-      // Zera o total no cabeçalho do orçamento
-      const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: 0 });
+      // Zera o total e atualiza a data no cabeçalho do orçamento
+      const hoje = new Date().toISOString().slice(0, 10);
+      const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: 0, data: hoje });
       if (errHeader) console.error('[orcamento] erro ao zerar total do orçamento', errHeader);
+      else setDataAtualizada(hoje);
 
       delete _itensCache[orcamento.id];
       setItems([]);
@@ -1042,6 +1065,45 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
     }
   };
 
+  const handleExportExcel = async () => {
+    if (!withTotals.length) { toast('Nada para exportar', { tone: 'neutral', icon: 'alert' }); return; }
+    setExportingExcel(true);
+    try {
+      const XLSX = await import('xlsx');
+      const grupo = (it) => parentSet.has(it.codigo);
+      const rows = [
+        ['Código', 'Nome', 'Quant.', 'Un.', 'Valor Unit.', 'Valor Total'],
+        ...withTotals.map(it => ([
+          '  '.repeat(getNivel(it.codigo)) + it.codigo,
+          it.nome || '',
+          grupo(it) ? '' : (Number(it.quantidade) || 0),
+          grupo(it) ? '' : (it.unidade || ''),
+          grupo(it) ? '' : (Number(it.valor_unitario) || 0),
+          Number(it.valor_total) || 0,
+        ])),
+        ['', 'Total', '', '', '', grandTotal],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      // Formato de número nas colunas Quant.(2), Valor Unit.(4), Valor Total(5)
+      const rng = XLSX.utils.decode_range(ws['!ref']);
+      for (let R = 1; R <= rng.e.r; R++) {
+        [2, 4, 5].forEach(C => {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (ws[addr] && typeof ws[addr].v === 'number') ws[addr].z = '#,##0.00';
+        });
+      }
+      ws['!cols'] = [{ wch: 18 }, { wch: 44 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 16 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Orçamento');
+      XLSX.writeFile(wb, `orcamento-${orcamento.id}.xlsx`);
+      toast('Excel exportado', { tone: 'success', icon: 'check' });
+    } catch (e) {
+      toast('Erro ao exportar Excel: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
   // ── KPIs ───────────────────────────────────────────────────────────────────
   const grandTotal  = React.useMemo(() => withTotals.filter(it => getNivel(it.codigo) === 0).reduce((s, it) => s + it.valor_total, 0), [withTotals]);
 
@@ -1057,7 +1119,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
           <div className="row" style={{ gap: 10 }}>
             <h1 className="page-title">{orcamento.obra}</h1>
           </div>
-          <div className="page-subtitle">{[orcamento.cliente, `atualizado em ${orcamento.data}`].filter(Boolean).join(' · ')}</div>
+          <div className="page-subtitle">{[orcamento.cliente, `atualizado em ${dataAtualizada}`].filter(Boolean).join(' · ')}</div>
         </div>
         <div className="page-actions">
           {!readOnly && (
@@ -1076,9 +1138,25 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
               <Icon name="upload" size={15} />Importar
             </button>
           )}
-          <button className="btn btn-ghost" onClick={handleExportPDF} disabled={exportingPDF}>
-            <Icon name="download" size={15} />{exportingPDF ? 'Exportando…' : 'Exportar PDF'}
-          </button>
+          <div ref={exportRef} style={{ position: 'relative' }}>
+            <button className="btn btn-ghost" onClick={() => setExportOpen(o => !o)} disabled={exportingPDF || exportingExcel}>
+              <Icon name="download" size={15} />
+              {exportingPDF || exportingExcel ? 'Exportando…' : 'Exportar'}
+              <Icon name="chevron-down" size={13} />
+            </button>
+            {exportOpen && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 60, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', padding: 6, minWidth: 150 }}>
+                <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start' }}
+                  onClick={() => { setExportOpen(false); handleExportExcel(); }}>
+                  <Icon name="download" size={14} />Excel
+                </button>
+                <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', marginTop: 2 }}
+                  onClick={() => { setExportOpen(false); handleExportPDF(); }}>
+                  <Icon name="download" size={14} />PDF
+                </button>
+              </div>
+            )}
+          </div>
           {orcamento.status === 'pendente' && !readOnly && (
             <button className="btn btn-primary"><Icon name="check" size={15} />Aprovar</button>
           )}
@@ -1484,7 +1562,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
     return (
       <OrcamentoDetalhe
         orcamento={selected}
-        onBack={() => setSelected(null)}
+        onBack={() => { setSelected(null); refetch(); refetchTodos(); }}
         user={user}
         userProfile={userProfile}
       />
