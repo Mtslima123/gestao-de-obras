@@ -3,18 +3,21 @@
 
 import React from 'react';
 import { Icon } from '../../components/Icons';
-import { useToast } from '../../components/Modals';
+import { useToast, Modal } from '../../components/Modals';
 import { buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
          buildCalendarWeeks, buildCalendarDays } from './ganttUtils';
 import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd } from './cronogramaDateUtils';
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
-         updateParentBounds, formatDepList, verificarRestricoes, computeGroupValues } from './scheduleEngine';
+         updateParentBounds, formatDepList, verificarRestricoes, computeGroupValues,
+         indentTasks, outdentTasks, createGroup, deleteTask,
+         nextEtapaId, nextDisplayId, emptyCustomCols } from './scheduleEngine';
+import { PavimentosModal } from './cronogramaModais';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_ROW_ANO, GM_ROW_TRI, GM_ROW_MES, GM_ROW_FINE, ZOOM_PX_DIA, GM_REF_DATE,
          GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN } from './cronogramaShared';
 
-export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false }) => {
+export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [] }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
@@ -26,6 +29,13 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   const [search,      setSearch]   = React.useState('');
   const [showBaseline, setShowBaseline] = React.useState(true);   // toggle "Linha de base"
   const [showCritical, setShowCritical] = React.useState(false);  // toggle "Caminho crítico"
+  // Faixa (ribbon) em abas — mesma da Lista. Aba compartilha a chave com a Lista.
+  const [activeTab, setActiveTab] = React.useState(() => localStorage.getItem('ls_crono_ribbon_tab') || 'tarefa');
+  React.useEffect(() => { try { localStorage.setItem('ls_crono_ribbon_tab', activeTab); } catch { /* ignore */ } }, [activeTab]);
+  const [ribbonCollapsed, setRibbonCollapsed] = React.useState(() => localStorage.getItem('ls_crono_ribbon_collapsed') === '1');
+  React.useEffect(() => { try { localStorage.setItem('ls_crono_ribbon_collapsed', ribbonCollapsed ? '1' : '0'); } catch { /* ignore */ } }, [ribbonCollapsed]);
+  const [showPavimentos, setShowPavimentos] = React.useState(false);
+  const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id do alvo de exclusão
   // Ref para uso em event handlers — sincronizado no render
   const zoomDayWRef = React.useRef(GM_DAY_W);
 
@@ -572,6 +582,55 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   const handleToggleCollapse = (id) => {
     const novas = etapas.map(e => e.id === id ? { ...e, collapsed: !e.collapsed } : e);
     onCommit(novas, { silent: true });
+  };
+
+  // ── Ações da faixa (mesma lógica da Lista, sobre a seleção em Set) ───────────
+  const selIds     = () => [...selected];
+  const primaryId  = () => selIds()[0] || null;
+  const hasSel     = selected.size > 0;
+  const canIndent  = selIds().some(id => etapas.findIndex(e => e.id === id) > 0);
+  const canOutdent = selIds().some(id => (etapas.find(e => e.id === id)?.nivel || 0) > 0);
+
+  const handleIndent  = () => { const ids = selIds(); if (ids.length) onCommit(indentTasks(etapas, ids)); };
+  const handleOutdent = () => { const ids = selIds(); if (ids.length) onCommit(outdentTasks(etapas, ids)); };
+  const handleAddGroup = () => onCommit(createGroup(primaryId(), etapas, customCols), { silent: true });
+
+  // Insere nova tarefa acima/abaixo da referência (porta o helper da Lista).
+  const insertTask = (referenceId, position) => {
+    const idx = etapas.findIndex(e => e.id === referenceId);
+    const ref = idx >= 0 ? etapas[idx] : null;
+    const novo = {
+      id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Nova Tarefa',
+      nivel: ref ? (ref.nivel || 0) : 0, parentId: ref ? (ref.parentId ?? null) : null,
+      isGroup: false, collapsed: false, inicio: ref ? ref.inicio : 0, dur: 1, avanco: 0,
+      status: 'upcoming', dep: [], milestone: false, responsavel: '',
+      customCols: emptyCustomCols(customCols), custo: 0,
+      restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
+    };
+    const novas = [...etapas];
+    novas.splice(idx < 0 ? etapas.length : (position === 'below' ? idx + 1 : idx), 0, novo);
+    onCommit(novas, { silent: true });
+    setSel(new Set([novo.id]));
+  };
+
+  const handleDelete = () => {
+    const alvo = primaryId();
+    if (!alvo || readOnly) return;
+    if (etapas.some(x => x.parentId === alvo)) { setDeleteConfirm(alvo); return; }
+    const novas = deleteTask(alvo, etapas);
+    const count = etapas.length - novas.length;
+    onCommit(novas, { silent: true });
+    setSel(new Set());
+    toast(`${count} tarefa${count > 1 ? 's removidas' : ' removida'}`, { tone: 'neutral', icon: 'check' });
+  };
+  const confirmDelete = () => {
+    if (!deleteConfirm) return;
+    const novas = deleteTask(deleteConfirm, etapas);
+    const count = etapas.length - novas.length;
+    onCommit(novas, { silent: true });
+    setSel(new Set());
+    setDeleteConfirm(null);
+    toast(`${count} tarefa${count > 1 ? 's removidas' : ' removida'}`, { tone: 'neutral', icon: 'check' });
   };
 
   // Timeline dinâmica: cresce para cobrir todas as tarefas + 3 meses de folga
@@ -1394,6 +1453,46 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           )}
         </div>
       )}
+
+      {/* Modal de inserção de pavimentos */}
+      {showPavimentos && (
+        <PavimentosModal
+          etapas={etapas}
+          customCols={customCols}
+          onCommit={onCommit}
+          onClose={() => setShowPavimentos(false)}
+        />
+      )}
+
+      {/* Confirmação de exclusão (grupo com subtarefas) */}
+      {deleteConfirm && (() => {
+        const et = etapas.find(e => e.id === deleteConfirm);
+        const childCount = deleteTask(deleteConfirm, etapas).length < etapas.length
+          ? etapas.length - deleteTask(deleteConfirm, etapas).length - 1
+          : 0;
+        return (
+          <Modal
+            title="Excluir tarefa"
+            size="sm"
+            onClose={() => setDeleteConfirm(null)}
+            footer={
+              <>
+                <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)}>Cancelar</button>
+                <button className="btn" style={{ background: 'var(--danger)', color: 'white' }} onClick={confirmDelete}>Excluir</button>
+              </>
+            }
+          >
+            <p style={{ fontSize: 14, marginBottom: 4 }}>
+              Tem certeza que deseja excluir <strong>{et ? et.etapa : deleteConfirm}</strong>?
+            </p>
+            {childCount > 0 && (
+              <p style={{ fontSize: 13, color: 'var(--danger)', marginTop: 8 }}>
+                Esta tarefa possui {childCount} subtarefa{childCount > 1 ? 's' : ''} que também serão removida{childCount > 1 ? 's' : ''}.
+              </p>
+            )}
+          </Modal>
+        );
+      })()}
     </div>
   );
 };
