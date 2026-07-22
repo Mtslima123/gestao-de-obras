@@ -721,7 +721,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   return (
     <div ref={ganttRef} style={{ position: 'relative' }}>
 
-      {/* ── Toolbar — 2 linhas (fiel ao protótipo) ───────────────────────── */}
+      {/* ── Faixa (ribbon) em abas — mesma da Lista; travada acima do scroller ── */}
       {(() => {
         const darkToggle = (active) => ({
           fontSize: 12, padding: '4px 12px', height: 32, gap: 6, fontWeight: 600,
@@ -731,172 +731,300 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           color: active ? '#fff' : 'var(--text-muted)',
           transition: 'background 0.12s, color 0.12s, border-color 0.12s',
         });
+        // ── Estilos da faixa (espelham a Lista) ──────────────────────────────
+        const btnBase = { fontSize: 12, padding: '4px 10px', height: 30, gap: 5, display: 'flex', alignItems: 'center' };
+        const tglStyle = (on) => ({ ...btnBase, height: 28, padding: '2px 9px', fontWeight: 700, background: on ? 'var(--brand)' : 'var(--surface)', color: on ? '#fff' : 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' });
+        const iconBtn = { ...btnBase, height: 28, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' };
+        const cmdBtn = { ...btnBase, height: 28, fontSize: 12, padding: '2px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' };
+        const groupBox = { display: 'inline-flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', padding: '4px 6px 2px', flexShrink: 0 };
+        const disabledGroup = { ...groupBox, opacity: 0.4, pointerEvents: 'none' };
+        const groupContent = { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, justifyContent: 'center', minHeight: 64 };
+        const rowStyle = { display: 'flex', alignItems: 'center', gap: 4 };
+        const caption = { textAlign: 'center', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 3 };
+        const tabBtn = (on) => ({ padding: '6px 15px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? 'var(--surface)' : 'transparent', color: on ? 'var(--brand)' : 'var(--text-muted)', borderBottom: on ? '2px solid var(--brand)' : '2px solid transparent' });
+        const divg = () => <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />;
+        const tabs = readOnly ? [{ id: 'exibir', label: 'Exibir' }] : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }];
+        const curTab = tabs.some(t => t.id === activeTab) ? activeTab : tabs[0].id;
         return (
       <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        {/* Linha 1 — busca + VER + Ajustar */}
-        <div style={{ display: 'flex', gap: 12, padding: '8px 20px 6px', alignItems: 'center' }}>
-          {/* Busca */}
+        {/* Busca */}
+        <div style={{ display: 'flex', gap: 12, padding: '8px 20px 4px', alignItems: 'center' }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
               style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
             </svg>
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar tarefa…"
-              style={{
-                paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 12.5,
-                border: '1px solid var(--border)', borderRadius: 8,
-                background: 'var(--surface-muted)', color: 'var(--text)',
-                outline: 'none', width: 240,
-              }}
-            />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar tarefa…"
+              style={{ paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 12.5, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface-muted)', color: 'var(--text)', outline: 'none', width: 300 }} />
           </div>
-
-          {/* VER — escala de tempo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 700, letterSpacing: '0.09em' }}>VER</span>
-            <div style={{ display: 'inline-flex', background: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: 8, padding: 3, gap: 2 }}>
-              {[
-                { key: 'dia', label: 'Dia' },
-                { key: 'semana', label: 'Semana' },
-                { key: 'mes', label: 'Mês' },
-                { key: 'trimestre', label: 'Trimestre' },
-              ].map(z => (
-                <button key={z.key} onClick={() => setZoom(z.key)}
-                  style={{
-                    fontSize: 12.5, padding: '5px 13px', border: 'none',
-                    borderRadius: 6, cursor: 'pointer', fontWeight: zoom === z.key ? 600 : 500,
-                    background: zoom === z.key ? 'var(--brand)' : 'transparent',
-                    color: zoom === z.key ? '#fff' : 'var(--text-muted)',
-                    transition: 'background 0.15s, color 0.15s',
-                  }}>
-                  {z.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Ajustar — reenquadra ao período com tarefas */}
-          <button onClick={onAjustar} title="Reenquadrar a timeline no período com tarefas"
-            style={{
-              fontSize: 12.5, padding: '5px 13px', height: 32, gap: 6, fontWeight: 600,
-              borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
-              border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)',
-            }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>
-            </svg>
-            Ajustar
-          </button>
         </div>
 
-        {/* Linha 2 — visão / edição / histórico / export */}
-        <div style={{ display: 'flex', gap: 8, padding: '2px 20px 8px', alignItems: 'center' }}>
-          {/* Linha de base */}
-          <button onClick={() => setShowBaseline(v => !v)} style={darkToggle(showBaseline)}
-            title={baselineEtapas ? 'Mostrar/ocultar barras da linha de base' : 'Nenhuma linha de base salva'}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="6" y1="4" x2="6" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="18" y1="4" x2="18" y2="20"/>
-            </svg>
-            Linha de base
-          </button>
-
-          {/* Caminho crítico */}
-          <button onClick={() => setShowCritical(v => !v)} style={darkToggle(showCritical)}
-            title="Destacar a cadeia condutora (caminho crítico)">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2l10 10-10 10L2 12z"/>
-            </svg>
-            Caminho crítico
-          </button>
-
-          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
-
-          {/* Edição */}
-          {!readOnly && (
-            <button
-              className={'btn ' + (editModeRaw ? 'btn-primary' : 'btn-ghost')}
-              style={{ fontSize: 12, padding: '4px 12px', height: 32, gap: 5 }}
-              onClick={() => { const nv = !editModeRaw; saveGanttCfg({ editMode: nv }); setEdit(nv); }}
-            >
-              <Icon name="edit" size={12} />{editModeRaw ? 'Editando' : 'Somente leitura'}
-            </button>
-          )}
-
-          <button
-            className="btn btn-ghost"
-            style={{ fontSize: 12, padding: '4px 12px', height: 32, gap: 5, color: lockDone ? 'var(--success)' : 'var(--text-muted)' }}
-            onClick={() => { const nv = !lockDone; saveGanttCfg({ lockDone: nv }); setLock(nv); }}
-          >
-            <Icon name="shield" size={12} />{lockDone ? 'Concluídas bloqueadas' : 'Concluídas livres'}
-          </button>
-
-          <button
-            className="btn btn-ghost"
-            style={{ fontSize: 12, padding: '4px 12px', height: 32, gap: 5, color: replanAuto ? 'var(--brand)' : 'var(--text-muted)' }}
-            onClick={() => { const nv = !replanAuto; saveGanttCfg({ replanAuto: nv }); setReplan(nv); }}
-            title="Quando ativo, arrastar uma barra move automaticamente todas as tarefas sucessoras"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-            </svg>
-            {replanAuto ? 'Replan. automático' : 'Replan. manual'}
-          </button>
-
-          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
-
-          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 32, gap: 5 }} onClick={undo} title="Desfazer (Ctrl+Z)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/>
-            </svg>
-            Desfazer
-          </button>
-
-          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 32, gap: 5 }} onClick={redo} title="Refazer (Ctrl+Y)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/>
-            </svg>
-            Refazer
-          </button>
-
+        {/* Tira de abas + status + recolher */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--surface-muted)', borderBottom: '1px solid var(--border)', padding: '0 8px' }}>
+          {tabs.map(t => (
+            <button key={t.id} style={tabBtn(t.id === curTab)} onClick={() => setActiveTab(t.id)}>{t.label}</button>
+          ))}
           <div style={{ flex: 1 }} />
-
           {selected.size > 0 && (
             <span style={{ fontSize: 11.5, color: 'var(--brand)', fontWeight: 600, padding: '3px 10px', background: 'var(--brand-tint)', borderRadius: 20 }}>
-              {selected.size} selecionada{selected.size > 1 ? 's' : ''} · Shift+clique para adicionar
+              {selected.size} selecionada{selected.size > 1 ? 's' : ''}
             </span>
           )}
-
           {conflictIds.size > 0 && (
-            <span style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Icon name="alert-triangle" size={11} /> Conflito de dependência
+            <span style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6 }}>
+              <Icon name="alert-triangle" size={11} /> Conflito
             </span>
           )}
-
-          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
-          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 32, gap: 5 }}
-            onClick={exportExcelGantt} title="Exportar para Excel (.xlsx)">
-            <Icon name="download" size={13} /> Excel
-          </button>
-          <select
-            value={pdfFormat}
-            onChange={e => setPdfFormat(e.target.value)}
-            style={{ fontSize: 12, height: 32, padding: '0 6px', borderRadius: 6,
-                     border: '1px solid var(--border)', background: 'var(--surface)',
-                     color: 'var(--text)', cursor: 'pointer' }}
-            title="Formato do PDF">
-            <option value="a3">A3</option>
-            <option value="a2">A2</option>
-            <option value="a1">A1</option>
-            <option value="a0">A0</option>
-          </select>
-          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 32, gap: 5 }}
-            onClick={exportPDFGantt} disabled={exportingPDF} title="Exportar para PDF">
-            <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+          <button onClick={() => setRibbonCollapsed(v => !v)} title={ribbonCollapsed ? 'Mostrar menu' : 'Ocultar menu'}
+            style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: ribbonCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .12s' }}><polyline points="6 9 12 15 18 9"/></svg>
           </button>
         </div>
+
+        {/* Corpo da faixa */}
+        {!ribbonCollapsed && (
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', minHeight: 62 }}>
+
+            {/* ══ Aba TAREFA ══ */}
+            {curTab === 'tarefa' && !readOnly && (
+              <>
+                {/* Fonte (não se aplica ao Gantt) */}
+                <div style={disabledGroup} title="Não disponível no Gantt (as barras não têm células de texto)">
+                  <div style={groupContent}>
+                    <div style={rowStyle}>
+                      <button disabled style={{ ...cmdBtn, height: 26, width: 110, justifyContent: 'space-between' }}>Padrão ▾</button>
+                      <button disabled style={{ ...cmdBtn, height: 26, width: 46, justifyContent: 'space-between' }}>11 ▾</button>
+                    </div>
+                    <div style={rowStyle}>
+                      <button disabled style={tglStyle(false)}>N</button>
+                      <button disabled style={{ ...tglStyle(false), fontStyle: 'italic' }}>I</button>
+                      <button disabled style={{ ...tglStyle(false), textDecoration: 'underline' }}>S</button>
+                      {divg()}
+                      <button disabled style={{ ...iconBtn, fontWeight: 800 }}>A</button>
+                      <button disabled style={iconBtn}><Icon name="edit" size={13} /></button>
+                    </div>
+                  </div>
+                  <div style={caption}>Fonte</div>
+                </div>
+
+                {/* Recuo (funcional) */}
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button style={{ ...iconBtn, opacity: canOutdent ? 1 : 0.4 }} onClick={handleOutdent} disabled={!canOutdent}
+                        title="Promover — subir um nível hierárquico">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="7 8 3 12 7 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
+                      </button>
+                      <button style={{ ...iconBtn, opacity: canIndent ? 1 : 0.4 }} onClick={handleIndent} disabled={!canIndent}
+                        title="Recuar — tornar subtarefa da linha acima">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 8 7 12 3 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Recuo</div>
+                </div>
+
+                {/* Formatação (não se aplica ao Gantt) */}
+                <div style={disabledGroup} title="Não disponível no Gantt">
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button disabled style={iconBtn}><Icon name="edit" size={14} /></button>
+                      <button disabled style={iconBtn}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V4h16v3"/><path d="M5 20h6"/><path d="M13 4 8 20"/><line x1="15" y1="15" x2="20" y2="20"/><line x1="20" y1="15" x2="15" y2="20"/></svg></button>
+                    </div>
+                  </div>
+                  <div style={caption}>Formatação</div>
+                </div>
+
+                {/* Edição (funcional) */}
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button style={{ ...cmdBtn, color: hasSel ? 'var(--danger)' : undefined, opacity: hasSel ? 1 : 0.5 }} onClick={handleDelete} disabled={!hasSel} title="Excluir a tarefa selecionada">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        Excluir
+                      </button>
+                      {divg()}
+                      <button style={iconBtn} onClick={undo} title="Desfazer (Ctrl+Z)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/></svg>
+                      </button>
+                      <button style={iconBtn} onClick={redo} title="Refazer (Ctrl+Y)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Edição</div>
+                </div>
+
+                {/* Modo (comportamento de edição do Gantt) */}
+                <div style={groupBox}>
+                  <div style={groupContent}>
+                    <div style={rowStyle}>
+                      <button style={tglStyle(editModeRaw)} onClick={() => { const nv = !editModeRaw; saveGanttCfg({ editMode: nv }); setEdit(nv); }}>
+                        <Icon name="edit" size={12} />{editModeRaw ? 'Editando' : 'Leitura'}
+                      </button>
+                      <button style={tglStyle(lockDone)} onClick={() => { const nv = !lockDone; saveGanttCfg({ lockDone: nv }); setLock(nv); }} title="Bloquear edição de tarefas concluídas">
+                        <Icon name="shield" size={12} />Concluídas
+                      </button>
+                    </div>
+                    <div style={rowStyle}>
+                      <button style={tglStyle(replanAuto)} onClick={() => { const nv = !replanAuto; saveGanttCfg({ replanAuto: nv }); setReplan(nv); }} title="Arrastar uma barra move as sucessoras automaticamente">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                        {replanAuto ? 'Replan. auto' : 'Replan. manual'}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Modo</div>
+                </div>
+              </>
+            )}
+
+            {/* ══ Aba INSERIR ══ */}
+            {curTab === 'inserir' && !readOnly && (
+              <>
+                <div style={groupBox}>
+                  <div style={groupContent}>
+                    <div style={rowStyle}>
+                      <button style={{ ...cmdBtn, opacity: hasSel ? 1 : 0.5 }} onClick={() => insertTask(primaryId(), 'above')} disabled={!hasSel} title="Inserir linha acima da selecionada">↑ Acima</button>
+                      <button style={{ ...cmdBtn, opacity: hasSel ? 1 : 0.5 }} onClick={() => insertTask(primaryId(), 'below')} disabled={!hasSel} title="Inserir linha abaixo da selecionada">↓ Abaixo</button>
+                    </div>
+                    <div style={rowStyle}>
+                      <button style={{ ...cmdBtn, opacity: hasSel ? 1 : 0.5 }} onClick={handleAddGroup} disabled={!hasSel} title="Agrupar a seleção num grupo (resumo)">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                        Grupo
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Tarefas</div>
+                </div>
+
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button style={cmdBtn} onClick={() => setShowPavimentos(true)} title="Inserir pavimentos automaticamente como subtarefas">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
+                        Pavimentos
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Estrutura</div>
+                </div>
+
+                <div style={disabledGroup} title="Não disponível no Gantt">
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button disabled style={cmdBtn}><Icon name="plus" size={13} /> Nova coluna</button>
+                    </div>
+                  </div>
+                  <div style={caption}>Colunas</div>
+                </div>
+              </>
+            )}
+
+            {/* ══ Aba EXIBIR ══ */}
+            {curTab === 'exibir' && (
+              <>
+                {/* Visão — escala de tempo + ajustar */}
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <div style={{ display: 'inline-flex', background: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: 6, padding: 2, gap: 2 }}>
+                        {[{ key: 'dia', label: 'Dia' }, { key: 'semana', label: 'Semana' }, { key: 'mes', label: 'Mês' }, { key: 'trimestre', label: 'Trimestre' }].map(z => (
+                          <button key={z.key} onClick={() => setZoom(z.key)}
+                            style={{ fontSize: 12, padding: '3px 10px', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: zoom === z.key ? 600 : 500, background: zoom === z.key ? 'var(--brand)' : 'transparent', color: zoom === z.key ? '#fff' : 'var(--text-muted)' }}>
+                            {z.label}
+                          </button>
+                        ))}
+                      </div>
+                      <button style={cmdBtn} onClick={onAjustar} title="Reenquadrar a timeline no período com tarefas">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+                        Ajustar
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Visão</div>
+                </div>
+
+                {/* Realce */}
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button onClick={() => setShowBaseline(v => !v)} style={darkToggle(showBaseline)} title={baselineEtapas ? 'Mostrar/ocultar barras da linha de base' : 'Nenhuma linha de base salva'}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="6" y1="4" x2="6" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="18" y1="4" x2="18" y2="20"/></svg>
+                        Linha de base
+                      </button>
+                      <button onClick={() => setShowCritical(v => !v)} style={darkToggle(showCritical)} title="Destacar a cadeia condutora (caminho crítico)">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l10 10-10 10L2 12z"/></svg>
+                        Caminho crítico
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Realce</div>
+                </div>
+
+                {/* Colunas (não se aplica ao Gantt) */}
+                <div style={disabledGroup} title="Não disponível no Gantt">
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button disabled style={cmdBtn}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+                        Colunas
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Colunas</div>
+                </div>
+
+                {/* Exibição / altura (não se aplica ao Gantt) */}
+                <div style={disabledGroup} title="Não disponível no Gantt (altura de linha fixa)">
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button disabled style={cmdBtn}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="12" x2="3" y2="12"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+                        Altura da linha
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Exibição</div>
+                </div>
+
+                {/* Dados */}
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button style={{ ...cmdBtn, opacity: search ? 1 : 0.5 }} disabled={!search} onClick={() => setSearch('')} title="Limpar a busca">
+                        <Icon name="filter" size={13} /> Limpar busca
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Dados</div>
+                </div>
+
+                {/* Exportar */}
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button style={cmdBtn} onClick={exportExcelGantt} title="Exportar para Excel (.xlsx)">
+                        <Icon name="download" size={13} /> Excel
+                      </button>
+                      <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Formato do PDF"
+                        style={{ fontSize: 12, height: 28, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                        <option value="a3">A3</option>
+                        <option value="a2">A2</option>
+                        <option value="a1">A1</option>
+                        <option value="a0">A0</option>
+                      </select>
+                      <button style={cmdBtn} onClick={exportPDFGantt} disabled={exportingPDF} title="Exportar para PDF">
+                        <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Exportar</div>
+                </div>
+              </>
+            )}
+
+          </div>
+        )}
       </div>
         );
       })()}
@@ -910,7 +1038,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           minHeight: headerH + Math.min(etapas.length, 10) * GM_ROW_H,
           // Viewport de altura limitada: o Gantt ganha scroll vertical próprio (necessário
           // para a virtualização). Tunável conforme a topbar/cabeçalho do card.
-          maxHeight: 'calc(100vh - 240px)',
+          maxHeight: 'calc(100vh - 300px)',
         }}
         onMouseDown={onContDown}
         onClick={() => { if (!dragged.current) setSel(new Set()); }}
