@@ -1486,7 +1486,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             {/* Corpo do ribbon (aba ativa). flexWrap sem overflow: os grupos quebram em telas
                estreitas em vez de gerar um container de scroll (que recortaria o popover de Colunas). */}
             {!ribbonCollapsed && (
-              <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', minHeight: 62 }}>
+              <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', minHeight: 92 }}>
 
                 {/* ══ Aba TAREFA ══ */}
                 {curTab === 'tarefa' && !readOnly && (
