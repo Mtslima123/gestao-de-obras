@@ -26,7 +26,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   const [replanAuto,  setReplan]   = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.replanAuto ?? true; } catch { return true; } });
   const [labelWidth,  setLabelW]   = React.useState(() => { try { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; } catch { return 220; } });
   const [zoom,        setZoom]     = React.useState('mes');
-  const [search,      setSearch]   = React.useState('');
+  const [search]      = React.useState(''); // busca removida do Gantt; mantido p/ matchesSearch (sempre passa)
   const [showBaseline, setShowBaseline] = React.useState(true);   // toggle "Linha de base"
   const [showCritical, setShowCritical] = React.useState(false);  // toggle "Caminho crítico"
   // Faixa (ribbon) em abas — mesma da Lista. Aba compartilha a chave com a Lista.
@@ -747,18 +747,6 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         const curTab = tabs.some(t => t.id === activeTab) ? activeTab : tabs[0].id;
         return (
       <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        {/* Busca */}
-        <div style={{ display: 'flex', gap: 12, padding: '8px 20px 4px', alignItems: 'center' }}>
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-            </svg>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar tarefa…"
-              style={{ paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 12.5, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface-muted)', color: 'var(--text)', outline: 'none', width: 300 }} />
-          </div>
-        </div>
-
         {/* Tira de abas + status + recolher */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--surface-muted)', borderBottom: '1px solid var(--border)', padding: '0 8px' }}>
           {tabs.map(t => (
@@ -987,17 +975,6 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   <div style={caption}>Exibição</div>
                 </div>
 
-                {/* Dados */}
-                <div style={groupBox}>
-                  <div style={{ ...groupContent, justifyContent: 'center' }}>
-                    <div style={rowStyle}>
-                      <button style={{ ...cmdBtn, opacity: search ? 1 : 0.5 }} disabled={!search} onClick={() => setSearch('')} title="Limpar a busca">
-                        <Icon name="filter" size={13} /> Limpar busca
-                      </button>
-                    </div>
-                  </div>
-                  <div style={caption}>Dados</div>
-                </div>
 
                 {/* Exportar */}
                 <div style={groupBox}>
