@@ -1317,6 +1317,7 @@ a:hover { color: var(--brand-600); }
   color: var(--text-muted);
   border-radius: 6px;
   transition: all 0.12s;
+  white-space: nowrap;
 }
 .segmented button.active {
   background: var(--surface);
@@ -2302,8 +2303,8 @@ tr:hover .obras-row-actions {
   right: 0;
   text-align: center;
   font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 6px;
+  font-size: 15px;
+  letter-spacing: 7px;
   color: rgba(255,255,255,0.5);
 }
 
@@ -2435,7 +2436,7 @@ tr:hover .obras-row-actions {
     padding: 32px 20px;
   }
   .sso-brand-logo { width: 180px; }
-  .sso-brand-label { bottom: 18px; font-size: 11px; letter-spacing: 5px; }
+  .sso-brand-label { bottom: 18px; font-size: 13px; letter-spacing: 6px; }
   .sso-access { padding: 32px 24px; }
   .sso-title { font-size: 34px; }
 }

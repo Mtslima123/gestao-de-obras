@@ -1775,17 +1775,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               <button key={a.id} className={view === a.id ? 'active' : ''} onClick={() => setView(a.id)}>{a.label}</button>
             ))}
           </div>
-          {baselines.length > 0 && (
-            <select className="input" style={{ minWidth: 180 }}
-              value={blVisivelId || ''}
-              onChange={e => setBlVisivelId(e.target.value || null)}
-            >
-              <option value="">Sem linha de base</option>
-              {baselines.map(b => (
-                <option key={b.id} value={b.id}>{b.nome}</option>
-              ))}
-            </select>
-          )}
           {reprogramacoes.length > 0 && (
             <select className="input" style={{ minWidth: 200 }}
               value={repVisivelId || ''}
@@ -1798,7 +1787,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               ))}
             </select>
           )}
-          <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
         </div>
       </div>
 
@@ -1970,6 +1958,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                       <div className="card-body" style={{ padding: 0 }}>
                         <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} customCols={customCols}
                           baselines={baselines} reprogramacoes={reprogramacoes}
+                          blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
                           onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}
                           onSalvarRep={() => setShowCriarRep(true)} onGerenciarReps={() => setShowGerenciarRep(true)}
                           onFeriados={() => setShowFeriados(true)} onOutlineLevel={applyOutlineLevel} />

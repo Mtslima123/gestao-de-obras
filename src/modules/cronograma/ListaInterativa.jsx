@@ -1457,8 +1457,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
         // Abas: Tarefa/Inserir só quando editável; Exibir e Cadastro sempre.
         const tabs = readOnly
-          ? [{ id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }]
-          : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }];
+          ? [{ id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }]
+          : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }];
         const curTab = tabs.some(t => t.id === activeTab) ? activeTab : tabs[0].id;
 
         return (
@@ -1754,22 +1754,24 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       </div>
                       <div style={caption}>Dados</div>
                     </div>
-
-                    {/* Exportar */}
-                    <div style={groupBox}>
-                      <div style={{ ...groupContent, justifyContent: 'center' }}>
-                        <div style={rowStyle}>
-                          <button style={cmdBtn} onClick={exportExcelLista} title="Exportar para Excel (.xlsx)">
-                            <Icon name="download" size={13} /> Excel
-                          </button>
-                          <button style={{ ...cmdBtn, minWidth: 70 }} onClick={exportPDFLista} disabled={exportingPDF} title="Exportar para PDF">
-                            <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
-                          </button>
-                        </div>
-                      </div>
-                      <div style={caption}>Exportar</div>
-                    </div>
                   </>
+                )}
+
+                {/* ══ Aba EXPORTAR ══ */}
+                {curTab === 'exportar' && (
+                  <div style={groupBox}>
+                    <div style={{ ...groupContent, justifyContent: 'center' }}>
+                      <div style={rowStyle}>
+                        <button style={cmdBtn} onClick={exportExcelLista} title="Exportar para Excel (.xlsx)">
+                          <Icon name="download" size={13} /> Excel
+                        </button>
+                        <button style={{ ...cmdBtn, minWidth: 70 }} onClick={exportPDFLista} disabled={exportingPDF} title="Exportar para PDF">
+                          <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+                        </button>
+                      </div>
+                    </div>
+                    <div style={caption}>Exportar</div>
+                  </div>
                 )}
 
                 {/* ══ Aba CADASTRO ══ */}

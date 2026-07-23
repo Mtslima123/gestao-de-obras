@@ -14,7 +14,7 @@ export const GM_TOTAL       = 28;   // meses na linha do tempo
 export const GM_MONTH_W     = 64;              // px por mês (mantido para compatibilidade do header)
 export const GM_DAY_W       = GM_MONTH_W / 30; // px por dia ≈ 2.133
 export const GM_LABEL_W     = 280;  // px da coluna de rótulos
-export const GM_ROW_H       = 44;   // altura por linha
+export const GM_ROW_H       = 36;   // altura por linha
 export const GM_BAR_H       = 24;   // altura das barras
 
 // Limiar de virtualização: abaixo disso, Lista e Gantt renderizam todas as linhas

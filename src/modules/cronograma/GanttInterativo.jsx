@@ -18,7 +18,7 @@ import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN } from './cronogramaShared';
 
 export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
-  baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel }) => {
+  baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
@@ -744,7 +744,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         const caption = { textAlign: 'center', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 3 };
         const tabBtn = (on) => ({ padding: '6px 15px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? 'var(--surface)' : 'transparent', color: on ? 'var(--brand)' : 'var(--text-muted)', borderBottom: on ? '2px solid var(--brand)' : '2px solid transparent' });
         const divg = () => <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />;
-        const tabs = readOnly ? [{ id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }] : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }];
+        const tabs = readOnly ? [{ id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }] : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }];
         const curTab = tabs.some(t => t.id === activeTab) ? activeTab : tabs[0].id;
         return (
       <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
@@ -912,18 +912,17 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
             {/* ══ Aba EXIBIR ══ */}
             {curTab === 'exibir' && (
               <>
-                {/* Visão — escala de tempo + ajustar */}
+                {/* Visão — escala de tempo (dropdown) + ajustar */}
                 <div style={groupBox}>
                   <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
-                      <div style={{ display: 'inline-flex', background: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: 6, padding: 2, gap: 2 }}>
-                        {[{ key: 'dia', label: 'Dia' }, { key: 'semana', label: 'Semana' }, { key: 'mes', label: 'Mês' }, { key: 'trimestre', label: 'Trimestre' }].map(z => (
-                          <button key={z.key} onClick={() => setZoom(z.key)}
-                            style={{ fontSize: 12, padding: '3px 10px', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: zoom === z.key ? 600 : 500, background: zoom === z.key ? 'var(--brand)' : 'transparent', color: zoom === z.key ? '#fff' : 'var(--text-muted)' }}>
-                            {z.label}
-                          </button>
-                        ))}
-                      </div>
+                      <select value={zoom} onChange={e => setZoom(e.target.value)} title="Escala de tempo"
+                        style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
+                        <option value="dia">Dia</option>
+                        <option value="semana">Semana</option>
+                        <option value="mes">Mês</option>
+                        <option value="trimestre">Trimestre</option>
+                      </select>
                       <button style={cmdBtn} onClick={onAjustar} title="Reenquadrar a timeline no período com tarefas">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
                         Ajustar
@@ -933,15 +932,17 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   <div style={caption}>Visão</div>
                 </div>
 
-                {/* Realce */}
+                {/* Realce — empilhado */}
                 <div style={groupBox}>
-                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                  <div style={groupContent}>
                     <div style={rowStyle}>
-                      <button onClick={() => setShowBaseline(v => !v)} style={darkToggle(showBaseline)} title={baselineEtapas ? 'Mostrar/ocultar barras da linha de base' : 'Nenhuma linha de base salva'}>
+                      <button onClick={() => setShowBaseline(v => !v)} style={{ ...darkToggle(showBaseline), width: '100%', justifyContent: 'flex-start' }} title={baselineEtapas ? 'Mostrar/ocultar barras da linha de base' : 'Nenhuma linha de base salva'}>
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="6" y1="4" x2="6" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="18" y1="4" x2="18" y2="20"/></svg>
                         Linha de base
                       </button>
-                      <button onClick={() => setShowCritical(v => !v)} style={darkToggle(showCritical)} title="Destacar a cadeia condutora (caminho crítico)">
+                    </div>
+                    <div style={rowStyle}>
+                      <button onClick={() => setShowCritical(v => !v)} style={{ ...darkToggle(showCritical), width: '100%', justifyContent: 'flex-start' }} title="Destacar a cadeia condutora (caminho crítico)">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l10 10-10 10L2 12z"/></svg>
                         Caminho crítico
                       </button>
@@ -949,6 +950,22 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   </div>
                   <div style={caption}>Realce</div>
                 </div>
+
+                {/* Linha de base — escolha da versão visível (item movido do cabeçalho) */}
+                {baselines.length > 0 && (
+                  <div style={groupBox}>
+                    <div style={{ ...groupContent, justifyContent: 'center' }}>
+                      <div style={rowStyle}>
+                        <select value={blVisivelId || ''} onChange={e => onSelectBaseline?.(e.target.value || null)} title="Linha de base comparada no Gantt"
+                          style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', minWidth: 150, cursor: 'pointer' }}>
+                          <option value="">Sem linha de base</option>
+                          {baselines.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={caption}>Linha de base</div>
+                  </div>
+                )}
 
                 {/* Colunas (não se aplica ao Gantt) */}
                 <div style={disabledGroup} title="Não disponível no Gantt">
@@ -991,28 +1008,6 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                     </div>
                   </div>
                   <div style={caption}>Estrutura</div>
-                </div>
-
-                {/* Exportar */}
-                <div style={groupBox}>
-                  <div style={{ ...groupContent, justifyContent: 'center' }}>
-                    <div style={rowStyle}>
-                      <button style={cmdBtn} onClick={exportExcelGantt} title="Exportar para Excel (.xlsx)">
-                        <Icon name="download" size={13} /> Excel
-                      </button>
-                      <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Formato do PDF"
-                        style={{ fontSize: 12, height: 28, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
-                        <option value="a3">A3</option>
-                        <option value="a2">A2</option>
-                        <option value="a1">A1</option>
-                        <option value="a0">A0</option>
-                      </select>
-                      <button style={cmdBtn} onClick={exportPDFGantt} disabled={exportingPDF} title="Exportar para PDF">
-                        <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
-                      </button>
-                    </div>
-                  </div>
-                  <div style={caption}>Exportar</div>
                 </div>
               </>
             )}
@@ -1063,6 +1058,32 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                     </div>
                   </div>
                   <div style={caption}>Calendário</div>
+                </div>
+              </>
+            )}
+
+            {/* ══ Aba EXPORTAR ══ */}
+            {curTab === 'exportar' && (
+              <>
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button style={cmdBtn} onClick={exportExcelGantt} title="Exportar para Excel (.xlsx)">
+                        <Icon name="download" size={13} /> Excel
+                      </button>
+                      <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Formato do PDF"
+                        style={{ fontSize: 12, height: 28, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                        <option value="a3">A3</option>
+                        <option value="a2">A2</option>
+                        <option value="a1">A1</option>
+                        <option value="a0">A0</option>
+                      </select>
+                      <button style={cmdBtn} onClick={exportPDFGantt} disabled={exportingPDF} title="Exportar para PDF">
+                        <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Exportar</div>
                 </div>
               </>
             )}
