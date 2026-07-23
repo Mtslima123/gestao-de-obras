@@ -134,13 +134,6 @@ const LoginScreen = ({ onLogin, passwordRecovery = false, onPasswordSet }) => {
             </div>
           </div>
         </div>
-
-        <div className="sso-foot">
-          <span>© 2026 Soter · Gestão de Obras</span>
-          <span className="sso-foot-links">
-            <span className="sso-version">v{__APP_VERSION__}</span>
-          </span>
-        </div>
       </div>
     </div>
   );
