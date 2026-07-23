@@ -1372,7 +1372,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // Cronograma iniciado mas ainda sem etapas: mostra o editor vazio sem gravar nada
   const [iniciando,    setIniciando]    = React.useState(false);
   const [showGerenciar, setShowGerenciar] = React.useState(false);
-  const [outlineOpen,  setOutlineOpen]  = React.useState(false);
   // Feriados por obra (dias não trabalhados) — persistidos por obra no navegador.
   const [showFeriados, setShowFeriados] = React.useState(false);
   const [feriadosCfg,  setFeriadosCfg]  = React.useState({ dias: [], sabadoUtil: false });
@@ -1749,12 +1748,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     return () => document.removeEventListener('keydown', h);
   }, [readOnly]);
 
-  React.useEffect(() => {
-    if (!outlineOpen) return;
-    const h = () => setOutlineOpen(false);
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [outlineOpen]);
 
   return (
     <>
@@ -1777,43 +1770,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               <option key={o.id} value={o.id}>{o.nome} ({o.id})</option>
             ))}
           </select>
-          {/* Estrutura de Tópicos — controle de nível da EAP */}
-          <div style={{ position: 'relative' }} onMouseDown={e => e.stopPropagation()}>
-            <button className="btn btn-ghost" onClick={() => setOutlineOpen(o => !o)} style={{ gap: 6 }}>
-              <Icon name="layers" size={15} />
-              Estrutura {outlineOpen ? '▲' : '▼'}
-            </button>
-            {outlineOpen && (
-              <div style={{
-                position: 'absolute', top: 'calc(100% + 4px)', right: 0,
-                background: 'var(--surface)', border: '1px solid var(--border)',
-                borderRadius: 8, boxShadow: 'var(--shadow-md)',
-                minWidth: 170, zIndex: 200, padding: '4px 0',
-              }}>
-                {[
-                  { label: 'Expandir Tudo', level: 0 },
-                  { label: 'Recolher Tudo', level: 1 },
-                  null,
-                  ...[1,2,3,4,5,6,7,8,9].map(n => ({ label: `Nível ${n}`, level: n })),
-                ].map((item, i) =>
-                  item === null
-                    ? <div key={i} style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-                    : <button key={item.label}
-                        onClick={() => { applyOutlineLevel(item.level); setOutlineOpen(false); }}
-                        style={{
-                          display: 'block', width: '100%', textAlign: 'left',
-                          padding: '7px 14px', border: 'none', background: 'none',
-                          cursor: 'pointer', fontSize: 13, color: 'var(--text)',
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-muted)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                      >
-                        {item.label}
-                      </button>
-                )}
-              </div>
-            )}
-          </div>
           <div className="segmented">
             {abasCronograma.map(a => (
               <button key={a.id} className={view === a.id ? 'active' : ''} onClick={() => setView(a.id)}>{a.label}</button>
@@ -1830,16 +1786,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               ))}
             </select>
           )}
-          {!readOnly && (
-            <button className="btn btn-ghost" onClick={() => setShowCriar(true)}>
-              <Icon name="bookmark" size={15} />Criar Linha de Base
-            </button>
-          )}
-          {baselines.length > 0 && !readOnly && (
-            <button className="btn btn-ghost" onClick={() => setShowGerenciar(true)}>
-              <Icon name="layers" size={15} />Gerenciar
-            </button>
-          )}
           {reprogramacoes.length > 0 && (
             <select className="input" style={{ minWidth: 200 }}
               value={repVisivelId || ''}
@@ -1852,19 +1798,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               ))}
             </select>
           )}
-          {!readOnly && (
-            <button className="btn btn-ghost" onClick={() => setShowCriarRep(true)}>
-              <Icon name="clock" size={15} />Salvar Reprogramação
-            </button>
-          )}
-          {reprogramacoes.length > 0 && !readOnly && (
-            <button className="btn btn-ghost" onClick={() => setShowGerenciarRep(true)}>
-              <Icon name="layers" size={15} />Gerenciar
-            </button>
-          )}
-          <button className="btn btn-ghost" onClick={() => setShowFeriados(true)} title="Cadastrar feriados / dias não trabalhados">
-            <Icon name="calendar" size={15} />Feriados
-          </button>
           <button className="btn btn-ghost"><Icon name="download" size={15} />Exportar</button>
         </div>
       </div>
@@ -2035,7 +1968,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                         </div>
                       </div>
                       <div className="card-body" style={{ padding: 0 }}>
-                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} customCols={customCols} />
+                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} customCols={customCols}
+                          baselines={baselines} reprogramacoes={reprogramacoes}
+                          onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}
+                          onSalvarRep={() => setShowCriarRep(true)} onGerenciarReps={() => setShowGerenciarRep(true)}
+                          onFeriados={() => setShowFeriados(true)} onOutlineLevel={applyOutlineLevel} />
                       </div>
                     </div>
 
@@ -2218,6 +2155,14 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   vinculos={vinculos}
                   orcamentoItensMap={orcamentoItensMap}
                   readOnly={readOnly}
+                  baselines={baselines}
+                  reprogramacoes={reprogramacoes}
+                  onCriarBaseline={() => setShowCriar(true)}
+                  onGerenciarBaselines={() => setShowGerenciar(true)}
+                  onSalvarRep={() => setShowCriarRep(true)}
+                  onGerenciarReps={() => setShowGerenciarRep(true)}
+                  onFeriados={() => setShowFeriados(true)}
+                  onOutlineLevel={applyOutlineLevel}
                 />
               )}
 

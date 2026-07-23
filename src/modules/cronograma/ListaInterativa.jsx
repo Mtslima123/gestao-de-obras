@@ -20,7 +20,8 @@ import {
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, respInitials, respColor, VIRT_MIN,
 } from './cronogramaShared';
 
-export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false }) => {
+export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false,
+  baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showAddCol,     setShowAddCol]     = React.useState(false);
@@ -1454,10 +1455,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const caption = { textAlign: 'center', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 3 };
         const tabBtn = (on) => ({ padding: '6px 15px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? 'var(--surface)' : 'transparent', color: on ? 'var(--brand)' : 'var(--text-muted)', borderBottom: on ? '2px solid var(--brand)' : '2px solid transparent' });
 
-        // Abas: Tarefa/Inserir só quando editável; Exibir sempre.
+        // Abas: Tarefa/Inserir só quando editável; Exibir e Cadastro sempre.
         const tabs = readOnly
-          ? [{ id: 'exibir', label: 'Exibir' }]
-          : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }];
+          ? [{ id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }]
+          : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }];
         const curTab = tabs.some(t => t.id === activeTab) ? activeTab : tabs[0].id;
 
         return (
@@ -1725,6 +1726,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       </div>
                     )}
 
+                    {/* Estrutura de tópicos (expandir/recolher por nível) */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <select defaultValue="" title="Expandir/recolher a estrutura por nível"
+                            onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') onOutlineLevel?.(Number(v)); }}
+                            style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
+                            <option value="" disabled>Estrutura…</option>
+                            <option value="0">Expandir tudo</option>
+                            <option value="1">Recolher tudo</option>
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <option key={n} value={n}>Nível {n}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div style={caption}>Estrutura</div>
+                    </div>
+
                     {/* Dados (limpar filtros) */}
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
@@ -1750,6 +1768,56 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         </div>
                       </div>
                       <div style={caption}>Exportar</div>
+                    </div>
+                  </>
+                )}
+
+                {/* ══ Aba CADASTRO ══ */}
+                {curTab === 'cadastro' && (
+                  <>
+                    {!readOnly && (
+                      <div style={groupBox}>
+                        <div style={groupContent}>
+                          <div style={rowStyle}>
+                            <button style={cmdBtn} onClick={onCriarBaseline} title="Salvar o estado atual como linha de base">
+                              <Icon name="flag" size={13} /> Criar linha de base
+                            </button>
+                          </div>
+                          <div style={rowStyle}>
+                            <button style={{ ...cmdBtn, opacity: baselines.length ? 1 : 0.5 }} disabled={!baselines.length} onClick={onGerenciarBaselines} title="Gerenciar linhas de base">
+                              <Icon name="layers" size={13} /> Gerenciar
+                            </button>
+                          </div>
+                        </div>
+                        <div style={caption}>Linha de base</div>
+                      </div>
+                    )}
+                    {!readOnly && (
+                      <div style={groupBox}>
+                        <div style={groupContent}>
+                          <div style={rowStyle}>
+                            <button style={cmdBtn} onClick={onSalvarRep} title="Salvar o estado atual como reprogramação">
+                              <Icon name="clock" size={13} /> Salvar reprogramação
+                            </button>
+                          </div>
+                          <div style={rowStyle}>
+                            <button style={{ ...cmdBtn, opacity: reprogramacoes.length ? 1 : 0.5 }} disabled={!reprogramacoes.length} onClick={onGerenciarReps} title="Gerenciar reprogramações">
+                              <Icon name="layers" size={13} /> Gerenciar
+                            </button>
+                          </div>
+                        </div>
+                        <div style={caption}>Reprogramação</div>
+                      </div>
+                    )}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={cmdBtn} onClick={onFeriados} title="Cadastrar feriados / dias não trabalhados">
+                            <Icon name="calendar" size={13} /> Feriados
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Calendário</div>
                     </div>
                   </>
                 )}
