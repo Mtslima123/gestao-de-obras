@@ -1320,8 +1320,8 @@ a:hover { color: var(--brand-600); }
   white-space: nowrap;
 }
 .segmented button.active {
-  background: var(--surface);
-  color: var(--brand);
+  background: var(--brand);
+  color: #fff;
   font-weight: 600;
   box-shadow: var(--shadow-xs);
 }
