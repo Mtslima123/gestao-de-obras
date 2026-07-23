@@ -64,7 +64,6 @@ const AppInner = () => {
   const [acessoNegado, setAcessoNegado] = React.useState(false); // sessão válida, mas e-mail não autorizado
   const [user,   setUser]             = React.useState(null);
   const [userProfile, setUserProfile] = React.useState(null);
-  const [passwordRecovery, setPasswordRecovery] = React.useState(false);
   const [view, setView] = React.useState(() => {
     const saved = sessionStorage.getItem('nav_view');
     return (saved && saved !== 'obra-detail') ? saved : 'dashboard';
@@ -175,11 +174,6 @@ const AppInner = () => {
       if (session?.user) aplicarSessao(session);
     }).catch(err => console.error('[app] falha ao restaurar sessão', err));
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setPasswordRecovery(true);
-        return;
-      }
-      setPasswordRecovery(false);
       aplicarSessao(session);
     });
     return () => subscription.unsubscribe();
@@ -268,14 +262,10 @@ const AppInner = () => {
 
   return (
     <>
-      {((!authed && !acessoNegado) || passwordRecovery) && (
-        <LoginScreen
-          onLogin={() => {}}
-          passwordRecovery={passwordRecovery}
-          onPasswordSet={() => setPasswordRecovery(false)}
-        />
+      {!authed && !acessoNegado && (
+        <LoginScreen />
       )}
-      {acessoNegado && !passwordRecovery && (
+      {acessoNegado && (
         <AcessoNaoAutorizado email={user?.email} onSair={handleLogout} />
       )}
       {authed && !acessoNegado && (
