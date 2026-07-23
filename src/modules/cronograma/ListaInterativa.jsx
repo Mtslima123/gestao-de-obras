@@ -830,6 +830,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       return;
     }
     if (editingNow) return;
+    // Ctrl+B / Ctrl+I / Ctrl+U : negrito / itálico / sublinhado na seleção (estilo editor).
+    if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ['b', 'i', 'u'].includes(ev.key.toLowerCase())) {
+      if (readOnly) return;
+      ev.preventDefault();
+      const k = ev.key.toLowerCase();
+      if (k === 'b') applyFmt({ bold: !activeFmt.bold });
+      else if (k === 'i') applyFmt({ italic: !activeFmt.italic });
+      else applyFmt({ underline: !activeFmt.underline });
+      return;
+    }
     // Delete (estilo Excel/MS Project): exclui a linha selecionada na hora — Ctrl+Z desfaz.
     // Grupo com subtarefas passa pela confirmação (o modal avisa a cascata "+N subtarefas").
     if (ev.key === 'Delete' && !readOnly) {
@@ -1526,9 +1536,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             </select>
                           </div>
                           <div style={rowStyle}>
-                            <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito">N</button>
-                            <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico">I</button>
-                            <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado">S</button>
+                            <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito (Ctrl+B)">N</button>
+                            <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico (Ctrl+I)">I</button>
+                            <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado (Ctrl+U)">S</button>
                             {div()}
                             <ColorMenu label="Fundo" title="Cor de preenchimento" value={activeFmt.bg}
                               onPick={(c) => applyFmt({ bg: c })} onClear={() => applyFmt({ bg: false })} clearLabel="Sem preenchimento"
