@@ -21,7 +21,7 @@ import {
 } from './cronogramaShared';
 
 export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false,
-  baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel }) => {
+  baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showAddCol,     setShowAddCol]     = React.useState(false);
@@ -1864,6 +1864,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         </div>
                       </div>
                       <div style={caption}>Calendário</div>
+                    </div>
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={cmdBtn} onClick={onProjectInfo} title="Ver o resumo do projeto (somente leitura)">
+                            <Icon name="file" size={13} /> Informações do projeto
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Projeto</div>
                     </div>
                   </>
                 )}

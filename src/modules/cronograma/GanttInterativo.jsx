@@ -18,7 +18,7 @@ import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN } from './cronogramaShared';
 
 export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
-  baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel }) => {
+  baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
@@ -1072,6 +1072,16 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                     </div>
                   </div>
                   <div style={caption}>Calendário</div>
+                </div>
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button style={cmdBtn} onClick={onProjectInfo} title="Ver o resumo do projeto (somente leitura)">
+                        <Icon name="file" size={13} /> Informações do projeto
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Projeto</div>
                 </div>
               </>
             )}

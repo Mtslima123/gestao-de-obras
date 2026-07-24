@@ -15,7 +15,7 @@ import {
 } from './scheduleEngine';
 import {
   CriarLinhaModal, GerenciarLinhasModal, FeriadosModal,
-  CriarReprogramacaoModal, GerenciarReprogramacoesModal,
+  CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal,
 } from './cronogramaModais';
 import { GM_TOTAL, gmConflicts } from './cronogramaShared';
 import { GanttInterativo } from './GanttInterativo';
@@ -1420,6 +1420,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const [showGerenciar, setShowGerenciar] = React.useState(false);
   // Feriados por obra (dias não trabalhados) — persistidos por obra no navegador.
   const [showFeriados, setShowFeriados] = React.useState(false);
+  const [showProjInfo, setShowProjInfo] = React.useState(false);
   const [feriadosCfg,  setFeriadosCfg]  = React.useState({ dias: [], sabadoUtil: false });
   React.useEffect(() => {
     try { const raw = localStorage.getItem('ls_crono_feriados_' + obraSel); setFeriadosCfg(raw ? JSON.parse(raw) : { dias: [], sabadoUtil: false }); }
@@ -2007,7 +2008,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
                           onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}
                           onSalvarRep={() => setShowCriarRep(true)} onGerenciarReps={() => setShowGerenciarRep(true)}
-                          onFeriados={() => setShowFeriados(true)} onOutlineLevel={applyOutlineLevel} />
+                          onFeriados={() => setShowFeriados(true)} onOutlineLevel={applyOutlineLevel}
+                          onProjectInfo={() => setShowProjInfo(true)} />
                       </div>
                     </div>
 
@@ -2198,6 +2200,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   onGerenciarReps={() => setShowGerenciarRep(true)}
                   onFeriados={() => setShowFeriados(true)}
                   onOutlineLevel={applyOutlineLevel}
+                  onProjectInfo={() => setShowProjInfo(true)}
                 />
               )}
 
@@ -2253,6 +2256,32 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       {showFeriados && (
         <FeriadosModal cfg={feriadosCfg} onChange={saveFeriados} onClose={() => setShowFeriados(false)} />
       )}
+      {showProjInfo && (() => {
+        const leaves  = etapas.filter(e => !e.isGroup);
+        const grupos  = etapas.filter(e => e.isGroup);
+        const manuais = leaves.filter(e => e.modo === 'manual').length;
+        const temTarefas = etapas.length > 0;
+        const inicioOff = temTarefas ? Math.min(...etapas.map(e => e.inicio)) : 0;
+        const fimOff    = temTarefas ? Math.max(...etapas.map(e => taskEnd(e))) : 0;
+        const durDias   = Math.max(0, fimOff - inicioOff);
+        const custoPrev = leaves.reduce((s, e) => s + (vinculos.length ? (valorVinculadoMapFull[e.id] || 0) : (e.custo || 0)), 0);
+        const info = {
+          obraNome:      obra?.nome || '—',
+          obraCodigo:    obra?.codigo || '',
+          inicio:        temTarefas ? isoToBR(offsetToISO(inicioOff)) : '—',
+          termino:       temTarefas ? isoToBR(offsetToISO(fimOff)) : '—',
+          duracao:       temTarefas ? `${durDias} dias corridos` : '—',
+          dataStatus:    new Date().toLocaleDateString('pt-BR'),
+          grupos:        String(grupos.length),
+          tarefas:       String(leaves.length),
+          manuais:       `${manuais} de ${leaves.length}`,
+          avanco:        `${avancoTotal}%`,
+          custoPrevisto: fmtBRL(custoPrev),
+          feriados:      `${feriadosCfg.dias?.length || 0} dia(s)`,
+          sabadoUtil:    feriadosCfg.sabadoUtil ? 'Sim' : 'Não',
+        };
+        return <InformacoesProjetoModal info={info} onClose={() => setShowProjInfo(false)} />;
+      })()}
     </>
   );
 };
