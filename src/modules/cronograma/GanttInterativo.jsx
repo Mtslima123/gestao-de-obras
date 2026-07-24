@@ -871,27 +871,20 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
             {curTab === 'inserir' && !readOnly && (
               <>
                 <div style={groupBox}>
-                  <div style={groupContent}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
                       <button style={{ ...cmdBtn, opacity: hasSel ? 1 : 0.5 }} onClick={() => insertTask(primaryId(), 'above')} disabled={!hasSel} title="Inserir linha acima da selecionada">↑ Acima</button>
                       <button style={{ ...cmdBtn, opacity: hasSel ? 1 : 0.5 }} onClick={() => insertTask(primaryId(), 'below')} disabled={!hasSel} title="Inserir linha abaixo da selecionada">↓ Abaixo</button>
-                    </div>
-                    <div style={rowStyle}>
-                      <button style={{ ...cmdBtn, opacity: hasSel ? 1 : 0.5 }} onClick={handleAddGroup} disabled={!hasSel} title="Agrupar a seleção num grupo (resumo)">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                        Grupo
-                      </button>
                     </div>
                   </div>
                   <div style={caption}>Tarefas</div>
                 </div>
 
-                <div style={groupBox}>
+                <div style={disabledGroup} title="Não disponível no Gantt">
                   <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
-                      <button style={cmdBtn} onClick={() => setShowPavimentos(true)} title="Inserir pavimentos automaticamente como subtarefas">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
-                        Pavimentos
+                      <button disabled style={iconBtn}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
                       </button>
                     </div>
                   </div>
