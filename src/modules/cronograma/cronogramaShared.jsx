@@ -29,7 +29,7 @@ export const GM_ROW_MES  = 30;
 export const GM_ROW_FINE = 24; // linha extra de Semana (zoom "semana") ou Dia (zoom "dia")
 
 // px por dia em cada nível de zoom — cresce de Trimestre (mais zoom-out) para Dia (mais zoom-in).
-export const ZOOM_PX_DIA = { dia: 22, semana: 9, mes: GM_MONTH_W / 30, trimestre: 0.7 };
+export const ZOOM_PX_DIA = { dia: 16, semana: 7, mes: 1.8, trimestre: 0.6 };
 
 export const GM_REF_DATE = new Date(GM_START_YEAR, GM_START_MONTH, 1);
 

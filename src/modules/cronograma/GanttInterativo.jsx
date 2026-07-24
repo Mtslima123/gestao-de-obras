@@ -9,7 +9,7 @@ import { buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
 import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd } from './cronogramaDateUtils';
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes, computeGroupValues,
-         indentTasks, outdentTasks, createGroup, deleteTask,
+         indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
          nextEtapaId, nextDisplayId, emptyCustomCols } from './scheduleEngine';
 import { PavimentosModal } from './cronogramaModais';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -24,7 +24,6 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
   const editMode = readOnly ? false : editModeRaw;
   const [lockDone,    setLock]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; } catch { return true; } });
-  const [replanAuto,  setReplan]   = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.replanAuto ?? true; } catch { return true; } });
   const [labelWidth,  setLabelW]   = React.useState(() => { try { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; } catch { return 220; } });
   const [zoom,        setZoom]     = React.useState('mes');
   const [search]      = React.useState(''); // busca removida do Gantt; mantido p/ matchesSearch (sempre passa)
@@ -208,19 +207,18 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         ...et, ...(movedIds.has(et.id) && cur[et.id] ? cur[et.id] : {}),
       }));
 
-      // Replanejamento automático: cascata para sucessoras
-      if (replanAuto) {
-        const endDeltaMap = {}, startDeltaMap = {};
-        movedIds.forEach(mid => {
-          if (!cur[mid] || !orig[mid]) return;
-          const sd = cur[mid].inicio - orig[mid].inicio;
-          const ed = (cur[mid].inicio + cur[mid].dur) - (orig[mid].inicio + orig[mid].dur);
-          if (sd !== 0) startDeltaMap[mid] = sd;
-          if (ed !== 0) endDeltaMap[mid] = ed;
-        });
-        if (Object.keys(endDeltaMap).length || Object.keys(startDeltaMap).length) {
-          novas = propagateDrag(novas, endDeltaMap, startDeltaMap);
-        }
+      // Replanejamento automático: arrastar uma barra sempre cascateia para as sucessoras
+      // (tarefas em modo manual são puladas dentro de propagateDrag — datas fixas).
+      const endDeltaMap = {}, startDeltaMap = {};
+      movedIds.forEach(mid => {
+        if (!cur[mid] || !orig[mid]) return;
+        const sd = cur[mid].inicio - orig[mid].inicio;
+        const ed = (cur[mid].inicio + cur[mid].dur) - (orig[mid].inicio + orig[mid].dur);
+        if (sd !== 0) startDeltaMap[mid] = sd;
+        if (ed !== 0) endDeltaMap[mid] = ed;
+      });
+      if (Object.keys(endDeltaMap).length || Object.keys(startDeltaMap).length) {
+        novas = propagateDrag(novas, endDeltaMap, startDeltaMap);
       }
 
       // Atualiza limites do grupo pai automaticamente
@@ -596,6 +594,20 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   const handleOutdent = () => { const ids = selIds(); if (ids.length) onCommit(outdentTasks(etapas, ids)); };
   const handleAddGroup = () => onCommit(createGroup(primaryId(), etapas, customCols), { silent: true });
 
+  // Modo (auto/manual) da seleção — mesma semântica da Lista (manual = datas fixas).
+  const setModoSelecao = (modo) => {
+    const ids = new Set(selIds());
+    if (!ids.size) return;
+    const novas = etapas.map(t => (ids.has(t.id) && !t.isGroup ? { ...t, modo } : t));
+    onCommit(autoScheduleFromDeps(novas));
+  };
+  const modoSelecao = (() => {
+    const ids = selIds().filter(id => !etapas.find(e => e.id === id)?.isGroup);
+    if (!ids.length) return null;
+    const modos = new Set(ids.map(id => etapas.find(e => e.id === id)?.modo || 'auto'));
+    return modos.size === 1 ? [...modos][0] : null;
+  })();
+
   // Insere nova tarefa acima/abaixo da referência (porta o helper da Lista).
   const insertTask = (referenceId, position) => {
     const idx = etapas.findIndex(e => e.id === referenceId);
@@ -796,16 +808,14 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   <div style={caption}>Fonte</div>
                 </div>
 
-                {/* Recuo (funcional) */}
-                <div style={groupBox}>
+                {/* Recuo (não disponível no Gantt — usar a Lista) */}
+                <div style={disabledGroup} title="Recuar/promover só na Lista">
                   <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
-                      <button style={{ ...iconBtn, opacity: canOutdent ? 1 : 0.4 }} onClick={handleOutdent} disabled={!canOutdent}
-                        title="Promover — subir um nível hierárquico">
+                      <button disabled style={iconBtn}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="7 8 3 12 7 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
                       </button>
-                      <button style={{ ...iconBtn, opacity: canIndent ? 1 : 0.4 }} onClick={handleIndent} disabled={!canIndent}
-                        title="Recuar — tornar subtarefa da linha acima">
+                      <button disabled style={iconBtn}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 8 7 12 3 16"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="12" x2="11" y2="12"/><line x1="21" y1="18" x2="11" y2="18"/></svg>
                       </button>
                     </div>
@@ -822,6 +832,23 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                     </div>
                   </div>
                   <div style={caption}>Formatação</div>
+                </div>
+
+                {/* Modo da tarefa (auto/manual) — aplica à seleção */}
+                <div style={{ ...groupBox, opacity: hasSel ? 1 : 0.5, pointerEvents: hasSel ? 'auto' : 'none' }}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                    <div style={rowStyle}>
+                      <button style={{ ...cmdBtn, color: modoSelecao === 'auto' ? 'var(--brand)' : undefined, background: modoSelecao === 'auto' ? 'var(--brand-tint)' : undefined }}
+                        onClick={() => setModoSelecao('auto')} title="Agendamento automático: datas calculadas pelas dependências">
+                        <Icon name="clock" size={13} /> Automático
+                      </button>
+                      <button style={{ ...cmdBtn, color: modoSelecao === 'manual' ? 'var(--brand)' : undefined, background: modoSelecao === 'manual' ? 'var(--brand-tint)' : undefined }}
+                        onClick={() => setModoSelecao('manual')} title="Agendamento manual: datas fixas, não reagenda por dependências nem arraste">
+                        <Icon name="pin" size={13} /> Manual
+                      </button>
+                    </div>
+                  </div>
+                  <div style={caption}>Modo</div>
                 </div>
 
                 {/* Edição (funcional) */}
@@ -844,9 +871,9 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   <div style={caption}>Edição</div>
                 </div>
 
-                {/* Modo (comportamento de edição do Gantt) */}
+                {/* Comportamento de edição do Gantt */}
                 <div style={groupBox}>
-                  <div style={groupContent}>
+                  <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
                       <button style={tglStyle(editModeRaw)} onClick={() => { const nv = !editModeRaw; saveGanttCfg({ editMode: nv }); setEdit(nv); }}>
                         <Icon name="edit" size={12} />{editModeRaw ? 'Editando' : 'Leitura'}
@@ -855,14 +882,8 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                         <Icon name="shield" size={12} />Concluídas
                       </button>
                     </div>
-                    <div style={rowStyle}>
-                      <button style={tglStyle(replanAuto)} onClick={() => { const nv = !replanAuto; saveGanttCfg({ replanAuto: nv }); setReplan(nv); }} title="Arrastar uma barra move as sucessoras automaticamente">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                        {replanAuto ? 'Replan. auto' : 'Replan. manual'}
-                      </button>
-                    </div>
                   </div>
-                  <div style={caption}>Modo</div>
+                  <div style={caption}>Comportamento</div>
                 </div>
               </>
             )}
