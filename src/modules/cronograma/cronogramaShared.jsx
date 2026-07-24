@@ -178,6 +178,7 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
 export const LISTA_COL_DEFS = {
   wbs:       { label: 'WBS',           defWidth: 44,  frozen: true, band: 'etapa' },
   id:        { label: 'ID',            defWidth: 44,  frozen: true, band: 'etapa' },
+  modo:      { label: 'Modo',          defWidth: 56,  align: 'center', band: 'etapa' },
   etapa:     { label: 'Etapa / Tarefa',defWidth: 224, frozen: true, band: 'etapa' },
   inicio:    { label: 'Início',        defWidth: 96,  band: 'prazo' },
   fim:       { label: 'Término',       defWidth: 96,  band: 'prazo' },

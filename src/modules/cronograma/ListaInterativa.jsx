@@ -46,6 +46,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
   const [editingDep,     setEditingDep]     = React.useState(null); // id da tarefa com predecessora em edição
+  const [openModoMenu,   setOpenModoMenu]   = React.useState(null); // id da tarefa com o menu de Modo aberto
+  const modoMenuRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!openModoMenu) return;
+    const h = (e) => { if (modoMenuRef.current && !modoMenuRef.current.contains(e.target)) setOpenModoMenu(null); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [openModoMenu]);
   const [busca,          setBusca]          = React.useState('');
   const [filtroStatus,   setFiltroStatus]   = React.useState('');
   const [filtroResp,     setFiltroResp]     = React.useState('');
@@ -631,7 +639,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       inicio: 0, dur: 1, avanco: 0, status: 'upcoming',
       dep: [], milestone: false, responsavel: '',
       customCols: emptyCustomCols(customCols), custo: 0,
-      restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
+      restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
     });
     // Preserva a linha onde foi digitado: cria tarefas de nome vazio para as linhas
     // em branco puladas (blankIndex) ANTES da tarefa nomeada.
@@ -1020,6 +1028,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       showInDist:    false,
       restricaoTipo: 'asap',
       restricaoData: '',
+      modo:          'auto',
       customCols:    emptyCustomCols(customCols),
     };
     const novas = [...etapas];
@@ -1073,7 +1082,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   // ── Atualização de campo ────────────────────────────────────────────────────
   // Campos que exigem reprogramação (recalcular datas via dependências)
-  const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricaoTipo', 'restricaoData'];
+  const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricaoTipo', 'restricaoData', 'modo'];
   // Aplica um único campo a uma etapa (conversões de valor). Reutilizado por handleCellSave
   // e pelo colar de bloco (applyBlockEdits). NÃO trata 'id' (caso especial em handleCellSave).
   const applyFieldToEtapa = (e, field, rawValue) => {
@@ -1173,6 +1182,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (!ids.length) return;
     onCommit(outdentTasks(etapas, ids));
   };
+
+  // Define o modo (auto/manual) de toda a seleção; reagenda em seguida (auto recalcula na hora).
+  const setModoSelecao = (modo) => {
+    const ids = new Set([...selectedRowIds()]);
+    if (!ids.size) return;
+    const novas = etapas.map(t => (ids.has(t.id) && !t.isGroup ? { ...t, modo } : t));
+    onCommit(autoScheduleFromDeps(novas));
+  };
+  // Modo comum da seleção (para realçar o botão ativo); null quando misto/sem seleção.
+  const modoSelecao = (() => {
+    const ids = [...selectedRowIds()].filter(id => !etapas.find(e => e.id === id)?.isGroup);
+    if (!ids.length) return null;
+    const modos = new Set(ids.map(id => etapas.find(e => e.id === id)?.modo || 'auto'));
+    return modos.size === 1 ? [...modos][0] : null;
+  })();
 
   const selForIndent = selectedRowIds();
   const canIndent  = [...selForIndent].some(id => etapas.findIndex(e => e.id === id) > 0);
@@ -1588,6 +1612,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         </div>
                         <div style={caption}>Formatação</div>
                       </div>
+                    </div>
+
+                    {/* Modo da tarefa (auto/manual) — aplica à seleção */}
+                    <div style={{ ...groupBox, opacity: hasTarget ? 1 : 0.5, pointerEvents: hasTarget ? 'auto' : 'none' }}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={{ ...cmdBtn, color: modoSelecao === 'auto' ? 'var(--brand)' : undefined, background: modoSelecao === 'auto' ? 'var(--brand-tint)' : undefined }}
+                            onClick={() => setModoSelecao('auto')} title="Agendamento automático: datas calculadas pelas dependências">
+                            <Icon name="clock" size={13} /> Automático
+                          </button>
+                          <button style={{ ...cmdBtn, color: modoSelecao === 'manual' ? 'var(--brand)' : undefined, background: modoSelecao === 'manual' ? 'var(--brand-tint)' : undefined }}
+                            onClick={() => setModoSelecao('manual')} title="Agendamento manual: datas fixas, não reagenda por dependências nem arraste">
+                            <Icon name="pin" size={13} /> Manual
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Modo</div>
                     </div>
 
                     {/* Edição (sempre ativa; Excluir depende de seleção) */}
@@ -2135,6 +2176,39 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     {!e.isGroup && (
                       <span className={'badge ' + statusBadgeClass(effStatus(e))}>{statusLabel(effStatus(e))}</span>
                     )}
+                  </td>
+                ),
+                modo: (
+                  <td key="modo" onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center', position: 'relative', overflow: 'visible' }}>
+                    {!e.isGroup && (() => {
+                      const manual = e.modo === 'manual';
+                      return (
+                        <div ref={openModoMenu === e.id ? modoMenuRef : undefined} style={{ position: 'relative', display: 'inline-block' }}>
+                          <button
+                            title={manual ? 'Agendada Manualmente (datas fixas)' : 'Agendada Automaticamente (calculada por dependências)'}
+                            onClick={ev => { ev.stopPropagation(); if (readOnly) return; setOpenModoMenu(openModoMenu === e.id ? null : e.id); }}
+                            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: readOnly ? 'default' : 'pointer', color: manual ? 'var(--brand)' : 'var(--text-muted)' }}>
+                            <Icon name={manual ? 'pin' : 'clock'} size={14} />
+                          </button>
+                          {openModoMenu === e.id && !readOnly && (
+                            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 60, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', padding: 4, minWidth: 210, textAlign: 'left' }}>
+                              {[
+                                { v: 'auto', ic: 'clock', label: 'Agendada Automaticamente' },
+                                { v: 'manual', ic: 'pin', label: 'Agendada Manualmente' },
+                              ].map(opt => (
+                                <button key={opt.v}
+                                  onClick={() => { setOpenModoMenu(null); handleCellSave(e.id, 'modo', opt.v); }}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', background: (e.modo || 'auto') === opt.v ? 'var(--brand-tint)' : 'none', color: 'var(--text)', cursor: 'pointer', fontSize: 12.5, padding: '7px 10px', borderRadius: 6 }}
+                                  onMouseEnter={ev => { if ((e.modo || 'auto') !== opt.v) ev.currentTarget.style.background = 'var(--surface-muted)'; }}
+                                  onMouseLeave={ev => { if ((e.modo || 'auto') !== opt.v) ev.currentTarget.style.background = 'none'; }}>
+                                  <Icon name={opt.ic} size={14} /> {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                 ),
                 restricao: (

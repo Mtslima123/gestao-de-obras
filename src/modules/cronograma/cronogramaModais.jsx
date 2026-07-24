@@ -159,6 +159,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
           dur:        subDur,
           avanco:     0, status: 'upcoming',
           dep:        [], milestone: false, responsavel: '',
+          modo:       'auto',
           customCols: emptyCustomCols(customCols),
           custo:      0,
         };

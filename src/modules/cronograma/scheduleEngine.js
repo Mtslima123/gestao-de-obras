@@ -14,10 +14,11 @@ export function migrateEtapas(raw) {
     collapsed: false, responsavel: '', customCols: {},
     milestone: false, custo: 0, showInDist: false,
     restricaoTipo: 'asap', restricaoData: '',
-    fator_peso: 1,
+    fator_peso: 1, modo: 'auto',
     ...e,
     showInDist: e.showInDist ?? false,
     fator_peso: e.fator_peso ?? 1,
+    modo: e.modo === 'manual' ? 'manual' : 'auto',
     dep: (e.dep || []).map(d =>
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
     ),
@@ -183,7 +184,7 @@ export function createTask(afterId, etapas, customCols) {
     dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
-    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
+    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
   };
   return [...etapas.slice(0, idx + 1), novo, ...etapas.slice(idx + 1)];
 }
@@ -208,7 +209,7 @@ export function createSubtask(parentId, etapas, customCols) {
     inicio: parent.inicio, dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
-    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
+    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
   };
   return [...etapas.slice(0, insertIdx + 1), novo, ...etapas.slice(insertIdx + 1)];
 }
@@ -225,7 +226,7 @@ export function createGroup(afterId, etapas, customCols) {
     dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
-    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
+    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
   };
   return [...etapas.slice(0, idx + 1), novo, ...etapas.slice(idx + 1)];
 }
@@ -265,6 +266,8 @@ export function propagateDrag(etapas, endDeltaMap, startDeltaMap = {}) {
     const id = queue.shift();
     for (const sid of (succs[id] || [])) {
       if (visited.has(sid)) continue;
+      // Sucessora manual (Modo da Tarefa): datas fixas — não é empurrada nem propaga adiante.
+      if (etapas.find(x => x.id === sid)?.modo === 'manual') { visited.add(sid); continue; }
       // Verifica o tipo da dependência que liga sid ao predecessor id
       const deps = getDepsOf(sid);
       const depOnId = deps.find(d => d.id === id);
@@ -332,7 +335,9 @@ export function autoScheduleFromDeps(etapas) {
 
   order.forEach(id => {
     const e = upd[id];
-    if (!e || e.isGroup) return;
+    // Tarefa manual (Modo da Tarefa): datas fixas pelo usuário — não é reagendada.
+    // Ainda serve de predecessora pelas próprias datas (permanece em `upd`).
+    if (!e || e.isGroup || e.modo === 'manual') return;
 
     const tipo   = e.restricaoTipo;
     const isAsap = !tipo || tipo === 'asap';
