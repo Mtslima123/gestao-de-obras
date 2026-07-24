@@ -79,6 +79,32 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   const usoRef  = React.useRef(null);
   const [exportingPDF, setExportingPDF] = React.useState(false);
 
+  // Ordem das colunas do painel esquerdo (arrastar cabeçalhos), persistida por obra
+  const [usoColOrder, setUsoColOrder] = React.useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`uso_order_${obraId}`) || 'null');
+      if (Array.isArray(saved) && saved.length === USO_COL_KEYS.length && USO_COL_KEYS.every(k => saved.includes(k)))
+        return saved;
+    } catch { /* ignore */ }
+    return USO_COL_KEYS;
+  });
+  React.useEffect(() => {
+    if (obraId) localStorage.setItem(`uso_order_${obraId}`, JSON.stringify(usoColOrder));
+  }, [usoColOrder, obraId]);
+  const [dragUsoCol, setDragUsoCol] = React.useState(null);
+  const usoLabel = (k) => USO_COL_LABELS[USO_COL_KEYS.indexOf(k)];
+  const moveUsoCol = (from, to) => {
+    if (!from || from === to) return;
+    setUsoColOrder(prev => {
+      const arr = [...prev];
+      const fi = arr.indexOf(from), ti = arr.indexOf(to);
+      if (fi < 0 || ti < 0) return prev;
+      arr.splice(fi, 1);
+      arr.splice(ti, 0, from);
+      return arr;
+    });
+  };
+
   const startUsoResize = (ev, col) => {
     ev.preventDefault(); ev.stopPropagation();
     const startX = ev.clientX, startW = getUsoW(col);
@@ -106,7 +132,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   const hasVinculos = Object.keys(valorVinculadoMap).length > 0;
   const cfg = {
     val: (e) => hasVinculos ? (valorVinculadoMap[e.id] || 0) : (e.custo || 0),
-    cell: (v) => v < 1 ? '—' : 'R$ ' + Math.round(v / 1000) + 'k',
+    cell: (v) => v < 1 ? '—' : fmtBRL(v),
     tot: (v) => fmtBRL(v),
   };
   const metricOverride = React.useMemo(() => {
@@ -154,6 +180,18 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))',
     verticalAlign: 'middle',
     maxWidth: 0,
+  };
+  // Células de valor (meses/total): sem recorte, para mostrar o valor R$ completo
+  // e deixar a coluna se ajustar (table-layout: auto) ao maior número.
+  const tdNum = {
+    padding: '0 12px',
+    height: 36,
+    fontSize: 13,
+    whiteSpace: 'nowrap',
+    borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))',
+    verticalAlign: 'middle',
+    textAlign: 'right',
+    fontVariantNumeric: 'tabular-nums',
   };
 
   const exportExcelUso = () => {
@@ -297,18 +335,26 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       {/* Painel dividido */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)' }}>
 
-        {/* Lado esquerdo — hierarquia com colunas redimensionáveis */}
-        <div ref={leftRef} style={{ flexShrink: 0, overflowY: 'auto', overflowX: 'auto', borderRight: '1px solid var(--border)' }}>
+        {/* Lado esquerdo — hierarquia com colunas redimensionáveis e reordenáveis.
+            overflowX: hidden — sem barra interna; o painel dimensiona ao conteúdo (item 10). */}
+        <div ref={leftRef} style={{ flexShrink: 0, overflowY: 'auto', overflowX: 'hidden', borderRight: '1px solid var(--border)' }}>
           <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              {USO_COL_KEYS.map(k => <col key={k} style={{ width: getUsoW(k) }} />)}
+              {usoColOrder.map(k => <col key={k} style={{ width: getUsoW(k) }} />)}
             </colgroup>
             <thead>
               <tr>
-                {USO_COL_KEYS.map((k, i) => (
-                  <th key={k} style={{ ...thSt, width: getUsoW(k), minWidth: getUsoW(k), textAlign: USO_COL_ALIGN[k], position: 'sticky', top: 0, zIndex: 2 }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
-                      {USO_COL_LABELS[i]}
+                {usoColOrder.map(k => (
+                  <th key={k}
+                    onDragOver={ev => { if (dragUsoCol) { ev.preventDefault(); } }}
+                    onDrop={ev => { ev.preventDefault(); moveUsoCol(dragUsoCol, k); setDragUsoCol(null); }}
+                    style={{ ...thSt, width: getUsoW(k), minWidth: getUsoW(k), textAlign: USO_COL_ALIGN[k], position: 'sticky', top: 0, zIndex: 2, opacity: dragUsoCol === k ? 0.4 : 1 }}>
+                    <span draggable
+                      onDragStart={ev => { setDragUsoCol(k); ev.dataTransfer.effectAllowed = 'move'; }}
+                      onDragEnd={() => setDragUsoCol(null)}
+                      title="Arraste para reordenar a coluna"
+                      style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', cursor: 'grab' }}>
+                      {usoLabel(k)}
                     </span>
                     <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 3 }}
                       onMouseDown={ev => startUsoResize(ev, k)} />
@@ -325,22 +371,25 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                 const fimText  = isoToBR(offsetToISO(taskEnd(e)));
                 const durText  = `${e.dur}d`;
                 const avText   = `${e.avanco}%`;
+                const cellMap = {
+                  id:     <td key="id" style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-soft)' }} title={idText}>{idText}</td>,
+                  wbs:    <td key="wbs" style={{ ...tdSt, color: 'var(--text-faint)', fontSize: 12 }} title={wbsText}>{wbsText}</td>,
+                  nome:   (
+                    <td key="nome" style={{ ...tdSt, paddingLeft: (e.nivel * 14 + 10) + 'px', fontWeight: e.isGroup ? 600 : 400 }} title={nomeText}>
+                      {e.isGroup && <span style={{ marginRight: 5, color: 'var(--text-faint)', fontSize: 10 }}>▸</span>}
+                      {nomeText}
+                    </td>
+                  ),
+                  inicio: <td key="inicio" style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }} title={iniText}>{iniText}</td>,
+                  fim:    <td key="fim" style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }} title={fimText}>{fimText}</td>,
+                  dur:    <td key="dur" style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }} title={durText}>{durText}</td>,
+                  avanco: <td key="avanco" style={{ ...tdSt, textAlign: 'right' }} title={avText}>{avText}</td>,
+                };
                 return (
                   <tr key={e.id}
                     style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
                     onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
-                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-soft)' }} title={idText}>
-                      {idText}
-                    </td>
-                    <td style={{ ...tdSt, color: 'var(--text-faint)', fontSize: 12 }} title={wbsText}>{wbsText}</td>
-                    <td style={{ ...tdSt, paddingLeft: (e.nivel * 14 + 10) + 'px', fontWeight: e.isGroup ? 600 : 400 }} title={nomeText}>
-                      {e.isGroup && <span style={{ marginRight: 5, color: 'var(--text-faint)', fontSize: 10 }}>▸</span>}
-                      {nomeText}
-                    </td>
-                    <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }} title={iniText}>{iniText}</td>
-                    <td style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }} title={fimText}>{fimText}</td>
-                    <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }} title={durText}>{durText}</td>
-                    <td style={{ ...tdSt, textAlign: 'right' }} title={avText}>{avText}</td>
+                    {usoColOrder.map(k => cellMap[k])}
                   </tr>
                 );
               })}
@@ -348,19 +397,16 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
           </table>
         </div>
 
-        {/* Lado direito — grade temporal */}
+        {/* Lado direito — grade temporal. table-layout: auto + células sem recorte:
+            as colunas se ajustam ao maior valor R$ e o excesso rola na barra final (itens 9/10). */}
         <div ref={rightRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-            <colgroup>
-              {months.map(m => <col key={m.key} style={{ width: 92 }} />)}
-              <col style={{ width: 112 }} />
-            </colgroup>
+          <table style={{ borderCollapse: 'collapse', tableLayout: 'auto' }}>
             <thead>
               <tr>
                 {months.map(m => (
-                  <th key={m.key} style={{ ...thSt, textAlign: 'right' }}>{m.label}</th>
+                  <th key={m.key} style={{ ...thSt, textAlign: 'right', minWidth: 92 }}>{m.label}</th>
                 ))}
-                <th style={{ ...thSt, textAlign: 'right', color: 'var(--text)' }}>Total</th>
+                <th style={{ ...thSt, textAlign: 'right', color: 'var(--text)', minWidth: 112 }}>Total</th>
               </tr>
             </thead>
             <tbody>
@@ -379,13 +425,13 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                       return (
                         <td key={m.key}
                           className={'heat-cell' + (e.isGroup ? ' group' : '') + (empty ? ' empty' : (f > 0.35 ? ' hot' : ''))}
-                          style={{ ...tdSt, textAlign: 'right', '--f': f }}
+                          style={{ ...tdNum, minWidth: 92, '--f': f }}
                           title={empty ? undefined : cfg.cell(v)}>
                           {empty ? '—' : cfg.cell(v)}
                         </td>
                       );
                     })}
-                    <td style={{ ...tdSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }} title={total > 0 ? cfg.tot(total) : undefined}>
+                    <td style={{ ...tdNum, minWidth: 112, fontWeight: 700 }} title={total > 0 ? cfg.tot(total) : undefined}>
                       {total > 0 ? cfg.tot(total) : '—'}
                     </td>
                   </tr>
