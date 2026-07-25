@@ -5,7 +5,7 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds } from "./scheduleEngine";
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
 export const AddColModal = ({ onClose, onAdd }) => {
@@ -318,6 +318,230 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
               </label>
             ))}
           </div>
+        </div>
+      )}
+    </Modal>
+  );
+};
+
+// ─── ImportarEAPModal — importa uma EAP pronta de planilha Excel/CSV ──────────
+export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
+  const toast = useToast();
+  const [step,     setStep]     = React.useState(1);
+  const [fileName, setFileName] = React.useState('');
+  const [parsed,   setParsed]   = React.useState(null); // { nodes, warnings }
+  const [busy,     setBusy]     = React.useState(false);
+  const fileRef = React.useRef(null);
+
+  const norm = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  // Converte a matriz (linhas x colunas) da planilha em nós de EAP com parentId.
+  const parseRows = (matrix) => {
+    const rows = (matrix || []).filter(r => Array.isArray(r) && r.some(c => String(c ?? '').trim() !== ''));
+    if (!rows.length) return { nodes: [], warnings: ['A planilha está vazia.'] };
+
+    // Detecta cabeçalho por palavras-chave
+    let codeIdx = -1, levelIdx = -1, nameIdx = -1, durIdx = -1;
+    const head = rows[0].map(norm);
+    const findIdx = (re) => head.findIndex(h => re.test(h));
+    codeIdx  = findIdx(/^(eap|wbs|codigo|cod|item)$/);
+    levelIdx = findIdx(/^(nivel|level)$/);
+    nameIdx  = findIdx(/(nome|tarefa|descri|atividade|etapa|servico)/);
+    durIdx   = findIdx(/(dura|dias|prazo)/);
+    const hasHeader = nameIdx >= 0 || codeIdx >= 0 || levelIdx >= 0 || durIdx >= 0;
+    const dataRows = hasHeader ? rows.slice(1) : rows;
+
+    // Sem cabeçalho reconhecível: adivinha pelo formato da 1ª linha de dados
+    if (!hasHeader) {
+      const c0 = String((dataRows[0] || [])[0] ?? '').trim();
+      if (/^\d+(\.\d+)*$/.test(c0)) { codeIdx = 0; nameIdx = 1; durIdx = 2; }
+      else { nameIdx = 0; durIdx = 1; }
+    }
+    if (nameIdx < 0) nameIdx = codeIdx >= 0 ? codeIdx + 1 : 0;
+
+    const warnings = [];
+    const items = [];
+    dataRows.forEach(r => {
+      const name = String(r[nameIdx] ?? '').trim();
+      if (!name) return;
+      const code   = codeIdx  >= 0 ? String(r[codeIdx] ?? '').trim() : '';
+      const level  = levelIdx >= 0 ? parseInt(r[levelIdx], 10) : null;
+      const durRaw = durIdx   >= 0 ? parseFloat(String(r[durIdx] ?? '').replace(',', '.')) : NaN;
+      const dur    = Number.isFinite(durRaw) && durRaw > 0 ? Math.round(durRaw) : null;
+      items.push({ code, level, name, dur });
+    });
+    if (!items.length) return { nodes: [], warnings: ['Nenhuma tarefa encontrada. Verifique a coluna de nomes.'] };
+
+    // Cunha ids únicos (base crescente inclui as etapas atuais + as já criadas)
+    let base = etapas.slice();
+    items.forEach(it => {
+      it.id = nextEtapaId(base);
+      it.displayId = nextDisplayId(base);
+      base = [...base, { id: it.id, displayId: it.displayId }];
+    });
+
+    // Resolve parentId: por código EAP (1, 1.1, 1.1.2) ou por coluna de nível
+    const useCode = items.some(it => /\d+\.\d+/.test(it.code)) || (codeIdx >= 0 && items.every(it => it.code));
+    const codeMap = {};
+    const stack = [];
+    items.forEach(it => {
+      let parentId = null;
+      if (useCode && it.code) {
+        const parts = it.code.split('.').filter(Boolean);
+        const parentCode = parts.slice(0, -1).join('.');
+        parentId = parentCode ? (codeMap[parentCode] ?? null) : null;
+        codeMap[it.code] = it.id;
+      } else if (it.level != null && !Number.isNaN(it.level)) {
+        while (stack.length && stack[stack.length - 1].level >= it.level) stack.pop();
+        parentId = stack.length ? stack[stack.length - 1].id : null;
+        stack.push({ level: it.level, id: it.id });
+      }
+      it.parentId = parentId;
+    });
+
+    // Distribui datas em cascata só nas folhas (grupos têm datas calculadas depois)
+    const childCount = {};
+    items.forEach(it => { if (it.parentId) childCount[it.parentId] = (childCount[it.parentId] || 0) + 1; });
+    let cursor = 0;
+    const nodes = items.map(it => {
+      const isLeaf = !childCount[it.id];
+      const dur    = isLeaf ? (it.dur || 1) : 1;
+      const inicio = isLeaf ? cursor : 0;
+      if (isLeaf) cursor += dur;
+      return { ...it, isLeaf, dur, inicio };
+    });
+    if (!useCode && levelIdx < 0) warnings.push('Sem coluna EAP ou Nível: todas as tarefas entraram no mesmo nível. Use recuo depois se precisar.');
+    return { nodes, warnings };
+  };
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    setFileName(file.name);
+    try {
+      const XLSX = await import('xlsx');
+      const buf = await file.arrayBuffer();
+      const wb  = XLSX.read(buf, { type: 'array' });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
+      setParsed(parseRows(matrix));
+      setStep(2);
+    } catch {
+      toast('Não foi possível ler o arquivo. Verifique se é um Excel/CSV válido.', { tone: 'danger', icon: 'alert' });
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const handleConfirm = () => {
+    const nodes = parsed?.nodes || [];
+    if (!nodes.length) return;
+    const novos = nodes.map(n => ({
+      id: n.id, displayId: n.displayId, etapa: n.name,
+      nivel: 0, parentId: n.parentId, isGroup: false, collapsed: false,
+      inicio: n.inicio, dur: n.dur, avanco: 0, status: 'upcoming',
+      dep: [], milestone: false, responsavel: '',
+      custo: 0, custoRealizado: 0, showInDist: false,
+      restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
+      customCols: emptyCustomCols(customCols),
+    }));
+    let novas = recomputeHierarchy([...etapas, ...novos]);
+    novas = updateParentBounds(novas);
+    onCommit(novas);
+    toast(`EAP importada: ${nodes.length} tarefa${nodes.length !== 1 ? 's' : ''} adicionada${nodes.length !== 1 ? 's' : ''}.`, { tone: 'success', icon: 'check' });
+    onClose();
+  };
+
+  const nodes = parsed?.nodes || [];
+  const depthOf = (id) => { let d = 0, cur = nodes.find(n => n.id === id); while (cur && cur.parentId) { d++; cur = nodes.find(n => n.id === cur.parentId); } return d; };
+  const isGroupNode = (id) => nodes.some(n => n.parentId === id);
+
+  return (
+    <Modal
+      title="Importar EAP de planilha"
+      subtitle={step === 1 ? 'Passo 1 de 2 — Escolher arquivo' : 'Passo 2 de 2 — Conferir e importar'}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={step === 1 ? onClose : () => { setStep(1); setParsed(null); }}>
+            {step === 1 ? 'Cancelar' : 'Voltar'}
+          </button>
+          {step === 2 && (
+            <button className="btn btn-primary" disabled={!nodes.length} onClick={handleConfirm}>
+              Importar {nodes.length} tarefa{nodes.length !== 1 ? 's' : ''}
+            </button>
+          )}
+        </>
+      }
+    >
+      {step === 1 && (
+        <div>
+          <p style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
+            Selecione um arquivo Excel (.xlsx/.xls) ou CSV. A hierarquia vem do código EAP
+            (<strong>1</strong>, <strong>1.1</strong>, <strong>1.1.2</strong>) ou de uma coluna <strong>Nível</strong>.
+            Colunas reconhecidas: <strong>EAP</strong>, <strong>Nome</strong>, <strong>Duração</strong> (opcional).
+          </p>
+          <div
+            onClick={() => fileRef.current?.click()}
+            style={{
+              border: '2px dashed var(--border)', borderRadius: 10, padding: '32px 16px',
+              textAlign: 'center', cursor: 'pointer', background: 'var(--surface-muted)',
+            }}
+          >
+            <Icon name="upload" size={26} />
+            <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600 }}>
+              {busy ? 'Lendo arquivo...' : 'Clique para escolher a planilha'}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-faint)' }}>.xlsx, .xls ou .csv</div>
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            style={{ display: 'none' }}
+            onChange={e => handleFile(e.target.files?.[0])}
+          />
+        </div>
+      )}
+
+      {step === 2 && (
+        <div>
+          {parsed?.warnings?.map((w, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, fontSize: 12.5, color: 'var(--warning, #a15c00)' }}>
+              <Icon name="alert-triangle" size={14} /> {w}
+            </div>
+          ))}
+          {!nodes.length ? (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              Nenhuma tarefa foi reconhecida no arquivo <strong>{fileName}</strong>.
+            </p>
+          ) : (
+            <>
+              <p style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+                <strong>{fileName}</strong> — {nodes.length} tarefa{nodes.length !== 1 ? 's' : ''} pronta{nodes.length !== 1 ? 's' : ''} para adicionar ao fim do cronograma.
+              </p>
+              <div style={{ maxHeight: 340, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                {nodes.map(n => (
+                  <div key={n.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '6px 14px', borderBottom: '1px solid var(--border)',
+                  }}>
+                    <span style={{
+                      paddingLeft: depthOf(n.id) * 18, fontSize: 13, flex: 1,
+                      fontWeight: isGroupNode(n.id) ? 600 : 400,
+                    }}>{n.name}</span>
+                    {!isGroupNode(n.id) && (
+                      <span style={{ fontSize: 11.5, color: 'var(--text-faint)', fontVariantNumeric: 'tabular-nums' }}>
+                        {n.dur} dia{n.dur !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
     </Modal>

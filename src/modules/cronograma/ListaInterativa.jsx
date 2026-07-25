@@ -14,7 +14,7 @@ import {
   createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
   computeGroupValues, moveTaskBlock,
 } from './scheduleEngine';
-import { AddColModal, RowHeightModal, PavimentosModal } from './cronogramaModais';
+import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal } from './cronogramaModais';
 import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, respInitials, respColor, VIRT_MIN,
@@ -27,6 +27,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [showAddCol,     setShowAddCol]     = React.useState(false);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id da tarefa a excluir
   const [showPavimentos, setShowPavimentos] = React.useState(false);
+  const [showImportEAP, setShowImportEAP] = React.useState(false);
   const [showRowHDialog, setShowRowHDialog] = React.useState(false); // caixa "Altura da linha"
   const [rowHDialogTargets, setRowHDialogTargets] = React.useState([]); // linhas alvo da altura
   const [pendingFontSize, setPendingFontSize] = React.useState(null); // tamanho armado p/ texto novo
@@ -1742,6 +1743,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={rowStyle}>
+                          <button style={cmdBtn} onClick={() => setShowImportEAP(true)} title="Importar uma EAP pronta de planilha Excel/CSV">
+                            <Icon name="upload" size={13} /> Importar EAP
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>EAP</div>
+                    </div>
+
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
                           <button style={cmdBtn} onClick={() => setShowAddCol(true)} title="Adicionar coluna personalizada">
                             <Icon name="plus" size={13} /> Nova coluna
                           </button>
@@ -2666,6 +2678,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           customCols={customCols}
           onCommit={onCommit}
           onClose={() => setShowPavimentos(false)}
+        />
+      )}
+
+      {/* Modal de importação de EAP (Excel/CSV) */}
+      {showImportEAP && (
+        <ImportarEAPModal
+          etapas={etapas}
+          customCols={customCols}
+          onCommit={onCommit}
+          onClose={() => setShowImportEAP(false)}
         />
       )}
 
