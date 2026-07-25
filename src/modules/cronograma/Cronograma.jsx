@@ -1426,6 +1426,19 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     try { const raw = localStorage.getItem('ls_crono_feriados_' + obraSel); setFeriadosCfg(raw ? JSON.parse(raw) : { dias: [], sabadoUtil: false }); }
     catch { setFeriadosCfg({ dias: [], sabadoUtil: false }); }
   }, [obraSel]);
+  // Preferências de visualização estilo MS Project (Mostrar/Ocultar), por obra.
+  const [viewCfg, setViewCfg] = React.useState({ projSummary: false, summaryTasks: true });
+  React.useEffect(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('crono_view_' + obraSel) || 'null');
+      setViewCfg({ projSummary: v?.projSummary ?? false, summaryTasks: v?.summaryTasks ?? true });
+    } catch { setViewCfg({ projSummary: false, summaryTasks: true }); }
+  }, [obraSel]);
+  const setViewPref = (patch) => setViewCfg(prev => {
+    const next = { ...prev, ...patch };
+    try { localStorage.setItem('crono_view_' + obraSel, JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
   // Salva explicitamente (evita corromper ao trocar de obra com um efeito keyed em obraSel).
   const saveFeriados = (next) => {
     setFeriadosCfg(next);
@@ -2009,7 +2022,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}
                           onSalvarRep={() => setShowCriarRep(true)} onGerenciarReps={() => setShowGerenciarRep(true)}
                           onFeriados={() => setShowFeriados(true)} onOutlineLevel={applyOutlineLevel}
-                          onProjectInfo={() => setShowProjInfo(true)} />
+                          onProjectInfo={() => setShowProjInfo(true)}
+                          obraNome={obra?.nome || 'Projeto'}
+                          showProjSummary={viewCfg.projSummary} showSummaryTasks={viewCfg.summaryTasks}
+                          onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
+                          onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })} />
                       </div>
                     </div>
 
@@ -2201,6 +2218,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   onFeriados={() => setShowFeriados(true)}
                   onOutlineLevel={applyOutlineLevel}
                   onProjectInfo={() => setShowProjInfo(true)}
+                  obraNome={obra?.nome || 'Projeto'}
+                  showProjSummary={viewCfg.projSummary}
+                  showSummaryTasks={viewCfg.summaryTasks}
+                  onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
+                  onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })}
                 />
               )}
 

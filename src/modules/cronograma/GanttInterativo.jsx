@@ -18,7 +18,8 @@ import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN } from './cronogramaShared';
 
 export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
-  baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo }) => {
+  baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
+  obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
@@ -558,8 +559,12 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
     } finally { setExportingPDF(false); }
   };
 
-  // Filtra linhas ocultas por collapse — respeita grupos recolhidos
-  const visible = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+  // Filtra linhas ocultas por collapse — respeita grupos recolhidos.
+  // "Tarefas Resumo" desmarcado (estilo MS Project): oculta as linhas de grupo.
+  const visible = React.useMemo(() => {
+    const v = getVisibleEtapas(etapas);
+    return showSummaryTasks ? v : v.filter(e => !e.isGroup);
+  }, [etapas, showSummaryTasks]);
   // Índice por id no conjunto VISÍVEL (para as setas de dependência casarem com as barras
   // mesmo com grupos recolhidos — antes usava o índice em `etapas`, um bug latente).
   const visIdx = React.useMemo(() => new Map(visible.map((e, i) => [e.id, i])), [visible]);
@@ -1023,6 +1028,21 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   </div>
                   <div style={caption}>Estrutura</div>
                 </div>
+
+                {/* Mostrar/Ocultar (estilo MS Project) */}
+                <div style={groupBox}>
+                  <div style={{ ...groupContent, justifyContent: 'center', alignItems: 'flex-start', gap: 7 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      <input type="checkbox" checked={showProjSummary} onChange={() => onToggleProjSummary?.()} style={{ accentColor: 'var(--brand)' }} />
+                      Tarefa Resumo do Projeto
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      <input type="checkbox" checked={showSummaryTasks} onChange={() => onToggleSummaryTasks?.()} style={{ accentColor: 'var(--brand)' }} />
+                      Tarefas Resumo
+                    </label>
+                  </div>
+                  <div style={caption}>Mostrar/Ocultar</div>
+                </div>
               </>
             )}
 
@@ -1240,6 +1260,47 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
               </div>
             )}
           </div>
+
+          {/* Tarefa Resumo do Projeto: linha 0 sintética + barra que cobre a obra inteira */}
+          {showProjSummary && (() => {
+            const leaves = etapas.filter(x => !x.isGroup);
+            if (!leaves.length) return null;
+            const pInicio = Math.min(...leaves.map(x => x.inicio));
+            const pFim    = Math.max(...leaves.map(x => workEnd(x.inicio, x.dur)));
+            const wt = (x) => x.custo || 0;
+            const tp = leaves.reduce((s, x) => s + wt(x), 0);
+            const pAvanco = !tp
+              ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length)
+              : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * wt(x), 0) / tp);
+            const left  = pInicio * zoomDayW + 3;
+            const width = Math.max((pFim - pInicio) * zoomDayW - 6, 10);
+            return (
+              <React.Fragment key="__projsummary">
+                <div style={{
+                  height: GM_ROW_H, padding: '0 10px 0 15px',
+                  borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
+                  borderLeft: '3px solid var(--brand)',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  fontSize: 12.5, fontWeight: 700, color: 'var(--brand)',
+                  position: 'sticky', left: 0, zIndex: 5, background: 'var(--brand-50)',
+                }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', minWidth: 30, flexShrink: 0 }}>0</span>
+                  <span style={{ width: 16, flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{obraNome}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, fontFamily: 'var(--font-mono)', minWidth: 28, textAlign: 'right' }}>{pAvanco}%</span>
+                </div>
+                <div style={{ position: 'relative', height: GM_ROW_H, borderBottom: '1px solid var(--border)', background: 'var(--brand-50)' }}>
+                  <div title={`${obraNome} — resumo do projeto`} style={{
+                    position: 'absolute', left, width, top: '50%', transform: 'translateY(-50%)',
+                    height: 9, background: 'var(--brand)', borderRadius: 2,
+                  }}>
+                    <span style={{ position: 'absolute', left: 0, top: '100%', width: 0, height: 0, borderLeft: '5px solid var(--brand)', borderBottom: '5px solid transparent' }} />
+                    <span style={{ position: 'absolute', right: 0, top: '100%', width: 0, height: 0, borderRight: '5px solid var(--brand)', borderBottom: '5px solid transparent' }} />
+                  </div>
+                </div>
+              </React.Fragment>
+            );
+          })()}
 
           {/* ── Linhas das etapas (virtualizadas acima de VIRT_MIN) ───────── */}
           {topPad > 0 && <div style={{ gridColumn: '1 / -1', height: topPad }} />}

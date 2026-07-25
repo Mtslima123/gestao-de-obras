@@ -21,7 +21,8 @@ import {
 } from './cronogramaShared';
 
 export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false,
-  baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo }) => {
+  baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
+  obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showAddCol,     setShowAddCol]     = React.useState(false);
@@ -323,11 +324,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Aplica filtros de busca sobre as linhas visíveis
   const filtrada = React.useMemo(() =>
     visible.filter(e =>
+      (showSummaryTasks || !e.isGroup) &&
       (!busca || e.etapa.toLowerCase().includes(busca.toLowerCase())) &&
       (!filtroStatus || effStatus(e) === filtroStatus) &&
       (!filtroResp || (e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase()))
     ),
-    [visible, busca, filtroStatus, filtroResp]
+    [visible, busca, filtroStatus, filtroResp, showSummaryTasks]
   );
 
   // Virtualização (windowing) da Lista — ativa só acima de VIRT_MIN. Abaixo, renderiza
@@ -1861,6 +1863,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <div style={caption}>Estrutura</div>
                     </div>
 
+                    {/* Mostrar/Ocultar (estilo MS Project) */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center', alignItems: 'flex-start', gap: 7 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          <input type="checkbox" checked={showProjSummary} onChange={() => onToggleProjSummary?.()} style={{ accentColor: 'var(--brand)' }} />
+                          Tarefa Resumo do Projeto
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          <input type="checkbox" checked={showSummaryTasks} onChange={() => onToggleSummaryTasks?.()} style={{ accentColor: 'var(--brand)' }} />
+                          Tarefas Resumo
+                        </label>
+                      </div>
+                      <div style={caption}>Mostrar/Ocultar</div>
+                    </div>
+
                     {/* Dados (limpar filtros) */}
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
@@ -2026,6 +2043,43 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             </tr>
           </thead>
           <tbody>
+            {/* Tarefa Resumo do Projeto: linha 0 sintética que agrega a obra inteira (só leitura) */}
+            {showProjSummary && (() => {
+              const leaves = etapas.filter(x => !x.isGroup);
+              const projInicio = leaves.length ? Math.min(...leaves.map(x => x.inicio)) : 0;
+              const projFim    = leaves.length ? Math.max(...leaves.map(x => taskEnd(x))) : 0;
+              const projDur    = Math.max(0, projFim - projInicio);
+              const w  = (x) => hasVinculos ? (valorVinculadoMap[x.id] || 0) : (x.custo || 0);
+              const tp = leaves.reduce((s, x) => s + w(x), 0);
+              const projAvanco = !tp
+                ? (leaves.length ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length) : 0)
+                : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp);
+              const bg   = 'var(--brand-50)';
+              const num  = { textAlign: 'right', fontWeight: 700, fontSize: 12 };
+              const stick = (cid, extra) => ({ position: 'sticky', left: frozenLeft[cid], background: bg, zIndex: 1, ...extra });
+              const fmtDt = (o) => offsetToDate(o).toLocaleDateString('pt-BR');
+              const cellFor = {
+                wbs:   <td key="wbs" style={stick('wbs')} />,
+                id:    <td key="id" style={stick('id')} />,
+                etapa: <td key="etapa" style={stick('etapa', { fontWeight: 700, fontSize: 12.5, color: 'var(--brand)', boxShadow: '1px 0 0 var(--border)' })}><span style={{ paddingLeft: 10 }}>{obraNome}</span></td>,
+                inicio: <td key="inicio" className="mono text-sm">{leaves.length ? fmtDt(projInicio) : ''}</td>,
+                fim:    <td key="fim" className="mono text-sm">{leaves.length ? fmtDt(projFim) : ''}</td>,
+                duracao: <td key="duracao" className="mono num"><span className="text-muted mono" style={{ fontSize: 12 }}>{projDur}d</span></td>,
+                avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 50 }}><div className="progress groupbar"><span style={{ width: projAvanco + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{projAvanco}%</span></div></td>,
+                peso:   <td key="peso" className="num mono" style={num}>100%</td>,
+                custo:  <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
+                custoReal: <td key="custoReal" className="num mono" style={num}>{fmtBRL(totalReal)}</td>,
+                saldo:  <td key="saldo" className="num mono" style={{ ...num, color: totalSaldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalCustoEf - totalReal)}</td>,
+              };
+              return (
+                <tr style={{ fontWeight: 600, borderBottom: '2px solid var(--border)', background: bg, height: 40 }}>
+                  <td style={{ position: 'sticky', left: 0, zIndex: 2, background: bg, width: GUTTER_W, minWidth: GUTTER_W }} />
+                  {colOrder.filter(c => !hiddenCols.has(c)).map(c => cellFor[c] || <td key={c} />)}
+                  {customCols.filter(col => !hiddenCols.has(col.id)).map(col => <td key={col.id} />)}
+                  <td />
+                </tr>
+              );
+            })()}
             {virtualize && topPad > 0 && (
               <tr aria-hidden="true"><td colSpan={99} style={{ height: topPad, padding: 0, border: 'none' }} /></tr>
             )}
