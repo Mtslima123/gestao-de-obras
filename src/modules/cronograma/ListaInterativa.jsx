@@ -708,6 +708,68 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     }
     return map;
   };
+  // ── Barra de status estilo Excel (Contagem / Soma / Média da seleção) ───────
+  // Colunas numéricas embutidas e o "tipo" de cada uma (define o formato do resultado).
+  const NUM_COL_KIND = {
+    duracao: 'number', fatorPeso: 'number',
+    avanco: 'percent', peso: 'percent',
+    custo: 'currency', custoReal: 'currency', saldo: 'currency', valorVinculado: 'currency',
+  };
+  const colNumericKind = (colId) => {
+    if (NUM_COL_KIND[colId]) return NUM_COL_KIND[colId];
+    const cc = customCols.find(c => c.id === colId);
+    if (cc) {
+      if (cc.type === 'currency') return 'currency';
+      if (cc.type === 'percent')  return 'percent';
+      if (cc.type === 'duration' || cc.type === 'number') return 'number';
+    }
+    return null;
+  };
+  // Valor numérico de uma célula, com a MESMA resolução do getCellVal (grupos e derivados).
+  const cellNumericValue = (e, colId) => {
+    const gv = e.isGroup ? groupVals[e.id] : null;
+    const realCst = () => e.isGroup
+      ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+      : (e.custoRealizado || 0);
+    switch (colId) {
+      case 'duracao':  return gv ? gv.dur : e.dur;
+      case 'avanco':   return (gv ? gv.avanco : e.avanco) / 100;
+      case 'custo':    return custoEf(e, gv);
+      case 'custoReal': return realCst();
+      case 'saldo':    return custoEf(e, gv) - realCst();
+      case 'peso':
+        if (e.isGroup) return null;
+        if (hasVinculos && totalValorVinculado > 0) return (valorVinculadoMap[e.id] || 0) / totalValorVinculado;
+        return (e.custo || 0) / (totalCusto || 1);
+      case 'fatorPeso':      return e.isGroup ? null : (e.fator_peso ?? 1);
+      case 'valorVinculado': { const v = valorVinculadoMap[e.id]; return Number.isFinite(v) ? v : null; }
+      default: {
+        if (colNumericKind(colId)) { const n = Number(e.customCols?.[colId]); return Number.isFinite(n) ? n : null; }
+        return null;
+      }
+    }
+  };
+  // Agrega a seleção atual: Contagem/Soma/Média das células numéricas (>= 2 células).
+  const selectionStats = () => {
+    const cells = rangeCellList();
+    if (cells.length < 2) return null;
+    const kinds = new Set();
+    let count = 0, sum = 0;
+    for (const { taskId, colId } of cells) {
+      if (!colNumericKind(colId)) continue;
+      const e = etapas.find(x => x.id === taskId);
+      if (!e) continue;
+      const v = cellNumericValue(e, colId);
+      if (v === null || v === undefined || !Number.isFinite(v)) continue;
+      count++; sum += v; kinds.add(colNumericKind(colId));
+    }
+    if (!count) return null;
+    const kind = kinds.size === 1 ? [...kinds][0] : 'number';
+    const fmt = (v) => kind === 'currency' ? fmtBRL(v)
+      : kind === 'percent' ? (v * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '%'
+      : v.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+    return { count, soma: fmt(sum), media: fmt(sum / count) };
+  };
   const cleanFmtObj = (obj) => { Object.keys(obj).forEach(k => { if (obj[k] === null || obj[k] === undefined || obj[k] === false || obj[k] === '') delete obj[k]; }); return obj; };
   // Aplica um patch de formatação a várias células num ÚNICO commit
   const applyFmtToCells = (cellsList, patch) => {
@@ -2529,6 +2591,25 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           <div className="copy-marquee" style={{ position: 'absolute', left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height, pointerEvents: 'none', zIndex: 4 }} />
         )}
       </div>
+
+      {/* Barra de status estilo Excel: Contagem/Soma/Média da seleção (só com 2+ células numéricas) */}
+      {(() => {
+        const st = selectionStats();
+        if (!st) return null;
+        const item = { display: 'inline-flex', gap: 5, alignItems: 'baseline' };
+        const val = { color: 'var(--text)', fontWeight: 700 };
+        return (
+          <div style={{
+            flexShrink: 0, height: 24, borderTop: '1px solid var(--border)', background: 'var(--surface)',
+            color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            gap: 20, padding: '0 16px', fontSize: 11.5, fontVariantNumeric: 'tabular-nums',
+          }}>
+            <span style={item}>Contagem:<span style={val}>{st.count}</span></span>
+            <span style={item}>Soma:<span style={val}>{st.soma}</span></span>
+            <span style={item}>Média:<span style={val}>{st.media}</span></span>
+          </div>
+        );
+      })()}
 
       {showAddCol && <AddColModal onClose={() => setShowAddCol(false)} onAdd={handleAddCol} />}
 
