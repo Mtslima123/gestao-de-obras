@@ -20,11 +20,16 @@ import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, respInitials, respColor, VIRT_MIN,
   ColumnHeaderFilterMenu, resolveColType, FILTER_BLANK_KEY,
+  buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter,
 } from './cronogramaShared';
 
 export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
-  obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks }) => {
+  pavimentosSalvos = [], onPavimentosCriados,
+  obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
+  filtroStatus = '', setFiltroStatus, filtroResp = '', setFiltroResp,
+  filtroPreset = '', setFiltroPreset, filtroPresetRange = { de: '', ate: '' }, setFiltroPresetRange,
+  filtroTaskIds = [], setFiltroTaskIds }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showTaskForm,   setShowTaskForm]   = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
@@ -60,8 +65,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [openModoMenu]);
-  const [filtroStatus,   setFiltroStatus]   = React.useState('');
-  const [filtroResp,     setFiltroResp]     = React.useState('');
   // Linha "Nova tarefa" (k) que está só SELECIONADA (clicou, ainda não digitou nada) —
   // mostra destaque de seleção sem cursor piscando, até a primeira tecla de verdade.
   const [blankSelectedIdx, setBlankSelectedIdx] = React.useState(null);
@@ -179,6 +182,20 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     [etapas]
   );
   const visible     = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+  // Sugestões (datalist) das colunas "Lista com sugestão automática": valores já digitados em
+  // qualquer linha da mesma coluna, sem restringir a digitação a essa lista (livre, não fixa).
+  const autocompleteOptionsByCol = React.useMemo(() => {
+    const out = {};
+    customCols.filter(c => c.type === 'autocomplete').forEach(c => {
+      out[c.id] = [...new Set(etapas.map(e => (e.customCols || {})[c.id]).filter(Boolean))];
+    });
+    return out;
+  }, [etapas, customCols]);
+  // Sugestões da coluna fixa "Pavimento" — mesmo mecanismo, alimentado por e.pavimento.
+  const pavimentoOptions = React.useMemo(
+    () => [...new Set(etapas.map(e => e.pavimento).filter(Boolean))],
+    [etapas]
+  );
   const groupVals   = React.useMemo(() => computeGroupValues(etapas), [etapas]);
   const totalCusto  = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), [etapas]);
   const totalReal   = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custoRealizado || 0), 0), [etapas]);
@@ -279,6 +296,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas); return { raw: v, label: v === '—' ? '' : v }; }
       case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', '); return { raw: v, label: v }; }
       case 'resp': { const v = e.isGroup ? '' : (e.responsavel || ''); return { raw: v, label: v }; }
+      case 'pavimento': { const v = e.isGroup ? '' : (e.pavimento || ''); return { raw: v, label: v }; }
       case 'participa': { if (e.isGroup) return { raw: null, label: '' }; const v = e.showInDist ? 'Sim' : 'Não'; return { raw: v, label: v }; }
       default: {
         const cc = customCols.find(c => c.id === colId);
@@ -352,14 +370,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // ativos (cross-filter, estilo Excel) — assim a lista não mostra opção que já daria zero linhas.
   const buildDomainEntries = React.useCallback((colId) => {
     const rest = Object.fromEntries(Object.entries(columnFilters).filter(([cid]) => cid !== colId));
+    const passesGlobal = buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, etapas });
     const rows = visible.filter(e =>
       (showSummaryTasks || !e.isGroup) &&
-      (!filtroStatus || effStatus(e) === filtroStatus) &&
-      (!filtroResp || (e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase())) &&
+      passesGlobal(e) &&
       Object.entries(rest).every(([cid, f]) => !f?.excluded?.length || !f.excluded.includes(filterKeyOf(cid, e)))
     );
     return rows.map(e => colFilterValue(e, colId));
-  }, [columnFilters, visible, showSummaryTasks, filtroStatus, filtroResp, filterKeyOf, colFilterValue]);
+  }, [columnFilters, visible, showSummaryTasks, filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, etapas, filterKeyOf, colFilterValue]);
 
   const dragColRef = React.useRef(null);
   const [dragOverCol, setDragOverCol] = React.useState(null); // { id, side: 'before' | 'after' }
@@ -517,14 +535,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   // Aplica filtros sobre as linhas visíveis
   const filtrada = React.useMemo(() => {
+    const passesGlobal = buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, etapas });
     const base = visible.filter(e =>
       (showSummaryTasks || !e.isGroup) &&
-      (!filtroStatus || effStatus(e) === filtroStatus) &&
-      (!filtroResp || (e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase())) &&
+      passesGlobal(e) &&
       passesColumnFilters(e)
     );
     return applySiblingSort(base, sortSpec);
-  }, [visible, filtroStatus, filtroResp, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, etapas, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Virtualização (windowing) da Lista — ativa só acima de VIRT_MIN. Abaixo, renderiza
   // todas as linhas (comportamento atual). Altura variável (rowH + overrides por linha)
@@ -1420,6 +1438,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       'data-ck': taskId + '|' + colId,
       onMouseDown: (ev) => {
         if (ev.button !== 0) return; // só o clique esquerdo mexe na seleção; o direito abre o menu
+        // Clicar em qualquer célula sai do modo "coluna selecionada" (Ctrl+clique no cabeçalho) —
+        // a partir daqui a seleção passa a ser de célula/linha, não mais de coluna inteira.
+        if (multiSelCols.length) setMultiSelCols([]);
         // Pincel de formatação ativo: aplica a formatação capturada nesta célula e desliga
         if (painterOn && painterRef.current) {
           ev.preventDefault();
@@ -1850,43 +1871,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   return (
     <>
-    {/* Card comum: barra de filtros — rola para fora ao rolar a página (as ações ficam no ribbon do card fixo) */}
-    <div className="card" style={{ marginTop: 'var(--gap)' }}>
-
-      {/* ── Barra de filtros ─────────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', gap: 8, padding: '8px 16px', alignItems: 'center',
-        borderBottom: '1px solid var(--border)', flexWrap: 'wrap',
-        background: 'var(--bg-app)',
-      }}>
-        <select
-          className="input" style={{ height: 30, fontSize: 12 }}
-          value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}
-        >
-          <option value="">Todos os status</option>
-          <option value="done">Concluída</option>
-          <option value="late">Atrasada</option>
-          <option value="upcoming">Futura</option>
-        </select>
-        <input
-          className="input" style={{ height: 30, fontSize: 12, minWidth: 130 }}
-          placeholder="Responsável..."
-          value={filtroResp} onChange={e => setFiltroResp(e.target.value)}
-        />
-        {(filtroStatus || filtroResp || Object.keys(columnFilters).length > 0 || sortSpec) && (
-          <button className="btn btn-ghost" style={{ height: 30, fontSize: 12 }}
-            onClick={() => { setFiltroStatus(''); setFiltroResp(''); setColumnFilters({}); setSortSpec(null); }}>
-            Limpar filtros
-          </button>
-        )}
-        {(filtroStatus || filtroResp || Object.keys(columnFilters).length > 0) && (
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            {filtrada.length} de {visible.length} exibidas
-          </span>
-        )}
-      </div>
-    </div>{/* fim card comum (filtros) */}
-
     {/* Sentinela: marca onde o card fixo começa (para detectar quando prender) */}
     <div ref={listaSentinelRef} aria-hidden="true" style={{ height: 0 }} />
     {/* Espaçador: preserva a altura do fluxo quando o card fixo sai do fluxo (position:fixed) */}
@@ -1902,7 +1886,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       {/* ── Menu em abas (ribbon estilo MS Project): Tarefa | Inserir | Exibir ─── */}
       {(() => {
         const hasTarget = !!(selectedCell || selectedId);
-        const temFiltro = !!(filtroStatus || filtroResp || Object.keys(columnFilters).length || sortSpec);
+        const temFiltro = !!(filtroStatus || filtroResp || filtroPreset || filtroTaskIds.length || Object.keys(columnFilters).length || sortSpec);
+        const limparFiltros = () => {
+          setFiltroStatus(''); setFiltroResp('');
+          setFiltroPreset?.(''); setFiltroPresetRange?.({ de: '', ate: '' }); setFiltroTaskIds?.([]);
+          setColumnFilters({}); setSortSpec(null);
+        };
         const tglStyle = (on) => ({
           ...btnStyle, height: 28, padding: '2px 9px', fontWeight: 700,
           background: on ? 'var(--brand)' : 'var(--surface)', color: on ? '#fff' : 'var(--text)',
@@ -1925,10 +1914,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const caption = { textAlign: 'center', fontSize: 9.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 3 };
         const tabBtn = (on) => ({ padding: '6px 15px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? 'var(--surface)' : 'transparent', color: on ? 'var(--brand)' : 'var(--text-muted)', borderBottom: on ? '2px solid var(--brand)' : '2px solid transparent' });
 
-        // Abas: Tarefa/Inserir só quando editável; Exibir e Cadastro sempre.
+        // Abas: Tarefa/Inserir só quando editável; Exibir, Filtro e Cadastro sempre.
         const tabs = readOnly
-          ? [{ id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }]
-          : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }];
+          ? [{ id: 'exibir', label: 'Exibir' }, { id: 'filtro', label: 'Filtro' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }]
+          : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }, { id: 'filtro', label: 'Filtro' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }];
         const curTab = tabs.some(t => t.id === activeTab) ? activeTab : tabs[0].id;
 
         return (
@@ -2267,7 +2256,75 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={rowStyle}>
-                          <button style={{ ...cmdBtn, opacity: temFiltro ? 1 : 0.5 }} disabled={!temFiltro} onClick={() => { setFiltroStatus(''); setFiltroResp(''); setColumnFilters({}); setSortSpec(null); }} title="Limpar todos os filtros">
+                          <button style={{ ...cmdBtn, opacity: temFiltro ? 1 : 0.5 }} disabled={!temFiltro} onClick={limparFiltros} title="Limpar todos os filtros">
+                            <Icon name="filter" size={13} /> Limpar filtros
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Dados</div>
+                    </div>
+                  </>
+                )}
+
+                {/* ══ Aba FILTRO ══ */}
+                {curTab === 'filtro' && (
+                  <>
+                    {/* Filtros rápidos: status, responsável, tarefa pai (mostra pai + toda a descendência) */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <select className="input" style={{ height: 26, fontSize: 12 }}
+                            value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+                            <option value="">Todos os status</option>
+                            <option value="done">Concluída</option>
+                            <option value="late">Atrasada</option>
+                            <option value="upcoming">Futura</option>
+                          </select>
+                          <input className="input" style={{ height: 26, fontSize: 12, minWidth: 130 }}
+                            placeholder="Responsável..." value={filtroResp} onChange={e => setFiltroResp(e.target.value)} />
+                        </div>
+                        <div style={rowStyle}>
+                          <TaskMultiSelectFilter
+                            etapas={etapas} wbsMap={wbsMap}
+                            selectedIds={filtroTaskIds} onApply={ids => setFiltroTaskIds?.(ids)}
+                          />
+                        </div>
+                        {temFiltro && (
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{filtrada.length} de {visible.length} exibidas</span>
+                        )}
+                      </div>
+                      <div style={caption}>Filtros rápidos</div>
+                    </div>
+
+                    {/* Filtros predefinidos, estilo MS Project */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <select className="input" style={{ height: 26, fontSize: 12, minWidth: 170 }}
+                            value={filtroPreset} onChange={e => setFiltroPreset?.(e.target.value)}>
+                            {FILTRO_PRESETS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                          </select>
+                        </div>
+                        {filtroPreset === 'intervalo' && (
+                          <div style={rowStyle}>
+                            <input type="date" className="input" style={{ height: 26, fontSize: 12 }}
+                              value={filtroPresetRange?.de || ''}
+                              onChange={e => setFiltroPresetRange?.(r => ({ ...(r || {}), de: e.target.value }))} />
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>até</span>
+                            <input type="date" className="input" style={{ height: 26, fontSize: 12 }}
+                              value={filtroPresetRange?.ate || ''}
+                              onChange={e => setFiltroPresetRange?.(r => ({ ...(r || {}), ate: e.target.value }))} />
+                          </div>
+                        )}
+                      </div>
+                      <div style={caption}>Filtros predefinidos</div>
+                    </div>
+
+                    {/* Dados (limpar filtros) */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={{ ...cmdBtn, opacity: temFiltro ? 1 : 0.5 }} disabled={!temFiltro} onClick={limparFiltros} title="Limpar todos os filtros">
                             <Icon name="filter" size={13} /> Limpar filtros
                           </button>
                         </div>
@@ -2543,7 +2600,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                          responde ao alinhamento, pra não quebrar a leitura da EAP. */}
                       <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: alignJC(effFmt(e, 'etapa').align) }}>
                         <EditableCell value={e.etapa} onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
-                          readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 12 : 11 }} />
+                          readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 12 : 11 }}
+                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
                       </div>
                     </div>
                   </td>
@@ -2551,13 +2609,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 inicio: (
                   <td key="inicio" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
                     <EditableCell type="date" value={offsetToISO(eInicio)}
-                      onSave={v => handleCellSave(e.id, 'inicio', v)} readOnly={readOnly || e.isGroup} />
+                      onSave={v => handleCellSave(e.id, 'inicio', v)} readOnly={readOnly || e.isGroup}
+                      onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
                   </td>
                 ),
                 fim: (
                   <td key="fim" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
                     <EditableCell type="date" value={offsetToISO(e.isGroup ? eInicio + eDur : workEnd(eInicio, eDur))}
-                      onSave={v => handleCellSave(e.id, 'fim', v)} readOnly={readOnly || e.isGroup} />
+                      onSave={v => handleCellSave(e.id, 'fim', v)} readOnly={readOnly || e.isGroup}
+                      onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
                   </td>
                 ),
                 duracao: (
@@ -2566,8 +2626,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <span className="text-muted mono" style={{ fontSize: 12 }}>{eDur}d</span>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: alignJC(effFmt(e, 'duracao').align) }}>
-                        <EditableCell type="number" value={String(e.dur)}
-                          onSave={v => handleCellSave(e.id, 'duracaoDias', v)} readOnly={readOnly} style={{ minWidth: 32 }} />
+                        {/* Largura fixa no wrapper (não no input): o input do EditableCell usa
+                           width:100% ao editar, então sem isso ele estica até a borda da coluna
+                           e empurra o "d" pra longe — o 100% precisa resolver contra uma caixa
+                           pequena, não contra a linha toda. */}
+                        <div style={{ width: 32, flexShrink: 0 }}>
+                          <EditableCell type="number" value={String(e.dur)}
+                            onSave={v => handleCellSave(e.id, 'duracaoDias', v)} readOnly={readOnly}
+                            onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                        </div>
                         <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>d</span>
                       </div>
                     )}
@@ -2584,7 +2651,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <EditableCell type="number" value={String(eAvanco)}
                           onSave={v => handleCellSave(e.id, 'avanco', v)} readOnly={readOnly || e.isGroup}
-                          style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 28 }} />
+                          style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 28 }}
+                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
                         <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
                       </div>
                     </div>
@@ -2603,7 +2671,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <input autoFocus type="number" min="0" defaultValue={e.custo || 0}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); }}
-                        onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); } if (ev.key === 'Escape') setEditingCusto(null); }}
+                        onKeyDown={ev => {
+                          ev.stopPropagation();
+                          if (ev.key === 'Enter') { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                        }}
                       />
                     ) : (
                       <span className="mono" style={{ fontSize: 12, cursor: 'text', display: 'block', textAlign: 'right' }}
@@ -2632,7 +2704,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         defaultValue={e.fator_peso ?? 1}
                         style={{ width: 72, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); }}
-                        onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); } if (ev.key === 'Escape') setEditingFatorPeso(null); }}
+                        onKeyDown={ev => {
+                          ev.stopPropagation();
+                          if (ev.key === 'Enter') { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Escape') { setEditingFatorPeso(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                        }}
                       />
                     ) : (
                       <span className="mono" style={{ cursor: 'text', display: 'block', textAlign: 'right' }}
@@ -2659,7 +2735,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <input autoFocus type="number" min="0" defaultValue={e.custoRealizado || 0}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); }}
-                        onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); } if (ev.key === 'Escape') setEditingCusto(null); }}
+                        onKeyDown={ev => {
+                          ev.stopPropagation();
+                          if (ev.key === 'Enter') { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                        }}
                       />
                     ) : (
                       <span className="mono" style={{ fontSize: 12, cursor: 'text', display: 'block', textAlign: 'right' }}
@@ -2688,8 +2768,18 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             {respInitials(e.responsavel)}
                           </span>
                         )}
-                        <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} readOnly={readOnly} style={{ fontSize: 12.5 }} />
+                        <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} readOnly={readOnly} style={{ fontSize: 12.5 }}
+                        onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
                       </div>
+                    )}
+                  </td>
+                ),
+                pavimento: (
+                  <td key="pavimento" onClick={ev => ev.stopPropagation()}>
+                    {e.isGroup ? null : (
+                      <EditableCell value={e.pavimento || ''} listId="dl-pavimento"
+                        onSave={v => handleCellSave(e.id, 'pavimento', v)} readOnly={readOnly} style={{ fontSize: 12.5 }}
+                        onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
                     )}
                   </td>
                 ),
@@ -2699,7 +2789,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <input autoFocus defaultValue={formatDepList(e.dep, etapas)}
                         style={{ width: '100%', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); }}
-                        onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); } if (ev.key === 'Escape') setEditingDep(null); }} />
+                        onKeyDown={ev => {
+                          ev.stopPropagation();
+                          if (ev.key === 'Enter') { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                        }} />
                     ) : (() => {
                       const parts = formatDepList(e.dep, etapas).split(',').map(s => s.trim()).filter(p => p && p !== '—');
                       return (
@@ -2766,7 +2860,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <EditableCell type="date" value={e.restricaoData || ''}
                         onSave={v => handleCellSave(e.id, 'restricao', v)}
                         readOnly={readOnly}
-                        style={{ fontSize: 12.5 }} />
+                        style={{ fontSize: 12.5 }}
+                        onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
                     )}
                   </td>
                 ),
@@ -2807,7 +2902,22 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     const alreadyHandled = rowClickHandledRef.current;
                     rowClickHandledRef.current = false;
                     if (alreadyHandled) return;
-                    if (ev.ctrlKey || ev.metaKey) {
+                    if (ev.shiftKey) {
+                      // Shift+clique: estende a seleção da última âncora (linha selecionada ou
+                      // última do multiSel) até a linha clicada, na ordem visível (filtrada).
+                      ev.preventDefault();
+                      const rows = filtrada.map(x => x.id);
+                      const anchorId = selectedId ?? (multiSel.length ? multiSel[multiSel.length - 1] : null);
+                      const i1 = anchorId != null ? rows.indexOf(anchorId) : -1;
+                      const i2 = rows.indexOf(e.id);
+                      if (i1 === -1 || i2 === -1) {
+                        setSelectedId(e.id);
+                        setMultiSel([]);
+                      } else {
+                        const [lo, hi] = i1 <= i2 ? [i1, i2] : [i2, i1];
+                        setMultiSel(rows.slice(lo, hi + 1));
+                      }
+                    } else if (ev.ctrlKey || ev.metaKey) {
                       ev.preventDefault();
                       setMultiSel(ms => ms.includes(e.id) ? ms.filter(id => id !== e.id) : [...ms, e.id]);
                     } else {
@@ -2869,6 +2979,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       ev.stopPropagation(); ev.preventDefault();
                       const cols = visibleColIds();
                       if (!cols.length) return;
+                      if (multiSelCols.length) setMultiSelCols([]);
+                      if (ev.shiftKey && selAnchor) {
+                        // Shift+clique na calha: estende da âncora atual até esta linha — mesmo
+                        // intervalo de células que o arraste já produz, só que num clique só.
+                        setSelectedCell({ taskId: e.id, colId: cols[cols.length - 1] });
+                        rowClickHandledRef.current = true;
+                        listaScrollRef.current?.focus?.({ preventScroll: true });
+                        return;
+                      }
                       rowSelectingRef.current = true;
                       rowSelAnchorRef.current = e.id;
                       isSelectingRef.current = false;
@@ -2928,13 +3047,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     else if (col.type === 'currency') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()} className="num" style={{ textAlign: 'right' }}>
                         <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)}
-                          readOnly={readOnly} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+                          readOnly={readOnly} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
                       </td>
                     );
                     else if (col.type === 'percent') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: alignJC(effFmt(e, col.id).align) }}>
-                          <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
+                          <div style={{ width: 50, flexShrink: 0 }}>
+                            <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly}
+                              onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                          </div>
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
                         </div>
                       </td>
@@ -2942,14 +3065,25 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     else if (col.type === 'duration') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: alignJC(effFmt(e, col.id).align) }}>
-                          <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
+                          <div style={{ width: 50, flexShrink: 0 }}>
+                            <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly}
+                              onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                          </div>
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>d</span>
                         </div>
                       </td>
                     );
+                    else if (col.type === 'autocomplete') cell = (
+                      <td key={col.id} onClick={ev => ev.stopPropagation()}>
+                        <EditableCell type="text" value={cellVal} listId={`dl-${col.id}`}
+                          onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly}
+                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                      </td>
+                    );
                     else cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                        <EditableCell type={col.type} value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
+                        <EditableCell type={col.type} value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly}
+                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
                       </td>
                     );
                     return decorateCell(cell, col.id, e.id, e.fmt, rangeEdges.get(e.id + '|' + col.id));
@@ -2966,7 +3100,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             {/* Linhas em branco (estilo Project/Excel): digitar o nome cria a tarefa.
                Só quando editável e sem filtro; caso contrário mostra a mensagem de estado vazio. */}
             {(() => {
-              const semFiltro = !filtroStatus && !filtroResp && !Object.keys(columnFilters).length;
+              const semFiltro = !filtroStatus && !filtroResp && !filtroPreset && !filtroTaskIds.length && !Object.keys(columnFilters).length;
               const visCols = colOrder.filter(c => !hiddenCols.has(c));
               const visCustom = customCols.filter(col => !hiddenCols.has(col.id));
               const blankFrozen = (colId) => ({ position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: 'var(--surface)' });
@@ -3091,6 +3225,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             })()}
           </tfoot>
         </table>
+        {Object.entries(autocompleteOptionsByCol).map(([colId, opts]) => (
+          <datalist key={colId} id={`dl-${colId}`}>
+            {opts.map(o => <option key={o} value={o} />)}
+          </datalist>
+        ))}
+        <datalist id="dl-pavimento">
+          {pavimentoOptions.map(o => <option key={o} value={o} />)}
+        </datalist>
         {marquee && (
           <div className="copy-marquee" style={{ position: 'absolute', left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height, pointerEvents: 'none', zIndex: 4 }} />
         )}
@@ -3191,6 +3333,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           etapas={etapas}
           customCols={customCols}
           onCommit={onCommit}
+          pavimentosSalvos={pavimentosSalvos}
+          onPavimentosCriados={onPavimentosCriados}
           onClose={() => setShowPavimentos(false)}
         />
       )}
@@ -3260,7 +3404,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             Altura da linha…
           </button>
           <hr />
-          <button className="danger" onClick={() => { setDeleteConfirm([ctxMenu.taskId]); setCtxMenu(null); }}>
+          <button className="danger" onClick={() => {
+            const ids = selectedRowIds(); ids.add(ctxMenu.taskId);
+            setDeleteConfirm([...ids]); setCtxMenu(null);
+          }}>
             Excluir tarefa
           </button>
         </div>

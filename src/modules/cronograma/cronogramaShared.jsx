@@ -5,7 +5,8 @@
 
 import React from "react";
 import { Icon } from "../../components/Icons";
-import { isoToBR, taskEnd } from "./cronogramaDateUtils";
+import { isoToBR, taskEnd, offsetToISO } from "./cronogramaDateUtils";
+import { effStatus, collectDescendantIds, computeSuccessors } from "./scheduleEngine";
 
 // ─── Constantes de timeline / layout ─────────────────────────────────────────
 export const GM_START_YEAR  = 2024;
@@ -112,7 +113,7 @@ export const gmConflicts = (etapas, overrides) => {
 };
 
 // ─── EditableCell ─────────────────────────────────────────────────────────────
-export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, style }) => {
+export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, style, listId, onExitEdit }) => {
   const [editing, setEditing] = React.useState(false);
   const [draft,   setDraft]   = React.useState(value);
   const inputRef = React.useRef(null);
@@ -129,8 +130,9 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
   const save = () => {
     setEditing(false);
     if (String(draft ?? '') !== String(value ?? '')) onSave(draft ?? '');
+    onExitEdit?.();
   };
-  const cancel = () => { setEditing(false); setDraft(value); };
+  const cancel = () => { setEditing(false); setDraft(value); onExitEdit?.(); };
 
   if (readOnly) {
     const raw     = value !== undefined && value !== null && value !== '' ? value : null;
@@ -156,6 +158,7 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
     <input
       ref={inputRef}
       type={type === 'number' ? 'number' : type === 'date' ? 'date' : 'text'}
+      list={listId}
       value={draft ?? ''}
       onChange={e => setDraft(e.target.value)}
       onBlur={save}
@@ -194,6 +197,7 @@ export const LISTA_COL_DEFS = {
   dep:       { label: 'Pred.',         defWidth: 90,  band: 'seq', type: 'text' },
   succ:      { label: 'Suces.',        defWidth: 90,  band: 'seq', type: 'text' },
   resp:      { label: 'Responsável',   defWidth: 152, band: 'seq', type: 'text' },
+  pavimento: { label: 'Pavimento',     defWidth: 110, band: 'seq', type: 'text' },
   restricao: { label: 'Restrição',     defWidth: 80,  band: 'seq', type: 'date' },
   participa:  { label: 'Curva',         defWidth: 54, align: 'center', band: 'seq', type: 'boolean' },
 };
@@ -214,6 +218,49 @@ export const resolveColType = (colId, customCols) => {
 // valor real exibido em célula.
 export const FILTER_BLANK_KEY = ' blank';
 export const LISTA_BAND_LABELS = { etapa: 'Etapa / Tarefa', prazo: 'Prazo', avanco: 'Avanço', fin: 'Financeiro', seq: 'Sequenciamento', custom: 'Personalizadas' };
+
+// ─── Filtro global (aba "Filtro" da Lista, também aplicado no Gantt) ─────────
+// Presets prontos, estilo MS Project. "Crítica" (caminho crítico) fica de fora:
+// o sistema ainda não calcula folga/caminho crítico (ver card "Folga Total" na página).
+export const FILTRO_PRESETS = [
+  { id: '',              label: 'Sem Filtro' },
+  { id: 'ativas',        label: 'Tarefas Ativas' },
+  { id: 'atrasadas',     label: 'Tarefas Atrasadas' },
+  { id: 'concluidas',    label: 'Tarefas Concluídas' },
+  { id: 'marcos',        label: 'Marcos' },
+  { id: 'semSucessoras', label: 'Sem sucessoras' },
+  { id: 'intervalo',     label: 'Intervalo de datas…' },
+];
+
+// Predicado único de filtro de tarefas, compartilhado pela Lista e pelo Gantt (para os dois
+// verem exatamente o mesmo conjunto filtrado). Tarefa Pai inclui toda a descendência (grupos
+// e folhas), preservando a hierarquia EAP; os demais critérios testam cada tarefa individualmente.
+export function buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, etapas }) {
+  const allowedIds = (filtroTaskIds && filtroTaskIds.length)
+    ? filtroTaskIds.reduce((set, id) => {
+        const t = etapas.find(x => x.id === id);
+        if (t?.isGroup) collectDescendantIds(id, etapas).forEach(x => set.add(x));
+        else set.add(id);
+        return set;
+      }, new Set())
+    : null;
+  const succMap = filtroPreset === 'semSucessoras' ? computeSuccessors(etapas) : null;
+  return (e) => {
+    if (allowedIds && !allowedIds.has(e.id)) return false;
+    if (filtroStatus && effStatus(e) !== filtroStatus) return false;
+    if (filtroResp && !(e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase())) return false;
+    if (filtroPreset === 'ativas' && !e.isGroup && !(e.avanco > 0 && e.avanco < 100)) return false;
+    if (filtroPreset === 'atrasadas' && effStatus(e) !== 'late') return false;
+    if (filtroPreset === 'concluidas' && effStatus(e) !== 'done') return false;
+    if (filtroPreset === 'marcos' && !e.isGroup && e.dur !== 0) return false;
+    if (filtroPreset === 'semSucessoras' && !e.isGroup && (succMap[e.id] || []).length) return false;
+    if (filtroPreset === 'intervalo' && filtroPresetRange?.de && filtroPresetRange?.ate) {
+      const iso = offsetToISO(e.inicio);
+      if (iso < filtroPresetRange.de || iso > filtroPresetRange.ate) return false;
+    }
+    return true;
+  };
+}
 
 // Avatar do responsável (iniciais + cor determinística por nome). Cores de identidade
 // por pessoa — não confundir com o azul de marca da UI.
@@ -492,6 +539,103 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 8 }}>
             <button onClick={() => setOpen(false)} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>Cancelar</button>
             <button onClick={applyOk} className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>OK</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Popover de múltipla seleção de tarefas (filtro "Tarefa" da aba Filtro): lista TODAS as
+// tarefas (grupos e folhas), indentadas pela hierarquia EAP, com busca e OK/Cancelar — mesmo
+// padrão de interação do ColumnHeaderFilterMenu (popover ancorado, fecha ao clicar fora,
+// rascunho local até confirmar).
+export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onApply }) => {
+  const [open, setOpen] = React.useState(false);
+  const [draft, setDraft] = React.useState(() => new Set(selectedIds));
+  const [busca, setBusca] = React.useState('');
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setDraft(new Set(selectedIds));
+    setBusca('');
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const k = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', h);
+    document.addEventListener('keydown', k);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k); };
+  }, [open]);
+
+  const toggle = (id) => setDraft(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const buscaLower = busca.trim().toLowerCase();
+  const visiveis = etapas.filter(e => {
+    if (!buscaLower) return true;
+    const wbs = wbsMap[e.id] || '';
+    return e.etapa?.toLowerCase().includes(buscaLower) || wbs.includes(buscaLower);
+  });
+
+  const nVisChecked = visiveis.filter(e => draft.has(e.id)).length;
+  const allVisChecked = visiveis.length > 0 && nVisChecked === visiveis.length;
+  const someVisChecked = nVisChecked > 0 && nVisChecked < visiveis.length;
+  const toggleAllVisiveis = () => setDraft(prev => {
+    const next = new Set(prev);
+    visiveis.forEach(e => allVisChecked ? next.delete(e.id) : next.add(e.id));
+    return next;
+  });
+
+  const optRow = { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', fontSize: 12, cursor: 'pointer', borderRadius: 4 };
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        style={{ height: 26, fontSize: 12, padding: '2px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--text)' }}
+        onClick={() => setOpen(o => !o)}
+      >
+        {selectedIds.length ? `Tarefa: ${selectedIds.length} selecionada${selectedIds.length > 1 ? 's' : ''}` : 'Tarefa: todas'}
+        <span style={{ fontSize: 10 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: 280 }}>
+          <input
+            autoFocus className="input" placeholder="Buscar tarefa..." value={busca}
+            onChange={e => setBusca(e.target.value)}
+            style={{ height: 26, fontSize: 12, marginBottom: 6, width: '100%', boxSizing: 'border-box' }}
+          />
+          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
+            {visiveis.length > 0 && (
+              <label style={{ ...optRow, fontWeight: 600, borderBottom: '1px solid var(--border-subtle, var(--border))', marginBottom: 2 }}>
+                <TriCheckbox checked={allVisChecked} indeterminate={someVisChecked} onChange={toggleAllVisiveis} />
+                (Selecionar Todos)
+              </label>
+            )}
+            {visiveis.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 6px' }}>Nenhuma tarefa encontrada.</div>
+            )}
+            {visiveis.map(e => (
+              <label key={e.id} style={{ ...optRow, marginLeft: (e.nivel || 0) * 14, fontWeight: e.isGroup ? 600 : 400 }}>
+                <input type="checkbox" checked={draft.has(e.id)} onChange={() => toggle(e.id)} />
+                {wbsMap[e.id] ? `${wbsMap[e.id]} — ${e.etapa}` : e.etapa}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 8 }}>
+            <button onClick={() => { onApply([]); setOpen(false); }} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 6px', height: 26 }}>
+              Limpar filtro
+            </button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => setOpen(false)} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>Cancelar</button>
+              <button onClick={() => { onApply([...draft]); setOpen(false); }} className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>Aplicar</button>
+            </div>
           </div>
         </div>
       )}

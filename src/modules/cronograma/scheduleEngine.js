@@ -11,7 +11,7 @@ import { offsetToDate, dateToOffset, taskEnd, workStart, workDur } from './crono
 export function migrateEtapas(raw) {
   const arr = (raw || []).map(e => ({
     nivel: 0, parentId: null, isGroup: false,
-    collapsed: false, responsavel: '', customCols: {},
+    collapsed: false, responsavel: '', pavimento: '', customCols: {},
     milestone: false, custo: 0, showInDist: false,
     restricaoTipo: 'asap', restricaoData: '',
     fator_peso: 1, modo: 'auto',
@@ -644,4 +644,15 @@ export function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
   if (tgtIdx < 0) return etapas;
   rest.splice(insertAfter ? tgtIdx + 1 : tgtIdx, 0, ...block);
   return rest;
+}
+
+// Retorna o Set de ids de uma tarefa-pai + todos os seus descendentes (grupos e folhas),
+// usado pelo filtro "Tarefa Pai" (Lista/Gantt) para manter a hierarquia EAP visível.
+export function collectDescendantIds(parentId, etapas) {
+  const ids = new Set([parentId]);
+  const collect = (id) => {
+    etapas.filter(e => e.parentId === id).forEach(c => { ids.add(c.id); collect(c.id); });
+  };
+  collect(parentId);
+  return ids;
 }

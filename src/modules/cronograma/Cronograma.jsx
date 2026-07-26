@@ -460,7 +460,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
 // ─── SCurveChart — Curva S própria (SVG). Recriada do zero; não copia o protótipo.
 // Recebe séries já computadas e desenha grade, barras mensais, linhas planejado/
 // realizado com pontos, e o marcador "hoje". Cores da marca (navy) + verde/cinza.
-const SCurveChart = ({ months = [], planned = [], realized = [], monthlyPct = [], todayIdx = -1, height = 300 }) => {
+const SCurveChart = ({ months = [], planned = [], realized = [], baseline = null, monthlyPct = [], todayIdx = -1, height = 300 }) => {
   const N = months.length || 1;
   const pL = 54, pR = 20, pT = 18, pB = 52;
   const svgW = 1000, svgH = height;
@@ -476,6 +476,7 @@ const SCurveChart = ({ months = [], planned = [], realized = [], monthlyPct = []
       ` L${lastX},${(pT + chartH).toFixed(1)} L${firstX},${(pT + chartH).toFixed(1)} Z`
     : '';
   const realPts = realized.map((v, i) => v != null ? `${xC(i).toFixed(1)},${yS(v).toFixed(1)}` : null).filter(Boolean).join(' ');
+  const baselinePts = baseline ? baseline.map((v, i) => `${xC(i).toFixed(1)},${yS(v).toFixed(1)}`).join(' ') : '';
   return (
     <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={svgH} style={{ display: 'block', minWidth: Math.max(600, N * 36) }}>
       {[0, 20, 40, 60, 80, 100].map(pct => (
@@ -492,6 +493,7 @@ const SCurveChart = ({ months = [], planned = [], realized = [], monthlyPct = []
         </g>
       )}
       <path d={areaPath} fill="var(--brand)" opacity="0.07" />
+      {baselinePts && <polyline points={baselinePts} fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5,4" strokeLinejoin="round" />}
       <polyline points={ptsPlan} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" />
       {planned.map((v, i) => <circle key={i} cx={xC(i)} cy={yS(v)} r="3.5" fill="#fff" stroke="var(--brand)" strokeWidth="2" />)}
       {realPts && <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" />}
@@ -507,7 +509,7 @@ const SCurveChart = ({ months = [], planned = [], realized = [], monthlyPct = []
 };
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
-const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, reprogramacoes, repVisivelId, valorVinculadoMap = {}, onCommit }) => {
+const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, valorVinculadoMap = {}, onCommit }) => {
   const toast = useToast();
   // Custo efetivo: com vínculos, usa o valor vinculado distribuído (cobre folhas e grupos)
   const hasVinc  = Object.keys(valorVinculadoMap).length > 0;
@@ -532,7 +534,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
   const baselineDist = React.useMemo(() => {
     if (!blEtapas) return null;
-    const dist = computeMonthlyDist(blEtapas);
+    const dist = computeMonthlyDist(blEtapas, hasVinc ? valorVinculadoMap : null);
     const agg = {};
     Object.values(dist).forEach(d =>
       Object.entries(d).forEach(([k, v]) => { agg[k] = (agg[k] || 0) + v; })
@@ -553,21 +555,38 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   const repNome   = activeRep?.nome   || null;
   const hasRep    = repEtapas != null;
 
-  const repDist = React.useMemo(() => {
+  // Distribuição por tarefa da Reprogramação (não agregada) — usada pela tabela "Distribuição
+  // por tarefa" quando uma reprogramação está selecionada, em vez da distribuição ao vivo.
+  const repMonthlyDistByTask = React.useMemo(() => {
     if (!repEtapas) return null;
-    const dist = computeMonthlyDist(repEtapas);
+    return computeMonthlyDist(repEtapas, hasVinc ? valorVinculadoMap : null);
+  }, [repEtapas]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const repDist = React.useMemo(() => {
+    if (!repMonthlyDistByTask) return null;
     const agg = {};
-    Object.values(dist).forEach(d =>
+    Object.values(repMonthlyDistByTask).forEach(d =>
       Object.entries(d).forEach(([k, v]) => { agg[k] = (agg[k] || 0) + v; })
     );
     return agg;
-  }, [repEtapas]);
+  }, [repMonthlyDistByTask]);
 
-  // Mês selecionado para a coluna Produção
+  const repTotal = repDist
+    ? months.reduce((s, m) => s + (repDist[m.key] || 0), 0)
+    : null;
+
+  // Mês selecionado para a coluna Produção — também decide sozinho qual Reprogramação
+  // comparar (a mais recente salva antes deste mês), pelo efeito logo abaixo.
   const [selMonKey, setSelMonKey] = React.useState(() => {
     const n = new Date();
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
   });
+
+  React.useEffect(() => {
+    if (!reprogramacoes.length) return;
+    const alvo = defaultRepId(reprogramacoes, selMonKey);
+    if (alvo !== repVisivelId) onSelectReprogramacao?.(alvo);
+  }, [selMonKey, reprogramacoes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [exportingPDF, setExportingPDF] = React.useState(false);
   const curvaRef = React.useRef(null);
@@ -774,15 +793,15 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   const now = new Date();
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  // Séries acumuladas para o SVG
-  let acum = 0, acumReal = 0;
-  const seriesPlanned = [], seriesRealized = [];
+  // Séries acumuladas para o SVG — "Planejado" usa a Reprogramação selecionada quando houver
+  // (mesma referência já usada no Resumo Mensal), com fallback pro plano ao vivo. "Realizado"
+  // nunca muda com a seleção — é fato consumado. Linha de Base vira uma 3ª linha, só quando selecionada.
+  const { blA: seriesBaselineFull, repA: seriesPlanned, repM: monthlyPctSeries } = computeSeries();
+  const seriesBaseline = baselineDist ? seriesBaselineFull : null;
+  const seriesRealized = [];
+  let acumReal = 0;
   months.forEach((m) => {
-    const v = filteredPlanned[m.key] || 0;
     const r = realizedTotals[m.key] || 0;
-    acum += v;
-    const pctA = total > 0 ? acum / total * 100 : 0;
-    seriesPlanned.push(pctA);
     if (m.key <= todayKey) {
       acumReal += r;
       seriesRealized.push(total > 0 ? acumReal / total * 100 : 0);
@@ -824,18 +843,50 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   return (
     <div ref={curvaRef} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
 
+      {/* ── Comparar com: Linha de Base / Reprogramação ──────────────────── */}
+      <div className="card" style={{ padding: '10px 16px', display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-soft)' }}>Comparar com:</span>
+        <select className="input" style={{ minWidth: 180 }} value={blVisivelId || ''}
+          onChange={e => onSelectBaseline?.(e.target.value || null)} title="Linha de base comparada na Curva Física">
+          <option value="">Sem linha de base</option>
+          {baselines.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+        </select>
+        <select className="input" style={{ minWidth: 180 }} value={repVisivelId || ''}
+          onChange={e => onSelectReprogramacao?.(e.target.value || null)} title="Reprogramação comparada na Curva Física">
+          <option value="">Sem reprogramação</option>
+          {reprogramacoes.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
+        </select>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-soft)' }}>Mês de referência:</span>
+          <select className="input" style={{ minWidth: 140 }} value={selMonKey}
+            onChange={e => setSelMonKey(e.target.value)}
+            title="Escolhe automaticamente a Reprogramação mais recente anterior a este mês">
+            {months.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+        </span>
+      </div>
+
       {/* ── Gráfico SVG ───────────────────────────────────────────────────── */}
       <div className="card">
         <div className="card-header">
           <div>
             <div className="card-title">Curva S — Produção física acumulada</div>
-            <div className="card-subtitle">Distribuição mensal do custo planejado e realizado · calculado automaticamente pelo cronograma</div>
+            <div className="card-subtitle">
+              Distribuição mensal do custo planejado e realizado · calculado automaticamente pelo cronograma
+              {hasRep && ` · Planejado = Reprogramação "${repNome}"`}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 12 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 18, height: 3, background: 'var(--brand)', display: 'inline-block', borderRadius: 2 }} />
-              Planejado acum.
+              {hasRep ? `Planejado acum. (Reprogramação: ${repNome})` : 'Planejado acum.'}
             </span>
+            {seriesBaseline && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 18, height: 2, borderTop: '2px dashed #94a3b8', display: 'inline-block' }} />
+                {`Linha de Base: ${blNome}`}
+              </span>
+            )}
             {totalReal > 0 && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ width: 18, height: 2, borderTop: '2px dashed #16a34a', display: 'inline-block' }} />
@@ -863,7 +914,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             months={months}
             planned={seriesPlanned}
             realized={seriesRealized}
-            monthlyPct={months.map(m => total > 0 ? (filteredPlanned[m.key] || 0) / total * 100 : 0)}
+            baseline={seriesBaseline}
+            monthlyPct={monthlyPctSeries}
             todayIdx={todayIdx}
           />
         </div>
@@ -1106,9 +1158,13 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       </div>
       {/* ── Distribuição por tarefa × mês ───────────────────────────────── */}
       {(() => {
-        const groupVals2  = computeGroupValues(etapas);
+        // Com uma Reprogramação selecionada, a tabela mostra o retrato dela (tarefas e valores
+        // congelados na foto), em vez do cronograma ao vivo — mesma referência do gráfico acima.
+        const visibleRows = hasRep ? repEtapas : etapas;
+        const taskDistSource = hasRep ? repMonthlyDistByTask : monthlyDist;
+        const distTotal   = hasRep ? (repTotal || 0) : total;
+        const groupVals2  = computeGroupValues(visibleRows);
         // CurvaFisicaView mostra todas as tarefas independente de collapsed na Lista
-        const visibleRows = etapas;
         const distRows    = visibleRows.filter(e => e.isGroup || e.showInDist === true);
         const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
         const thBase = {
@@ -1125,7 +1181,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         const fmt = v => v > 0.005 ? v.toFixed(2) + '%' : '—';
 
         // Avanco médio ponderado geral (para o rodapé)
-        const folhas = etapas.filter(e => !e.isGroup);
+        const folhas = visibleRows.filter(e => !e.isGroup);
         const totalCustoFolha = folhas.reduce((s, e) => s + custoEf(e), 0);
         const avancoGeral = totalCustoFolha > 0
           ? folhas.reduce((s, e) => s + (e.avanco || 0) * custoEf(e), 0) / totalCustoFolha
@@ -1136,7 +1192,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             <div className="card-header">
               <div>
                 <div className="card-title">Distribuição por tarefa</div>
-                <div className="card-subtitle">% do custo de cada tarefa alocado por mês · clique nos grupos para expandir / recolher</div>
+                <div className="card-subtitle">
+                  % do custo de cada tarefa alocado por mês · clique nos grupos para expandir / recolher
+                  {hasRep && ` · Reprogramação "${repNome}"`}
+                </div>
               </div>
             </div>
             <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
@@ -1182,8 +1241,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   {distRows.map((e, ri) => {
                     const gv       = groupVals2[e.id];
                     const taskDist = e.isGroup
-                      ? getGroupMonthlyDist(e.id, etapas, monthlyDist)
-                      : (monthlyDist[e.id] || {});
+                      ? getGroupMonthlyDist(e.id, visibleRows, taskDistSource)
+                      : (taskDistSource[e.id] || {});
                     const taskCusto  = custoEf(e, gv);
                     const taskAvanco = e.isGroup ? (gv?.avanco || 0) : (e.avanco || 0);
                     const rowBg = e.isGroup ? 'var(--surface-muted)' : (ri % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)');
@@ -1221,7 +1280,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                         </td>
                         {/* Peso */}
                         <td style={{ ...tdBase, textAlign: 'right', color: 'var(--text-soft)', fontSize: 10.5 }}>
-                          {total > 0 && taskCusto > 0 ? (taskCusto / total * 100).toFixed(2) + '%' : '—'}
+                          {distTotal > 0 && taskCusto > 0 ? (taskCusto / distTotal * 100).toFixed(2) + '%' : '—'}
                         </td>
                         {/* Conc. */}
                         <td style={{ ...tdBase, textAlign: 'right',
@@ -1260,7 +1319,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                     </td>
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
                       fontVariantNumeric: 'tabular-nums', fontSize: 10.5 }}>
-                      {fmtBRL(total)}
+                      {fmtBRL(distTotal)}
                     </td>
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right', fontSize: 10.5 }}>100%</td>
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
@@ -1268,7 +1327,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                       {avancoGeral > 0 ? avancoGeral.toFixed(0) + '%' : '—'}
                     </td>
                     {months.map(m => {
-                      const pct = total > 0 ? (filteredPlanned[m.key] || 0) / total * 100 : 0;
+                      const pct = distTotal > 0 ? ((hasRep ? repDist[m.key] : filteredPlanned[m.key]) || 0) / distTotal * 100 : 0;
                       return (
                         <td key={m.key} style={{
                           ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
@@ -1314,10 +1373,10 @@ function salvarReprogramacoesLocal(obraId, reps) {
 }
 // Entre as reprogramações anteriores ao mês atual, a mais recente; sem nenhuma
 // anterior, a mais recente entre todas; lista vazia, null.
-function defaultRepId(reps) {
+function defaultRepId(reps, refMonthKey) {
   if (!reps.length) return null;
-  const mesAtual = new Date().toISOString().slice(0, 7);
-  const anteriores = reps.filter(r => r.criadaEm.slice(0, 7) < mesAtual);
+  const ref = refMonthKey || new Date().toISOString().slice(0, 7);
+  const anteriores = reps.filter(r => r.criadaEm.slice(0, 7) < ref);
   const pool = anteriores.length ? anteriores : reps;
   return pool.reduce((best, r) => (!best || r.criadaEm > best.criadaEm) ? r : best, null)?.id ?? null;
 }
@@ -1438,6 +1497,17 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     try { const raw = localStorage.getItem('ls_crono_feriados_' + obraSel); setFeriadosCfg(raw ? JSON.parse(raw) : { dias: [], sabadoUtil: false }); }
     catch { setFeriadosCfg({ dias: [], sabadoUtil: false }); }
   }, [obraSel]);
+  // Pavimentos já usados nesta obra (tabela própria `pavimentos_obra`), sugeridos como chips
+  // no modal "Inserção automática de pavimentos".
+  const [pavimentosObra, setPavimentosObra] = React.useState([]);
+  const salvarNovosPavimentos = (nomes) => {
+    const novos = nomes.filter(n => !pavimentosObra.includes(n));
+    if (!novos.length) return;
+    setPavimentosObra(prev => [...new Set([...prev, ...novos])]);
+    supabase.from('pavimentos_obra')
+      .upsert(novos.map(nome => ({ obra_id: obraSel, nome })), { onConflict: 'obra_id,nome', ignoreDuplicates: true })
+      .then(({ error }) => { if (error) console.error('[pavimentos_obra] falha ao salvar', error); });
+  };
   // Preferências de visualização estilo MS Project (Mostrar/Ocultar), por obra.
   const [viewCfg, setViewCfg] = React.useState({ projSummary: false, summaryTasks: true });
   React.useEffect(() => {
@@ -1451,6 +1521,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     try { localStorage.setItem('crono_view_' + obraSel, JSON.stringify(next)); } catch { /* ignore */ }
     return next;
   });
+  // Filtro global (aba "Filtro" da Lista) — compartilhado entre Lista e Gantt, para o filtro
+  // valer nas duas views. KPIs do topo continuam sobre `etapas` completo, sem filtro.
+  const [filtroStatus, setFiltroStatus] = React.useState('');
+  const [filtroResp, setFiltroResp] = React.useState('');
+  const [filtroPreset, setFiltroPreset] = React.useState('');
+  const [filtroPresetRange, setFiltroPresetRange] = React.useState({ de: '', ate: '' });
+  const [filtroTaskIds, setFiltroTaskIds] = React.useState([]);
   // Salva explicitamente (evita corromper ao trocar de obra com um efeito keyed em obraSel).
   const saveFeriados = (next) => {
     setFeriadosCfg(next);
@@ -1528,6 +1605,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     setIniciando(false); // outra obra sem cronograma volta a exibir o empty-state
     async function carregar() {
       if (!obraSel) { setLoadedObraId(null); return; }
+      // Pavimentos salvos (tabela própria) — não faz parte do cache de etapas/baselines,
+      // busca à parte e não bloqueia o resto do carregamento.
+      supabase.from('pavimentos_obra').select('nome').eq('obra_id', obraSel).order('nome')
+        .then(({ data, error }) => { if (!cancelled && !error) setPavimentosObra((data || []).map(r => r.nome)); });
       // Cache da sessão: restaura na hora, sem rede nem reprocessamento
       const cached = _cronCache[obraSel];
       if (cached) {
@@ -1743,6 +1824,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // ── Commit (fonte única de verdade) ────────────────────────────────────────
   const commit = (novas, opts = {}) => {
     const clean = novas.map(e => ({ ...e }));
+    // Qualquer commit que traga `feriados` (config de calendário/pavimentos salvos) também
+    // sincroniza o estado local — sem isso, quem chamou onCommit(novas, {feriados}) fora do
+    // fluxo do FeriadosModal (ex.: PavimentosModal) só veria o valor novo após recarregar.
+    if (opts.feriados !== undefined) {
+      setFeriadosCfg(opts.feriados);
+      try { localStorage.setItem('ls_crono_feriados_' + obraSel, JSON.stringify(opts.feriados)); } catch { /* ignore */ }
+    }
     // Auto-histórico: registra mudanças relevantes por tarefa (fora do undo/redo)
     taskDetailStore.diffAndLog(obraSel, etapas, clean, currentUserRef.current);
     const h = histRef.current.slice(0, hidxRef.current + 1);
@@ -1846,18 +1934,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               <button key={a.id} className={view === a.id ? 'active' : ''} onClick={() => setView(a.id)}>{a.label}</button>
             ))}
           </div>
-          {reprogramacoes.length > 0 && (
-            <select className="input" style={{ minWidth: 200 }}
-              value={repVisivelId || ''}
-              onChange={e => setRepVisivelId(e.target.value || null)}
-              title="Reprogramação comparada na Curva Física"
-            >
-              <option value="">Sem reprogramação</option>
-              {reprogramacoes.map(r => (
-                <option key={r.id} value={r.id}>{r.nome}</option>
-              ))}
-            </select>
-          )}
         </div>
       </div>
 
@@ -2035,9 +2111,12 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           onFeriados={() => setShowFeriados(true)} onOutlineLevel={applyOutlineLevel}
                           onProjectInfo={() => setShowProjInfo(true)}
                           obraNome={obra?.nome || 'Projeto'}
+                          pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos}
                           showProjSummary={viewCfg.projSummary} showSummaryTasks={viewCfg.summaryTasks}
                           onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
-                          onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })} />
+                          onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })}
+                          filtroStatus={filtroStatus} filtroResp={filtroResp} filtroPreset={filtroPreset}
+                          filtroPresetRange={filtroPresetRange} filtroTaskIds={filtroTaskIds} />
                       </div>
                     </div>
 
@@ -2201,8 +2280,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   realizedTotals={realizedTotals}
                   baselines={baselines}
                   blVisivelId={blVisivelId}
+                  onSelectBaseline={setBlVisivelId}
                   reprogramacoes={reprogramacoes}
                   repVisivelId={repVisivelId}
+                  onSelectReprogramacao={setRepVisivelId}
                   valorVinculadoMap={valorVinculadoMapFull}
                   onCommit={commit}
                 />
@@ -2230,10 +2311,16 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   onOutlineLevel={applyOutlineLevel}
                   onProjectInfo={() => setShowProjInfo(true)}
                   obraNome={obra?.nome || 'Projeto'}
+                  pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos}
                   showProjSummary={viewCfg.projSummary}
                   showSummaryTasks={viewCfg.summaryTasks}
                   onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
                   onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })}
+                  filtroStatus={filtroStatus} setFiltroStatus={setFiltroStatus}
+                  filtroResp={filtroResp} setFiltroResp={setFiltroResp}
+                  filtroPreset={filtroPreset} setFiltroPreset={setFiltroPreset}
+                  filtroPresetRange={filtroPresetRange} setFiltroPresetRange={setFiltroPresetRange}
+                  filtroTaskIds={filtroTaskIds} setFiltroTaskIds={setFiltroTaskIds}
                 />
               )}
 

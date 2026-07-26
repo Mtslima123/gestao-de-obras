@@ -16,11 +16,14 @@ import { TaskFormPanel } from './TaskFormPanel';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_ROW_ANO, GM_ROW_TRI, GM_ROW_MES, GM_ROW_FINE, ZOOM_PX_DIA,
-         GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN } from './cronogramaShared';
+         GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN,
+         buildTaskFilterPredicate } from './cronogramaShared';
 
 export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
   baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
-  obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks }) => {
+  obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
+  pavimentosSalvos = [], onPavimentosCriados,
+  filtroStatus = '', filtroResp = '', filtroPreset = '', filtroPresetRange = { de: '', ate: '' }, filtroTaskIds = [] }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
@@ -576,8 +579,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   // "Tarefas Resumo" desmarcado (estilo MS Project): oculta as linhas de grupo.
   const visible = React.useMemo(() => {
     const v = getVisibleEtapas(etapas);
-    return showSummaryTasks ? v : v.filter(e => !e.isGroup);
-  }, [etapas, showSummaryTasks]);
+    const base = showSummaryTasks ? v : v.filter(e => !e.isGroup);
+    const passesGlobal = buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, etapas });
+    return base.filter(passesGlobal);
+  }, [etapas, showSummaryTasks, filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds]);
   // Índice por id no conjunto VISÍVEL (para as setas de dependência casarem com as barras
   // mesmo com grupos recolhidos — antes usava o índice em `etapas`, um bug latente).
   const visIdx = React.useMemo(() => new Map(visible.map((e, i) => [e.id, i])), [visible]);
@@ -1782,6 +1787,8 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           etapas={etapas}
           customCols={customCols}
           onCommit={onCommit}
+          pavimentosSalvos={pavimentosSalvos}
+          onPavimentosCriados={onPavimentosCriados}
           onClose={() => setShowPavimentos(false)}
         />
       )}

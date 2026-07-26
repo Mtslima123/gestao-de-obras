@@ -56,6 +56,7 @@ export const AddColModal = ({ onClose, onAdd }) => {
             <option value="duration">Duração (dias)</option>
             <option value="boolean">Sim / Não</option>
             <option value="list">Lista suspensa</option>
+            <option value="autocomplete">Lista com sugestão automática</option>
           </select>
         </div>
         {type === 'list' && (
@@ -180,12 +181,35 @@ export const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 })
 };
 
 // ─── PavimentosModal ─────────────────────────────────────────────────────────
-export const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
+export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados }) => {
   const [step,          setStep]          = React.useState(1);
   const [floors,        setFloors]        = React.useState(['']);
   const [selectedTasks, setSelectedTasks] = React.useState([]);
+  const [preencherPavimento, setPreencherPavimento] = React.useState(true);
+  const floorInputRefs = React.useRef([]);
+  const prevFloorsLenRef = React.useRef(floors.length);
+
+  // Ao surgir um novo campo de pavimento (Enter na última linha, ou "Adicionar pavimento"),
+  // já habilita a digitação nele — sem precisar clicar.
+  React.useEffect(() => {
+    if (floors.length > prevFloorsLenRef.current) floorInputRefs.current[floors.length - 1]?.focus();
+    prevFloorsLenRef.current = floors.length;
+  }, [floors.length]);
 
   const validFloors = floors.filter(f => f.trim());
+
+  // Preenche o primeiro campo vazio com o nome (chip de pavimento já usado), ou cria um novo
+  // campo já com o nome — mesma lógica de "próximo campo" usada pelo Enter.
+  const addOrFillFloor = (nome) => {
+    setFloors(fl => {
+      const emptyIdx = fl.findIndex(f => !f.trim());
+      if (emptyIdx >= 0) {
+        requestAnimationFrame(() => floorInputRefs.current[emptyIdx]?.focus());
+        return fl.map((x, j) => j === emptyIdx ? nome : x);
+      }
+      return [...fl, nome];
+    });
+  };
 
   const handleConfirm = () => {
     if (!validFloors.length || !selectedTasks.length) return;
@@ -222,6 +246,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
           dur:        subDur,
           avanco:     0, status: 'upcoming',
           dep:        [], milestone: false, responsavel: '',
+          pavimento:  preencherPavimento ? nome : '',
           modo:       'auto',
           customCols: emptyCustomCols(customCols),
           custo:      0,
@@ -243,6 +268,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
     });
 
     onCommit(novas);
+    onPavimentosCriados?.(validFloors);
     onClose();
   };
 
@@ -250,7 +276,6 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
     <Modal
       title="Inserção automática de pavimentos"
       subtitle={step === 1 ? 'Passo 1 de 2 — Definir pavimentos' : 'Passo 2 de 2 — Selecionar tarefas'}
-      size="lg"
       onClose={onClose}
       footer={
         <>
@@ -278,13 +303,19 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
             <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
               <span style={{ width: 20, textAlign: 'right', fontSize: 12, color: 'var(--text-faint)', flexShrink: 0 }}>{i + 1}.</span>
               <input
+                ref={el => { floorInputRefs.current[i] = el; }}
                 className="input"
                 value={f}
                 autoFocus={i === 0}
                 onChange={ev => setFloors(fl => fl.map((x, j) => j === i ? ev.target.value : x))}
                 placeholder={`Ex.: Pavimento ${i + 1}`}
                 style={{ flex: 1 }}
-                onKeyDown={ev => { if (ev.key === 'Enter') setFloors(fl => [...fl, '']); }}
+                onKeyDown={ev => {
+                  if (ev.key !== 'Enter') return;
+                  ev.preventDefault();
+                  if (i < floors.length - 1) floorInputRefs.current[i + 1]?.focus();
+                  else setFloors(fl => [...fl, '']);
+                }}
               />
               {floors.length > 1 && (
                 <button
@@ -298,6 +329,23 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
           <button className="btn btn-ghost" style={{ fontSize: 12, marginTop: 4, gap: 5 }} onClick={() => setFloors(fl => [...fl, ''])}>
             <Icon name="plus" size={12} /> Adicionar pavimento
           </button>
+
+          {pavimentosSalvos.filter(n => !floors.includes(n)).length > 0 && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-soft)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                Pavimentos já usados nesta obra
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {pavimentosSalvos.filter(n => !floors.includes(n)).map(n => (
+                  <button key={n} type="button" className="btn btn-ghost"
+                    style={{ fontSize: 12, padding: '3px 10px', height: 26, borderRadius: 14 }}
+                    onClick={() => addOrFillFloor(n)}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -307,6 +355,10 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose }) => {
             Selecione as tarefas que receberão os pavimentos como subtarefas.
             Serão criados: <strong>{validFloors.join(', ')}</strong>.
           </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={preencherPavimento} onChange={ev => setPreencherPavimento(ev.target.checked)} />
+            Preencher a coluna Pavimento automaticamente
+          </label>
           <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             {etapas.map(e => (
               <label key={e.id} style={{
