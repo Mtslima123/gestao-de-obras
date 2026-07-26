@@ -92,15 +92,18 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     if (obraId) localStorage.setItem(`uso_order_${obraId}`, JSON.stringify(usoColOrder));
   }, [usoColOrder, obraId]);
   const [dragUsoCol, setDragUsoCol] = React.useState(null);
+  const [dragOverUsoCol, setDragOverUsoCol] = React.useState(null); // { key, side: 'before' | 'after' }
   const usoLabel = (k) => USO_COL_LABELS[USO_COL_KEYS.indexOf(k)];
-  const moveUsoCol = (from, to) => {
+  const moveUsoCol = (from, to, side) => {
     if (!from || from === to) return;
     setUsoColOrder(prev => {
       const arr = [...prev];
-      const fi = arr.indexOf(from), ti = arr.indexOf(to);
-      if (fi < 0 || ti < 0) return prev;
+      const fi = arr.indexOf(from);
+      if (fi < 0) return prev;
       arr.splice(fi, 1);
-      arr.splice(ti, 0, from);
+      const ti = arr.indexOf(to);
+      if (ti < 0) return prev;
+      arr.splice(side === 'after' ? ti + 1 : ti, 0, from);
       return arr;
     });
   };
@@ -346,12 +349,21 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
               <tr>
                 {usoColOrder.map(k => (
                   <th key={k}
-                    onDragOver={ev => { if (dragUsoCol) { ev.preventDefault(); } }}
-                    onDrop={ev => { ev.preventDefault(); moveUsoCol(dragUsoCol, k); setDragUsoCol(null); }}
+                    className={dragOverUsoCol?.key === k ? `drag-over-col-${dragOverUsoCol.side}` : undefined}
+                    onDragOver={ev => {
+                      if (!dragUsoCol) return;
+                      ev.preventDefault();
+                      if (dragUsoCol === k) return;
+                      const rect = ev.currentTarget.getBoundingClientRect();
+                      const side = (ev.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+                      setDragOverUsoCol(prev => (prev && prev.key === k && prev.side === side) ? prev : { key: k, side });
+                    }}
+                    onDragLeave={() => setDragOverUsoCol(prev => prev?.key === k ? null : prev)}
+                    onDrop={ev => { ev.preventDefault(); moveUsoCol(dragUsoCol, k, dragOverUsoCol?.side); setDragUsoCol(null); setDragOverUsoCol(null); }}
                     style={{ ...thSt, width: getUsoW(k), minWidth: getUsoW(k), textAlign: USO_COL_ALIGN[k], position: 'sticky', top: 0, zIndex: 2, opacity: dragUsoCol === k ? 0.4 : 1 }}>
                     <span draggable
                       onDragStart={ev => { setDragUsoCol(k); ev.dataTransfer.effectAllowed = 'move'; }}
-                      onDragEnd={() => setDragUsoCol(null)}
+                      onDragEnd={() => { setDragUsoCol(null); setDragOverUsoCol(null); }}
                       title="Arraste para reordenar a coluna"
                       style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', cursor: 'grab' }}>
                       {usoLabel(k)}
@@ -1821,7 +1833,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       <div className="page-header">
         <div>
           <h1 className="page-title">Cronogramas</h1>
-          <div className="page-subtitle">Planejamento físico das obras · Gantt interativo com replanejamento direto</div>
         </div>
         <div className="page-actions">
           <select className="input" value={obraSel || ''} onChange={e => setObraSel(e.target.value)} style={{ minWidth: 200 }}>

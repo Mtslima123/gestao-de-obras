@@ -24,6 +24,7 @@ export const AddColModal = ({ onClose, onAdd }) => {
   return (
     <Modal
       title="Nova coluna personalizada"
+      draggable
       onClose={onClose}
       footer={
         <>
@@ -44,7 +45,7 @@ export const AddColModal = ({ onClose, onAdd }) => {
             onKeyDown={e => { if (e.key === 'Enter') doAdd(); }}
           />
         </div>
-        <div className="field">
+        <div className="field full">
           <label>Tipo de dados</label>
           <select className="input" value={type} onChange={e => setType(e.target.value)}>
             <option value="text">Texto</option>
@@ -75,50 +76,61 @@ export const AddColModal = ({ onClose, onAdd }) => {
 // ─── InformacoesProjetoModal (somente leitura) ───────────────────────────────
 // Resumo do cronograma: obra, prazos, escopo, custos e calendário. Recebe um
 // objeto `info` já calculado pelo pai (Cronograma) — não edita nada.
+// Retângulo horizontal e compacto (tiles lado a lado, agrupados por assunto),
+// em vez das seções empilhadas verticalmente — e arrastável pelo cabeçalho.
 export const InformacoesProjetoModal = ({ info, onClose }) => {
-  const Row = ({ label, value, strong }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '8px 0', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))' }}>
-      <span style={{ fontSize: 12.5, color: 'var(--text-soft)' }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: strong ? 700 : 500, color: 'var(--text)', textAlign: 'right' }}>{value}</span>
+  const Tile = ({ label, value, strong }) => (
+    <div style={{ minWidth: 88 }}>
+      <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 3, whiteSpace: 'nowrap' }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 13.5, fontWeight: strong ? 700 : 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+        {value}
+      </div>
     </div>
   );
-  const Section = ({ title, children }) => (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--brand)', marginBottom: 2 }}>{title}</div>
-      {children}
+  const Group = ({ title, children }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--brand)' }}>
+        {title}
+      </div>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>{children}</div>
     </div>
   );
   return (
     <Modal
       title="Informações do projeto"
       subtitle="Resumo do cronograma (somente leitura)"
-      size="sm"
+      size="md"
+      draggable
       onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Fechar</button>}
     >
-      <Section title="Obra">
-        <Row label="Nome" value={info.obraNome} strong />
-        {info.obraCodigo ? <Row label="Código" value={info.obraCodigo} /> : null}
-      </Section>
-      <Section title="Prazos">
-        <Row label="Início" value={info.inicio} />
-        <Row label="Término projetado" value={info.termino} />
-        <Row label="Duração total" value={info.duracao} />
-        <Row label="Data de status" value={info.dataStatus} />
-      </Section>
-      <Section title="Escopo">
-        <Row label="Etapas (grupos)" value={info.grupos} />
-        <Row label="Tarefas" value={info.tarefas} />
-        <Row label="Tarefas manuais" value={info.manuais} />
-        <Row label="Avanço geral" value={info.avanco} />
-      </Section>
-      <Section title="Custos">
-        <Row label="Custo previsto total" value={info.custoPrevisto} strong />
-      </Section>
-      <Section title="Calendário">
-        <Row label="Feriados/dias não úteis" value={info.feriados} />
-        <Row label="Sábado trabalhado" value={info.sabadoUtil} />
-      </Section>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
+        <Group title="Obra">
+          <Tile label="Nome" value={info.obraNome} strong />
+          {info.obraCodigo && <Tile label="Código" value={info.obraCodigo} />}
+        </Group>
+        <Group title="Prazos">
+          <Tile label="Início" value={info.inicio} />
+          <Tile label="Término projetado" value={info.termino} />
+          <Tile label="Duração total" value={info.duracao} />
+          <Tile label="Data de status" value={info.dataStatus} />
+        </Group>
+        <Group title="Escopo">
+          <Tile label="Etapas (grupos)" value={info.grupos} />
+          <Tile label="Tarefas" value={info.tarefas} />
+          <Tile label="Tarefas manuais" value={info.manuais} />
+          <Tile label="Avanço geral" value={info.avanco} />
+        </Group>
+        <Group title="Custos">
+          <Tile label="Custo previsto total" value={info.custoPrevisto} strong />
+        </Group>
+        <Group title="Calendário">
+          <Tile label="Feriados/dias não úteis" value={info.feriados} />
+          <Tile label="Sábado trabalhado" value={info.sabadoUtil} />
+        </Group>
+      </div>
     </Modal>
   );
 };

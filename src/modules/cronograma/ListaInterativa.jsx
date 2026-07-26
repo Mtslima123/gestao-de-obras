@@ -7,17 +7,19 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { Modal, useToast } from '../../components/Modals';
 import { computeValorVinculadoMap } from './ganttUtils';
-import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, workDur, taskEnd } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, dateToOffset } from './cronogramaDateUtils';
 import {
-  fmtBRL, parseBRL, computeAllWBS, indentTasks, outdentTasks, computeSuccessors,
+  fmtBRL, computeAllWBS, indentTasks, outdentTasks, computeSuccessors,
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
-  createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
-  computeGroupValues, moveTaskBlock,
+  createGroup, deleteTask, autoScheduleFromDeps, formatDepList,
+  computeGroupValues, moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange,
 } from './scheduleEngine';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal } from './cronogramaModais';
+import { TaskFormPanel } from './TaskFormPanel';
 import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, respInitials, respColor, VIRT_MIN,
+  ColumnHeaderFilterMenu, resolveColType, FILTER_BLANK_KEY,
 } from './cronogramaShared';
 
 export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false,
@@ -25,8 +27,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
+  const [showTaskForm,   setShowTaskForm]   = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
   const [showAddCol,     setShowAddCol]     = React.useState(false);
-  const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id da tarefa a excluir
+  const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // array de ids a excluir (ou null)
   const [showPavimentos, setShowPavimentos] = React.useState(false);
   const [showImportEAP, setShowImportEAP] = React.useState(false);
   const [showRowHDialog, setShowRowHDialog] = React.useState(false); // caixa "Altura da linha"
@@ -45,6 +48,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     try { localStorage.setItem('ls_crono_ribbon_tab', activeTab); } catch { /* ignore */ }
   }, [activeTab]);
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
+  const [multiSelCols,   setMultiSelCols]   = React.useState([]);   // colunas selecionadas via Ctrl+clique no cabeçalho
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
   const [editingDep,     setEditingDep]     = React.useState(null); // id da tarefa com predecessora em edição
@@ -56,10 +60,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [openModoMenu]);
-  const [busca,          setBusca]          = React.useState('');
   const [filtroStatus,   setFiltroStatus]   = React.useState('');
   const [filtroResp,     setFiltroResp]     = React.useState('');
+  // Linha "Nova tarefa" (k) que está só SELECIONADA (clicou, ainda não digitou nada) —
+  // mostra destaque de seleção sem cursor piscando, até a primeira tecla de verdade.
+  const [blankSelectedIdx, setBlankSelectedIdx] = React.useState(null);
   const [ctxMenu,        setCtxMenu]        = React.useState(null); // { x, y, taskId }
+  const [ctxMenuPos,     setCtxMenuPos]     = React.useState(null); // { left, top } já ajustado pra caber na tela
+  const ctxMenuRef = React.useRef(null);
+  React.useLayoutEffect(() => {
+    if (!ctxMenu) { setCtxMenuPos(null); return; }
+    const el = ctxMenuRef.current;
+    if (!el) { setCtxMenuPos({ left: ctxMenu.x, top: ctxMenu.y }); return; }
+    const rect = el.getBoundingClientRect();
+    const left = Math.max(8, Math.min(ctxMenu.x, window.innerWidth - rect.width - 8));
+    const top  = Math.max(8, Math.min(ctxMenu.y, window.innerHeight - rect.height - 8));
+    setCtxMenuPos({ left, top });
+  }, [ctxMenu]);
   const [dragOverId,     setDragOverId]     = React.useState(null);
   const [showColPanel,   setShowColPanel]   = React.useState(false);
   const [selectedCell,   setSelectedCell]   = React.useState(null); // { taskId, colId } — foco ativo (planilha)
@@ -129,6 +146,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const rowDragMovedRef = React.useRef(false); // houve movimento de linha (suprime o clique seguinte)
   const rowSelectingRef = React.useRef(false); // arraste de seleção de LINHAS pela calha em andamento
   const rowSelAnchorRef = React.useRef(null);  // id da linha-âncora do arraste pela calha
+  const rowClickHandledRef = React.useRef(false); // mousedown de célula/calha já tratou a seleção deste clique
   const colPanelRef  = React.useRef(null);
   const cellClipRef  = React.useRef(null); // clipboard interno de célula { value, kind, fmt }
   const rowClipRef   = React.useRef(null); // clipboard interno de LINHA (clone da tarefa copiada)
@@ -211,6 +229,138 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     try { return new Set(JSON.parse(localStorage.getItem(`ls_hidden_${obraId}`) || '[]')); }
     catch { return new Set(); }
   });
+  // Filtro por coluna (seta do cabeçalho, estilo Project): { [colId]: { excluded: string[] } }.
+  // A presença da chave indica filtro ativo; 'excluded' guarda os valores DESMARCADOS.
+  const [columnFilters, setColumnFilters] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(`ls_filters_${obraId}`) || 'null') || {}; }
+    catch { return {}; }
+  });
+  // Ordenação por coluna (seta do cabeçalho): um único critério ativo por vez, como no Project.
+  const [sortSpec, setSortSpec] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(`ls_sort_${obraId}`) || 'null'); }
+    catch { return null; }
+  });
+
+  // Valor bruto ("raw", para ordenar/comparar) + rótulo exibido ("label", para filtrar) de
+  // uma coluna — mesma resolução usada nas células interativas e nos exports, reaproveitada
+  // pelo menu de ordenar/filtrar do cabeçalho (seta estilo Project).
+  const colFilterValue = React.useCallback((e, colId) => {
+    const gv  = e.isGroup ? groupVals[e.id] : null;
+    const ini = gv ? gv.inicio : e.inicio;
+    const dur = gv ? gv.dur    : e.dur;
+    const realCst = e.isGroup
+      ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+      : (e.custoRealizado || 0);
+    switch (colId) {
+      case 'wbs':   { const v = wbsMap[e.id] || ''; return { raw: v, label: v }; }
+      case 'id':    { const v = String(e.displayId ?? e.id); return { raw: v, label: v }; }
+      case 'etapa': return { raw: e.etapa || '', label: e.etapa || '' };
+      case 'modo':  { const v = e.isGroup ? '' : (e.modo === 'manual' ? 'Manual' : 'Automático'); return { raw: v, label: v }; }
+      case 'inicio': { const d = offsetToDate(ini); return { raw: d, label: isoToBR(offsetToISO(ini)) }; }
+      case 'fim':    { const d = offsetToDate(ini + dur); return { raw: d, label: isoToBR(offsetToISO(ini + dur)) }; }
+      case 'restricao': return e.restricaoData
+        ? { raw: offsetToDate(dateToOffset(e.restricaoData)), label: isoToBR(e.restricaoData) }
+        : { raw: null, label: '' };
+      case 'duracao': return { raw: dur, label: `${dur}d` };
+      case 'avanco':  { const v = gv ? gv.avanco : e.avanco; return { raw: v, label: `${v}%` }; }
+      case 'status':  { const v = e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura'); return { raw: v, label: v }; }
+      case 'peso': {
+        if (e.isGroup) return { raw: null, label: '' };
+        const pct = (hasVinculos && totalValorVinculado > 0)
+          ? (valorVinculadoMap[e.id] || 0) / totalValorVinculado
+          : (e.custo || 0) / (totalCusto || 1);
+        return { raw: pct * 100, label: (pct * 100).toFixed(1) + '%' };
+      }
+      case 'fatorPeso': { const v = e.isGroup ? null : (e.fator_peso ?? 1); return { raw: v, label: v == null ? '' : v.toLocaleString('pt-BR') }; }
+      case 'valorVinculado': { const v = valorVinculadoMap[e.id]; return { raw: v || null, label: v ? fmtBRL(v) : '' }; }
+      case 'custo':     { const v = custoEf(e, gv); return { raw: v, label: fmtBRL(v) }; }
+      case 'custoReal': return { raw: realCst, label: fmtBRL(realCst) };
+      case 'saldo':     { const v = custoEf(e, gv) - realCst; return { raw: v, label: fmtBRL(v) }; }
+      case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas); return { raw: v, label: v === '—' ? '' : v }; }
+      case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', '); return { raw: v, label: v }; }
+      case 'resp': { const v = e.isGroup ? '' : (e.responsavel || ''); return { raw: v, label: v }; }
+      case 'participa': { if (e.isGroup) return { raw: null, label: '' }; const v = e.showInDist ? 'Sim' : 'Não'; return { raw: v, label: v }; }
+      default: {
+        const cc = customCols.find(c => c.id === colId);
+        const raw = (e.customCols || {})[colId] ?? '';
+        if (!cc) return { raw, label: String(raw) };
+        if (cc.type === 'boolean') { const v = raw === 'sim' ? 'Sim' : raw === 'não' ? 'Não' : ''; return { raw: v, label: v }; }
+        if (cc.type === 'date') return raw ? { raw: offsetToDate(dateToOffset(raw)), label: isoToBR(raw) } : { raw: null, label: '' };
+        if (cc.type === 'currency' || cc.type === 'number') { const n = Number(raw); return { raw: Number.isFinite(n) ? n : null, label: raw === '' ? '' : String(raw) }; }
+        if (cc.type === 'percent')  { const n = Number(raw); return { raw: Number.isFinite(n) ? n : null, label: raw === '' ? '' : `${raw}%` }; }
+        if (cc.type === 'duration') { const n = Number(raw); return { raw: Number.isFinite(n) ? n : null, label: raw === '' ? '' : `${raw}d` }; }
+        return { raw, label: String(raw) };
+      }
+    }
+  }, [groupVals, etapas, wbsMap, hasVinculos, totalValorVinculado, totalCusto, valorVinculadoMap, succMap, idToDisplayId, customCols]);
+
+  const filterKeyOf = React.useCallback((colId, e) => {
+    const type = resolveColType(colId, customCols);
+    const { raw, label } = colFilterValue(e, colId);
+    if (type === 'date') return raw ? `${raw.getFullYear()}-${raw.getMonth() + 1}-${raw.getDate()}` : FILTER_BLANK_KEY;
+    return (label === '' || label == null) ? FILTER_BLANK_KEY : label;
+  }, [colFilterValue, customCols]);
+
+  const passesColumnFilters = React.useCallback((e) =>
+    Object.entries(columnFilters).every(([colId, f]) =>
+      !f?.excluded?.length || !f.excluded.includes(filterKeyOf(colId, e))),
+  [columnFilters, filterKeyOf]);
+
+  // Comparador por tipo resolvido — em branco sempre por último, nas duas direções.
+  const compareByType = (type) => (a, b) => {
+    const aNull = a === null || a === undefined || a === '';
+    const bNull = b === null || b === undefined || b === '';
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;
+    if (bNull) return -1;
+    if (type === 'date')   return a.getTime() - b.getTime();
+    if (type === 'number') return a - b;
+    return String(a).localeCompare(String(b), 'pt-BR', { numeric: true, sensitivity: 'base' });
+  };
+
+  // Ordena só os IRMÃOS dentro de cada grupo-pai, preservando a estrutura EAP — nunca achata
+  // a hierarquia. Um grupo cujo pai foi filtrado vira uma "raiz" pseudo, junto com as raízes reais.
+  const applySiblingSort = (rows, spec) => {
+    if (!spec || rows.length < 2) return rows;
+    const cmp = compareByType(resolveColType(spec.colId, customCols));
+    const present = new Set(rows.map(r => r.id));
+    const byParent = new Map();
+    rows.forEach(r => {
+      const key = (r.parentId && present.has(r.parentId)) ? r.parentId : '__root__';
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key).push(r);
+    });
+    const sortSiblings = (arr) => arr
+      .map((r, i) => ({ r, i, raw: colFilterValue(r, spec.colId).raw }))
+      .sort((a, b) => {
+        const c = cmp(a.raw, b.raw);
+        const bothReal = a.raw != null && a.raw !== '' && b.raw != null && b.raw !== '';
+        const signed = bothReal && spec.dir === 'desc' ? -c : c;
+        return signed !== 0 ? signed : a.i - b.i;
+      })
+      .map(x => x.r);
+    const out = [];
+    const visit = (key) => sortSiblings(byParent.get(key) || []).forEach(r => {
+      out.push(r);
+      if (byParent.has(r.id)) visit(r.id);
+    });
+    visit('__root__');
+    return out;
+  };
+
+  // Valores distintos elegíveis para o menu de uma coluna, considerando os OUTROS filtros já
+  // ativos (cross-filter, estilo Excel) — assim a lista não mostra opção que já daria zero linhas.
+  const buildDomainEntries = React.useCallback((colId) => {
+    const rest = Object.fromEntries(Object.entries(columnFilters).filter(([cid]) => cid !== colId));
+    const rows = visible.filter(e =>
+      (showSummaryTasks || !e.isGroup) &&
+      (!filtroStatus || effStatus(e) === filtroStatus) &&
+      (!filtroResp || (e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase())) &&
+      Object.entries(rest).every(([cid, f]) => !f?.excluded?.length || !f.excluded.includes(filterKeyOf(cid, e)))
+    );
+    return rows.map(e => colFilterValue(e, colId));
+  }, [columnFilters, visible, showSummaryTasks, filtroStatus, filtroResp, filterKeyOf, colFilterValue]);
+
   const dragColRef = React.useRef(null);
   const [dragOverCol, setDragOverCol] = React.useState(null); // { id, side: 'before' | 'after' }
   const listaRef   = React.useRef(null);
@@ -225,6 +375,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   React.useEffect(() => {
     if (obraId) localStorage.setItem(`ls_hidden_${obraId}`, JSON.stringify([...hiddenCols]));
   }, [hiddenCols, obraId]);
+  React.useEffect(() => {
+    if (obraId) localStorage.setItem(`ls_filters_${obraId}`, JSON.stringify(columnFilters));
+  }, [columnFilters, obraId]);
+  React.useEffect(() => {
+    if (obraId) localStorage.setItem(`ls_sort_${obraId}`, JSON.stringify(sortSpec));
+  }, [sortSpec, obraId]);
 
   const toggleColVisibility = (colId) => {
     setHiddenCols(prev => {
@@ -258,6 +414,26 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const onUp   = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+  };
+  // Duplo clique na borda da coluna (estilo Excel): ajusta a largura ao maior conteúdo
+  // visível, medindo o texto num <canvas> fora da tela — colFilterValue já resolve o
+  // rótulo de exibição de QUALQUER coluna (padrão ou personalizada).
+  const autoFitColumn = (colId) => {
+    const col = LISTA_COL_DEFS[colId];
+    const cc = customCols.find(c => c.id === colId);
+    const label = col?.label || cc?.label || '';
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const fontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
+    ctx.font = `700 10.5px ${fontFamily}`;
+    let max = ctx.measureText(label.toUpperCase()).width + 30; // espaço da seta/redimensionar do cabeçalho
+    ctx.font = `11px ${fontFamily}`;
+    filtrada.forEach(e => {
+      const text = String(colFilterValue(e, colId)?.label ?? '');
+      const w = ctx.measureText(text).width;
+      if (w > max) max = w;
+    });
+    setColWidths(prev => ({ ...prev, [colId]: Math.max(50, Math.ceil(max) + 24) }));
   };
 
   const onColDragStart = (ev, colId) => { dragColRef.current = colId; ev.dataTransfer.effectAllowed = 'move'; };
@@ -303,34 +479,52 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           ...(isFrozen ? { left: frozenLeft[colId] } : {}),
           cursor: !isFrozen ? 'grab' : undefined,
           userSelect: 'none',
-          ...(col.align === 'right' ? { textAlign: 'right' } : {}),
+          textAlign: 'left',
+          ...(multiSelCols.includes(colId) ? { background: 'color-mix(in srgb, white 22%, var(--brand))' } : {}),
         }}
         draggable={!isFrozen}
-        onClick={() => selectColumn(colId)}
-        onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId }); }}
-        onDragStart={!isFrozen ? (ev) => onColDragStart(ev, colId) : undefined}
+        onClick={(ev) => { if (ev.target.closest('[data-colmenu]')) return; selectColumn(colId, ev); }}
+        onContextMenu={(ev) => { if (ev.target.closest('[data-colmenu]')) return; ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId }); }}
+        onDragStart={!isFrozen ? (ev) => { if (ev.target.closest('[data-colmenu]')) { ev.preventDefault(); return; } onColDragStart(ev, colId); } : undefined}
         onDragOver={!isFrozen ? (ev) => onColDragOver(ev, colId) : undefined}
         onDragLeave={!isFrozen ? () => setDragOverCol(prev => prev?.id === colId ? null : prev) : undefined}
         onDragEnd={!isFrozen ? () => { dragColRef.current = null; setDragOverCol(null); } : undefined}
         onDrop={!isFrozen ? (ev) => onColDrop(ev, colId) : undefined}
       >
-        {col.label}
+        <span style={{ display: 'block', paddingRight: 30, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
+        <span data-colmenu
+          style={{ position: 'absolute', right: 6, top: 0, bottom: 0, zIndex: 4, display: 'flex', alignItems: 'stretch' }}>
+          <ColumnHeaderFilterMenu
+            label={col.label}
+            type={resolveColType(colId, customCols)}
+            activeFilter={columnFilters[colId] || null}
+            sortDir={sortSpec?.colId === colId ? sortSpec.dir : null}
+            onSort={(dir) => setSortSpec({ colId, dir })}
+            onApplyFilter={(excluded) => setColumnFilters(prev => {
+              if (!excluded.length) { const n = { ...prev }; delete n[colId]; return n; }
+              return { ...prev, [colId]: { excluded } };
+            })}
+            onClearFilter={() => setColumnFilters(prev => { const n = { ...prev }; delete n[colId]; return n; })}
+            getDomainEntries={() => buildDomainEntries(colId)}
+          />
+        </span>
         <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 5 }}
-          draggable={false} onClick={(ev) => ev.stopPropagation()} onMouseDown={(ev) => { ev.stopPropagation(); startColResize(ev, colId); }} />
+          draggable={false} onClick={(ev) => ev.stopPropagation()} onMouseDown={(ev) => { ev.stopPropagation(); startColResize(ev, colId); }}
+          onDoubleClick={(ev) => { ev.stopPropagation(); autoFitColumn(colId); }} />
       </th>
     );
   };
 
-  // Aplica filtros de busca sobre as linhas visíveis
-  const filtrada = React.useMemo(() =>
-    visible.filter(e =>
+  // Aplica filtros sobre as linhas visíveis
+  const filtrada = React.useMemo(() => {
+    const base = visible.filter(e =>
       (showSummaryTasks || !e.isGroup) &&
-      (!busca || e.etapa.toLowerCase().includes(busca.toLowerCase())) &&
       (!filtroStatus || effStatus(e) === filtroStatus) &&
-      (!filtroResp || (e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase()))
-    ),
-    [visible, busca, filtroStatus, filtroResp, showSummaryTasks]
-  );
+      (!filtroResp || (e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase())) &&
+      passesColumnFilters(e)
+    );
+    return applySiblingSort(base, sortSpec);
+  }, [visible, filtroStatus, filtroResp, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Virtualização (windowing) da Lista — ativa só acima de VIRT_MIN. Abaixo, renderiza
   // todas as linhas (comportamento atual). Altura variável (rowH + overrides por linha)
@@ -370,6 +564,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     custo:     { kind: 'number', get: e => String(e.custo ?? 0),            field: 'custo' },
     custoReal: { kind: 'number', get: e => String(e.custoRealizado ?? 0),   field: 'custoRealizado' },
     resp:      { kind: 'text',   get: e => e.responsavel || '',              field: 'responsavel' },
+    restricao: { kind: 'date',   get: e => e.restricaoData || '',            field: 'restricao' },
   };
   const cellSpec = (colId) => {
     if (colId?.startsWith('cc_')) return { kind: 'text', get: e => (e.customCols || {})[colId] ?? '', field: colId };
@@ -450,6 +645,121 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     });
     applyBlockEdits(edits);
   };
+  // Fábrica de tarefa-folha com valores padrão — usada sempre que colar precisa CRIAR uma
+  // tarefa nova (grade vazia, ou colar ultrapassando o fim da lista). `base` é o array de
+  // tarefas já existente + as já criadas nesta mesma operação, pra id/displayId não colidirem.
+  const newLeafTask = (base, etapa) => ({
+    id: nextEtapaId(base), displayId: nextDisplayId(base), etapa,
+    nivel: 0, parentId: null, isGroup: false, collapsed: false,
+    inicio: todayOffset(), dur: 1, avanco: 0, status: 'upcoming',
+    dep: [], milestone: false, responsavel: '',
+    customCols: emptyCustomCols(customCols), custo: 0,
+    restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
+  });
+  // Cola texto vindo de FORA do app (Excel, outro programa etc.) — sem formatação,
+  // só valores. Mesma estrutura de pasteCell(), lendo de um texto TSV em vez de cellClipRef.
+  // Linhas coladas que ultrapassam o fim da lista viram tarefas NOVAS (em vez de descartadas).
+  const pasteExternalText = (text) => {
+    if (readOnly || !selectedCell) return;
+    const rows = filtrada.map(x => x.id);
+    const cols = visibleColIds();
+    const r0 = rows.indexOf(selectedCell.taskId);
+    const c0 = cols.indexOf(selectedCell.colId);
+    if (r0 < 0 || c0 < 0) return;
+    const grid = text.replace(/\r/g, '').split('\n').map(line => line.split('\t'));
+    const etapaDc = cols.indexOf('etapa') - c0; // posição de 'etapa' dentro da linha colada, se houver
+    const edits = [];
+    const novos = [];
+    grid.forEach((gr, dr) => {
+      const taskId = rows[r0 + dr];
+      if (taskId) {
+        gr.forEach((val, dc) => {
+          const colId = cols[c0 + dc];
+          if (!colId) return;
+          const spec = cellSpec(colId);
+          if (!spec) return;
+          edits.push({ taskId, colId, field: spec.field, rawValue: val });
+        });
+        return;
+      }
+      // Ultrapassou as tarefas existentes: cria uma tarefa nova pra essa linha colada,
+      // em vez de descartar a informação.
+      const nome = (etapaDc >= 0 && etapaDc < gr.length ? gr[etapaDc] : '').trim();
+      let novo = newLeafTask([...etapas, ...novos], nome);
+      gr.forEach((val, dc) => {
+        const colId = cols[c0 + dc];
+        if (!colId || colId === 'etapa') return; // etapa já tratado acima
+        const spec = cellSpec(colId);
+        if (!spec || !spec.field) return;
+        novo = applyFieldToEtapa(novo, spec.field, val, [...etapas, ...novos]);
+      });
+      novos.push(novo);
+    });
+    if (!edits.length && !novos.length) return;
+    // Edições em tarefas existentes + tarefas novas, num único commit (dois onCommit
+    // seguidos se sobrescreveriam, já que `etapas` só atualiza no próximo render).
+    const byTask = new Map();
+    edits.forEach(ed => { if (!byTask.has(ed.taskId)) byTask.set(ed.taskId, []); byTask.get(ed.taskId).push(ed); });
+    let reschedule = false;
+    const editadas = etapas.map(e => {
+      const list = byTask.get(e.id);
+      if (!list) return e;
+      let ne = e;
+      list.forEach(ed => {
+        ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas);
+        if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
+      });
+      return ne;
+    });
+    const novas = [...editadas, ...novos];
+    onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
+  };
+  // Cola criando tarefas NOVAS a partir do zero (grade sem nenhuma linha ainda, ou nenhuma
+  // seleção) — uma tarefa por linha colada, mapeando as colunas na mesma ordem/campo que
+  // pasteExternalText usa, só que a partir de 'etapa' (não há coluna selecionada como âncora).
+  const pasteCreateTasks = (text) => {
+    if (readOnly) return;
+    const grid = text.replace(/\r/g, '').split('\n').map(line => line.split('\t'));
+    const cols = visibleColIds();
+    const c0 = cols.indexOf('etapa');
+    if (c0 < 0) return;
+    const novos = [];
+    grid.forEach((row) => {
+      const nome = (row[0] ?? '').trim(); // primeira coluna colada cai em 'etapa' (cols[c0])
+      if (!nome) return; // ignora linha totalmente em branco
+      let novo = newLeafTask([...etapas, ...novos], nome);
+      row.forEach((val, dc) => {
+        if (dc === 0) return; // já usado como nome
+        const colId = cols[c0 + dc];
+        if (!colId) return;
+        const spec = cellSpec(colId);
+        if (!spec || !spec.field) return;
+        novo = applyFieldToEtapa(novo, spec.field, val, [...etapas, ...novos]);
+      });
+      novos.push(novo);
+    });
+    if (!novos.length) return;
+    onCommit([...etapas, ...novos], { silent: true });
+    setSelectedId(novos[0].id);
+  };
+  // Colar (Ctrl+V), via evento nativo `paste` — cobre tanto colar interno (Ctrl+C dentro
+  // do app, preserva formatação) quanto externo (Excel/outro programa, só valores).
+  const handlePasteEvent = (ev) => {
+    if (readOnly) return;
+    const tag = ev.target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // deixa o navegador colar no input
+    const text = ev.clipboardData?.getData('text/plain') ?? '';
+    if (!text) return;
+    // Sem NENHUMA tarefa ainda: nada a selecionar, cria tarefas novas a partir do texto colado.
+    if (!etapas.length) { ev.preventDefault(); pasteCreateTasks(text); return; }
+    if (!selectedCell && !selectedId) return;
+    ev.preventDefault();
+    const clip = cellClipRef.current;
+    const internalText = clip?.grid ? clip.grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n') : null;
+    if (selectedCell && internalText === text) { pasteCell(); return; } // veio de um Ctrl+C interno recente
+    if (!selectedCell) { pasteRow(); return; }
+    pasteExternalText(text);
+  };
   // Rola a linha em foco para dentro da área visível, respeitando o cabeçalho fixo.
   const scrollRowIntoView = (taskId) => {
     const sc = listaScrollRef.current;
@@ -479,6 +789,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     let r = rows.indexOf(selectedCell.taskId);
     let c = cols.indexOf(selectedCell.colId);
     if (r < 0 || c < 0) return;
+    // Seta pra baixo na última tarefa real: desce para a 1ª linha em branco do rodapé
+    // (fora do modelo de célula — segue seu próprio fluxo de foco via <input>).
+    if (key === 'ArrowDown' && r === rows.length - 1 && !extend && blankFirstRef.current) {
+      blankFirstRef.current.focus();
+      return;
+    }
     if (key === 'ArrowUp')    r = Math.max(0, r - 1);
     if (key === 'ArrowDown')  r = Math.min(rows.length - 1, r + 1);
     if (key === 'ArrowLeft')  c = Math.max(0, c - 1);
@@ -491,15 +807,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     setSelectedId(rows[r]);                    // linha atual acompanha para as ações da barra
   };
   // ── Copiar/inserir LINHA (quando uma linha está selecionada, sem célula) ─────
-  const copyRow = () => {
-    if (!selectedId) return;
-    const e = etapas.find(x => x.id === selectedId);
+  const copyRow = (idOverride) => {
+    const id = idOverride ?? selectedId;
+    if (!id) return;
+    const e = etapas.find(x => x.id === id);
     if (!e) return;
     rowClipRef.current = [JSON.parse(JSON.stringify(e))]; // array (uma linha)
   };
-  const pasteRow = () => {
-    if (readOnly || !selectedId) return;
-    const idx = etapas.findIndex(x => x.id === selectedId);
+  const pasteRow = (idOverride) => {
+    const id = idOverride ?? selectedId;
+    if (readOnly || !id) return;
+    const idx = etapas.findIndex(x => x.id === id);
     if (idx < 0) return;
     const ref = etapas[idx];
     const clips = rowClipRef.current;
@@ -529,7 +847,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     } else {
       // Nada copiado: insere N linhas em branco (N = nº de linhas do intervalo, ou 1)
       const n = Math.max(1, new Set(rangeCellList().map(x => x.taskId)).size);
-      for (let i = 0; i < n; i++) insertTask(selectedId, 'above');
+      for (let i = 0; i < n; i++) insertTask(id, 'above');
     }
   };
   // Ctrl++ (inserir cópia): duplica as LINHAS SELECIONADAS acima da primeira — determinístico,
@@ -580,11 +898,26 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
   // fmt efetivo de uma célula: linha (__row) sobrescrita pela célula (colId)
   const effFmt = (e, colId) => ({ ...(e?.fmt?.__row || {}), ...(e?.fmt?.[colId] || {}) });
-  // alvo atual: célula (se houver) senão a linha selecionada
+  // Converte o alinhamento (fmt.align) em justifyContent, pras células com layout flex interno
+  // (texto puro já usa fmtToCss/textAlign no <td> — essas precisam do próprio flex).
+  const alignJC = (a) => a === 'center' ? 'center' : a === 'right' ? 'flex-end' : 'flex-start';
+  // alvo atual: colunas multi-selecionadas (Ctrl+clique no cabeçalho) senão célula, senão a linha
   const fmtTarget = () => {
+    if (multiSelCols.length) {
+      const rows = filtrada.map(x => x.id);
+      if (!rows.length) return null;
+      return { taskId: rows[0], key: multiSelCols[0] };
+    }
     if (selectedCell) return { taskId: selectedCell.taskId, key: selectedCell.colId };
     if (selectedId)   return { taskId: selectedId, key: '__row' };
     return null;
+  };
+  // Todas as células (todas as linhas × todas as colunas marcadas via Ctrl+clique no cabeçalho)
+  const multiColCellList = () => {
+    const rows = filtrada.map(x => x.id);
+    const list = [];
+    rows.forEach(taskId => multiSelCols.forEach(colId => { if (!ROW_DRAG_COLS.has(colId)) list.push({ taskId, colId }); }));
+    return list;
   };
   // Colunas visíveis na ordem atual (para calcular o retângulo de seleção)
   const visibleColIds = () => [
@@ -594,9 +927,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Lista de células do intervalo (retângulo entre âncora e foco); ignora colunas-pegada
   // Seleciona a COLUNA inteira (todas as linhas visíveis) — reaproveita o range de seleção,
   // então a coluna fica selecionada/formatável/pintável como no Excel.
-  const selectColumn = (colId) => {
+  const selectColumn = (colId, ev) => {
     const rows = filtrada.map(x => x.id);
     if (!rows.length) return;
+    if (ev?.ctrlKey || ev?.metaKey) {
+      setMultiSelCols(cols => cols.includes(colId) ? cols.filter(c => c !== colId) : [...cols, colId]);
+      listaScrollRef.current?.focus?.({ preventScroll: true });
+      return;
+    }
+    setMultiSelCols([colId]); // já conta como selecionada — um Ctrl+clique seguinte soma a partir dela
     setSelAnchor({ taskId: rows[0], colId });
     setSelectedCell({ taskId: rows[rows.length - 1], colId });
     setSelectedId(null);
@@ -630,6 +969,19 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return ids;
   };
 
+  // "Linha inteira selecionada": multiSel (Ctrl+clique em linhas) ou o intervalo de
+  // células cobre da primeira à última coluna visível (mesmo critério de Shift+Espaço
+  // e do arraste pela calha — ambos produzem esse formato de seleção de propósito).
+  const isWholeRowSelection = () => {
+    if (multiSel.length) return true;
+    if (!selectedCell || !selAnchor) return false;
+    const cols = visibleColIds();
+    if (!cols.length) return false;
+    const c1 = cols.indexOf(selAnchor.colId), c2 = cols.indexOf(selectedCell.colId);
+    if (c1 < 0 || c2 < 0) return false;
+    return (c1 === 0 && c2 === cols.length - 1) || (c2 === 0 && c1 === cols.length - 1);
+  };
+
   // Cria uma tarefa raiz a partir de uma linha em branco (estilo Project: digitar o nome cria a tarefa).
   const createFromBlank = (nome, blankIndex = 0) => {
     const name = (nome || '').trim();
@@ -639,7 +991,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const mk = (base, etapa) => ({
       id: nextEtapaId(base), displayId: nextDisplayId(base), etapa,
       nivel: 0, parentId: null, isGroup: false, collapsed: false,
-      inicio: 0, dur: 1, avanco: 0, status: 'upcoming',
+      inicio: todayOffset(), dur: 1, avanco: 0, status: 'upcoming',
       dep: [], milestone: false, responsavel: '',
       customCols: emptyCustomCols(customCols), custo: 0,
       restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
@@ -793,6 +1145,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
   const applyFmt = (patch) => {
     if (readOnly) return;
+    if (multiSelCols.length) { applyFmtToCells(multiColCellList(), patch); return; }
     if (selectedCell) { applyFmtToCells(rangeCellList(), patch); return; }
     if (selectedId)   { handleCellFormat(selectedId, '__row', patch); }
   };
@@ -800,7 +1153,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // toda) e "arma" o tamanho para valer no próximo texto novo (linhas em branco).
   const applyFontSize = (fs) => {
     if (!readOnly) {
-      if (selectedCell) applyFmtToCells(rangeCellList(), { fontSize: fs });
+      if (multiSelCols.length) applyFmtToCells(multiColCellList(), { fontSize: fs });
+      else if (selectedCell) applyFmtToCells(rangeCellList(), { fontSize: fs });
       else if (selectedId) applyFmtToCells(visibleColIds().map(colId => ({ taskId: selectedId, colId })), { fontSize: fs });
     }
     setPendingFontSize(fs);
@@ -810,16 +1164,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const applyFontFamily = (ff) => {
     if (!readOnly) {
       const patch = { fontFamily: ff || false };
-      if (selectedCell) applyFmtToCells(rangeCellList(), patch);
+      if (multiSelCols.length) applyFmtToCells(multiColCellList(), patch);
+      else if (selectedCell) applyFmtToCells(rangeCellList(), patch);
       else if (selectedId) applyFmtToCells(visibleColIds().map(colId => ({ taskId: selectedId, colId })), patch);
     }
     setPendingFontFamily(ff || null);
   };
   const clearFmt = () => {
     if (readOnly) return;
-    if (selectedCell) {
+    if (multiSelCols.length || selectedCell) {
       const byTask = {};
-      rangeCellList().forEach(({ taskId, colId }) => { (byTask[taskId] = byTask[taskId] || []).push(colId); });
+      (multiSelCols.length ? multiColCellList() : rangeCellList()).forEach(({ taskId, colId }) => { (byTask[taskId] = byTask[taskId] || []).push(colId); });
       const novas = etapas.map(e => {
         const colIds = byTask[e.id];
         if (!colIds) return e;
@@ -886,13 +1241,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       showMarquee(); // borda tracejada animada na seleção copiada
       return;
     }
-    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'v' || ev.key === 'V')) {
-      if (editingNow || readOnly) return;
-      ev.preventDefault();
-      if (selectedCell) pasteCell(); else pasteRow();
-      setMarquee(null);
-      return;
-    }
+    // Colar (Ctrl+V) é tratado pelo evento nativo `onPaste` (handlePasteEvent) — cobre
+    // tanto colar interno (Ctrl+C dentro do app) quanto externo (Excel etc.).
     // Ctrl + '+' (estilo Excel): insere item (cópia da linha se houver, senão linha em
     // branco). preventDefault impede o zoom do navegador. Cobre '+', '=' e o + do numpad.
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === '+' || ev.key === '=' || ev.code === 'NumpadAdd')) {
@@ -913,19 +1263,46 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       else applyFmt({ underline: !activeFmt.underline });
       return;
     }
-    // Delete (estilo Excel/MS Project): exclui a linha selecionada na hora — Ctrl+Z desfaz.
-    // Grupo com subtarefas passa pela confirmação (o modal avisa a cascata "+N subtarefas").
-    if (ev.key === 'Delete' && !readOnly) {
-      const alvo = selectedId || selectedCell?.taskId;
-      if (!alvo) return;
+    // Ctrl+D (estilo Excel): preenche pra baixo — repete o valor da linha do TOPO do
+    // intervalo selecionado nas demais linhas, coluna a coluna.
+    if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === 'd') {
+      if (readOnly || !selectedCell) return;
       ev.preventDefault();
-      if (etapas.some(x => x.parentId === alvo)) { setDeleteConfirm(alvo); return; }
-      const novas = deleteTask(alvo, etapas);
-      const count = etapas.length - novas.length;
-      onCommit(novas, { silent: true });
-      setSelectedId(null);
-      setSelectedCell(null);
-      toast(`${count} tarefa${count > 1 ? 's removidas' : ' removida'}`, { tone: 'neutral', icon: 'check' });
+      const rows = filtrada.map(x => x.id);
+      const cols = visibleColIds();
+      const a = selAnchor || selectedCell;
+      let r1 = rows.indexOf(a.taskId), r2 = rows.indexOf(selectedCell.taskId);
+      let c1 = cols.indexOf(a.colId), c2 = cols.indexOf(selectedCell.colId);
+      if (r1 < 0 || r2 < 0 || c1 < 0 || c2 < 0) return;
+      if (r1 > r2) [r1, r2] = [r2, r1];
+      if (c1 > c2) [c1, c2] = [c2, c1];
+      if (r1 === r2) return; // só uma linha selecionada, nada pra replicar
+      const topTask = etapas.find(x => x.id === rows[r1]);
+      if (!topTask) return;
+      const edits = [];
+      for (let c = c1; c <= c2; c++) {
+        const colId = cols[c];
+        if (ROW_DRAG_COLS.has(colId)) continue;
+        const spec = cellSpec(colId);
+        if (!spec) continue;
+        const topVal = spec.get(topTask);
+        for (let r = r1 + 1; r <= r2; r++) {
+          edits.push({ taskId: rows[r], colId, field: spec.field, rawValue: topVal });
+        }
+      }
+      applyBlockEdits(edits);
+      return;
+    }
+    // Delete (estilo Excel/MS Project): só age quando a seleção cobre a LINHA INTEIRA
+    // (todas as colunas visíveis — mesmo critério do Shift+Espaço/drag na calha, ou
+    // multiSel). Uma célula ou um intervalo parcial de colunas não faz nada. Sempre
+    // pede confirmação (mesmo sem subtarefas) antes de excluir.
+    if (ev.key === 'Delete' && !readOnly) {
+      if (!isWholeRowSelection()) return;
+      ev.preventDefault();
+      const ids = [...selectedRowIds()];
+      if (!ids.length) return;
+      setDeleteConfirm(ids);
       return;
     }
     // Shift+Espaço: seleciona as LINHAS inteiras (estilo Excel) — cobre todas as colunas do
@@ -1001,6 +1378,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (f.bold)     classes.push('fmt-b');
     if (f.italic)   classes.push('fmt-i');
     if (f.underline) classes.push('fmt-u');
+    if (f.align)    style.textAlign = f.align;
     return { style: Object.keys(style).length ? style : null, classes };
   };
   // Borda externa do intervalo (só nas arestas do retângulo, estilo Excel) via box-shadow.
@@ -1026,7 +1404,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const { style: fmtStyle, classes: fmtClasses } = fmtToCss(eff);
     const cls     = [cell.props.className, dragCls, ...fmtClasses].filter(Boolean).join(' ');
     const selStyle = rangeSelStyle(edges, !!eff.bg, LISTA_FROZEN.includes(colId));
-    const styled = { ...(cell.props.style || {}), ...(fmtStyle || {}), ...(selStyle || {}) };
+    // Coluna inteira marcada via Ctrl+clique no cabeçalho: destaca todas as células dela,
+    // não só o cabeçalho (mesmo tom da linha selecionada) — recua se a célula já tem cor própria.
+    const colMultiSelStyle = (multiSelCols.includes(colId) && !eff.bg)
+      ? { background: 'color-mix(in srgb, var(--brand) 8%, var(--surface))' } : null;
+    const styled = { ...(cell.props.style || {}), ...(fmtStyle || {}), ...(colMultiSelStyle || {}), ...(selStyle || {}) };
     // Colunas-pegada (se houver) não participam da seleção de célula
     if (ROW_DRAG_COLS.has(colId)) {
       return React.cloneElement(cell, { className: cls || undefined, style: styled });
@@ -1045,14 +1427,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           setPainterOn(false);
           setSelectedCell({ taskId, colId }); setSelAnchor({ taskId, colId });
           if (!ev.ctrlKey && !ev.metaKey) setSelectedId(taskId);
+          rowClickHandledRef.current = true;
           listaScrollRef.current?.focus?.({ preventScroll: true });
           return;
         }
         setSelectedCell({ taskId, colId });
         setSelAnchor({ taskId, colId });
         isSelectingRef.current = true; // inicia possível arraste de intervalo
-        // Seleciona a linha também (as células editáveis param a propagação do clique)
-        if (!ev.ctrlKey && !ev.metaKey) { setSelectedId(taskId); setMultiSel([]); }
+        // Seleciona a linha também — tratado aqui (não delegado ao onClick do <tr>, que nem
+        // sempre é alcançado: várias células param a propagação do clique).
+        if (ev.ctrlKey || ev.metaKey) {
+          ev.preventDefault();
+          setMultiSel(ms => ms.includes(taskId) ? ms.filter(id => id !== taskId) : [...ms, taskId]);
+        } else {
+          setSelectedId(taskId);
+          setMultiSel([]);
+        }
+        rowClickHandledRef.current = true;
         listaScrollRef.current?.focus?.({ preventScroll: true });
         if (prevMd) prevMd(ev);
       },
@@ -1146,23 +1537,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   }, [multiSel, etapas, selectedId, selectedCell, selAnchor, filtrada]);
 
   // ── Atualização de campo ────────────────────────────────────────────────────
-  // Campos que exigem reprogramação (recalcular datas via dependências)
-  const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricaoTipo', 'restricaoData', 'modo'];
-  // Aplica um único campo a uma etapa (conversões de valor). Reutilizado por handleCellSave
-  // e pelo colar de bloco (applyBlockEdits). NÃO trata 'id' (caso especial em handleCellSave).
-  const applyFieldToEtapa = (e, field, rawValue) => {
-    if (field === 'inicio')      { return { ...e, inicio: Math.round(dateToOffset(rawValue)) }; }
-    if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)); return { ...e, dur: workDur(e.inicio, offset) }; }
-    if (field === 'duracaoDias') { return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) }; }
-    if (field === 'avanco')      { return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) }; }
-    if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, etapas) }; }
-    if (field === 'restricaoTipo') { return { ...e, restricaoTipo: rawValue }; }
-    if (field === 'restricaoData') { return { ...e, restricaoData: rawValue }; }
-    if (field === 'custo' || field === 'custoRealizado') { return { ...e, [field]: parseBRL(rawValue) }; }
-    if (field === 'fator_peso')  { const v = parseFloat(rawValue); return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) }; }
-    if (field.startsWith('cc_')) { return { ...e, customCols: { ...(e.customCols || {}), [field]: rawValue } }; }
-    return { ...e, [field]: rawValue };
-  };
+  // RESCHEDULE_FIELDS/applyFieldToEtapa vêm de scheduleEngine.js — compartilhados com o
+  // Formulário de Tarefa do Gantt, que precisa da mesma conversão de valor por campo.
   // Aplica um lote de edições (valor e/ou fmt por célula) num ÚNICO commit — usado no colar
   // de bloco (estilo Excel). Cada edição: { taskId, colId, field?, rawValue?, fmt? }.
   // fmt (quando presente) SUBSTITUI a formatação da coluna alvo (cola formatação da origem).
@@ -1179,7 +1555,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       let fmtChanged = false;
       list.forEach(ed => {
         if (ed.field !== undefined) {
-          ne = applyFieldToEtapa(ne, ed.field, ed.rawValue);
+          ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas);
           if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
         }
         if ('fmt' in ed) {
@@ -1218,8 +1594,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       return;
     }
 
-    const novas = etapas.map(e => e.id !== id ? e : applyFieldToEtapa(e, field, rawValue));
-    onCommit(RESCHEDULE_FIELDS.includes(field) ? autoScheduleFromDeps(novas) : novas, { silent: true });
+    onCommit(commitFieldChange(etapas, id, field, rawValue), { silent: true });
   };
 
   const handleToggleCollapse = (id) => {
@@ -1232,7 +1607,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   const handleDelete = () => {
     if (!selectedId) return;
-    setDeleteConfirm(selectedId);
+    setDeleteConfirm([selectedId]);
   };
 
   // Recuar/Avançar operam sobre TODA a seleção (calha/célula-range, multiSel ou linha única).
@@ -1271,11 +1646,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // antes da navegação por seta — senão a seta move a célula e "rouba" o atalho.
 
   const confirmDelete = () => {
-    if (!deleteConfirm) return;
-    const novas = deleteTask(deleteConfirm, etapas);
+    if (!deleteConfirm?.length) return;
+    const novas = deleteConfirm.reduce((acc, id) => deleteTask(id, acc), etapas);
     const count = etapas.length - novas.length;
     onCommit(novas, { silent: true });
     setSelectedId(null);
+    setSelectedCell(null);
     setDeleteConfirm(null);
     toast(`${count} tarefa${count > 1 ? 's removidas' : ' removida'}`, { tone: 'neutral', icon: 'check' });
   };
@@ -1483,11 +1859,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         borderBottom: '1px solid var(--border)', flexWrap: 'wrap',
         background: 'var(--bg-app)',
       }}>
-        <input
-          className="input" style={{ height: 30, fontSize: 12, minWidth: 180, flex: 1 }}
-          placeholder="Buscar tarefa..."
-          value={busca} onChange={e => setBusca(e.target.value)}
-        />
         <select
           className="input" style={{ height: 30, fontSize: 12 }}
           value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}
@@ -1502,13 +1873,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           placeholder="Responsável..."
           value={filtroResp} onChange={e => setFiltroResp(e.target.value)}
         />
-        {(busca || filtroStatus || filtroResp) && (
+        {(filtroStatus || filtroResp || Object.keys(columnFilters).length > 0 || sortSpec) && (
           <button className="btn btn-ghost" style={{ height: 30, fontSize: 12 }}
-            onClick={() => { setBusca(''); setFiltroStatus(''); setFiltroResp(''); }}>
+            onClick={() => { setFiltroStatus(''); setFiltroResp(''); setColumnFilters({}); setSortSpec(null); }}>
             Limpar filtros
           </button>
         )}
-        {(busca || filtroStatus || filtroResp) && (
+        {(filtroStatus || filtroResp || Object.keys(columnFilters).length > 0) && (
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             {filtrada.length} de {visible.length} exibidas
           </span>
@@ -1531,7 +1902,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       {/* ── Menu em abas (ribbon estilo MS Project): Tarefa | Inserir | Exibir ─── */}
       {(() => {
         const hasTarget = !!(selectedCell || selectedId);
-        const temFiltro = !!(busca || filtroStatus || filtroResp);
+        const temFiltro = !!(filtroStatus || filtroResp || Object.keys(columnFilters).length || sortSpec);
         const tglStyle = (on) => ({
           ...btnStyle, height: 28, padding: '2px 9px', fontWeight: 700,
           background: on ? 'var(--brand)' : 'var(--surface)', color: on ? '#fff' : 'var(--text)',
@@ -1628,6 +1999,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             <button style={tglStyle(activeFmt.bold)} onClick={() => applyFmt({ bold: !activeFmt.bold })} title="Negrito (Ctrl+B)">N</button>
                             <button style={{ ...tglStyle(activeFmt.italic), fontStyle: 'italic' }} onClick={() => applyFmt({ italic: !activeFmt.italic })} title="Itálico (Ctrl+I)">I</button>
                             <button style={{ ...tglStyle(activeFmt.underline), textDecoration: 'underline' }} onClick={() => applyFmt({ underline: !activeFmt.underline })} title="Sublinhado (Ctrl+U)">S</button>
+                            {div()}
+                            <button style={tglStyle(activeFmt.align === 'left')} onClick={() => applyFmt({ align: activeFmt.align === 'left' ? false : 'left' })} title="Alinhar à esquerda">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="15" y2="12" /><line x1="3" y1="18" x2="18" y2="18" /></svg>
+                            </button>
+                            <button style={tglStyle(activeFmt.align === 'center')} onClick={() => applyFmt({ align: activeFmt.align === 'center' ? false : 'center' })} title="Centralizar">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="6" y1="12" x2="18" y2="12" /><line x1="5" y1="18" x2="19" y2="18" /></svg>
+                            </button>
+                            <button style={tglStyle(activeFmt.align === 'right')} onClick={() => applyFmt({ align: activeFmt.align === 'right' ? false : 'right' })} title="Alinhar à direita">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="9" y1="12" x2="21" y2="12" /><line x1="6" y1="18" x2="21" y2="18" /></svg>
+                            </button>
                             {div()}
                             <ColorMenu label="Fundo" title="Cor de preenchimento" value={activeFmt.bg}
                               onPick={(c) => applyFmt({ bg: c })} onClear={() => applyFmt({ bg: false })} clearLabel="Sem preenchimento"
@@ -1874,6 +2255,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           <input type="checkbox" checked={showSummaryTasks} onChange={() => onToggleSummaryTasks?.()} style={{ accentColor: 'var(--brand)' }} />
                           Tarefas Resumo
                         </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          <input type="checkbox" checked={showTaskForm} onChange={() => setShowTaskForm(v => !v)} style={{ accentColor: 'var(--brand)' }} />
+                          Detalhes
+                        </label>
                       </div>
                       <div style={caption}>Mostrar/Ocultar</div>
                     </div>
@@ -1882,7 +2267,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={rowStyle}>
-                          <button style={{ ...cmdBtn, opacity: temFiltro ? 1 : 0.5 }} disabled={!temFiltro} onClick={() => { setBusca(''); setFiltroStatus(''); setFiltroResp(''); }} title="Limpar todos os filtros">
+                          <button style={{ ...cmdBtn, opacity: temFiltro ? 1 : 0.5 }} disabled={!temFiltro} onClick={() => { setFiltroStatus(''); setFiltroResp(''); setColumnFilters({}); setSortSpec(null); }} title="Limpar todos os filtros">
                             <Icon name="filter" size={13} /> Limpar filtros
                           </button>
                         </div>
@@ -1976,7 +2361,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       })()}
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
-      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} onScroll={() => { if (marquee) setMarquee(null); }} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none', position: 'relative' }}>
+      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} onPaste={handlePasteEvent} onScroll={() => { if (marquee) setMarquee(null); }} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none', position: 'relative' }}>
         <table className="tbl tbl-lista" style={{ minWidth: 1780 + GUTTER_W, tableLayout: 'fixed', '--lista-row-h': rowH + 'px' }}>
           {/* Larguras autoritativas por coluna. Com table-layout: fixed as larguras vêm do
               colgroup (não do conteúdo montado), então as colunas param de "dançar" ao rolar
@@ -2025,12 +2410,30 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               <th onClick={selectAll} title="Selecionar tudo" style={{ width: GUTTER_W, minWidth: GUTTER_W, position: 'sticky', top: bandTop, left: 0, zIndex: 7, userSelect: 'none', cursor: 'pointer' }} />
               {colOrder.filter(c => !hiddenCols.has(c)).map(colId => renderTh(colId))}
               {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
-                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandTop, zIndex: 3, userSelect: 'none', cursor: 'pointer' }}
-                  onClick={() => selectColumn(col.id)}
-                  onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId: col.id }); }}>
-                  {col.label}
+                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandTop, zIndex: 3, userSelect: 'none', cursor: 'pointer', textAlign: 'left',
+                    ...(multiSelCols.includes(col.id) ? { background: 'color-mix(in srgb, white 22%, var(--brand))' } : {}) }}
+                  onClick={(ev) => { if (ev.target.closest('[data-colmenu]')) return; selectColumn(col.id, ev); }}
+                  onContextMenu={(ev) => { if (ev.target.closest('[data-colmenu]')) return; ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId: col.id }); }}>
+                  <span style={{ display: 'block', paddingRight: 30, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
+                  <span data-colmenu
+                    style={{ position: 'absolute', right: 6, top: 0, bottom: 0, zIndex: 4, display: 'flex', alignItems: 'stretch' }}>
+                    <ColumnHeaderFilterMenu
+                      label={col.label}
+                      type={resolveColType(col.id, customCols)}
+                      activeFilter={columnFilters[col.id] || null}
+                      sortDir={sortSpec?.colId === col.id ? sortSpec.dir : null}
+                      onSort={(dir) => setSortSpec({ colId: col.id, dir })}
+                      onApplyFilter={(excluded) => setColumnFilters(prev => {
+                        if (!excluded.length) { const n = { ...prev }; delete n[col.id]; return n; }
+                        return { ...prev, [col.id]: { excluded } };
+                      })}
+                      onClearFilter={() => setColumnFilters(prev => { const n = { ...prev }; delete n[col.id]; return n; })}
+                      getDomainEntries={() => buildDomainEntries(col.id)}
+                    />
+                  </span>
                   <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 5 }}
-                    onClick={(ev) => ev.stopPropagation()} onMouseDown={(ev) => { ev.stopPropagation(); startColResize(ev, col.id); }} />
+                    onClick={(ev) => ev.stopPropagation()} onMouseDown={(ev) => { ev.stopPropagation(); startColResize(ev, col.id); }}
+                    onDoubleClick={(ev) => { ev.stopPropagation(); autoFitColumn(col.id); }} />
                 </th>
               ))}
               <th style={{ width: 36, padding: '0 8px', textAlign: 'center', position: 'sticky', top: bandTop, zIndex: 3 }}>
@@ -2093,16 +2496,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               const indent      = (e.nivel || 0) * 20;
               const hasChildren = parentIdSet.has(e.id);
               const gv          = e.isGroup ? groupVals[e.id] : null;
-              const multiIdx    = multiSel.indexOf(e.id);
-              const isMultiSel  = multiIdx >= 0;
+              const isMultiSel  = multiSel.includes(e.id);
               const eInicio     = gv ? gv.inicio : e.inicio;
               const eDur        = gv ? gv.dur    : e.dur;
               const eAvanco     = gv ? gv.avanco : e.avanco;
 
               // Background explícito para células sticky (colunas congeladas)
-              const frozenBg = isSelected
+              const frozenBg = (isSelected || isMultiSel)
                 ? 'color-mix(in srgb, var(--brand) 8%, var(--surface))'
                 : e.isGroup ? 'var(--brand-50)' : 'var(--surface)';
+              // A calha (número da linha) não passa por decorateCell/rangeSelStyle como as
+              // demais colunas — sem isto, ela perdia a marcação quando a linha fazia parte
+              // de um intervalo de células selecionadas (rangeRowIds desliga isSelected/frozenBg).
+              const gutterBg = rangeRowIds.has(e.id)
+                ? 'color-mix(in srgb, var(--brand) 10%, var(--surface))'
+                : frozenBg;
               const stickyStyle = (colId) => ({
                 position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: frozenBg,
               });
@@ -2131,9 +2539,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       ) : (
                         <span style={{ width: 20, flexShrink: 0, display: 'inline-block' }} />
                       )}
-                      <EditableCell value={e.etapa} onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
-                        readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 12 : 11 }} />
-                      {isMultiSel && <span className="multi-sel-badge">{multiIdx + 1}</span>}
+                      {/* Indentação da hierarquia (acima) fica fixa; só o texto do nome
+                         responde ao alinhamento, pra não quebrar a leitura da EAP. */}
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: alignJC(effFmt(e, 'etapa').align) }}>
+                        <EditableCell value={e.etapa} onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
+                          readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 12 : 11 }} />
+                      </div>
                     </div>
                   </td>
                 ),
@@ -2154,7 +2565,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     {e.isGroup ? (
                       <span className="text-muted mono" style={{ fontSize: 12 }}>{eDur}d</span>
                     ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: alignJC(effFmt(e, 'duracao').align) }}>
                         <EditableCell type="number" value={String(e.dur)}
                           onSave={v => handleCellSave(e.id, 'duracaoDias', v)} readOnly={readOnly} style={{ minWidth: 32 }} />
                         <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>d</span>
@@ -2196,7 +2607,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       />
                     ) : (
                       <span className="mono" style={{ fontSize: 12, cursor: 'text', display: 'block', textAlign: 'right' }}
-                        onClick={() => setEditingCusto(e.id + '_custo')}>{fmtBRL(e.custo || 0)}</span>
+                        onDoubleClick={() => setEditingCusto(e.id + '_custo')}>{fmtBRL(e.custo || 0)}</span>
                     )}
                   </td>
                 ),
@@ -2225,7 +2636,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       />
                     ) : (
                       <span className="mono" style={{ cursor: 'text', display: 'block', textAlign: 'right' }}
-                        onClick={() => setEditingFatorPeso(e.id)}>
+                        onDoubleClick={() => setEditingFatorPeso(e.id)}>
                         {(e.fator_peso ?? 1).toLocaleString('pt-BR')}
                       </span>
                     )}
@@ -2252,7 +2663,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       />
                     ) : (
                       <span className="mono" style={{ fontSize: 12, cursor: 'text', display: 'block', textAlign: 'right' }}
-                        onClick={() => setEditingCusto(e.id + '_real')}>{fmtBRL(e.custoRealizado || 0)}</span>
+                        onDoubleClick={() => setEditingCusto(e.id + '_real')}>{fmtBRL(e.custoRealizado || 0)}</span>
                     )}
                   </td>
                 ),
@@ -2292,7 +2703,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     ) : (() => {
                       const parts = formatDepList(e.dep, etapas).split(',').map(s => s.trim()).filter(p => p && p !== '—');
                       return (
-                        <div onClick={() => !readOnly && setEditingDep(e.id)} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', cursor: readOnly ? 'default' : 'text', minHeight: 20 }}>
+                        <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', cursor: readOnly ? 'default' : 'text', minHeight: 20 }}>
                           {parts.length ? parts.map(p => <span key={p} className="dep-chip">{p}</span>) : <span className="text-faint">—</span>}
                         </div>
                       );
@@ -2350,28 +2761,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   </td>
                 ),
                 restricao: (
-                  <td key="restricao" onClick={ev => ev.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
-                    {e.isGroup ? <span className="text-faint">—</span> : (
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <select style={{ width: '100%', height: 30, fontSize: 12, padding: '0 10px', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-soft)', background: 'var(--surface)' }}
-                          value={e.restricaoTipo || 'asap'}
-                          onChange={ev => handleCellSave(e.id, 'restricaoTipo', ev.target.value)}
-                          onClick={ev => ev.stopPropagation()}>
-                          <option value="asap">O mais cedo possível</option>
-                          <option value="snet">Não iniciar antes de</option>
-                          <option value="snlt">Não iniciar depois de</option>
-                          <option value="fnet">Não terminar antes de</option>
-                          <option value="fnlt">Não terminar depois de</option>
-                          <option value="mso">Deve iniciar em</option>
-                          <option value="mfo">Deve terminar em</option>
-                        </select>
-                        {e.restricaoTipo && e.restricaoTipo !== 'asap' && (
-                          <input type="date" style={{ height: 26, fontSize: 11 }}
-                            value={e.restricaoData || ''}
-                            onChange={ev => handleCellSave(e.id, 'restricaoData', ev.target.value)}
-                            onClick={ev => ev.stopPropagation()} />
-                        )}
-                      </div>
+                  <td key="restricao" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
+                    {!e.isGroup && (
+                      <EditableCell type="date" value={e.restricaoData || ''}
+                        onSave={v => handleCellSave(e.id, 'restricao', v)}
+                        readOnly={readOnly}
+                        style={{ fontSize: 12.5 }} />
                     )}
                   </td>
                 ),
@@ -2399,7 +2794,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   data-index={rowIdx}
                   ref={virtualize ? rowVirt.measureElement : undefined}
                   className={[
-                    isSelected ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
+                    (isSelected || isMultiSel) ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
                     rowIdx % 2 === 1 ? 'lista-row-alt' : '',
                     dragOverId === e.id ? 'drag-over-row' : '',
                   ].filter(Boolean).join(' ')}
@@ -2407,6 +2802,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   onClick={(ev) => {
                     // Acabou de mover a linha pela borda: não alterna a seleção neste clique
                     if (rowDragMovedRef.current) { rowDragMovedRef.current = false; return; }
+                    // O mousedown de uma célula ou da calha já tratou a seleção deste clique
+                    // (fallback só para cliques que não passaram por nenhum <td> decorado).
+                    const alreadyHandled = rowClickHandledRef.current;
+                    rowClickHandledRef.current = false;
+                    if (alreadyHandled) return;
                     if (ev.ctrlKey || ev.metaKey) {
                       ev.preventDefault();
                       setMultiSel(ms => ms.includes(e.id) ? ms.filter(id => id !== e.id) : [...ms, e.id]);
@@ -2474,8 +2874,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       isSelectingRef.current = false;
                       setSelAnchor({ taskId: e.id, colId: cols[0] });
                       setSelectedCell({ taskId: e.id, colId: cols[cols.length - 1] });
-                      setSelectedId(e.id);
-                      setMultiSel([]);
+                      if (ev.ctrlKey || ev.metaKey) {
+                        setMultiSel(ms => ms.includes(e.id) ? ms.filter(id => id !== e.id) : [...ms, e.id]);
+                      } else {
+                        setSelectedId(e.id);
+                        setMultiSel([]);
+                      }
+                      rowClickHandledRef.current = true;
                       listaScrollRef.current?.focus?.({ preventScroll: true });
                     }}
                     onMouseEnter={() => {
@@ -2487,13 +2892,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     }}
                     title="Clique e arraste para selecionar linhas"
                     style={{
-                      position: 'sticky', left: 0, zIndex: 2, background: frozenBg,
+                      position: 'sticky', left: 0, zIndex: 2, background: gutterBg,
                       width: GUTTER_W, minWidth: GUTTER_W, textAlign: 'center',
                       cursor: 'pointer', userSelect: 'none', color: 'var(--text-faint)',
                       fontSize: 11, fontFamily: 'var(--font-mono, monospace)',
                     }}
                   >
-                    {rowIdx + 1}
+                    {(isSelected || isMultiSel || rangeRowIds.has(e.id)) ? '' : rowIdx + 1}
                   </td>
                   {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeEdges.get(e.id + '|' + colId)))}
 
@@ -2528,7 +2933,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     );
                     else if (col.type === 'percent') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: alignJC(effFmt(e, col.id).align) }}>
                           <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
                         </div>
@@ -2536,7 +2941,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     );
                     else if (col.type === 'duration') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: alignJC(effFmt(e, col.id).align) }}>
                           <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly} />
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>d</span>
                         </div>
@@ -2561,7 +2966,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             {/* Linhas em branco (estilo Project/Excel): digitar o nome cria a tarefa.
                Só quando editável e sem filtro; caso contrário mostra a mensagem de estado vazio. */}
             {(() => {
-              const semFiltro = !busca && !filtroStatus && !filtroResp;
+              const semFiltro = !filtroStatus && !filtroResp && !Object.keys(columnFilters).length;
               const visCols = colOrder.filter(c => !hiddenCols.has(c));
               const visCustom = customCols.filter(col => !hiddenCols.has(col.id));
               const blankFrozen = (colId) => ({ position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: 'var(--surface)' });
@@ -2574,12 +2979,36 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     </td>
                     {visCols.map(colId => {
                       if (colId === 'etapa') return (
-                        <td key="etapa" style={{ ...blankFrozen('etapa'), padding: 0 }}>
+                        <td key="etapa" style={{ ...blankFrozen('etapa'), padding: 0 }}
+                          onMouseDown={(ev) => { if (ev.target.tagName !== 'INPUT') ev.currentTarget.querySelector('input')?.focus(); }}>
                           <input
                             ref={k === 0 ? blankFirstRef : undefined}
                             className="lista-blank-input"
                             placeholder={k === 0 ? 'Nova tarefa…' : ''}
+                            onFocus={() => setBlankSelectedIdx(k)}
                             onKeyDown={(ev) => {
+                              // Só "selecionada" (sem digitar ainda): qualquer tecla de verdade vira
+                              // edição normal — as setas continuam navegando entre linhas, não contam.
+                              if (blankSelectedIdx === k && ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') {
+                                setBlankSelectedIdx(null);
+                              }
+                              if (ev.key === 'ArrowDown') {
+                                ev.preventDefault();
+                                ev.currentTarget.closest('tr')?.nextElementSibling?.querySelector('input.lista-blank-input')?.focus();
+                                return;
+                              }
+                              if (ev.key === 'ArrowUp') {
+                                ev.preventDefault();
+                                const prevInput = ev.currentTarget.closest('tr')?.previousElementSibling?.querySelector('input.lista-blank-input');
+                                if (prevInput) { prevInput.focus(); return; }
+                                // 1ª linha em branco: volta o foco pra grade real (última linha).
+                                if (!selectedCell) {
+                                  const rows = filtrada.map(x => x.id);
+                                  if (rows.length) setSelectedCell({ taskId: rows[rows.length - 1], colId: 'etapa' });
+                                }
+                                listaScrollRef.current?.focus?.({ preventScroll: true });
+                                return;
+                              }
                               if (ev.key !== 'Enter') return;
                               const v = ev.currentTarget.value;
                               if (v.trim()) { ev.currentTarget.value = ''; createFromBlank(v, k); return; }
@@ -2587,8 +3016,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                               ev.preventDefault();
                               ev.currentTarget.closest('tr')?.nextElementSibling?.querySelector('input.lista-blank-input')?.focus();
                             }}
-                            onBlur={(ev) => { const v = ev.currentTarget.value; if (v.trim()) { ev.currentTarget.value = ''; createFromBlank(v, k); } }}
-                            style={{ width: '100%', height: '100%', border: 'none', outline: 'none', background: 'transparent', font: 'inherit', fontSize: 11, color: 'var(--text)', padding: '0 10px 0 30px' }}
+                            onBlur={(ev) => {
+                              setBlankSelectedIdx(idx => idx === k ? null : idx);
+                              const v = ev.currentTarget.value;
+                              if (v.trim()) { ev.currentTarget.value = ''; createFromBlank(v, k); }
+                            }}
+                            style={{
+                              width: '100%', height: '100%', border: 'none', background: 'transparent',
+                              font: 'inherit', fontSize: 11, color: 'var(--text)', padding: '0 10px 0 30px',
+                              outline: blankSelectedIdx === k ? '2px solid var(--brand)' : 'none', outlineOffset: -2,
+                              caretColor: blankSelectedIdx === k ? 'transparent' : 'auto',
+                            }}
                           />
                         </td>
                       );
@@ -2677,6 +3115,24 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         );
       })()}
 
+      {showTaskForm && (() => {
+        // Navega pela lista NÃO filtrada (visible) — assim editar a tarefa aberta (ex. nome,
+        // status) e ela deixar de bater com um filtro ativo não desabilita Anterior/Próxima.
+        const idx = visible.findIndex(e => e.id === selectedId);
+        return (
+          <TaskFormPanel
+            task={idx >= 0 ? visible[idx] : null}
+            etapas={etapas}
+            onCommit={onCommit}
+            readOnly={readOnly}
+            canPrev={idx > 0}
+            canNext={idx >= 0 && idx < visible.length - 1}
+            onPrev={() => { if (idx > 0) setSelectedId(visible[idx - 1].id); }}
+            onNext={() => { if (idx >= 0 && idx < visible.length - 1) setSelectedId(visible[idx + 1].id); }}
+          />
+        );
+      })()}
+
       {showAddCol && <AddColModal onClose={() => setShowAddCol(false)} onAdd={handleAddCol} />}
 
       {showRowHDialog && (
@@ -2694,11 +3150,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       )}
 
       {/* Modal de confirmação de exclusão */}
-      {deleteConfirm && (() => {
-        const et = etapas.find(e => e.id === deleteConfirm);
-        const childCount = deleteTask(deleteConfirm, etapas).length < etapas.length
-          ? etapas.length - deleteTask(deleteConfirm, etapas).length - 1
-          : 0;
+      {deleteConfirm?.length > 0 && (() => {
+        const novas = deleteConfirm.reduce((acc, id) => deleteTask(id, acc), etapas);
+        const totalRemovido = etapas.length - novas.length;
+        const extraCount = Math.max(0, totalRemovido - deleteConfirm.length);
+        const et = deleteConfirm.length === 1 ? etapas.find(e => e.id === deleteConfirm[0]) : null;
         return (
           <Modal
             title="Excluir tarefa"
@@ -2714,11 +3170,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             }
           >
             <p style={{ fontSize: 14, marginBottom: 4 }}>
-              Tem certeza que deseja excluir <strong>{et ? et.etapa : deleteConfirm}</strong>?
+              {deleteConfirm.length === 1
+                ? <>Tem certeza que deseja excluir <strong>{et ? et.etapa : deleteConfirm[0]}</strong>?</>
+                : <>Tem certeza que deseja excluir as <strong>{deleteConfirm.length} tarefas selecionadas</strong>?</>}
             </p>
-            {childCount > 0 && (
+            {extraCount > 0 && (
               <p style={{ fontSize: 13, color: 'var(--danger)', marginTop: 8 }}>
-                Esta tarefa possui {childCount} subtarefa{childCount > 1 ? 's' : ''} que também serão removida{childCount > 1 ? 's' : ''}.
+                {deleteConfirm.length === 1
+                  ? `Esta tarefa possui ${extraCount} subtarefa${extraCount > 1 ? 's' : ''} que também ${extraCount > 1 ? 'serão removidas' : 'será removida'}.`
+                  : `Isso inclui mais ${extraCount} subtarefa${extraCount > 1 ? 's' : ''} removida${extraCount > 1 ? 's' : ''} em cascata.`}
               </p>
             )}
           </Modal>
@@ -2747,12 +3207,19 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
       {/* Menu de contexto — botão direito na linha */}
       {ctxMenu?.kind !== 'col' && ctxMenu && !readOnly && (
-        <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+        <div ref={ctxMenuRef} className="ctx-menu" style={{ left: ctxMenuPos?.left ?? ctxMenu.x, top: ctxMenuPos?.top ?? ctxMenu.y }}>
           <button onClick={() => { insertTask(ctxMenu.taskId, 'above'); setCtxMenu(null); }}>
             ↑ Inserir linha acima
           </button>
           <button onClick={() => { insertTask(ctxMenu.taskId, 'below'); setCtxMenu(null); }}>
             ↓ Inserir linha abaixo
+          </button>
+          <hr />
+          <button onClick={() => { copyRow(ctxMenu.taskId); setCtxMenu(null); }}>
+            Copiar
+          </button>
+          <button onClick={() => { pasteRow(ctxMenu.taskId); setCtxMenu(null); }}>
+            Colar
           </button>
           <hr />
           <button onClick={() => {
@@ -2769,6 +3236,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           </button>
           <hr />
           <button onClick={() => {
+            const ids = selectedRowIds(); ids.add(ctxMenu.taskId);
+            onCommit(autoScheduleFromDeps(etapas.map(t => (ids.has(t.id) && !t.isGroup) ? { ...t, modo: 'auto' } : t)));
+            setCtxMenu(null);
+          }}>
+            <Icon name="clock" size={13} style={{ marginRight: 6 }} />Agendar Automático
+          </button>
+          <button onClick={() => {
+            const ids = selectedRowIds(); ids.add(ctxMenu.taskId);
+            onCommit(autoScheduleFromDeps(etapas.map(t => (ids.has(t.id) && !t.isGroup) ? { ...t, modo: 'manual' } : t)));
+            setCtxMenu(null);
+          }}>
+            <Icon name="pin" size={13} style={{ marginRight: 6 }} />Agendar Manual
+          </button>
+          <hr />
+          <button onClick={() => {
             const ids = selectedRowIds();
             ids.add(ctxMenu.taskId); // inclui a linha clicada
             setRowHDialogTargets([...ids]);
@@ -2778,7 +3260,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             Altura da linha…
           </button>
           <hr />
-          <button className="danger" onClick={() => { setDeleteConfirm(ctxMenu.taskId); setCtxMenu(null); }}>
+          <button className="danger" onClick={() => { setDeleteConfirm([ctxMenu.taskId]); setCtxMenu(null); }}>
             Excluir tarefa
           </button>
         </div>
@@ -2786,11 +3268,19 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
       {/* Menu de contexto — botão direito no cabeçalho de coluna */}
       {ctxMenu?.kind === 'col' && (
-        <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+        <div ref={ctxMenuRef} className="ctx-menu" style={{ left: ctxMenuPos?.left ?? ctxMenu.x, top: ctxMenuPos?.top ?? ctxMenu.y }}>
           <button onClick={() => { selectColumn(ctxMenu.colId); setCtxMenu(null); }}>
             Selecionar coluna
           </button>
-          {!LISTA_FROZEN.includes(ctxMenu.colId) && (
+          {multiSelCols.length > 1 ? (
+            <button onClick={() => {
+              setHiddenCols(prev => new Set([...prev, ...multiSelCols.filter(c => !LISTA_FROZEN.includes(c))]));
+              setMultiSelCols([]);
+              setCtxMenu(null);
+            }}>
+              Ocultar {multiSelCols.length} colunas selecionadas
+            </button>
+          ) : !LISTA_FROZEN.includes(ctxMenu.colId) && (
             <button onClick={() => { toggleColVisibility(ctxMenu.colId); setCtxMenu(null); }}>
               Ocultar coluna
             </button>
@@ -2803,6 +3293,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               </button>
             </>
           )}
+          <hr />
+          <button onClick={() => { setShowAddCol(true); setCtxMenu(null); }}>
+            Inserir coluna
+          </button>
         </div>
       )}
     </div>

@@ -4,7 +4,7 @@
 // têm state, JSX nem efeitos colaterais. Datas/dias úteis vêm de ./cronogramaDateUtils.
 
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
-import { offsetToDate, dateToOffset, taskEnd, workStart } from './cronogramaDateUtils';
+import { offsetToDate, dateToOffset, taskEnd, workStart, workDur } from './cronogramaDateUtils';
 
 // ─── Funções puras de dados ──────────────────────────────────────────────────
 
@@ -427,6 +427,41 @@ export function parseDep(raw, etapas) {
     if (!found) return null;
     return { id: found.id, tipo, lag };
   }).filter(Boolean);
+}
+
+// ─── Atualização de campo (Lista e Formulário de Tarefa) ─────────────────────
+// Campos que exigem reprogramação (recalcular datas via dependências)
+export const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricao', 'restricaoTipo', 'restricaoData', 'modo'];
+
+// Aplica um único campo a uma etapa (conversões de valor). Reutilizado pela Lista
+// (célula editável, colar em bloco) e pelo Formulário de Tarefa do Gantt.
+// NÃO trata 'id' (caso especial de renomeação, tratado no chamador).
+export function applyFieldToEtapa(e, field, rawValue, etapas) {
+  if (field === 'inicio')      { return { ...e, inicio: Math.round(dateToOffset(rawValue)) }; }
+  if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)); return { ...e, dur: workDur(e.inicio, offset) }; }
+  if (field === 'duracaoDias') { return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) }; }
+  if (field === 'avanco')      { return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) }; }
+  if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, etapas) }; }
+  if (field === 'restricao') {
+    // Campo virtual da coluna simplificada (estilo Project): só uma data, sem tipo à escolha.
+    // Preenchida = "não iniciar antes de" (snet); vazia = sem restrição (asap).
+    const v = (rawValue || '').trim();
+    return v ? { ...e, restricaoTipo: 'snet', restricaoData: v } : { ...e, restricaoTipo: 'asap', restricaoData: '' };
+  }
+  if (field === 'restricaoTipo') { return { ...e, restricaoTipo: rawValue }; }
+  if (field === 'restricaoData') { return { ...e, restricaoData: rawValue }; }
+  if (field === 'custo' || field === 'custoRealizado') { return { ...e, [field]: parseBRL(rawValue) }; }
+  if (field === 'fator_peso')  { const v = parseFloat(rawValue); return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) }; }
+  if (field.startsWith('cc_')) { return { ...e, customCols: { ...(e.customCols || {}), [field]: rawValue } }; }
+  return { ...e, [field]: rawValue };
+}
+
+// Aplica um campo e já decide se reprograma (mesma regra de RESCHEDULE_FIELDS) — usado
+// diretamente pelo Formulário de Tarefa; a Lista usa applyFieldToEtapa por célula/lote
+// e decide o reagendamento ela mesma (autoScheduleFromDeps sobre o array inteiro).
+export function commitFieldChange(etapas, id, field, rawValue) {
+  const novas = etapas.map(e => (e.id !== id ? e : applyFieldToEtapa(e, field, rawValue, etapas)));
+  return RESCHEDULE_FIELDS.includes(field) ? autoScheduleFromDeps(novas) : novas;
 }
 
 // ─── Utilitários de formatação ───────────────────────────────────────────────

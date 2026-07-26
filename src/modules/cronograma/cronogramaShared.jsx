@@ -145,7 +145,7 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
       <span
         onDoubleClick={() => { setDraft(value); setEditing(true); }}
         title="Duplo-clique para editar"
-        style={{ cursor: 'default', display: 'block', minHeight: 20, ...style }}
+        style={{ cursor: type === 'date' ? 'pointer' : 'text', display: 'block', minHeight: 20, ...style }}
       >
         {display ?? <span style={{ color: 'var(--text-faint)' }}>—</span>}
       </span>
@@ -176,27 +176,43 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
 
 // ─── Definições de colunas / paleta de cores / ColorMenu ─────────────────────
 export const LISTA_COL_DEFS = {
-  wbs:       { label: 'WBS',           defWidth: 44,  frozen: true, band: 'etapa' },
-  id:        { label: 'ID',            defWidth: 44,  frozen: true, band: 'etapa' },
-  modo:      { label: 'Modo',          defWidth: 56,  align: 'center', band: 'etapa' },
-  etapa:     { label: 'Etapa / Tarefa',defWidth: 224, frozen: true, band: 'etapa' },
-  inicio:    { label: 'Início',        defWidth: 96,  band: 'prazo' },
-  fim:       { label: 'Término',       defWidth: 96,  band: 'prazo' },
-  duracao:   { label: 'Duração',       defWidth: 78,  band: 'prazo' },
-  avanco:    { label: '% Concluída',   defWidth: 150, band: 'avanco' },
-  status:    { label: 'Status',        defWidth: 110, band: 'avanco' },
-  peso:           { label: 'Peso %',          defWidth: 70,  align: 'right', band: 'fin' },
-  fatorPeso:      { label: 'Fator Peso',      defWidth: 90,  align: 'right', band: 'fin' },
-  valorVinculado: { label: 'Valor Vinculado', defWidth: 120, align: 'right', band: 'fin' },
-  custo:     { label: 'Custo Prev.',   defWidth: 112, align: 'right', band: 'fin' },
-  custoReal: { label: 'Custo Real',    defWidth: 112, align: 'right', band: 'fin' },
-  saldo:     { label: 'Saldo',         defWidth: 112, align: 'right', band: 'fin' },
-  dep:       { label: 'Pred.',         defWidth: 90,  band: 'seq' },
-  succ:      { label: 'Suces.',        defWidth: 90,  band: 'seq' },
-  resp:      { label: 'Responsável',   defWidth: 152, band: 'seq' },
-  restricao: { label: 'Restrição',     defWidth: 148, band: 'seq' },
-  participa:  { label: 'Curva',         defWidth: 54, align: 'center', band: 'seq' },
+  wbs:       { label: 'WBS',           defWidth: 44,  frozen: true, band: 'etapa', type: 'text' },
+  id:        { label: 'ID',            defWidth: 44,  frozen: true, band: 'etapa', type: 'text' },
+  modo:      { label: 'Modo',          defWidth: 56,  align: 'center', band: 'etapa', type: 'enum' },
+  etapa:     { label: 'Etapa / Tarefa',defWidth: 224, frozen: true, band: 'etapa', type: 'text' },
+  inicio:    { label: 'Início',        defWidth: 96,  band: 'prazo', type: 'date' },
+  fim:       { label: 'Término',       defWidth: 96,  band: 'prazo', type: 'date' },
+  duracao:   { label: 'Duração',       defWidth: 78,  band: 'prazo', type: 'number' },
+  avanco:    { label: '% Concluída',   defWidth: 150, band: 'avanco', type: 'number' },
+  status:    { label: 'Status',        defWidth: 110, band: 'avanco', type: 'enum' },
+  peso:           { label: 'Peso %',          defWidth: 70,  align: 'right', band: 'fin', type: 'number' },
+  fatorPeso:      { label: 'Fator Peso',      defWidth: 90,  align: 'right', band: 'fin', type: 'number' },
+  valorVinculado: { label: 'Valor Vinculado', defWidth: 120, align: 'right', band: 'fin', type: 'number' },
+  custo:     { label: 'Custo Prev.',   defWidth: 112, align: 'right', band: 'fin', type: 'number' },
+  custoReal: { label: 'Custo Real',    defWidth: 112, align: 'right', band: 'fin', type: 'number' },
+  saldo:     { label: 'Saldo',         defWidth: 112, align: 'right', band: 'fin', type: 'number' },
+  dep:       { label: 'Pred.',         defWidth: 90,  band: 'seq', type: 'text' },
+  succ:      { label: 'Suces.',        defWidth: 90,  band: 'seq', type: 'text' },
+  resp:      { label: 'Responsável',   defWidth: 152, band: 'seq', type: 'text' },
+  restricao: { label: 'Restrição',     defWidth: 80,  band: 'seq', type: 'date' },
+  participa:  { label: 'Curva',         defWidth: 54, align: 'center', band: 'seq', type: 'boolean' },
 };
+
+// Tipo de uma coluna, considerando também colunas personalizadas (que já carregam seu
+// próprio `type`) — usado pelo menu de ordenar/filtrar do cabeçalho (ColumnHeaderFilterMenu).
+export const resolveColType = (colId, customCols) => {
+  if (LISTA_COL_DEFS[colId]) return LISTA_COL_DEFS[colId].type || 'text';
+  const cc = (customCols || []).find(c => c.id === colId);
+  if (!cc) return 'text';
+  if (cc.type === 'boolean') return 'boolean';
+  if (cc.type === 'date') return 'date';
+  if (cc.type === 'number' || cc.type === 'currency' || cc.type === 'percent' || cc.type === 'duration') return 'number';
+  return 'text'; // 'text' | 'list'
+};
+
+// Sentinela para "valor em branco" nas listas de filtro — não pode colidir com nenhum
+// valor real exibido em célula.
+export const FILTER_BLANK_KEY = ' blank';
 export const LISTA_BAND_LABELS = { etapa: 'Etapa / Tarefa', prazo: 'Prazo', avanco: 'Avanço', fin: 'Financeiro', seq: 'Sequenciamento', custom: 'Personalizadas' };
 
 // Avatar do responsável (iniciais + cor determinística por nome). Cores de identidade
@@ -281,6 +297,201 @@ export const ColorMenu = ({ label, title, value, onPick, onClear, clearLabel, ic
               <Icon name="edit" size={13} />Mais cores…
               <input type="color" value={value || '#1c4584'} onChange={e => pick(e.target.value)} style={{ width: 0, height: 0, opacity: 0, position: 'absolute' }} />
             </label>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Menu de cabeçalho de coluna (Ordenar + Filtrar, estilo MS Project) ──────
+const SORT_LABELS = {
+  date:    ['Classificar do Mais Antigo para o Mais Recente', 'Classificar do Mais Recente para o Mais Antigo'],
+  number:  ['Classificar do Menor para o Maior', 'Classificar do Maior para o Menor'],
+  default: ['Classificar de A a Z', 'Classificar de Z a A'],
+};
+
+// Checkbox nativo com suporte a estado indeterminado (tri-state), que o React/HTML
+// não expõe como atributo — só como propriedade do elemento DOM.
+const TriCheckbox = ({ checked, indeterminate, onChange }) => {
+  const ref = React.useRef(null);
+  React.useEffect(() => { if (ref.current) ref.current.indeterminate = !!indeterminate && !checked; }, [indeterminate, checked]);
+  return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} style={{ cursor: 'pointer' }} />;
+};
+
+export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilter, onClearFilter, sortDir, onSort, getDomainEntries }) => {
+  const [open, setOpen] = React.useState(false);
+  const [draftChecked, setDraftChecked] = React.useState(null); // Set<string> | null (null = ainda não montado)
+  const [flatKeys, setFlatKeys] = React.useState([]);           // colunas não-data: chaves ordenadas
+  const [dateTree, setDateTree] = React.useState(null);         // colunas data: { years: Map, hasBlank }
+  const [expandedYears, setExpandedYears] = React.useState(() => new Set());
+  const [expandedMonths, setExpandedMonths] = React.useState(() => new Set());
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const k = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', h);
+    document.addEventListener('keydown', k);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k); };
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const entries = getDomainEntries();
+    const excluded = new Set(activeFilter?.excluded || []);
+    setExpandedYears(new Set());
+    setExpandedMonths(new Set());
+    if (type === 'date') {
+      const years = new Map();
+      let hasBlank = false;
+      entries.forEach(({ raw }) => {
+        if (!raw) { hasBlank = true; return; }
+        const y = raw.getFullYear(), m = raw.getMonth(), d = raw.getDate();
+        if (!years.has(y)) years.set(y, new Map());
+        const mm = years.get(y);
+        if (!mm.has(m)) mm.set(m, new Set());
+        mm.get(m).add(d);
+      });
+      setDateTree({ years, hasBlank });
+      const allKeys = [];
+      years.forEach((mm, y) => mm.forEach((days, m) => days.forEach(d => allKeys.push(`${y}-${m + 1}-${d}`))));
+      if (hasBlank) allKeys.push(FILTER_BLANK_KEY);
+      setDraftChecked(new Set(allKeys.filter(k => !excluded.has(k))));
+    } else {
+      const seen = new Map(); // label -> raw (representante, para ordenar number)
+      let hasBlank = false;
+      entries.forEach(({ raw, label: lbl }) => {
+        if (lbl === '' || lbl == null) { hasBlank = true; return; }
+        if (!seen.has(lbl)) seen.set(lbl, raw);
+      });
+      let keys = [...seen.keys()];
+      keys.sort((a, b) => type === 'number'
+        ? (seen.get(a) ?? 0) - (seen.get(b) ?? 0)
+        : a.localeCompare(b, 'pt-BR', { numeric: true, sensitivity: 'base' }));
+      if (hasBlank) keys.push(FILTER_BLANK_KEY);
+      setFlatKeys(keys);
+      setDraftChecked(new Set(keys.filter(k => !excluded.has(k))));
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const allKeys = type === 'date'
+    ? (() => {
+        if (!dateTree) return [];
+        const out = [];
+        dateTree.years.forEach((mm, y) => mm.forEach((days, m) => days.forEach(d => out.push(`${y}-${m + 1}-${d}`))));
+        if (dateTree.hasBlank) out.push(FILTER_BLANK_KEY);
+        return out;
+      })()
+    : flatKeys;
+
+  const toggleKeys = (keys, checked) => setDraftChecked(prev => {
+    const next = new Set(prev);
+    keys.forEach(k => checked ? next.add(k) : next.delete(k));
+    return next;
+  });
+  const stateOf = (keys) => {
+    if (!draftChecked || !keys.length) return { checked: false, indeterminate: false };
+    const n = keys.filter(k => draftChecked.has(k)).length;
+    return { checked: n === keys.length, indeterminate: n > 0 && n < keys.length };
+  };
+
+  const toggleAll = () => {
+    const st = stateOf(allKeys);
+    toggleKeys(allKeys, !st.checked);
+  };
+  const toggleYear = (y, dayKeys) => { const st = stateOf(dayKeys); toggleKeys(dayKeys, !st.checked); };
+  const toggleMonth = (dayKeys) => { const st = stateOf(dayKeys); toggleKeys(dayKeys, !st.checked); };
+  const toggleDay = (key) => toggleKeys([key], !draftChecked.has(key));
+  const toggleFlat = (key) => toggleKeys([key], !draftChecked.has(key));
+
+  const applyOk = () => {
+    onApplyFilter(allKeys.filter(k => !draftChecked.has(k)));
+    setOpen(false);
+  };
+
+  const sortWords = SORT_LABELS[type] || SORT_LABELS.default;
+  const optRow = { display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', fontSize: 11, fontWeight: 400, textTransform: 'none', cursor: 'pointer', borderRadius: 4 };
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', height: '100%' }}>
+      <button onClick={() => setOpen(o => !o)} title={`Ordenar / filtrar — ${label}`}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 19, height: 19, padding: 0, border: 'none', background: activeFilter || sortDir ? 'var(--brand-700, #143766)' : 'rgba(255,255,255,0.14)', color: '#fff', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+        ▾
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: 240, cursor: 'default' }}>
+          <div onClick={() => { onSort('asc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[0]}</div>
+          <div onClick={() => { onSort('desc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[1]}</div>
+          <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
+          <div onClick={() => { if (activeFilter) { onClearFilter(); setOpen(false); } }}
+            style={{ ...optRow, opacity: activeFilter ? 1 : 0.45, cursor: activeFilter ? 'pointer' : 'default' }}
+            className={activeFilter ? 'col-filter-opt' : undefined}>
+            Limpar Filtro de {label}
+          </div>
+          <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
+          <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
+            <label style={{ ...optRow, fontWeight: 600 }}>
+              <TriCheckbox {...stateOf(allKeys)} onChange={toggleAll} />
+              (Selecionar Todos)
+            </label>
+            {type === 'date' && dateTree && [...dateTree.years.keys()].sort((a, b) => a - b).map(y => {
+              const mm = dateTree.years.get(y);
+              const yearDayKeys = [...mm.entries()].flatMap(([m, days]) => [...days].map(d => `${y}-${m + 1}-${d}`));
+              const yOpen = expandedYears.has(y);
+              return (
+                <div key={y}>
+                  <label style={optRow}>
+                    <button onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); setExpandedYears(s => { const n = new Set(s); n.has(y) ? n.delete(y) : n.add(y); return n; }); }}
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', width: 14, fontSize: 10, color: 'var(--text-muted)' }}>{yOpen ? '▼' : '▶'}</button>
+                    <TriCheckbox {...stateOf(yearDayKeys)} onChange={() => toggleYear(y, yearDayKeys)} />
+                    {y}
+                  </label>
+                  {yOpen && [...mm.keys()].sort((a, b) => a - b).map(m => {
+                    const days = [...mm.get(m)].sort((a, b) => a - b);
+                    const monthDayKeys = days.map(d => `${y}-${m + 1}-${d}`);
+                    const mKey = `${y}-${m}`;
+                    const mOpen = expandedMonths.has(mKey);
+                    return (
+                      <div key={mKey} style={{ marginLeft: 18 }}>
+                        <label style={optRow}>
+                          <button onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); setExpandedMonths(s => { const n = new Set(s); n.has(mKey) ? n.delete(mKey) : n.add(mKey); return n; }); }}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', width: 14, fontSize: 10, color: 'var(--text-muted)' }}>{mOpen ? '▼' : '▶'}</button>
+                          <TriCheckbox {...stateOf(monthDayKeys)} onChange={() => toggleMonth(monthDayKeys)} />
+                          {GM_MN[m]}
+                        </label>
+                        {mOpen && days.map(d => {
+                          const key = `${y}-${m + 1}-${d}`;
+                          return (
+                            <label key={key} style={{ ...optRow, marginLeft: 18 }}>
+                              <input type="checkbox" checked={draftChecked?.has(key) || false} onChange={() => toggleDay(key)} />
+                              {d}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            {type === 'date' && dateTree?.hasBlank && (
+              <label style={optRow}>
+                <input type="checkbox" checked={draftChecked?.has(FILTER_BLANK_KEY) || false} onChange={() => toggleFlat(FILTER_BLANK_KEY)} />
+                (Em branco)
+              </label>
+            )}
+            {type !== 'date' && flatKeys.map(k => (
+              <label key={k} style={optRow}>
+                <input type="checkbox" checked={draftChecked?.has(k) || false} onChange={() => toggleFlat(k)} />
+                {k === FILTER_BLANK_KEY ? '(Em branco)' : k}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 8 }}>
+            <button onClick={() => setOpen(false)} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>Cancelar</button>
+            <button onClick={applyOk} className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>OK</button>
           </div>
         </div>
       )}

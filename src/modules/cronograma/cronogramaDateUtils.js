@@ -42,6 +42,13 @@ export function dateToOffset(iso) {
   return Math.max(0, Math.round((dt - GM_REF) / 86400000));
 }
 
+// Offset (em DIAS desde GM_REF) do dia de hoje — data local, mesmo cuidado de fuso que offsetToISO.
+export function todayOffset() {
+  const n = new Date();
+  const iso = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+  return dateToOffset(iso);
+}
+
 // ─── Calendário de trabalho (feriados / dias não trabalhados) ────────────────
 // Estado de módulo mutável definido a partir da config de feriados da obra.
 let WORK_CAL = { holidays: new Set(), sabadoUtil: false };

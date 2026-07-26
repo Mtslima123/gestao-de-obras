@@ -2025,23 +2025,6 @@ a:hover { color: var(--brand-600); }
   background: color-mix(in srgb, var(--brand) 8%, var(--surface)) !important;
 }
 
-/* Badge numérico de ordem na multi-seleção (Ctrl+clique) */
-.multi-sel-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 17px;
-  height: 17px;
-  border-radius: 9px;
-  background: var(--brand);
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 0 4px;
-  margin-left: 5px;
-  flex-shrink: 0;
-}
-
 /* Ícone de excluir obra — visível apenas ao passar o mouse na linha */
 .obras-row-actions {
   opacity: 0;
@@ -2077,6 +2060,9 @@ tr:hover .obras-row-actions {
 .ctx-menu button:hover { background: var(--surface-hover, rgba(0,0,0,0.05)); }
 .ctx-menu button.danger { color: var(--danger, #e53e3e); }
 .ctx-menu hr { margin: 4px 0; border: none; border-top: 1px solid var(--border-subtle, rgba(0,0,0,0.08)); }
+
+/* ── Menu de cabeçalho de coluna (Ordenar/Filtrar, estilo MS Project) ────── */
+.col-filter-opt:hover { background: var(--surface-hover, rgba(0,0,0,0.05)); }
 
 /* ── Indicador de drop ao arrastar linhas da lista ───────────────────────── */
 .drag-over-row > td,

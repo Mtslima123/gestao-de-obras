@@ -12,9 +12,10 @@ import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
          nextEtapaId, nextDisplayId, emptyCustomCols } from './scheduleEngine';
 import { PavimentosModal } from './cronogramaModais';
+import { TaskFormPanel } from './TaskFormPanel';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
-         GM_ROW_ANO, GM_ROW_TRI, GM_ROW_MES, GM_ROW_FINE, ZOOM_PX_DIA, GM_REF_DATE,
+         GM_ROW_ANO, GM_ROW_TRI, GM_ROW_MES, GM_ROW_FINE, ZOOM_PX_DIA,
          GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN } from './cronogramaShared';
 
 export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
@@ -22,6 +23,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
+  const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
   const editMode = readOnly ? false : editModeRaw;
   const [lockDone,    setLock]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; } catch { return true; } });
@@ -55,6 +57,17 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   const ganttRef  = React.useRef(null);
   const [exportingPDF, setExportingPDF] = React.useState(false);
   const [pdfFormat,    setPdfFormat]    = React.useState('a3');
+  // Largura visível do container com scroll — usada pra grade nunca deixar uma faixa em
+  // branco à direita quando o alcance das tarefas é mais estreito que a tela.
+  const [viewportW, setViewportW] = React.useState(0);
+  React.useEffect(() => {
+    const el = cRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
+    ro.observe(el);
+    setViewportW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
 
   // Mantém o ref sincronizado com a prop a cada render
   etapasRef.current = etapas;
@@ -115,7 +128,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
     const folhas = etapas.filter(e => !e.isGroup);
     const minInicio = folhas.length ? Math.min(...folhas.map(e => e.inicio)) : today;
     const alvo = Math.min(today, minInicio);
-    const alvoPx = labelWidth + alvo * zoomDayWRef.current;
+    const alvoPx = labelWidth + Math.max(0, alvo - tlStartOffset) * zoomDayWRef.current;
     cRef.current.scrollLeft = Math.max(0, alvoPx - cRef.current.clientWidth * 0.15);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -135,7 +148,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
     if (!cRef.current) return;
     const folhas = etapas.filter(e => !e.isGroup);
     const minIni = folhas.length ? Math.min(...folhas.map(e => e.inicio)) : 0;
-    const alvoPx = labelWidth + minIni * zoomDayWRef.current;
+    const alvoPx = labelWidth + Math.max(0, minIni - tlStartOffset) * zoomDayWRef.current;
     cRef.current.scrollTo({ left: Math.max(0, alvoPx - 48), behavior: 'smooth' });
   };
 
@@ -679,26 +692,52 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
     }
     return out;
   }, [dynTotal]);
-  // Grade de calendário real (dias corretos por mês) para o cabeçalho e a grade de fundo.
+  // Escala por zoom — px/dia crescente de Trimestre (mais zoom-out) para Dia (mais zoom-in).
+  // Calculado ANTES da grade de calendário: "preencher a largura visível" (abaixo) depende
+  // de quantos px cada dia ocupa no zoom atual.
+  const zoomDayW = ZOOM_PX_DIA[zoom] ?? ZOOM_PX_DIA.mes;
+  zoomDayWRef.current = zoomDayW; // sincroniza o ref para event handlers
+
+  // Início visual dinâmico: a grade passa a começar perto da tarefa (folha) mais antiga,
+  // em vez de sempre nascer no epoch fixo de persistência (GM_REF_DATE) — evita horas de
+  // espaço morto na tela quando o cronograma real começa muito depois de 2024. Só considera
+  // folhas (não grupos) para que um grupo vazio/degenerado não puxe o início de volta.
+  const tlStartOffset = React.useMemo(() => {
+    const leaves = etapas.filter(e => !e.isGroup);
+    if (!leaves.length) return 0;
+    const minIni = Math.min(...leaves.map(e => e.inicio));
+    const d = offsetToDate(minIni);
+    const snapped = new Date(d.getFullYear(), d.getMonth() - 1, 1); // 1 mês de folga antes, dia 1
+    return Math.max(0, dateToOffset(
+      `${snapped.getFullYear()}-${String(snapped.getMonth() + 1).padStart(2, '0')}-01`
+    ));
+  }, [etapas]);
+
+  // Grade de calendário real (dias corretos por mês) para o cabeçalho e a grade de fundo,
+  // ancorada em tlStartDate (não mais no epoch fixo GM_REF_DATE).
   // dynMonths/dynQuarters (acima) continuam existindo só para o export em PDF, que assume
-  // meses de 30 dias fixos — não são tocados para não alterar o layout do PDF.
-  const calTotalDays = dynTotal * 30;
+  // meses de 30 dias fixos a partir de 2024 — não são tocados para não alterar o layout do PDF.
+  // calTotalDays nunca deixa uma faixa em branco à direita: usa o maior valor entre o que as
+  // tarefas precisam e o que preenche a largura visível do viewport no zoom atual.
+  const minDaysToFill = viewportW > labelWidth ? Math.ceil((viewportW - labelWidth) / zoomDayW) : 0;
+  const calTotalDays = Math.max(30, dynTotal * 30 - tlStartOffset, minDaysToFill);
+  const tlStartDate  = React.useMemo(() => offsetToDate(tlStartOffset), [tlStartOffset]);
   const calMonths = React.useMemo(
-    () => buildCalendarMonths(GM_REF_DATE, calTotalDays), [calTotalDays]
+    () => buildCalendarMonths(tlStartDate, calTotalDays), [tlStartDate, calTotalDays]
   );
   const calQuarters = React.useMemo(() => buildCalendarQuarters(calMonths), [calMonths]);
   const calYears    = React.useMemo(() => buildCalendarYears(calMonths), [calMonths]);
   const calWeeks    = React.useMemo(
-    () => zoom === 'semana' ? buildCalendarWeeks(GM_REF_DATE, calTotalDays) : [], [zoom, calTotalDays]
+    () => zoom === 'semana' ? buildCalendarWeeks(tlStartDate, calTotalDays) : [], [zoom, tlStartDate, calTotalDays]
   );
   const calDays     = React.useMemo(
-    () => zoom === 'dia' ? buildCalendarDays(GM_REF_DATE, calTotalDays) : [], [zoom, calTotalDays]
+    () => zoom === 'dia' ? buildCalendarDays(tlStartDate, calTotalDays) : [], [zoom, tlStartDate, calTotalDays]
   );
-
-  // Escala por zoom — px/dia crescente de Trimestre (mais zoom-out) para Dia (mais zoom-in).
-  const zoomDayW = ZOOM_PX_DIA[zoom] ?? ZOOM_PX_DIA.mes;
-  zoomDayWRef.current = zoomDayW; // sincroniza o ref para event handlers
   const tlW = calTotalDays * zoomDayW;
+  // Converte um offset absoluto (a partir do epoch de persistência) em posição X na tela,
+  // relativa ao novo início visual. O Math.max(0, ...) evita que algo com data anterior ao
+  // início visual (ex. um grupo degenerado sem filhas) suma fora da tela pra esquerda.
+  const posX = (off) => Math.max(0, off - tlStartOffset) * zoomDayW;
 
   // Linhas de grade de fundo por tarefa: granularidade muda com o zoom selecionado.
   const gridLines = React.useMemo(() => {
@@ -719,10 +758,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
     const m = new Map();
     (feriadosCfg?.dias || []).forEach(d => {
       const off = dateToOffset(d.data);
-      if (off >= 0 && off < calTotalDays) m.set(off, d.descricao || 'Feriado');
+      if (off >= tlStartOffset && off < tlStartOffset + calTotalDays) m.set(off, d.descricao || 'Feriado');
     });
     return m;
-  }, [feriadosCfg, calTotalDays]);
+  }, [feriadosCfg, calTotalDays, tlStartOffset]);
 
   // Altura do cabeçalho varia com o zoom: Trimestre esconde a linha de Mês; Semana/Dia somam uma linha extra.
   const headerH = GM_ROW_ANO + GM_ROW_TRI
@@ -1040,6 +1079,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                       <input type="checkbox" checked={showSummaryTasks} onChange={() => onToggleSummaryTasks?.()} style={{ accentColor: 'var(--brand)' }} />
                       Tarefas Resumo
                     </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      <input type="checkbox" checked={showTaskForm} onChange={() => setShowTaskForm(v => !v)} style={{ accentColor: 'var(--brand)' }} />
+                      Detalhes
+                    </label>
                   </div>
                   <div style={caption}>Mostrar/Ocultar</div>
                 </div>
@@ -1146,8 +1189,9 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           // Altura mínima: não deixa a caixa encolher ao recolher grupos (piso = até 10 linhas, ou todas se forem menos)
           minHeight: headerH + Math.min(etapas.length, 10) * GM_ROW_H,
           // Viewport de altura limitada: o Gantt ganha scroll vertical próprio (necessário
-          // para a virtualização). Tunável conforme a topbar/cabeçalho do card.
-          maxHeight: 'calc(100vh - 300px)',
+          // para a virtualização). Tunável conforme a topbar/cabeçalho do card. Encolhe
+          // quando o Formulário de Tarefa (painel inferior) está aberto.
+          maxHeight: showTaskForm ? 'calc(100vh - 300px - 220px)' : 'calc(100vh - 300px)',
         }}
         onMouseDown={onContDown}
         onClick={() => { if (!dragged.current) setSel(new Set()); }}
@@ -1272,7 +1316,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
             const pAvanco = !tp
               ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length)
               : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * wt(x), 0) / tp);
-            const left  = pInicio * zoomDayW + 3;
+            const left  = posX(pInicio) + 3;
             const width = Math.max((pFim - pInicio) * zoomDayW - 6, 10);
             return (
               <React.Fragment key="__projsummary">
@@ -1431,7 +1475,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   {/* Feriados (dias não trabalhados) — faixa vertical destacada */}
                   {[...holidayMap.keys()].map(off => (
                     <div key={'fer-' + off} style={{
-                      position: 'absolute', left: off * zoomDayW, top: 0, bottom: 0,
+                      position: 'absolute', left: posX(off), top: 0, bottom: 0,
                       width: Math.max(zoomDayW, 2), background: 'rgba(220,38,38,0.10)',
                       borderLeft: '1px solid rgba(220,38,38,0.35)', pointerEvents: 'none',
                     }} />
@@ -1440,7 +1484,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   {/* Sombreamento do passado */}
                   <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
-                    width: Math.min(today, calTotalDays) * zoomDayW,
+                    width: Math.min(Math.max(0, today - tlStartOffset), calTotalDays) * zoomDayW,
                     background: 'rgba(0,0,0,0.022)', pointerEvents: 'none',
                   }} />
 
@@ -1448,7 +1492,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   {showBaseline && blMap[e.id] && !e.milestone && (
                     <div style={{
                       position: 'absolute',
-                      left: blMap[e.id].inicio * zoomDayW + 3,
+                      left: posX(blMap[e.id].inicio) + 3,
                       width: Math.max(blMap[e.id].dur * zoomDayW - 6, 10),
                       top: 'calc(50% + 11px)',
                       height: 5, borderRadius: 3,
@@ -1468,7 +1512,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                         onMouseLeave={() => setTip(null)}
                         style={{
                           position: 'absolute',
-                          left: bar.inicio * zoomDayW + 3,
+                          left: posX(bar.inicio) + 3,
                           width: Math.max(bar.dur * zoomDayW - 6, 10),
                           top: '50%', transform: 'translateY(-50%)',
                           height: 9, background: '#334155', borderRadius: 2,
@@ -1491,7 +1535,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                         onMouseLeave={() => setTip(null)}
                         style={{
                           position: 'absolute',
-                          left: bar.inicio * zoomDayW + 3,
+                          left: posX(bar.inicio) + 3,
                           width: Math.max((workEnd(bar.inicio, bar.dur) - bar.inicio) * zoomDayW - 6, 10),
                           top: '50%', transform: 'translateY(-50%)',
                           height: GM_BAR_H - 4,
@@ -1551,7 +1595,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                       onMouseLeave={() => setTip(null)}
                       style={{
                         position: 'absolute',
-                        left: bar.inicio * zoomDayW - 10,
+                        left: posX(bar.inicio) - 10,
                         top: '50%', transform: 'translateY(-50%) rotate(45deg)',
                         width: 20, height: 20,
                         backgroundColor: isConf ? '#d97706' : '#1e293b',
@@ -1573,7 +1617,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           {/* ── Linha HOJE ────────────────────────────────────────────────── */}
           <div style={{
             position: 'absolute',
-            left: labelWidth + Math.min(today, calTotalDays) * zoomDayW,
+            left: labelWidth + Math.min(Math.max(0, today - tlStartOffset), calTotalDays) * zoomDayW,
             top: 0, bottom: 0, width: 0,
             borderLeft: '2px solid var(--danger)',
             zIndex: 10, pointerEvents: 'none',
@@ -1617,10 +1661,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
 
                 // Âncoras por tipo de vínculo
                 let fx, tx;
-                if (tipo === 'TI') { fx = (dBar.inicio + dBar.dur) * zoomDayW; tx = eBar.inicio * zoomDayW + 4; }
-                else if (tipo === 'TT') { fx = (dBar.inicio + dBar.dur) * zoomDayW; tx = (eBar.inicio + eBar.dur) * zoomDayW - 4; }
-                else if (tipo === 'II') { fx = dBar.inicio * zoomDayW; tx = eBar.inicio * zoomDayW + 4; }
-                else /* IT */           { fx = dBar.inicio * zoomDayW; tx = (eBar.inicio + eBar.dur) * zoomDayW - 4; }
+                if (tipo === 'TI') { fx = posX(dBar.inicio + dBar.dur); tx = posX(eBar.inicio) + 4; }
+                else if (tipo === 'TT') { fx = posX(dBar.inicio + dBar.dur); tx = posX(eBar.inicio + eBar.dur) - 4; }
+                else if (tipo === 'II') { fx = posX(dBar.inicio); tx = posX(eBar.inicio) + 4; }
+                else /* IT */           { fx = posX(dBar.inicio); tx = posX(eBar.inicio + eBar.dur) - 4; }
 
                 const fy  = depIdx * GM_ROW_H + GM_ROW_H / 2;
                 const ty  = i * GM_ROW_H + GM_ROW_H / 2;
@@ -1769,6 +1813,22 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
               </p>
             )}
           </Modal>
+        );
+      })()}
+
+      {showTaskForm && (() => {
+        const idx = visible.findIndex(e => e.id === primaryId());
+        return (
+          <TaskFormPanel
+            task={idx >= 0 ? visible[idx] : null}
+            etapas={etapas}
+            onCommit={onCommit}
+            readOnly={readOnly}
+            canPrev={idx > 0}
+            canNext={idx >= 0 && idx < visible.length - 1}
+            onPrev={() => { if (idx > 0) setSel(new Set([visible[idx - 1].id])); }}
+            onNext={() => { if (idx >= 0 && idx < visible.length - 1) setSel(new Set([visible[idx + 1].id])); }}
+          />
         );
       })()}
     </div>
