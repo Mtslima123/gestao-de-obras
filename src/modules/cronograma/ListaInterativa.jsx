@@ -825,6 +825,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     setSelAnchor(next);                        // seta sem shift: colapsa o intervalo
     setSelectedId(rows[r]);                    // linha atual acompanha para as ações da barra
   };
+  // Avança a seleção uma linha para baixo (mesma coluna), estilo Excel, SEM cair no
+  // input de "Nova tarefa" (na última linha mantém a seleção) — evita travar a grade.
+  const advanceCellDown = (fromCell) => {
+    if (!fromCell) return;
+    const rows = filtrada.map(x => x.id);
+    const r = rows.indexOf(fromCell.taskId);
+    if (r < 0 || r >= rows.length - 1) return; // última linha: não move, não foca o branco
+    const next = { taskId: rows[r + 1], colId: fromCell.colId };
+    setSelectedCell(next); setSelAnchor(next); setSelectedId(rows[r + 1]);
+    scrollRowIntoView(next.taskId);
+  };
+  // Ao sair da edição de uma célula (EditableCell): refoca a grade e, se confirmou com
+  // Enter, desce a célula ativa uma linha (estilo Excel).
+  const exitEdit = (via) => {
+    listaScrollRef.current?.focus?.({ preventScroll: true });
+    if (via === 'enter') advanceCellDown(selectedCell);
+  };
   // ── Copiar/inserir LINHA (quando uma linha está selecionada, sem célula) ─────
   const copyRow = (idOverride) => {
     const id = idOverride ?? selectedId;
@@ -1347,7 +1364,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (ev.key === 'Enter' || ev.key === 'F2') {
       ev.preventDefault(); // evita a rolagem
       // F2 (estilo Excel): abre a célula selecionada para digitação.
-      if (ev.key === 'F2' && selectedCell && !readOnly) {
+      // Só F2 puro — com Ctrl/Alt/Meta não abre (Ctrl+F2 é o atalho de vincular em cadeia).
+      if (ev.key === 'F2' && selectedCell && !readOnly && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
         const { taskId, colId } = selectedCell;
         const task = filtrada.find(x => x.id === taskId);
         const leaf = task && !task.isGroup;
@@ -2631,7 +2649,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: alignJC(effFmt(e, 'etapa').align) }}>
                         <EditableCell value={e.etapa} onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
                           readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 12 : 11 }}
-                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                          onExitEdit={exitEdit} />
                       </div>
                     </div>
                   </td>
@@ -2640,14 +2658,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   <td key="inicio" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
                     <EditableCell type="date" value={offsetToISO(eInicio)}
                       onSave={v => handleCellSave(e.id, 'inicio', v)} readOnly={readOnly || e.isGroup}
-                      onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                      onExitEdit={exitEdit} />
                   </td>
                 ),
                 fim: (
                   <td key="fim" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
                     <EditableCell type="date" value={offsetToISO(e.isGroup ? eInicio + eDur : workEnd(eInicio, eDur))}
                       onSave={v => handleCellSave(e.id, 'fim', v)} readOnly={readOnly || e.isGroup}
-                      onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                      onExitEdit={exitEdit} />
                   </td>
                 ),
                 duracao: (
@@ -2663,7 +2681,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         <div style={{ width: 32, flexShrink: 0 }}>
                           <EditableCell type="number" value={String(e.dur)}
                             onSave={v => handleCellSave(e.id, 'duracaoDias', v)} readOnly={readOnly}
-                            onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                            onExitEdit={exitEdit} />
                         </div>
                         <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>d</span>
                       </div>
@@ -2682,7 +2700,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         <EditableCell type="number" value={String(eAvanco)}
                           onSave={v => handleCellSave(e.id, 'avanco', v)} readOnly={readOnly || e.isGroup}
                           style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 28 }}
-                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                          onExitEdit={exitEdit} />
                         <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
                       </div>
                     </div>
@@ -2703,7 +2721,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Enter') { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }}
                       />
@@ -2736,7 +2754,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Enter') { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingFatorPeso(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }}
                       />
@@ -2767,7 +2785,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Enter') { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }}
                       />
@@ -2799,7 +2817,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           </span>
                         )}
                         <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} readOnly={readOnly} style={{ fontSize: 12.5 }}
-                        onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                        onExitEdit={exitEdit} />
                       </div>
                     )}
                   </td>
@@ -2809,7 +2827,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     {e.isGroup ? null : (
                       <EditableCell value={e.pavimento || ''} listId="dl-pavimento"
                         onSave={v => handleCellSave(e.id, 'pavimento', v)} readOnly={readOnly} style={{ fontSize: 12.5 }}
-                        onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                        onExitEdit={exitEdit} />
                     )}
                   </td>
                 ),
@@ -2821,7 +2839,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Enter') { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
@@ -2842,7 +2860,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleSuccSave(e.id, ev.target.value); setEditingSucc(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleSuccSave(e.id, ev.target.value); setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Enter') { handleSuccSave(e.id, ev.target.value); setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
@@ -2902,7 +2920,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onSave={v => handleCellSave(e.id, 'restricao', v)}
                         readOnly={readOnly}
                         style={{ fontSize: 12.5 }}
-                        onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                        onExitEdit={exitEdit} />
                     )}
                   </td>
                 ),
@@ -3089,7 +3107,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <td key={col.id} onClick={ev => ev.stopPropagation()} className="num" style={{ textAlign: 'right' }}>
                         <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)}
                           readOnly={readOnly} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
-                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                          onExitEdit={exitEdit} />
                       </td>
                     );
                     else if (col.type === 'percent') cell = (
@@ -3097,7 +3115,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: alignJC(effFmt(e, col.id).align) }}>
                           <div style={{ width: 50, flexShrink: 0 }}>
                             <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly}
-                              onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                              onExitEdit={exitEdit} />
                           </div>
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>%</span>
                         </div>
@@ -3108,7 +3126,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: alignJC(effFmt(e, col.id).align) }}>
                           <div style={{ width: 50, flexShrink: 0 }}>
                             <EditableCell type="number" value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly}
-                              onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                              onExitEdit={exitEdit} />
                           </div>
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>d</span>
                         </div>
@@ -3118,13 +3136,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <EditableCell type="text" value={cellVal} listId={`dl-${col.id}`}
                           onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly}
-                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                          onExitEdit={exitEdit} />
                       </td>
                     );
                     else cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
                         <EditableCell type={col.type} value={cellVal} onSave={v => handleCellSave(e.id, col.id, v)} readOnly={readOnly}
-                          onExitEdit={() => listaScrollRef.current?.focus?.({ preventScroll: true })} />
+                          onExitEdit={exitEdit} />
                       </td>
                     );
                     return decorateCell(cell, col.id, e.id, e.fmt, rangeEdges.get(e.id + '|' + col.id));

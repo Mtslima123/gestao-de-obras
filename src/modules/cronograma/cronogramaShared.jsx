@@ -127,12 +127,12 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
     if (!editing) setDraft(value);
   }, [value, editing]);
 
-  const save = () => {
+  const save = (via) => {
     setEditing(false);
     if (String(draft ?? '') !== String(value ?? '')) onSave(draft ?? '');
-    onExitEdit?.();
+    onExitEdit?.(via);
   };
-  const cancel = () => { setEditing(false); setDraft(value); onExitEdit?.(); };
+  const cancel = () => { setEditing(false); setDraft(value); onExitEdit?.('cancel'); };
 
   if (readOnly) {
     const raw     = value !== undefined && value !== null && value !== '' ? value : null;
@@ -161,9 +161,9 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
       list={listId}
       value={draft ?? ''}
       onChange={e => setDraft(e.target.value)}
-      onBlur={save}
+      onBlur={() => save('blur')}
       onKeyDown={e => {
-        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Enter') { e.preventDefault(); save('enter'); }
         if (e.key === 'Escape') cancel();
         e.stopPropagation();
       }}
