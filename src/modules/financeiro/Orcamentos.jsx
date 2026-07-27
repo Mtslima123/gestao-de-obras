@@ -518,6 +518,7 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
 // não re-renderiza a tabela inteira. Só comunica o pai (onCommit) ao sair do campo.
 const NumericCell = React.memo(({ value, displayValue, onCommit, placeholder }) => {
   const [draft, setDraft] = React.useState(null); // null = não está em edição
+  const cancelRef = React.useRef(false);          // Esc: descarta sem confirmar
   return (
     <input
       className="orca-cell-input right"
@@ -525,7 +526,14 @@ const NumericCell = React.memo(({ value, displayValue, onCommit, placeholder }) 
       value={draft != null ? draft : displayValue}
       onFocus={() => setDraft(value ? String(value).replace('.', ',') : '')}
       onChange={e => setDraft(e.target.value)}
-      onBlur={() => { onCommit(draft ?? ''); setDraft(null); }}
+      onBlur={() => {
+        if (cancelRef.current) { cancelRef.current = false; setDraft(null); return; }
+        onCommit(draft ?? ''); setDraft(null);
+      }}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }      // confirma o que foi digitado
+        else if (e.key === 'Escape') { cancelRef.current = true; e.currentTarget.blur(); } // cancela
+      }}
       placeholder={placeholder}
     />
   );
@@ -1311,6 +1319,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
                               value={it.nome || ''}
                               placeholder={hasKids ? 'Nome do grupo…' : 'Nome do item…'}
                               onChange={e => editCell(it.id, 'nome', e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
                             />
                           )}
                         </td>
