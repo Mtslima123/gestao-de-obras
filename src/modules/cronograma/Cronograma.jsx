@@ -154,6 +154,15 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       ? getGroupMonthlyDist(e.id, etapas, dist2)
       : (dist2[e.id] || {});
 
+  // Totais das colunas (soma de todas as tarefas-folha por mês) e total geral
+  const monthTotals = React.useMemo(() => {
+    const t = {};
+    months.forEach(m => { t[m.key] = 0; });
+    Object.values(dist2).forEach(d => months.forEach(m => { t[m.key] += (d[m.key] || 0); }));
+    return t;
+  }, [dist2, months]);
+  const grandTotal = React.useMemo(() => months.reduce((s, m) => s + (monthTotals[m.key] || 0), 0), [monthTotals, months]);
+
   const rowBg = (e) =>
     selectedId === e.id
       ? 'color-mix(in srgb, var(--brand) 8%, transparent)'
@@ -195,6 +204,20 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     verticalAlign: 'middle',
     textAlign: 'right',
     fontVariantNumeric: 'tabular-nums',
+  };
+  // Linhas de totais das colunas: "Total geral" fixa no topo (abaixo do cabeçalho de 36px)
+  // e "% do total" fixa no rodapé. Fundo sólido para cobrir o conteúdo ao rolar.
+  const totalTopTd = {
+    position: 'sticky', top: 36, zIndex: 1, height: 36, padding: '0 12px',
+    background: 'var(--brand-50)', fontWeight: 700, fontSize: 13,
+    borderBottom: '2px solid var(--border)', whiteSpace: 'nowrap',
+    textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+  };
+  const totalBotTd = {
+    position: 'sticky', bottom: 0, zIndex: 1, height: 36, padding: '0 12px',
+    background: 'var(--surface-muted)', fontWeight: 700, fontSize: 13,
+    borderTop: '2px solid var(--border)', whiteSpace: 'nowrap',
+    textAlign: 'right', fontVariantNumeric: 'tabular-nums',
   };
 
   const exportExcelUso = () => {
@@ -375,6 +398,9 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
               </tr>
             </thead>
             <tbody>
+              <tr style={{ height: 36 }}>
+                <td colSpan={usoColOrder.length} style={{ ...totalTopTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>Total geral</td>
+              </tr>
               {visible.map(e => {
                 const nomeText = e.etapa;
                 const idText   = String(e.displayId ?? e.id);
@@ -405,6 +431,9 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                   </tr>
                 );
               })}
+              <tr style={{ height: 36 }}>
+                <td colSpan={usoColOrder.length} style={{ ...totalBotTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>% do total</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -422,6 +451,14 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
               </tr>
             </thead>
             <tbody>
+              <tr style={{ height: 36 }}>
+                {months.map(m => (
+                  <td key={m.key} style={{ ...totalTopTd, minWidth: 92 }}>
+                    {monthTotals[m.key] > 0 ? cfg.tot(monthTotals[m.key]) : '—'}
+                  </td>
+                ))}
+                <td style={{ ...totalTopTd, minWidth: 112 }}>{grandTotal > 0 ? cfg.tot(grandTotal) : '—'}</td>
+              </tr>
               {visible.map(e => {
                 const dist  = getDist(e);
                 const total = months.reduce((s, m) => s + (dist[m.key] || 0), 0);
@@ -449,6 +486,14 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                   </tr>
                 );
               })}
+              <tr style={{ height: 36 }}>
+                {months.map(m => (
+                  <td key={m.key} style={{ ...totalBotTd, minWidth: 92 }}>
+                    {grandTotal > 0 ? (monthTotals[m.key] / grandTotal * 100).toFixed(2) + '%' : '—'}
+                  </td>
+                ))}
+                <td style={{ ...totalBotTd, minWidth: 112 }}>{grandTotal > 0 ? '100%' : '—'}</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -511,6 +556,8 @@ const SCurveChart = ({ months = [], planned = [], realized = [], baseline = null
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
 const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, valorVinculadoMap = {}, onCommit }) => {
   const toast = useToast();
+  // Colapso LOCAL da tabela "Distribuição por tarefa" — não mexe no `collapsed` da Lista.
+  const [collapsedCurva, setCollapsedCurva] = React.useState(() => new Set());
   // Custo efetivo: com vínculos, usa o valor vinculado distribuído (cobre folhas e grupos)
   const hasVinc  = Object.keys(valorVinculadoMap).length > 0;
   const custoEf  = (e, gv) => hasVinc
@@ -605,7 +652,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     months.forEach(m => {
       const vBL  = hasBL ? (baselineDist[m.key] || 0) : 0;
       const vRep = hasRep ? (repDist[m.key] || 0) : (filteredPlanned[m.key] || 0);
-      const vRR  = m.key <= todayKey2 ? (realizedTotals[m.key] || 0) : vRep;
+      const vRR  = filteredPlanned[m.key] || 0; // Real = plano ao vivo (igual ao Uso da Tarefa)
       apBL += vBL; apRep += vRep; apRR += vRR;
       blM.push(vBL  / refBLT * 100); blA.push(apBL / refBLT * 100);
       repM.push(vRep / refRep * 100); repA.push(apRep / refRep * 100);
@@ -631,8 +678,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         ['LB Acumulado (%)',           ...blA.map(fmt)],
         ['Reprogramado Mensal (%)',    ...repM.map(fmt)],
         ['Reprogramado Acumulado (%)', ...repA.map(fmt)],
-        ['Real+Rep. Mensal (%)',       ...rrM.map(fmt)],
-        ['Real+Rep. Acumulado (%)',    ...rrA.map(fmt)],
+        ['Real Mensal (%)',            ...rrM.map(fmt)],
+        ['Real Acumulado (%)',         ...rrA.map(fmt)],
         ['Dif. vs LB Acumulado (%)',   ...difBL.map(fmt)],
         ['Dif. vs Rep. Acumulado (%)', ...difRep.map(fmt)],
       ];
@@ -926,7 +973,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         <div className="card-header">
           <div>
             <div className="card-title">Resumo Mensal</div>
-            <div className="card-subtitle">Linha de Base · Reprogramação · Real + Reprogramado · Desvios</div>
+            <div className="card-subtitle">Linha de Base · Reprogramação · Real · Desvios</div>
           </div>
         </div>
         <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
@@ -942,9 +989,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             months.forEach(m => {
               const vBL  = hasBL ? (baselineDist[m.key] || 0) : 0;
               const vRep = hasRep ? (repDist[m.key] || 0) : (filteredPlanned[m.key] || 0);
-              const vRR  = m.key <= todayKey
-                ? (realizedTotals[m.key] || 0)
-                : (filteredPlanned[m.key] || 0);
+              // Real = distribuição planejada AO VIVO (momento atual) — mesmo % da coluna
+              // "% do total" no Uso da Tarefa; não copia o reprogramado selecionado.
+              const vRR  = filteredPlanned[m.key] || 0;
               apBL += vBL; apRep += vRep; apRR += vRR;
               blM.push(vBL  / refBLT * 100);
               blA.push(apBL / refBLT * 100);
@@ -1115,10 +1162,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                     {monCells(repA, fmt1, 'var(--text)', true)}
                   </tr>
 
-                  {/* ── Real + Reprogramado ── */}
+                  {/* ── Real ── */}
                   <tr>
                     <td colSpan={totalCols} style={{ ...grpHdrGreen, borderTop: '2px solid rgba(255,255,255,0.2)' }}>
-                      Real + Reprogramado
+                      Real
                     </td>
                   </tr>
                   <tr>
@@ -1158,14 +1205,24 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       </div>
       {/* ── Distribuição por tarefa × mês ───────────────────────────────── */}
       {(() => {
-        // Com uma Reprogramação selecionada, a tabela mostra o retrato dela (tarefas e valores
-        // congelados na foto), em vez do cronograma ao vivo — mesma referência do gráfico acima.
-        const visibleRows = hasRep ? repEtapas : etapas;
-        const taskDistSource = hasRep ? repMonthlyDistByTask : monthlyDist;
-        const distTotal   = hasRep ? (repTotal || 0) : total;
+        // Sempre o cronograma AO VIVO (momento atual): esta tabela não sofre influência do
+        // filtro de Reprogramação — a comparação com a reprogramação fica no Resumo Mensal/gráfico.
+        const visibleRows = etapas;
+        const taskDistSource = monthlyDist;
+        const distTotal   = total;
         const groupVals2  = computeGroupValues(visibleRows);
-        // CurvaFisicaView mostra todas as tarefas independente de collapsed na Lista
-        const distRows    = visibleRows.filter(e => e.isGroup || e.showInDist === true);
+        // CurvaFisicaView mostra todas as tarefas independente de collapsed na Lista.
+        // A coluna "Curva" (showInDist) é preferência de exibição AO VIVO: mesmo mostrando
+        // uma reprogramação (retrato congelado), respeita as marcas atuais do cronograma —
+        // senão, marcar depois de criar a reprogramação não apareceria na tabela.
+        const liveShown   = new Set(etapas.filter(e => e.showInDist === true).map(e => e.id));
+        // Esconde descendentes de grupos recolhidos LOCALMENTE nesta tabela (sem tocar na Lista).
+        const isHiddenCurva = (e) => {
+          let p = e.parentId;
+          while (p) { if (collapsedCurva.has(p)) return true; p = visibleRows.find(x => x.id === p)?.parentId; }
+          return false;
+        };
+        const distRows    = visibleRows.filter(e => (e.isGroup || liveShown.has(e.id) || e.showInDist === true) && !isHiddenCurva(e));
         const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
         const thBase = {
           fontSize: 10.5, fontWeight: 600, letterSpacing: '0.07em',
@@ -1194,7 +1251,6 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                 <div className="card-title">Distribuição por tarefa</div>
                 <div className="card-subtitle">
                   % do custo de cada tarefa alocado por mês · clique nos grupos para expandir / recolher
-                  {hasRep && ` · Reprogramação "${repNome}"`}
                 </div>
               </div>
             </div>
@@ -1259,14 +1315,13 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                             {e.isGroup ? (
                               <button
-                                onClick={() => {
-                                  const novas = etapas.map(t => t.id === e.id ? { ...t, collapsed: !t.collapsed } : t);
-                                  onCommit(novas, { silent: true });
-                                }}
+                                onClick={() => setCollapsedCurva(prev => {
+                                  const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n;
+                                })}
                                 style={{ width: 16, height: 16, flexShrink: 0, display: 'flex', alignItems: 'center',
                                   justifyContent: 'center', border: 'none', background: 'none',
                                   cursor: 'pointer', color: 'var(--text-soft)', fontSize: 9, padding: 0 }}
-                              >{e.collapsed ? '▶' : '▼'}</button>
+                              >{collapsedCurva.has(e.id) ? '▶' : '▼'}</button>
                             ) : (
                               <span style={{ width: 16, flexShrink: 0 }} />
                             )}
@@ -1327,7 +1382,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                       {avancoGeral > 0 ? avancoGeral.toFixed(0) + '%' : '—'}
                     </td>
                     {months.map(m => {
-                      const pct = distTotal > 0 ? ((hasRep ? repDist[m.key] : filteredPlanned[m.key]) || 0) / distTotal * 100 : 0;
+                      const pct = distTotal > 0 ? ((filteredPlanned[m.key]) || 0) / distTotal * 100 : 0;
                       return (
                         <td key={m.key} style={{
                           ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
