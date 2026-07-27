@@ -11,7 +11,7 @@ import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, date
 import {
   fmtBRL, computeAllWBS, indentTasks, outdentTasks, computeSuccessors,
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
-  createGroup, deleteTask, autoScheduleFromDeps, formatDepList,
+  createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
   computeGroupValues, moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange,
 } from './scheduleEngine';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal } from './cronogramaModais';
@@ -57,6 +57,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
   const [editingDep,     setEditingDep]     = React.useState(null); // id da tarefa com predecessora em edição
+  const [editingSucc,    setEditingSucc]    = React.useState(null); // id da tarefa com sucessora em edição
   const [openModoMenu,   setOpenModoMenu]   = React.useState(null); // id da tarefa com o menu de Modo aberto
   const modoMenuRef = React.useRef(null);
   React.useEffect(() => {
@@ -294,7 +295,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'custoReal': return { raw: realCst, label: fmtBRL(realCst) };
       case 'saldo':     { const v = custoEf(e, gv) - realCst; return { raw: v, label: fmtBRL(v) }; }
       case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas); return { raw: v, label: v === '—' ? '' : v }; }
-      case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', '); return { raw: v, label: v }; }
+      case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; '); return { raw: v, label: v }; }
       case 'resp': { const v = e.isGroup ? '' : (e.responsavel || ''); return { raw: v, label: v }; }
       case 'pavimento': { const v = e.isGroup ? '' : (e.pavimento || ''); return { raw: v, label: v }; }
       case 'participa': { if (e.isGroup) return { raw: null, label: '' }; const v = e.showInDist ? 'Sim' : 'Não'; return { raw: v, label: v }; }
@@ -1354,6 +1355,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         else if (colId === 'custoReal' && leaf) setEditingCusto(taskId + '_real');
         else if (colId === 'fatorPeso' && leaf) setEditingFatorPeso(taskId);
         else if (colId === 'dep'       && leaf) setEditingDep(taskId);
+        else if (colId === 'succ'      && leaf) setEditingSucc(taskId);
         else {
           // Demais colunas (etapa, datas, duração, avanço, responsável, personalizadas)
           // usam EditableCell: dispara o mesmo caminho do duplo-clique.
@@ -1618,6 +1620,34 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     onCommit(commitFieldChange(etapas, id, field, rawValue), { silent: true });
   };
 
+  // Sucessora exibida como texto (estilo Project): displayId + tipo(≠TI) + lag,
+  // lidos do link reverso (a predecessora que a etapa sucessora tem apontando para taskId).
+  const formatSucc = (taskId) => (succMap[taskId] || []).map(sid => {
+    const s = etapas.find(x => x.id === sid);
+    const link = (s?.dep || []).find(d => (typeof d === 'string' ? d : d.id) === taskId);
+    const disp = idToDisplayId[sid] ?? sid;
+    const tipo = link && typeof link !== 'string' && link.tipo && link.tipo !== 'TI' ? link.tipo : '';
+    const lag  = link && typeof link !== 'string' && link.lag ? ((link.lag > 0 ? '+' : '') + link.lag + 'd') : '';
+    return disp + tipo + lag;
+  }).join('; ');
+
+  // Edita a Sucessora escrevendo o vínculo reverso (predecessora) nas outras tarefas.
+  const handleSuccSave = (taskId, raw) => {
+    const alvos  = parseDep(raw, etapas);                 // [{id: idDoSucessor, tipo, lag}]
+    const novoSet = new Map(alvos.filter(a => a.id !== taskId).map(a => [a.id, a]));
+    const antigos = new Set(succMap[taskId] || []);
+    const novas = etapas.map(e => {
+      if (e.id === taskId) return e;
+      const alvo = novoSet.get(e.id);
+      const era  = antigos.has(e.id);
+      if (!alvo && !era) return e;
+      let dep = (e.dep || []).filter(d => (typeof d === 'string' ? d : d.id) !== taskId);
+      if (alvo) dep = [...dep, { id: taskId, tipo: alvo.tipo, lag: alvo.lag }];
+      return { ...e, dep };
+    });
+    onCommit(autoScheduleFromDeps(novas));
+  };
+
   const handleToggleCollapse = (id) => {
     const novas = etapas.map(e => e.id === id ? { ...e, collapsed: !e.collapsed } : e);
     onCommit(novas, { silent: true });
@@ -1740,7 +1770,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'saldo')    return cst - realCst;
         if (cid === 'resp')     return e.responsavel || '';
         if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas);
-        if (cid === 'succ')     return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', ');
+        if (cid === 'succ')     return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; ');
         if (cid === 'status')   return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap')
           ? `${e.restricaoTipo}${e.restricaoData ? ' ' + e.restricaoData : ''}` : '';
@@ -1817,7 +1847,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'saldo')     return fmtBRL(cst - realCst);
         if (cid === 'resp')      return e.responsavel || '';
         if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas);
-        if (cid === 'succ')      return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join(', ');
+        if (cid === 'succ')      return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; ');
         if (cid === 'status')    return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap') ? `${e.restricaoTipo}${e.restricaoData ? ' ' + e.restricaoData : ''}` : '';
         if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
@@ -2795,22 +2825,33 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
-                      const parts = formatDepList(e.dep, etapas).split(',').map(s => s.trim()).filter(p => p && p !== '—');
+                      const txt = formatDepList(e.dep, etapas);
                       return (
-                        <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', cursor: readOnly ? 'default' : 'text', minHeight: 20 }}>
-                          {parts.length ? parts.map(p => <span key={p} className="dep-chip">{p}</span>) : <span className="text-faint">—</span>}
+                        <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={txt || undefined}>
+                          {txt || <span className="text-faint">—</span>}
                         </div>
                       );
                     })()}
                   </td>
                 ),
                 succ: (
-                  <td key="succ">
-                    {e.isGroup ? null : (() => {
-                      const ss = (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id);
-                      return ss.length
-                        ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{ss.map(s => <span key={s} className="dep-chip">{s}</span>)}</div>
-                        : <span className="text-faint">—</span>;
+                  <td key="succ" onClick={ev => ev.stopPropagation()}>
+                    {e.isGroup ? null : editingSucc === e.id ? (
+                      <input autoFocus defaultValue={formatSucc(e.id)}
+                        style={{ width: '100%', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
+                        onBlur={ev => { handleSuccSave(e.id, ev.target.value); setEditingSucc(null); }}
+                        onKeyDown={ev => {
+                          ev.stopPropagation();
+                          if (ev.key === 'Enter') { handleSuccSave(e.id, ev.target.value); setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                          if (ev.key === 'Escape') { setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
+                        }} />
+                    ) : (() => {
+                      const txt = formatSucc(e.id);
+                      return (
+                        <div onDoubleClick={() => !readOnly && setEditingSucc(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={txt || undefined}>
+                          {txt || <span className="text-faint">—</span>}
+                        </div>
+                      );
                     })()}
                   </td>
                 ),

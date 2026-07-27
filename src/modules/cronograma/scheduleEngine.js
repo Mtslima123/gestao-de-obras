@@ -411,13 +411,15 @@ export function formatDepList(dep, etapas) {
     const t = (d.tipo && d.tipo !== 'TI') ? d.tipo : '';
     const l = d.lag ? ((d.lag > 0 ? '+' : '') + d.lag + 'd') : '';
     return disp + t + l;
-  }).join(', ');
+  }).join('; ');
 }
 
-// Converte string "1, 2TT+3d" para dep[] resolvendo por displayId ou id interno
+// Converte string "1; 2TT+3d" para dep[] resolvendo por displayId ou id interno.
+// Aceita separador ';' ou ',' e lag no formato "+3d" ou "+3 dias" (colado do Project).
 export function parseDep(raw, etapas) {
-  return String(raw).split(',').map(s => s.trim()).filter(Boolean).map(token => {
-    const m = token.match(/^(\d+|[A-Za-z0-9\-]+)(TI|TT|II|IT)?([+-]\d+d?)?$/);
+  return String(raw).split(/[;,]/).map(s => s.trim()).filter(Boolean).map(token => {
+    const norm = token.replace(/\s+/g, '').replace(/dias?$/i, 'd');
+    const m = norm.match(/^(\d+|[A-Za-z0-9\-]+)(TI|TT|II|IT)?([+-]\d+d?)?$/);
     if (!m) return null;
     const ref  = m[1];
     const tipo = m[2] || 'TI';

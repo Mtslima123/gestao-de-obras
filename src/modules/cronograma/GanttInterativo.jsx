@@ -1770,7 +1770,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           </div>
           {(tooltip.etapa.dep || []).length > 0 && (
             <div style={{ marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-muted)' }}>
-              Depende de: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-soft)' }}>{tooltip.etapa.dep.join(', ')}</span>
+              Depende de: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-soft)' }}>{formatDepList(tooltip.etapa.dep, etapas)}</span>
             </div>
           )}
           {editMode && !(lockDone && tooltip.etapa.status === 'done') && !tooltip.etapa.milestone && (
