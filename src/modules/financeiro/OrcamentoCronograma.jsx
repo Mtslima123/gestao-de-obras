@@ -4,7 +4,7 @@ import { useToast, Modal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
 import { vinculoService, itemValor } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
-import { migrateEtapas } from '../cronograma/ganttUtils';
+import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
 
 // ─── AutocompleteInput ────────────────────────────────────────────────────────
 const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
@@ -61,6 +61,209 @@ const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style })
         </div>
       )}
     </div>
+  );
+};
+
+// ─── TarefaCronogramaSelect ───────────────────────────────────────────────────
+// Combobox com busca para a "Tarefa do Cronograma": abre a lista ao focar e filtra
+// conforme digita. Devolve o id da etapa (value/onChange). Desambigua nomes
+// repetidos (pavimentos) mostrando o EAP e a tarefa-pai.
+const TarefaCronogramaSelect = React.memo(({ etapas, value, onChange, disabled }) => {
+  const [query,     setQuery]     = React.useState('');
+  const [open,      setOpen]      = React.useState(false);
+  const [highlight, setHighlight] = React.useState(0);
+  const ref     = React.useRef(null);
+  const listRef = React.useRef(null);
+
+  const norm = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const paiNome = React.useCallback(
+    (et) => (et?.parentId ? (etapas.find(e => e.id === et.parentId)?.etapa || '') : ''),
+    [etapas]
+  );
+  const etapaSel   = etapas.find(e => e.id === value) || null;
+  const labelEtapa = (et) => (et ? `${et.displayId ?? et.id}  ${et.etapa}` : '');
+
+  const filtradas = React.useMemo(() => {
+    if (!query) return etapas;
+    const q = norm(query);
+    return etapas.filter(et =>
+      norm(et.etapa).includes(q) || norm(String(et.displayId ?? et.id)).includes(q)
+    );
+  }, [etapas, query]);
+
+  // Fecha ao clicar fora; limpa o texto digitado (volta a mostrar a seleção)
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQuery(''); } };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Mantém o item destacado visível ao navegar por teclado
+  React.useEffect(() => {
+    if (!open || !listRef.current) return;
+    listRef.current.children[highlight]?.scrollIntoView({ block: 'nearest' });
+  }, [highlight, open]);
+
+  const abrir      = () => { setOpen(true); setHighlight(Math.max(0, filtradas.findIndex(e => e.id === value))); };
+  const selecionar = (et) => { onChange(et.id); setQuery(''); setOpen(false); };
+
+  const onKeyDown = (e) => {
+    if (e.key === 'ArrowDown')      { e.preventDefault(); if (!open) return abrir(); setHighlight(h => Math.min(h + 1, filtradas.length - 1)); }
+    else if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)); }
+    else if (e.key === 'Enter')     { if (open && filtradas[highlight]) { e.preventDefault(); selecionar(filtradas[highlight]); } }
+    else if (e.key === 'Escape')    { setOpen(false); setQuery(''); }
+  };
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <input
+        className="input"
+        placeholder="— Selecione uma tarefa —"
+        value={open ? query : labelEtapa(etapaSel)}
+        disabled={disabled}
+        onChange={e => { setQuery(e.target.value); setOpen(true); setHighlight(0); }}
+        onFocus={abrir}
+        onKeyDown={onKeyDown}
+        style={{ width: '100%' }}
+      />
+      {open && (
+        <div ref={listRef} style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+          maxHeight: 260, overflowY: 'auto', marginTop: 2,
+        }}>
+          {filtradas.length === 0 && (
+            <div style={{ padding: '9px 12px', fontSize: 13, color: 'var(--text-faint)' }}>Nenhuma tarefa encontrada.</div>
+          )}
+          {filtradas.map((et, i) => {
+            const pai = paiNome(et);
+            const sel = et.id === value;
+            return (
+              <div
+                key={et.id}
+                onMouseDown={(e) => { e.preventDefault(); selecionar(et); }}
+                onMouseEnter={() => setHighlight(i)}
+                style={{
+                  padding: '7px 12px', cursor: 'pointer',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  background: sel ? 'var(--brand-tint)' : i === highlight ? 'var(--surface-muted)' : 'transparent',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 34 }}>{et.displayId ?? et.id}</span>
+                  <span style={{ paddingLeft: (et.nivel || 0) * 12, fontWeight: et.isGroup ? 700 : 400 }}>{et.etapa}</span>
+                  {et.isGroup && <span style={{ fontSize: 10, color: 'var(--brand)', background: 'var(--brand-tint)', borderRadius: 4, padding: '0 5px' }}>grupo</span>}
+                </div>
+                {pai && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 1, paddingLeft: 40 }}>em {pai}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ─── DistribuirPesosModal ─────────────────────────────────────────────────────
+// Distribui o valor de um grupo entre suas subtarefas-folha ajustando o fator_peso
+// de cada uma (entrada por fator peso, igual à Lista). O valor em R$ é recalculado
+// via computeValorVinculadoMap, isolado ao valor que este grupo recebe.
+const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, saving, onSave, onClose }) => {
+  // Folhas descendentes do grupo (sem filhos), na ordem do array
+  const folhas = React.useMemo(() => {
+    const filhosDe = (id) => etapas.filter(e => e.parentId === id);
+    const out = [];
+    const walk = (id) => filhosDe(id).forEach(c => {
+      if (filhosDe(c.id).length === 0) out.push(c); else walk(c.id);
+    });
+    walk(etapa.id);
+    return out;
+  }, [etapa, etapas]);
+
+  const [pesos, setPesos] = React.useState(() =>
+    Object.fromEntries(folhas.map(f => [f.id, String(f.fator_peso ?? 1)]))
+  );
+  const setPeso = (id, val) => setPesos(p => ({ ...p, [id]: val }));
+
+  const nomePai = React.useCallback(
+    (f) => (f.parentId && f.parentId !== etapa.id ? (etapas.find(e => e.id === f.parentId)?.etapa || '') : ''),
+    [etapas, etapa]
+  );
+
+  // Valor que o grupo recebe (soma dos itens vinculados diretamente a ele)
+  const valorGrupo = React.useMemo(
+    () => vinculos.reduce((s, v) => s + (orcamentoItensMap[v.orcamento_item_id] || 0), 0),
+    [vinculos, orcamentoItensMap]
+  );
+
+  // Com os pesos digitados, quanto cai em cada folha (isolado a este grupo)
+  const valorPorFolha = React.useMemo(() => {
+    const editadas = etapas.map(e =>
+      pesos[e.id] != null ? { ...e, fator_peso: Math.max(0, parseFloat(pesos[e.id]) || 0) } : e
+    );
+    return computeValorVinculadoMap(editadas, vinculos, orcamentoItensMap);
+  }, [pesos, etapas, vinculos, orcamentoItensMap]);
+
+  const totalDistribuido = folhas.reduce((s, f) => s + (valorPorFolha[f.id] || 0), 0);
+
+  return (
+    <Modal
+      title={`Distribuir pesos — ${etapa.etapa}`}
+      subtitle={`Valor do grupo: ${formatBRL(valorGrupo)} · ajuste o fator peso de cada subtarefa`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={() => onSave(pesos)} disabled={saving || folhas.length === 0}>
+            {saving ? 'Salvando…' : 'Salvar distribuição'}
+          </button>
+        </>
+      }
+    >
+      {folhas.length === 0 ? (
+        <div style={{ padding: '10px 4px', fontSize: 13, color: 'var(--text-muted)' }}>
+          Esta tarefa não tem subtarefas para distribuir.
+        </div>
+      ) : (
+        <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'var(--surface-muted)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
+            <span style={{ flex: 1 }}>Subtarefa</span>
+            <span style={{ width: 90, textAlign: 'center' }}>Fator peso</span>
+            <span style={{ width: 120, textAlign: 'right' }}>Valor (R$)</span>
+          </div>
+          {folhas.map(f => {
+            const pai = nomePai(f);
+            return (
+              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--border-subtle)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, paddingLeft: Math.max(0, (f.nivel || 0) - (etapa.nivel || 0) - 1) * 12 }}>{f.etapa}</div>
+                  {pai && <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>em {pai}</div>}
+                </div>
+                <input
+                  type="number" min="0" step="any"
+                  className="input"
+                  value={pesos[f.id] ?? ''}
+                  onChange={e => setPeso(f.id, e.target.value)}
+                  style={{ width: 90, textAlign: 'right' }}
+                />
+                <span className="mono" style={{ width: 120, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
+                  {formatBRL(valorPorFolha[f.id] || 0)}
+                </span>
+              </div>
+            );
+          })}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+            <span style={{ flex: 1, textAlign: 'right', fontSize: 13 }}>Total</span>
+            <span style={{ width: 90 }} />
+            <span className="mono" style={{ width: 120, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
+              {formatBRL(totalDistribuido)}
+            </span>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 };
 
@@ -188,6 +391,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const [editandoEtapaId,  setEditandoEtapaId]  = React.useState(null);
   const [buscaModalItem,   setBuscaModalItem]    = React.useState('');
 
+  // Estado do modal de distribuição de pesos (fator_peso das subtarefas de um grupo)
+  const [distribuirEtapaId, setDistribuirEtapaId] = React.useState(null);
+  const [salvandoPeso,      setSalvandoPeso]      = React.useState(false);
+
   React.useEffect(() => {
     if (!obraSel) {
       setVinculos([]); setItens([]); setEtapas([]);
@@ -211,6 +418,12 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const linkedEtapaIds = React.useMemo(
     () => new Set(vinculos.map(v => v.etapa_id)),
     [vinculos]
+  );
+
+  // Mapa orcamento_item_id -> valor (alimenta a distribuição de pesos por fator_peso)
+  const orcamentoItensMap = React.useMemo(
+    () => Object.fromEntries(itens.map(it => [it.id, itemValor(it)])),
+    [itens]
   );
 
   // IDs de itens já vinculados a qualquer tarefa — cada item pode pertencer a uma só tarefa
@@ -296,6 +509,27 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     setSaving(false);
   };
 
+  // ── Salvar distribuição de pesos (fator_peso) de volta no cronograma ───────
+  const handleSalvarPesos = async (novosPesos) => {
+    setSalvandoPeso(true);
+    const novasEtapas = etapas.map(e =>
+      novosPesos[e.id] != null
+        ? { ...e, fator_peso: Math.max(0, parseFloat(novosPesos[e.id]) || 0) }
+        : e
+    );
+    const { error } = await supabase.from('cronogramas').update({ etapas: novasEtapas }).eq('obra_id', obraSel);
+    if (error) {
+      toast('Erro ao salvar os pesos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+      setSalvandoPeso(false);
+      return;
+    }
+    setEtapas(novasEtapas);
+    if (_ocCache[obraSel]) _ocCache[obraSel].etapas = novasEtapas;
+    setDistribuirEtapaId(null);
+    setSalvandoPeso(false);
+    toast('Distribuição de pesos salva', { tone: 'success', icon: 'check' });
+  };
+
   // ── Filtros da tabela ──────────────────────────────────────────────────────
   const filtrados = vinculos.filter(v => {
     const itemNome  = (v.orcamento_itens?.nome || '').toLowerCase();
@@ -307,9 +541,6 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   });
 
   const totalVinculado = filtrados.reduce((s, v) => s + itemValor(v.orcamento_itens), 0);
-
-  const indentEtapa = (e) =>
-    ' '.repeat((e.nivel || 0) * 3) + (e.isGroup ? '▸ ' : '') + e.etapa;
 
   // Etapas disponíveis: exclui apenas as já vinculadas (todas aparecem, incluindo resumos)
   const etapasDisponiveis = etapas.filter(et => !linkedEtapaIds.has(et.id));
@@ -335,6 +566,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   });
 
   const fecharModal = () => { setEditandoEtapaId(null); setBuscaModalItem(''); };
+
+  // ── Dados do modal de distribuição de pesos ────────────────────────────────
+  const distribuirEtapa    = etapas.find(e => e.id === distribuirEtapaId) || null;
+  const vinculosDistribuir = vinculos.filter(v => v.etapa_id === distribuirEtapaId);
 
   return (
     <>
@@ -381,9 +616,11 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
           {/* ── Adicionar novo vínculo ──────────────────────────────────────── */}
           <div className="card" style={{ marginTop: 'var(--gap)' }}>
             <div className="card-header">
-              <div className="card-title">Adicionar vínculo</div>
-              <div className="card-subtitle">
-                Selecione um ou mais itens do orçamento e a tarefa do cronograma que receberá os pesos
+              <div>
+                <div className="card-title">Adicionar vínculo</div>
+                <div className="card-subtitle">
+                  Selecione um ou mais itens do orçamento e a tarefa do cronograma que receberá os pesos
+                </div>
               </div>
             </div>
             <div className="card-body">
@@ -424,25 +661,12 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                       somente tarefas executáveis
                     </span>
                   </label>
-                  <select
-                    className="input"
+                  <TarefaCronogramaSelect
+                    etapas={etapasDisponiveis}
                     value={selEtapa}
-                    onChange={e => setSelEtapa(e.target.value)}
-                    style={{ width: '100%' }}
+                    onChange={setSelEtapa}
                     disabled={etapasDisponiveis.length === 0}
-                  >
-                    <option value="">— Selecione uma tarefa —</option>
-                    {etapasDisponiveis.map(et => (
-                      <option
-                        key={et.id}
-                        value={et.id}
-                        // Destaca tarefas principais (grupos/etapas-pai) na lista
-                        style={et.isGroup ? { fontWeight: 700, background: 'var(--brand-tint)' } : undefined}
-                      >
-                        {indentEtapa(et)}
-                      </option>
-                    ))}
-                  </select>
+                  />
 
                   {selItens.length > 0 && selEtapa && (() => {
                     const etapa = etapas.find(e => e.id === selEtapa);
@@ -533,12 +757,12 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th style={{ width: 90, position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Código</th>
-                      <th style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Item do Orçamento</th>
-                      <th style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Tarefa do Cronograma</th>
-                      <th style={{ width: 60, textAlign: 'center', position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Nível</th>
-                      <th style={{ textAlign: 'right', width: 140, position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>Valor (R$)</th>
-                      <th style={{ width: 48, position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}></th>
+                      <th style={{ width: 90, position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Código</th>
+                      <th style={{ position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Item do Orçamento</th>
+                      <th style={{ position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Tarefa do Cronograma</th>
+                      <th style={{ width: 60, textAlign: 'center', position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Nível</th>
+                      <th style={{ textAlign: 'right', width: 140, position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Valor (R$)</th>
+                      <th style={{ width: 48, position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -616,6 +840,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                 vinculos={vinculos}
                 etapas={etapas}
                 onEditarVinculos={setEditandoEtapaId}
+                onDistribuir={setDistribuirEtapaId}
               />
             </div>
           )}
@@ -724,12 +949,25 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
           </div>
         </Modal>
       )}
+
+      {/* ── Modal: Distribuir pesos das subtarefas ─────────────────────────── */}
+      {distribuirEtapa && (
+        <DistribuirPesosModal
+          etapa={distribuirEtapa}
+          etapas={etapas}
+          vinculos={vinculosDistribuir}
+          orcamentoItensMap={orcamentoItensMap}
+          saving={salvandoPeso}
+          onSave={handleSalvarPesos}
+          onClose={() => setDistribuirEtapaId(null)}
+        />
+      )}
     </>
   );
 };
 
 // ─── ResumoVinculos ───────────────────────────────────────────────────────────
-const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos }) => {
+const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistribuir }) => {
   const porEtapa = {};
   vinculos.forEach(v => {
     if (!porEtapa[v.etapa_id]) porEtapa[v.etapa_id] = { itens: [], total: 0 };
@@ -748,14 +986,15 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos }) => {
           <div className="card-subtitle">Valor total recebido do orçamento por tarefa vinculada</div>
         </div>
       </div>
-      <div className="card-body" style={{ padding: 0, overflowX: 'auto', overflowY: 'auto', flex: 1 }}>
+      <div className="card-body" style={{ padding: 0, flex: 1, overflow: 'hidden' }}>
+        <div style={{ maxHeight: 380, overflow: 'auto' }}>
         <table className="table">
           <thead>
             <tr>
-              <th>Tarefa</th>
-              <th style={{ textAlign: 'center', width: 70 }}>Itens</th>
-              <th style={{ textAlign: 'right', width: 150 }}>Valor Vinculado</th>
-              <th style={{ width: 140 }}></th>
+              <th style={{ position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Tarefa</th>
+              <th style={{ textAlign: 'center', width: 70, position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Itens</th>
+              <th style={{ textAlign: 'right', width: 150, position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Valor Vinculado</th>
+              <th style={{ width: 96, position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -772,20 +1011,32 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos }) => {
                 <td className="mono" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
                   {formatBRL(porEtapa[e.id].total)}
                 </td>
-                <td style={{ textAlign: 'right', paddingRight: 12 }}>
-                  <button
-                    className="btn btn-ghost"
-                    style={{ fontSize: 11.5, padding: '2px 10px', height: 26, gap: 4 }}
-                    onClick={() => onEditarVinculos(e.id)}
-                    title="Visualizar e editar itens associados a esta tarefa"
-                  >
-                    <Icon name="edit" size={12} />Editar Itens Associados
-                  </button>
+                <td style={{ paddingRight: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 2 }}>
+                    {e.isGroup && (
+                      <button
+                        className="icon-btn"
+                        title="Distribuir pesos das subtarefas"
+                        onClick={() => onDistribuir(e.id)}
+                        style={{ color: 'var(--brand)' }}
+                      >
+                        <Icon name="chart" size={14} />
+                      </button>
+                    )}
+                    <button
+                      className="icon-btn"
+                      title="Editar Itens Associados"
+                      onClick={() => onEditarVinculos(e.id)}
+                    >
+                      <Icon name="edit" size={14} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
