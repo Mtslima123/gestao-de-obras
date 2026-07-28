@@ -619,7 +619,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
       {obraSel && !loading && (
         <>
           {/* ── Adicionar novo vínculo ──────────────────────────────────────── */}
-          <div className="card" style={{ marginTop: 'var(--gap)' }}>
+          {/* overflow visível: o dropdown "Tarefa do Cronograma" (position:absolute) não pode
+              ser recortado pela borda do card (.card tem overflow:hidden por padrão) */}
+          <div className="card" style={{ marginTop: 'var(--gap)', overflow: 'visible' }}>
             <div className="card-header">
               <div>
                 <div className="card-title">Adicionar vínculo</div>
