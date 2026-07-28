@@ -5,6 +5,7 @@ import { supabase } from '../../services/supabase';
 import { vinculoService, itemValor } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
+import { invalidateCronCache } from '../cronograma/cronogramaCache';
 
 // ─── AutocompleteInput ────────────────────────────────────────────────────────
 const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
@@ -517,7 +518,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
         ? { ...e, fator_peso: Math.max(0, parseFloat(novosPesos[e.id]) || 0) }
         : e
     );
-    const { error } = await supabase.from('cronogramas').update({ etapas: novasEtapas }).eq('obra_id', obraSel);
+    const { error } = await supabase.from('cronogramas')
+      .update({ etapas: novasEtapas, updated_at: new Date().toISOString() })
+      .eq('obra_id', obraSel);
     if (error) {
       toast('Erro ao salvar os pesos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
       setSalvandoPeso(false);
@@ -525,6 +528,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     }
     setEtapas(novasEtapas);
     if (_ocCache[obraSel]) _ocCache[obraSel].etapas = novasEtapas;
+    // Invalida o cache do Cronograma para a Lista reler os pesos novos do banco.
+    invalidateCronCache(obraSel);
     setDistribuirEtapaId(null);
     setSalvandoPeso(false);
     toast('Distribuição de pesos salva', { tone: 'success', icon: 'check' });
