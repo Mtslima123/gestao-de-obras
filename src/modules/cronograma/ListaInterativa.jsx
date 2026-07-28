@@ -58,6 +58,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
   const [editingDep,     setEditingDep]     = React.useState(null); // id da tarefa com predecessora em edição
   const [editingSucc,    setEditingSucc]    = React.useState(null); // id da tarefa com sucessora em edição
+  const [showLocalizar,  setShowLocalizar]  = React.useState(false); // modal Localizar (Ctrl+L)
+  const [localizarTermo, setLocalizarTermo] = React.useState('');
+  const localizarIdxRef = React.useRef(-1);
   const [openModoMenu,   setOpenModoMenu]   = React.useState(null); // id da tarefa com o menu de Modo aberto
   const modoMenuRef = React.useRef(null);
   React.useEffect(() => {
@@ -510,9 +513,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         onDragEnd={!isFrozen ? () => { dragColRef.current = null; setDragOverCol(null); } : undefined}
         onDrop={!isFrozen ? (ev) => onColDrop(ev, colId) : undefined}
       >
-        <span style={{ display: 'block', paddingRight: 30, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
+        <span style={{ display: 'block', paddingRight: 32, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
         <span data-colmenu
-          style={{ position: 'absolute', right: 6, top: 0, bottom: 0, zIndex: 4, display: 'flex', alignItems: 'stretch' }}>
+          style={{ position: 'absolute', right: 6, top: 0, bottom: 0, zIndex: 4, display: 'flex', alignItems: 'center', paddingLeft: 4, background: 'var(--brand)' }}>
           <ColumnHeaderFilterMenu
             label={col.label}
             type={resolveColType(colId, customCols)}
@@ -1544,6 +1547,35 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [ctxMenu]);
 
+  // Atalho Ctrl+L — abre o "Localizar" (estilo Excel/Project). preventDefault: o navegador
+  // usaria Ctrl+L para a barra de endereços.
+  React.useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        setShowLocalizar(true);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  // Navega para a próxima tarefa que casa com o termo (nome, WBS ou ID), em ciclo.
+  const norm2 = (s) => String(s ?? '').toLowerCase();
+  const localizarProximo = () => {
+    const q = localizarTermo.trim().toLowerCase();
+    if (!q) return;
+    const matches = filtrada.filter(e =>
+      norm2(e.etapa).includes(q) || norm2(wbsMap[e.id]).includes(q) || String(e.displayId ?? '').includes(q)
+    );
+    if (!matches.length) { toast('Nenhuma tarefa encontrada', { tone: 'neutral', icon: 'search' }); return; }
+    localizarIdxRef.current = (localizarIdxRef.current + 1) % matches.length;
+    const alvo = matches[localizarIdxRef.current];
+    const cell = { taskId: alvo.id, colId: 'etapa' };
+    setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
+    scrollRowIntoView(alvo.id);
+  };
+
   // Atalho Ctrl+F2 — cria vínculos em cadeia entre tarefas de multiSel (na ordem de clique)
   React.useEffect(() => {
     const handler = (e) => {
@@ -1635,6 +1667,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       return;
     }
 
+    // No-op guard: se o valor não mudou de verdade (ex.: abrir/fechar a célula sem editar,
+    // ou digitar o mesmo número), não commita — senão empilha uma entrada idêntica no undo
+    // e o Ctrl+Z "desfaz" para um estado igual (parece que não faz nada).
+    const cur = etapas.find(e => e.id === id);
+    if (cur) {
+      const next = applyFieldToEtapa(cur, field, rawValue, etapas);
+      if (JSON.stringify(cur) === JSON.stringify(next)) return;
+    }
     onCommit(commitFieldChange(etapas, id, field, rawValue), { silent: true });
   };
 
@@ -1663,7 +1703,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (alvo) dep = [...dep, { id: taskId, tipo: alvo.tipo, lag: alvo.lag }];
       return { ...e, dep };
     });
-    onCommit(autoScheduleFromDeps(novas));
+    const reprog = autoScheduleFromDeps(novas);
+    if (JSON.stringify(reprog) === JSON.stringify(etapas)) return; // sem mudança real
+    onCommit(reprog);
   };
 
   const handleToggleCollapse = (id) => {
@@ -2519,7 +2561,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     ...(multiSelCols.includes(col.id) ? { background: 'color-mix(in srgb, white 22%, var(--brand))' } : {}) }}
                   onClick={(ev) => { if (ev.target.closest('[data-colmenu]')) return; selectColumn(col.id, ev); }}
                   onContextMenu={(ev) => { if (ev.target.closest('[data-colmenu]')) return; ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId: col.id }); }}>
-                  <span style={{ display: 'block', paddingRight: 30, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
+                  <span style={{ display: 'block', paddingRight: 32, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
                   <span data-colmenu
                     style={{ position: 'absolute', right: 6, top: 0, bottom: 0, zIndex: 4, display: 'flex', alignItems: 'stretch' }}>
                     <ColumnHeaderFilterMenu
@@ -2721,7 +2763,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
+                          if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }}
                       />
@@ -2754,7 +2796,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
+                          if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingFatorPeso(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }}
                       />
@@ -2785,7 +2827,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
+                          if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }}
                       />
@@ -2839,7 +2881,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
+                          if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
@@ -2860,7 +2902,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         onBlur={ev => { handleSuccSave(e.id, ev.target.value); setEditingSucc(null); }}
                         onKeyDown={ev => {
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { handleSuccSave(e.id, ev.target.value); setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
+                          if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
@@ -3406,6 +3448,27 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           onCommit={onCommit}
           onClose={() => setShowImportEAP(false)}
         />
+      )}
+
+      {/* Localizar (Ctrl+L) — navega pelas tarefas por nome, WBS ou ID */}
+      {showLocalizar && (
+        <Modal title="Localizar" subtitle="Buscar tarefa por nome, WBS ou ID" size="sm"
+          onClose={() => setShowLocalizar(false)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setShowLocalizar(false)}>Fechar</button>
+              <button className="btn btn-primary" onClick={localizarProximo} disabled={!localizarTermo.trim()}>Localizar próxima</button>
+            </>
+          }>
+          <input autoFocus className="input" placeholder="Digite e pressione Enter…"
+            value={localizarTermo}
+            onChange={e => { setLocalizarTermo(e.target.value); localizarIdxRef.current = -1; }}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); localizarProximo(); } }}
+            style={{ width: '100%' }} />
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+            Enter ou "Localizar próxima" percorre os resultados; a tarefa encontrada é selecionada e rolada até a vista.
+          </div>
+        </Modal>
       )}
 
       {/* Menu de contexto — botão direito na linha */}

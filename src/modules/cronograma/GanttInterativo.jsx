@@ -1434,15 +1434,19 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                     })()}
                   </div>
                   {isLock && <Icon name="shield" size={10} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
-                  {/* Percentual de progresso */}
+                  {/* Percentual de progresso — grupos usam o avanço calculado (rollup) */}
+                  {(() => {
+                  const gv = e.isGroup ? groupVals[e.id] : null;
+                  const av = gv ? gv.avanco : e.avanco;
+                  const r = 6, circ = 2 * Math.PI * r;
+                  const offset = circ * (1 - Math.min(100, av) / 100);
+                  return (<>
                   <span style={{ fontSize: 10.5, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text)', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
-                    {`${e.avanco}%`}
+                    {`${av}%`}
                   </span>
                   {/* Indicador circular de progresso */}
                   {(() => {
-                    const r = 6, circ = 2 * Math.PI * r;
-                    const offset = circ * (1 - Math.min(100, e.avanco) / 100);
-                    if (e.avanco >= 100) return (
+                    if (av >= 100) return (
                       <svg viewBox="0 0 16 16" width={16} height={16} style={{ flexShrink: 0 }}>
                         <circle cx="8" cy="8" r="8" fill="#16a34a"/>
                         <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8"
@@ -1452,13 +1456,15 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                     return (
                       <svg viewBox="0 0 16 16" width={16} height={16} style={{ flexShrink: 0 }}>
                         <circle cx="8" cy="8" r={r} fill="none" stroke="rgba(0,0,0,0.10)" strokeWidth={2.5}/>
-                        {e.avanco > 0 && (
+                        {av > 0 && (
                           <circle cx="8" cy="8" r={r} fill="none" stroke={sc.fill} strokeWidth={2.5}
                             strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
                             style={{ transform: 'rotate(-90deg)', transformOrigin: '8px 8px' }}/>
                         )}
                       </svg>
                     );
+                  })()}
+                  </>);
                   })()}
                 </div>
 

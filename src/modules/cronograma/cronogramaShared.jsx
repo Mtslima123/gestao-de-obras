@@ -117,9 +117,12 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
   const [editing, setEditing] = React.useState(false);
   const [draft,   setDraft]   = React.useState(value);
   const inputRef = React.useRef(null);
+  // Evita commit/saída duplicados: ao confirmar com Enter, o onExitEdit foca a grade e
+  // dispara um onBlur reentrante que chamaria save() de novo (2 entradas iguais no undo).
+  const doneRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
+    if (editing && inputRef.current) { doneRef.current = false; inputRef.current.focus(); inputRef.current.select(); }
   }, [editing]);
 
   // Sincroniza draft quando value muda externamente (e não está editando)
@@ -128,11 +131,13 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
   }, [value, editing]);
 
   const save = (via) => {
+    if (doneRef.current) return;   // segunda chamada (blur reentrante do Enter) — ignora
+    doneRef.current = true;
     setEditing(false);
     if (String(draft ?? '') !== String(value ?? '')) onSave(draft ?? '');
     onExitEdit?.(via);
   };
-  const cancel = () => { setEditing(false); setDraft(value); onExitEdit?.('cancel'); };
+  const cancel = () => { doneRef.current = true; setEditing(false); setDraft(value); onExitEdit?.('cancel'); };
 
   if (readOnly) {
     const raw     = value !== undefined && value !== null && value !== '' ? value : null;

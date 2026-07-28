@@ -18,6 +18,7 @@ import {
   CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal,
 } from './cronogramaModais';
 import { GM_TOTAL, gmConflicts } from './cronogramaShared';
+import { _cronCache, _cronSavedAt } from './cronogramaCache';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
@@ -66,6 +67,9 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   const leftRef  = React.useRef(null);
   const rightRef = React.useRef(null);
   const syncing  = React.useRef(false);
+  // Segue a altura de linha configurada na Lista (mesma chave), com fonte menor no padrão dela.
+  const usoRowH = (() => { const v = parseInt(localStorage.getItem('ls_crono_row_h_v2') || '', 10); return Number.isFinite(v) ? Math.min(120, Math.max(20, v)) : 21; })();
+  const usoFont = 12;
 
   // Larguras de colunas do painel esquerdo persistidas por obra
   const [usoColW, setUsoColW] = React.useState(() => {
@@ -170,22 +174,22 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
 
   const thSt = {
     position: 'sticky', top: 0, zIndex: 2,
-    background: 'var(--surface)',
-    borderBottom: '2px solid var(--border)',
+    background: 'var(--brand)',
+    color: '#fff',
+    borderBottom: '2px solid var(--brand-700)',
     padding: '0 10px',
-    height: 36,
+    height: 34,
     fontSize: 10.5,
-    fontWeight: 600,
+    fontWeight: 700,
     letterSpacing: '0.07em',
     textTransform: 'uppercase',
-    color: 'var(--text-soft)',
     whiteSpace: 'nowrap',
     userSelect: 'none',
   };
   const tdSt = {
     padding: '0 10px',
-    height: 36,
-    fontSize: 13,
+    height: usoRowH,
+    fontSize: usoFont,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -197,25 +201,26 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   // e deixar a coluna se ajustar (table-layout: auto) ao maior número.
   const tdNum = {
     padding: '0 12px',
-    height: 36,
-    fontSize: 13,
+    height: usoRowH,
+    fontSize: usoFont,
     whiteSpace: 'nowrap',
     borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))',
     verticalAlign: 'middle',
     textAlign: 'right',
     fontVariantNumeric: 'tabular-nums',
   };
-  // Linhas de totais das colunas: "Total geral" fixa no topo (abaixo do cabeçalho de 36px)
-  // e "% do total" fixa no rodapé. Fundo sólido para cobrir o conteúdo ao rolar.
+  // Linhas de totais das colunas (duas últimas linhas): "Total geral" (R$) e, abaixo,
+  // "% do total". NÃO sticky — evita a scrollbar horizontal do painel direito aparecer
+  // entre elas (o painel esquerdo não tem scrollbar, o que desalinhava as linhas fixas).
   const totalTopTd = {
-    position: 'sticky', top: 36, zIndex: 1, height: 36, padding: '0 12px',
-    background: 'var(--brand-50)', fontWeight: 700, fontSize: 13,
-    borderBottom: '2px solid var(--border)', whiteSpace: 'nowrap',
+    height: usoRowH, padding: '0 12px',
+    background: 'var(--brand-50)', fontWeight: 700, fontSize: usoFont,
+    borderTop: '2px solid var(--border)', whiteSpace: 'nowrap',
     textAlign: 'right', fontVariantNumeric: 'tabular-nums',
   };
   const totalBotTd = {
-    position: 'sticky', bottom: 0, zIndex: 1, height: 36, padding: '0 12px',
-    background: 'var(--surface-muted)', fontWeight: 700, fontSize: 13,
+    height: usoRowH, padding: '0 12px',
+    background: 'var(--surface-muted)', fontWeight: 700, fontSize: usoFont,
     borderTop: '2px solid var(--border)', whiteSpace: 'nowrap',
     textAlign: 'right', fontVariantNumeric: 'tabular-nums',
   };
@@ -398,9 +403,6 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
               </tr>
             </thead>
             <tbody>
-              <tr style={{ height: 36 }}>
-                <td colSpan={usoColOrder.length} style={{ ...totalTopTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>Total geral</td>
-              </tr>
               {visible.map(e => {
                 const nomeText = e.etapa;
                 const idText   = String(e.displayId ?? e.id);
@@ -425,13 +427,16 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                 };
                 return (
                   <tr key={e.id}
-                    style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
+                    style={{ background: rowBg(e), cursor: 'pointer', height: usoRowH }}
                     onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
                     {usoColOrder.map(k => cellMap[k])}
                   </tr>
                 );
               })}
-              <tr style={{ height: 36 }}>
+              <tr style={{ height: usoRowH }}>
+                <td colSpan={usoColOrder.length} style={{ ...totalTopTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>Total geral</td>
+              </tr>
+              <tr style={{ height: usoRowH }}>
                 <td colSpan={usoColOrder.length} style={{ ...totalBotTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>% do total</td>
               </tr>
             </tbody>
@@ -447,33 +452,32 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                 {months.map(m => (
                   <th key={m.key} style={{ ...thSt, textAlign: 'right', minWidth: 92 }}>{m.label}</th>
                 ))}
-                <th style={{ ...thSt, textAlign: 'right', color: 'var(--text)', minWidth: 112 }}>Total</th>
+                <th style={{ ...thSt, textAlign: 'right', minWidth: 112 }}>Total</th>
               </tr>
             </thead>
             <tbody>
-              <tr style={{ height: 36 }}>
-                {months.map(m => (
-                  <td key={m.key} style={{ ...totalTopTd, minWidth: 92 }}>
-                    {monthTotals[m.key] > 0 ? cfg.tot(monthTotals[m.key]) : '—'}
-                  </td>
-                ))}
-                <td style={{ ...totalTopTd, minWidth: 112 }}>{grandTotal > 0 ? cfg.tot(grandTotal) : '—'}</td>
-              </tr>
               {visible.map(e => {
                 const dist  = getDist(e);
                 const total = months.reduce((s, m) => s + (dist[m.key] || 0), 0);
                 const emptyThresh = 1;
                 return (
                   <tr key={e.id}
-                    style={{ background: rowBg(e), cursor: 'pointer', height: 36 }}
+                    style={{ background: rowBg(e), cursor: 'pointer', height: usoRowH }}
                     onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
                     {months.map(m => {
                       const v = dist[m.key] || 0;
                       const empty = v < emptyThresh;
                       const f = Math.min(1, v / cellMax);
+                      // Grupos (tarefas pai): sem cor por peso — só o fundo padrão da linha pai.
+                      if (e.isGroup) return (
+                        <td key={m.key} style={{ ...tdNum, minWidth: 92, background: rowBg(e), fontWeight: 700 }}
+                          title={empty ? undefined : cfg.cell(v)}>
+                          {empty ? '—' : cfg.cell(v)}
+                        </td>
+                      );
                       return (
                         <td key={m.key}
-                          className={'heat-cell' + (e.isGroup ? ' group' : '') + (empty ? ' empty' : (f > 0.35 ? ' hot' : ''))}
+                          className={'heat-cell' + (empty ? ' empty' : (f > 0.35 ? ' hot' : ''))}
                           style={{ ...tdNum, minWidth: 92, '--f': f }}
                           title={empty ? undefined : cfg.cell(v)}>
                           {empty ? '—' : cfg.cell(v)}
@@ -486,7 +490,15 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                   </tr>
                 );
               })}
-              <tr style={{ height: 36 }}>
+              <tr style={{ height: usoRowH }}>
+                {months.map(m => (
+                  <td key={m.key} style={{ ...totalTopTd, minWidth: 92 }}>
+                    {monthTotals[m.key] > 0 ? cfg.tot(monthTotals[m.key]) : '—'}
+                  </td>
+                ))}
+                <td style={{ ...totalTopTd, minWidth: 112 }}>{grandTotal > 0 ? cfg.tot(grandTotal) : '—'}</td>
+              </tr>
+              <tr style={{ height: usoRowH }}>
                 {months.map(m => (
                   <td key={m.key} style={{ ...totalBotTd, minWidth: 92 }}>
                     {grandTotal > 0 ? (monthTotals[m.key] / grandTotal * 100).toFixed(2) + '%' : '—'}
@@ -505,7 +517,8 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
 // ─── SCurveChart — Curva S própria (SVG). Recriada do zero; não copia o protótipo.
 // Recebe séries já computadas e desenha grade, barras mensais, linhas planejado/
 // realizado com pontos, e o marcador "hoje". Cores da marca (navy) + verde/cinza.
-const SCurveChart = ({ months = [], planned = [], realized = [], baseline = null, monthlyPct = [], todayIdx = -1, height = 300 }) => {
+const SCurveChart = ({ months = [], reprogramado = [], real = [], baseline = null, monthlyPct = [], todayIdx = -1,
+  show = { bl: true, rep: true, real: true }, height = 300 }) => {
   const N = months.length || 1;
   const pL = 54, pR = 20, pT = 18, pB = 52;
   const svgW = 1000, svgH = height;
@@ -513,15 +526,18 @@ const SCurveChart = ({ months = [], planned = [], realized = [], baseline = null
   const xC = (i) => pL + (chartW / N) * (i + 0.5);
   const yS = (pct) => pT + (1 - pct / 100) * chartH;
   const barW = (chartW / N) * 0.55;
-  const ptsPlan = planned.map((v, i) => `${xC(i).toFixed(1)},${yS(v).toFixed(1)}`).join(' ');
+  const ptsOf = (arr) => arr.map((v, i) => v != null ? `${xC(i).toFixed(1)},${yS(v).toFixed(1)}` : null).filter(Boolean).join(' ');
   const firstX = xC(0).toFixed(1), lastX = xC(N - 1).toFixed(1);
-  const areaPath = planned.length
-    ? `M${firstX},${yS(planned[0]).toFixed(1)} ` +
-      planned.slice(1).map((v, i) => `L${xC(i + 1).toFixed(1)},${yS(v).toFixed(1)}`).join(' ') +
+  // Área leve sob a linha Real (ou Reprogramado, se Real oculto).
+  const areaSrc = (show.real && real.length) ? real : (show.rep ? reprogramado : []);
+  const areaPath = areaSrc.length
+    ? `M${firstX},${yS(areaSrc[0]).toFixed(1)} ` +
+      areaSrc.slice(1).map((v, i) => `L${xC(i + 1).toFixed(1)},${yS(v).toFixed(1)}`).join(' ') +
       ` L${lastX},${(pT + chartH).toFixed(1)} L${firstX},${(pT + chartH).toFixed(1)} Z`
     : '';
-  const realPts = realized.map((v, i) => v != null ? `${xC(i).toFixed(1)},${yS(v).toFixed(1)}` : null).filter(Boolean).join(' ');
-  const baselinePts = baseline ? baseline.map((v, i) => `${xC(i).toFixed(1)},${yS(v).toFixed(1)}`).join(' ') : '';
+  const baselinePts = (show.bl && baseline) ? ptsOf(baseline) : '';
+  const repPts  = show.rep  ? ptsOf(reprogramado) : '';
+  const realPts = show.real ? ptsOf(real) : '';
   return (
     <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={svgH} style={{ display: 'block', minWidth: Math.max(600, N * 36) }}>
       {[0, 20, 40, 60, 80, 100].map(pct => (
@@ -537,12 +553,15 @@ const SCurveChart = ({ months = [], planned = [], realized = [], baseline = null
           <text x={xC(todayIdx)} y={pT - 5} textAnchor="middle" fontSize="9" fill="#94a3b8">hoje</text>
         </g>
       )}
-      <path d={areaPath} fill="var(--brand)" opacity="0.07" />
+      <path d={areaPath} fill="var(--brand)" opacity="0.06" />
+      {/* Linha de Base — cinza tracejado */}
       {baselinePts && <polyline points={baselinePts} fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5,4" strokeLinejoin="round" />}
-      <polyline points={ptsPlan} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" />
-      {planned.map((v, i) => <circle key={i} cx={xC(i)} cy={yS(v)} r="3.5" fill="#fff" stroke="var(--brand)" strokeWidth="2" />)}
-      {realPts && <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" />}
-      {realized.map((v, i) => v != null ? <circle key={i} cx={xC(i)} cy={yS(v)} r="3.5" fill="#16a34a" /> : null)}
+      {/* Reprogramado — azul */}
+      {show.rep && <polyline points={repPts} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" />}
+      {show.rep && reprogramado.map((v, i) => <circle key={'r' + i} cx={xC(i)} cy={yS(v)} r="3.5" fill="#fff" stroke="var(--brand)" strokeWidth="2" />)}
+      {/* Real — verde */}
+      {show.real && <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" />}
+      {show.real && real.map((v, i) => v != null ? <circle key={'re' + i} cx={xC(i)} cy={yS(v)} r="3.5" fill="#16a34a" /> : null)}
       {months.map((m, i) => {
         if (N > 18 && i % 2 !== 0) return null;
         if (N > 30 && i % 3 !== 0) return null;
@@ -558,6 +577,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   const toast = useToast();
   // Colapso LOCAL da tabela "Distribuição por tarefa" — não mexe no `collapsed` da Lista.
   const [collapsedCurva, setCollapsedCurva] = React.useState(() => new Set());
+  // Toggles das linhas do gráfico Curva S (Linha de Base / Reprogramado / Real).
+  const [showSerie, setShowSerie] = React.useState({ bl: true, rep: true, real: true });
+  const toggleSerie = (k) => setShowSerie(s => ({ ...s, [k]: !s[k] }));
   // Custo efetivo: com vínculos, usa o valor vinculado distribuído (cobre folhas e grupos)
   const hasVinc  = Object.keys(valorVinculadoMap).length > 0;
   const custoEf  = (e, gv) => hasVinc
@@ -840,44 +862,11 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   const now = new Date();
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  // Séries acumuladas para o SVG — "Planejado" usa a Reprogramação selecionada quando houver
-  // (mesma referência já usada no Resumo Mensal), com fallback pro plano ao vivo. "Realizado"
-  // nunca muda com a seleção — é fato consumado. Linha de Base vira uma 3ª linha, só quando selecionada.
-  const { blA: seriesBaselineFull, repA: seriesPlanned, repM: monthlyPctSeries } = computeSeries();
+  // Séries acumuladas para o gráfico (mesmas do Resumo Mensal): Linha de Base (blA),
+  // Reprogramado (repA) e Real (rrA = plano ao vivo). Cada uma com toggle de exibição.
+  const { blA: seriesBaselineFull, repA: seriesReprog, rrA: seriesReal, repM: monthlyPctSeries } = computeSeries();
   const seriesBaseline = baselineDist ? seriesBaselineFull : null;
-  const seriesRealized = [];
-  let acumReal = 0;
-  months.forEach((m) => {
-    const r = realizedTotals[m.key] || 0;
-    if (m.key <= todayKey) {
-      acumReal += r;
-      seriesRealized.push(total > 0 ? acumReal / total * 100 : 0);
-    } else {
-      seriesRealized.push(null);
-    }
-  });
-
-  // Constantes SVG
-  const N = months.length;
-  const pL = 54, pR = 20, pT = 16, pB = 52;
-  const svgW = 1000, svgH = 300;
-  const chartW = svgW - pL - pR;
-  const chartH = svgH - pT - pB;
-  const xC = (i) => pL + (chartW / N) * (i + 0.5);
-  const yS = (pct) => pT + (1 - pct / 100) * chartH;
-  const barW = (chartW / N) * 0.55;
   const todayIdx = months.findIndex(m => m.key === todayKey);
-  // Polilinha planejada
-  const ptsPlan = seriesPlanned.map((v, i) => `${xC(i).toFixed(1)},${yS(v).toFixed(1)}`).join(' ');
-  // Área planejada
-  const firstX = xC(0).toFixed(1), lastX = xC(N - 1).toFixed(1);
-  const areaPath = `M${firstX},${yS(seriesPlanned[0]).toFixed(1)} ` +
-    seriesPlanned.slice(1).map((v, i) => `L${xC(i + 1).toFixed(1)},${yS(v).toFixed(1)}`).join(' ') +
-    ` L${lastX},${(pT + chartH).toFixed(1)} L${firstX},${(pT + chartH).toFixed(1)} Z`;
-  // Polilinha realizada
-  const realPts = seriesRealized
-    .map((v, i) => v !== null ? `${xC(i).toFixed(1)},${yS(v).toFixed(1)}` : null)
-    .filter(Boolean).join(' ');
 
   const thSt = {
     padding: '9px 14px', fontSize: 10.5, fontWeight: 600,
@@ -923,24 +912,30 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               {hasRep && ` · Planejado = Reprogramação "${repNome}"`}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 12 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 18, height: 3, background: 'var(--brand)', display: 'inline-block', borderRadius: 2 }} />
-              {hasRep ? `Planejado acum. (Reprogramação: ${repNome})` : 'Planejado acum.'}
-            </span>
-            {seriesBaseline && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 18, height: 2, borderTop: '2px dashed #94a3b8', display: 'inline-block' }} />
-                {`Linha de Base: ${blNome}`}
-              </span>
-            )}
-            {totalReal > 0 && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 18, height: 2, borderTop: '2px dashed #16a34a', display: 'inline-block' }} />
-                Realizado acum.
-              </span>
-            )}
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center', fontSize: 12 }}>
+            {(() => {
+              const legItem = (k, cor, tracejado, label, enabled = true) => (
+                <label title={enabled ? 'Marque/desmarque para mostrar/ocultar' : 'Selecione para comparar'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12,
+                    cursor: enabled ? 'pointer' : 'default',
+                    color: enabled ? 'var(--text-soft)' : 'var(--text-faint)',
+                    opacity: enabled ? 1 : 0.5 }}>
+                  <input type="checkbox" checked={enabled && showSerie[k]} disabled={!enabled}
+                    onChange={() => toggleSerie(k)} style={{ accentColor: 'var(--brand)', cursor: enabled ? 'pointer' : 'default' }} />
+                  <span style={{ width: 18, height: tracejado ? 2 : 3, background: tracejado ? 'none' : cor,
+                    borderTop: tracejado ? `2px dashed ${cor}` : undefined, display: 'inline-block', borderRadius: 2 }} />
+                  {label}
+                </label>
+              );
+              return (
+                <>
+                  {legItem('real', '#16a34a', false, 'Real')}
+                  {legItem('rep', 'var(--brand)', false, hasRep ? `Reprogramado (${repNome})` : 'Reprogramado')}
+                  {legItem('bl', '#94a3b8', true, seriesBaseline ? `Linha de Base (${blNome})` : 'Linha de Base', !!seriesBaseline)}
+                </>
+              );
+            })()}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-soft)' }}>
               <span style={{ width: 14, height: 12, background: '#e2e8f0', display: 'inline-block', borderRadius: 2 }} />
               Prod. mensal
             </span>
@@ -959,11 +954,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         <div className="card-body" style={{ padding: '12px 16px 0', overflowX: 'auto' }}>
           <SCurveChart
             months={months}
-            planned={seriesPlanned}
-            realized={seriesRealized}
+            reprogramado={seriesReprog}
+            real={seriesReal}
             baseline={seriesBaseline}
             monthlyPct={monthlyPctSeries}
             todayIdx={todayIdx}
+            show={showSerie}
           />
         </div>
       </div>
@@ -1067,8 +1063,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   <td key={m.key} style={{
                     ...tdMon(accum),
                     color: v == null || v === 0 ? 'var(--text-faint)' : clr,
-                    background: m.key === todayKey
-                      ? 'rgba(1,67,134,0.06)' : (accum ? 'rgba(0,0,0,0.015)' : undefined),
+                    background: m.key === selMonKey
+                      ? 'rgba(1,67,134,0.10)' : (accum ? 'rgba(0,0,0,0.015)' : undefined),
                   }}>
                     {fmt(v)}
                   </td>
@@ -1123,6 +1119,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                         ...thMon,
                         color: m.key === selMonKey ? 'var(--brand)' : 'var(--text-soft)',
                         fontWeight: m.key === selMonKey ? 700 : 600,
+                        background: m.key === selMonKey ? 'rgba(1,67,134,0.10)' : undefined,
                       }}>{m.label}</th>
                     ))}
                   </tr>
@@ -1250,7 +1247,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               <div>
                 <div className="card-title">Distribuição por tarefa</div>
                 <div className="card-subtitle">
-                  % do custo de cada tarefa alocado por mês · clique nos grupos para expandir / recolher
+                  % do custo de cada tarefa alocado por mês
                 </div>
               </div>
             </div>
@@ -1272,13 +1269,13 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                     </th>
                     <th style={{ ...thBase, textAlign: 'right' }}>Valor (R$)</th>
                     <th style={{ ...thBase, textAlign: 'right' }}>Peso %</th>
-                    <th style={{ ...thBase, textAlign: 'right' }}>Conc. %</th>
+                    <th style={{ ...thBase, textAlign: 'right', background: 'rgba(1,67,134,0.05)' }}>Conc. %</th>
                     {months.map(m => (
                       <th key={m.key} style={{
                         ...thBase, textAlign: 'right',
-                        color: m.key === todayKey ? 'var(--brand)' : 'var(--text-soft)',
-                        fontWeight: m.key === todayKey ? 700 : 600,
-                        background: m.key === todayKey ? 'rgba(1,67,134,0.07)' : 'var(--surface-muted)',
+                        color: m.key === selMonKey ? 'var(--brand)' : 'var(--text-soft)',
+                        fontWeight: m.key === selMonKey ? 700 : 600,
+                        background: m.key === selMonKey ? 'rgba(1,67,134,0.10)' : 'var(--surface-muted)',
                       }}>{m.label}</th>
                     ))}
                     <th style={{ ...thBase, textAlign: 'right', borderLeft: '2px solid var(--border)' }}>Total</th>
@@ -1313,18 +1310,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                           overflow: 'hidden', textOverflow: 'ellipsis',
                         }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            {e.isGroup ? (
-                              <button
-                                onClick={() => setCollapsedCurva(prev => {
-                                  const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n;
-                                })}
-                                style={{ width: 16, height: 16, flexShrink: 0, display: 'flex', alignItems: 'center',
-                                  justifyContent: 'center', border: 'none', background: 'none',
-                                  cursor: 'pointer', color: 'var(--text-soft)', fontSize: 9, padding: 0 }}
-                              >{collapsedCurva.has(e.id) ? '▶' : '▼'}</button>
-                            ) : (
-                              <span style={{ width: 16, flexShrink: 0 }} />
-                            )}
+                            {e.isGroup && <span style={{ color: 'var(--text-muted)', fontSize: 10, flexShrink: 0 }}>▸</span>}
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.etapa}</span>
                           </div>
                         </td>
@@ -1337,10 +1323,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                         <td style={{ ...tdBase, textAlign: 'right', color: 'var(--text-soft)', fontSize: 10.5 }}>
                           {distTotal > 0 && taskCusto > 0 ? (taskCusto / distTotal * 100).toFixed(2) + '%' : '—'}
                         </td>
-                        {/* Conc. */}
-                        <td style={{ ...tdBase, textAlign: 'right',
+                        {/* Conc. — coluna destacada com fundo sutil */}
+                        <td style={{ ...tdBase, textAlign: 'right', background: 'rgba(1,67,134,0.05)',
                           color: taskAvanco === 100 ? '#16a34a' : taskAvanco > 0 ? 'var(--brand)' : 'var(--text-faint)',
-                          fontWeight: 500, fontSize: 10.5 }}>
+                          fontWeight: 600, fontSize: 10.5 }}>
                           {taskAvanco > 0 ? taskAvanco.toFixed(0) + '%' : '—'}
                         </td>
                         {/* Meses */}
@@ -1349,10 +1335,20 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                           const pct = taskCusto > 0 ? v / taskCusto * 100 : 0;
                           const empty = pct <= 0.5;
                           const f = Math.min(1, pct / 100);
+                          const sel = m.key === selMonKey;
+                          // Grupos (pai): sem cor por peso, só o fundo da linha; mês selecionado azul claro.
+                          if (e.isGroup) return (
+                            <td key={m.key} style={{ ...tdBase, textAlign: 'right', fontSize: 10.5, fontWeight: 700,
+                              background: sel ? 'rgba(1,67,134,0.10)' : rowBg }}>
+                              {empty ? '—' : fmt(pct)}
+                            </td>
+                          );
+                          // Folhas: intensidade por peso, SEM negrito; célula vazia no mês selecionado fica azul claro.
                           return (
                             <td key={m.key}
-                              className={'heat-cell' + (e.isGroup ? ' group' : '') + (empty ? ' empty' : (f > 0.4 ? ' hot' : ''))}
-                              style={{ ...tdBase, textAlign: 'right', fontSize: 10.5, '--f': f }}>
+                              className={'heat-cell' + (empty ? ' empty' : (f > 0.4 ? ' hot' : ''))}
+                              style={{ ...tdBase, textAlign: 'right', fontSize: 10.5, fontWeight: 400, '--f': f,
+                                ...(empty && sel ? { background: 'rgba(1,67,134,0.06)' } : {}) }}>
                               {empty ? '—' : fmt(pct)}
                             </td>
                           );
@@ -1378,7 +1374,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                     </td>
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right', fontSize: 10.5 }}>100%</td>
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
-                      color: '#16a34a', fontSize: 10.5 }}>
+                      background: 'rgba(1,67,134,0.05)', color: '#16a34a', fontSize: 10.5 }}>
                       {avancoGeral > 0 ? avancoGeral.toFixed(0) + '%' : '—'}
                     </td>
                     {months.map(m => {
@@ -1388,7 +1384,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                           ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
                           fontVariantNumeric: 'tabular-nums',
                           color: pct > 0.005 ? 'var(--brand)' : 'var(--text-faint)',
-                          background: m.key === todayKey ? 'rgba(1,67,134,0.07)' : undefined,
+                          background: m.key === selMonKey ? 'rgba(1,67,134,0.10)' : undefined,
                           fontSize: 10.5,
                         }}>
                           {fmt(pct)}
@@ -1438,7 +1434,8 @@ function defaultRepId(reps, refMonthKey) {
 
 // updated_at que acreditamos ser o vigente por obra (última carga ou último save nosso).
 // Base do bloqueio otimista: se o banco divergir disso, outra pessoa salvou no meio.
-const _cronSavedAt = {};
+// _cronCache/_cronSavedAt agora vêm de um módulo compartilhado (cronogramaCache) para que
+// outras telas (Orçamento × Cronograma) possam invalidar o cache ao gravar direto no banco.
 
 // Bloqueio otimista. Retorna:
 //   { error }                  em falha de rede/SQL
@@ -1492,7 +1489,6 @@ async function carregarCronogramaDB(obraId) {
 }
 
 // Cache por obra (espelha o estado em memória), evita rebuscar/reprocessar ao voltar; resetado no F5
-const _cronCache = {};
 
 // ─── Modais de Linha de Base / Reprogramação / Feriados ──────────────────────
 // Movidos para ./cronogramaModais.
