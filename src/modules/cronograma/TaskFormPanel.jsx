@@ -5,7 +5,7 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
 import { offsetToISO, taskEnd } from './cronogramaDateUtils';
-import { commitFieldChange, autoScheduleFromDeps, computeGroupValues } from './scheduleEngine';
+import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors } from './scheduleEngine';
 
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 const PANEL_H = 220;
@@ -16,7 +16,9 @@ const tdSt = { padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid 
 
 export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext }) => {
   const [novoPredId, setNovoPredId] = React.useState('');
+  const [novoSuccId, setNovoSuccId] = React.useState('');
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
+  const succMap = React.useMemo(() => computeSuccessors(etapas), [etapas]);
 
   if (!task) {
     return (
@@ -44,6 +46,30 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
     if (!found || found.id === task.id || (task.dep || []).some(d => d.id === found.id)) { setNovoPredId(''); return; }
     setDep([...(task.dep || []), { id: found.id, tipo: 'TI', lag: 0 }]);
     setNovoPredId('');
+  };
+
+  // Sucessoras: gravadas no dep da tarefa sucessora, apontando para esta tarefa (escrita reversa).
+  const depId = (d) => (typeof d === 'string' ? d : d.id);
+  const succIds = succMap[task.id] || [];
+  const reschedule = (novas) => onCommit(autoScheduleFromDeps(novas));
+  const updateSucc = (sid, patch) => reschedule(etapas.map(e => {
+    if (e.id !== sid) return e;
+    return { ...e, dep: (e.dep || []).map(d => {
+      if (depId(d) !== task.id) return d;
+      const base = typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d;
+      return { ...base, ...patch };
+    }) };
+  }));
+  const removeSucc = (sid) => reschedule(etapas.map(e => (
+    e.id === sid ? { ...e, dep: (e.dep || []).filter(d => depId(d) !== task.id) } : e
+  )));
+  const addSucc = () => {
+    const ref = (novoSuccId || '').trim();
+    if (!ref) return;
+    const found = etapas.find(e => String(e.displayId) === ref) || etapas.find(e => e.id === ref);
+    if (!found || found.id === task.id || (found.dep || []).some(d => depId(d) === task.id)) { setNovoSuccId(''); return; }
+    reschedule(etapas.map(e => (e.id === found.id ? { ...e, dep: [...(e.dep || []), { id: task.id, tipo: 'TI', lag: 0 }] } : e)));
+    setNovoSuccId('');
   };
 
   const inputSt = { height: 26, fontSize: 12.5, padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 6, background: locked ? 'var(--surface-muted)' : 'var(--surface)', width: '100%', boxSizing: 'border-box' };
@@ -99,62 +125,124 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
         </div>
       </div>
 
-      {/* Predecessoras */}
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr>
-              <th style={thSt}>Id</th>
-              <th style={{ ...thSt, textAlign: 'left' }}>Nome da predecessora</th>
-              <th style={thSt}>Tipo</th>
-              <th style={thSt}>Latência</th>
-              <th style={{ ...thSt, width: 24 }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {(task.dep || []).map((d, i) => {
-              const pred = etapas.find(e => e.id === d.id);
-              return (
-                <tr key={i}>
-                  <td style={tdSt}>{pred?.displayId ?? d.id}</td>
-                  <td style={{ ...tdSt, textAlign: 'left' }}>{pred?.etapa ?? '—'}</td>
-                  <td style={tdSt}>
-                    <select value={d.tipo || 'TI'} disabled={locked} onChange={e => updatePred(i, { tipo: e.target.value })}
-                      style={{ fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4 }}>
-                      {DEP_TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </td>
-                  <td style={tdSt}>
-                    <input type="number" value={d.lag ?? 0} disabled={locked}
-                      onChange={e => updatePred(i, { lag: parseInt(e.target.value, 10) || 0 })}
-                      style={{ width: 46, fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4, textAlign: 'right' }} /> d
-                  </td>
-                  <td style={tdSt}>
-                    {!locked && (
-                      <button onClick={() => removePred(i)} title="Remover predecessora"
-                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
-                        <Icon name="x" size={12} />
-                      </button>
-                    )}
+      {/* Vínculos — Predecessoras e Sucessoras lado a lado */}
+      <div style={{ display: 'flex', gap: 10, flex: 1, minHeight: 0 }}>
+        {/* Predecessoras */}
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ ...thSt, textAlign: 'left', paddingLeft: 8 }} colSpan={2}>Predecessoras</th>
+                <th style={thSt}>Tipo</th>
+                <th style={thSt}>Lat.</th>
+                <th style={{ ...thSt, width: 24 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {(task.dep || []).map((d, i) => {
+                const pred = etapas.find(e => e.id === d.id);
+                return (
+                  <tr key={i}>
+                    <td style={{ ...tdSt, width: 30 }}>{pred?.displayId ?? d.id}</td>
+                    <td style={{ ...tdSt, textAlign: 'left' }} title={pred?.etapa ?? ''}>{pred?.etapa ?? '—'}</td>
+                    <td style={tdSt}>
+                      <select value={d.tipo || 'TI'} disabled={locked} onChange={e => updatePred(i, { tipo: e.target.value })}
+                        style={{ fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4 }}>
+                        {DEP_TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </td>
+                    <td style={tdSt}>
+                      <input type="number" value={d.lag ?? 0} disabled={locked}
+                        onChange={e => updatePred(i, { lag: parseInt(e.target.value, 10) || 0 })}
+                        style={{ width: 40, fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4, textAlign: 'right' }} />
+                    </td>
+                    <td style={tdSt}>
+                      {!locked && (
+                        <button onClick={() => removePred(i)} title="Remover predecessora"
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
+                          <Icon name="x" size={12} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!locked && (
+                <tr>
+                  <td colSpan={5} style={{ ...tdSt, textAlign: 'left' }}>
+                    <input placeholder="Id da predecessora + Enter" value={novoPredId}
+                      onChange={e => setNovoPredId(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') addPred(); }}
+                      style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
                   </td>
                 </tr>
-              );
-            })}
-            {!locked && (
+              )}
+              {!(task.dep || []).length && locked && (
+                <tr><td colSpan={5} style={{ ...tdSt, textAlign: 'center', color: 'var(--text-faint)' }}>Sem predecessoras</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Sucessoras */}
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
               <tr>
-                <td colSpan={5} style={{ ...tdSt, textAlign: 'left' }}>
-                  <input placeholder="Id da tarefa predecessora + Enter" value={novoPredId}
-                    onChange={e => setNovoPredId(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') addPred(); }}
-                    style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
-                </td>
+                <th style={{ ...thSt, textAlign: 'left', paddingLeft: 8 }} colSpan={2}>Sucessoras</th>
+                <th style={thSt}>Tipo</th>
+                <th style={thSt}>Lat.</th>
+                <th style={{ ...thSt, width: 24 }}></th>
               </tr>
-            )}
-            {!(task.dep || []).length && locked && (
-              <tr><td colSpan={5} style={{ ...tdSt, textAlign: 'center', color: 'var(--text-faint)' }}>Sem predecessoras</td></tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {succIds.map((sid) => {
+                const st = etapas.find(e => e.id === sid);
+                const link = (st?.dep || []).find(d => depId(d) === task.id);
+                const tipo = typeof link === 'string' ? 'TI' : (link?.tipo || 'TI');
+                const lag = typeof link === 'string' ? 0 : (link?.lag ?? 0);
+                return (
+                  <tr key={sid}>
+                    <td style={{ ...tdSt, width: 30 }}>{st?.displayId ?? sid}</td>
+                    <td style={{ ...tdSt, textAlign: 'left' }} title={st?.etapa ?? ''}>{st?.etapa ?? '—'}</td>
+                    <td style={tdSt}>
+                      <select value={tipo} disabled={locked} onChange={e => updateSucc(sid, { tipo: e.target.value })}
+                        style={{ fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4 }}>
+                        {DEP_TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </td>
+                    <td style={tdSt}>
+                      <input type="number" value={lag} disabled={locked}
+                        onChange={e => updateSucc(sid, { lag: parseInt(e.target.value, 10) || 0 })}
+                        style={{ width: 40, fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4, textAlign: 'right' }} />
+                    </td>
+                    <td style={tdSt}>
+                      {!locked && (
+                        <button onClick={() => removeSucc(sid)} title="Remover sucessora"
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
+                          <Icon name="x" size={12} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!locked && (
+                <tr>
+                  <td colSpan={5} style={{ ...tdSt, textAlign: 'left' }}>
+                    <input placeholder="Id da sucessora + Enter" value={novoSuccId}
+                      onChange={e => setNovoSuccId(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') addSucc(); }}
+                      style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
+                  </td>
+                </tr>
+              )}
+              {!succIds.length && locked && (
+                <tr><td colSpan={5} style={{ ...tdSt, textAlign: 'center', color: 'var(--text-faint)' }}>Sem sucessoras</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

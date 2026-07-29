@@ -184,8 +184,8 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
 
 // ─── Definições de colunas / paleta de cores / ColorMenu ─────────────────────
 export const LISTA_COL_DEFS = {
-  wbs:       { label: 'WBS',           defWidth: 44,  frozen: true, band: 'etapa', type: 'text' },
-  id:        { label: 'ID',            defWidth: 44,  frozen: true, band: 'etapa', type: 'text' },
+  wbs:       { label: 'WBS',           defWidth: 58,  frozen: true, band: 'etapa', type: 'text' },
+  id:        { label: 'ID',            defWidth: 58,  frozen: true, band: 'etapa', type: 'text' },
   modo:      { label: 'Modo',          defWidth: 56,  align: 'center', band: 'etapa', type: 'enum' },
   etapa:     { label: 'Etapa / Tarefa',defWidth: 224, frozen: true, band: 'etapa', type: 'text' },
   inicio:    { label: 'Início',        defWidth: 96,  band: 'prazo', type: 'date' },
@@ -469,7 +469,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', height: '100%' }}>
       <button onClick={() => setOpen(o => !o)} title={`Ordenar / filtrar — ${label}`}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 19, height: 19, padding: 0, border: 'none', background: activeFilter || sortDir ? 'var(--brand-700, #143766)' : 'rgba(255,255,255,0.14)', color: '#fff', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, padding: 0, border: 'none', background: activeFilter || sortDir ? 'var(--brand-700, #143766)' : 'rgba(255,255,255,0.14)', color: '#fff', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>
         ▾
       </button>
       {open && (

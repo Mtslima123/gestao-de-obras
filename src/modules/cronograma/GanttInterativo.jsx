@@ -1196,10 +1196,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           // Viewport de altura limitada: o Gantt ganha scroll vertical próprio (necessário
           // para a virtualização). Tunável conforme a topbar/cabeçalho do card. Encolhe
           // quando o Formulário de Tarefa (painel inferior) está aberto.
-          maxHeight: showTaskForm ? 'calc(100vh - 300px - 220px)' : 'calc(100vh - 300px)',
+          maxHeight: (showTaskForm && selected.size > 0) ? 'calc(100vh - 300px - 220px)' : 'calc(100vh - 300px)',
         }}
         onMouseDown={onContDown}
-        onClick={() => { if (!dragged.current) setSel(new Set()); }}
+        onClick={() => { if (!dragged.current) { setSel(new Set()); if (onTaskSelect) onTaskSelect(null); } }}
       >
         <div style={{
           display: 'grid',
@@ -1829,7 +1829,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         );
       })()}
 
-      {showTaskForm && (() => {
+      {showTaskForm && selected.size > 0 && (() => {
         const idx = visible.findIndex(e => e.id === primaryId());
         return (
           <TaskFormPanel

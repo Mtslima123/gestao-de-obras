@@ -29,7 +29,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   filtroStatus = '', setFiltroStatus, filtroResp = '', setFiltroResp,
   filtroPreset = '', setFiltroPreset, filtroPresetRange = { de: '', ate: '' }, setFiltroPresetRange,
-  filtroTaskIds = [], setFiltroTaskIds }) => {
+  filtroTaskIds = [], setFiltroTaskIds, focusTaskId = null }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showTaskForm,   setShowTaskForm]   = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
@@ -513,9 +513,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         onDragEnd={!isFrozen ? () => { dragColRef.current = null; setDragOverCol(null); } : undefined}
         onDrop={!isFrozen ? (ev) => onColDrop(ev, colId) : undefined}
       >
-        <span style={{ display: 'block', paddingRight: 32, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
+        <span style={{ display: 'block', paddingRight: 24, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
         <span data-colmenu
-          style={{ position: 'absolute', right: 6, top: 0, bottom: 0, zIndex: 4, display: 'flex', alignItems: 'center', paddingLeft: 4, background: 'var(--brand)' }}>
+          style={{ position: 'absolute', right: 4, top: 0, bottom: 0, zIndex: 4, display: 'flex', alignItems: 'center', paddingLeft: 2, background: 'var(--brand)' }}>
           <ColumnHeaderFilterMenu
             label={col.label}
             type={resolveColType(colId, customCols)}
@@ -802,6 +802,18 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (trRect.top < headBottom) sc.scrollTop -= (headBottom - trRect.top);
     else if (trRect.bottom > scRect.bottom) sc.scrollTop += (trRect.bottom - scRect.bottom);
   };
+  // Foco externo (undo/redo, "Editar tarefa"): seleciona a tarefa e rola até ela
+  React.useEffect(() => {
+    if (!focusTaskId?.id) return;
+    const alvo = etapas.find(e => e.id === focusTaskId.id);
+    if (!alvo) return;
+    requestAnimationFrame(() => {
+      const cell = { taskId: alvo.id, colId: 'etapa' };
+      setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
+      scrollRowIntoView(alvo.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTaskId?.nonce]);
   const moveSelCell = (key, extend) => {
     const rows = filtrada.map(x => x.id);
     const cols = [
@@ -2561,9 +2573,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     ...(multiSelCols.includes(col.id) ? { background: 'color-mix(in srgb, white 22%, var(--brand))' } : {}) }}
                   onClick={(ev) => { if (ev.target.closest('[data-colmenu]')) return; selectColumn(col.id, ev); }}
                   onContextMenu={(ev) => { if (ev.target.closest('[data-colmenu]')) return; ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId: col.id }); }}>
-                  <span style={{ display: 'block', paddingRight: 32, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
+                  <span style={{ display: 'block', paddingRight: 24, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
                   <span data-colmenu
-                    style={{ position: 'absolute', right: 6, top: 0, bottom: 0, zIndex: 4, display: 'flex', alignItems: 'stretch' }}>
+                    style={{ position: 'absolute', right: 4, top: 0, bottom: 0, zIndex: 4, display: 'flex', alignItems: 'center', paddingLeft: 2 }}>
                     <ColumnHeaderFilterMenu
                       label={col.label}
                       type={resolveColType(col.id, customCols)}
@@ -3452,7 +3464,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
       {/* Localizar (Ctrl+L) — navega pelas tarefas por nome, WBS ou ID */}
       {showLocalizar && (
-        <Modal title="Localizar" subtitle="Buscar tarefa por nome, WBS ou ID" size="sm"
+        <Modal title="Localizar" subtitle="Buscar tarefa por nome, WBS ou ID" size="sm" draggable overlay={false}
           onClose={() => setShowLocalizar(false)}
           footer={
             <>

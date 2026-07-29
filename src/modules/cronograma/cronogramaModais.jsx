@@ -183,7 +183,8 @@ export const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 })
 // ─── PavimentosModal ─────────────────────────────────────────────────────────
 export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados }) => {
   const [step,          setStep]          = React.useState(1);
-  const [floors,        setFloors]        = React.useState(['']);
+  // Pré-preenche com os pavimentos já cadastrados nesta obra (não precisa redigitar a cada vez).
+  const [floors,        setFloors]        = React.useState(pavimentosSalvos.length ? [...pavimentosSalvos] : ['']);
   const [selectedTasks, setSelectedTasks] = React.useState([]);
   const [preencherPavimento, setPreencherPavimento] = React.useState(true);
   const floorInputRefs = React.useRef([]);

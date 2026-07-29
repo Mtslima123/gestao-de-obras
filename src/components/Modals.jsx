@@ -7,7 +7,7 @@ import { notificacoesService } from '../services/notificacoes.service';
 // Modals, toasts, dropdowns — shared interactive components
 
 // ----- Modal shell -----
-const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false }) => {
+const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false, overlay = true }) => {
   const nodeRef  = React.useRef(null);
   const dragging = React.useRef(false);
   const offset   = React.useRef({ x: 0, y: 0 });
@@ -16,12 +16,12 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   React.useEffect(() => {
     const onEsc = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onEsc);
-    document.body.style.overflow = 'hidden';
+    if (overlay) document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onEsc);
-      document.body.style.overflow = '';
+      if (overlay) document.body.style.overflow = '';
     };
-  }, []);
+  }, [overlay]);
 
   React.useEffect(() => {
     if (!draggable || !nodeRef.current) return;
@@ -66,7 +66,8 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   const headerStyle = draggable ? { cursor: 'grab', userSelect: 'none' } : {};
 
   return (
-    <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={'modal-backdrop' + (overlay ? '' : ' modal-backdrop-bare')}
+      onClick={(e) => overlay && e.target === e.currentTarget && onClose()}>
       <div ref={nodeRef} className={'modal ' + sizeClass} style={modalStyle}
            role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
         <div className="modal-header" style={headerStyle} onMouseDown={handleHeaderDown}>

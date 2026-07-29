@@ -11,7 +11,7 @@ import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd } from './crono
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
-  computeGroupValues,
+  computeGroupValues, computeSuccessors,
 } from './scheduleEngine';
 import {
   CriarLinhaModal, GerenciarLinhasModal, FeriadosModal,
@@ -228,7 +228,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   const exportExcelUso = () => {
     import('xlsx').then(XLSX => {
       const wb   = XLSX.utils.book_new();
-      const hdrs = [...USO_COL_LABELS, ...months.map(m => m.label), 'Total'];
+      const hdrs = [...USO_COL_LABELS, 'Valor (R$)', ...months.map(m => m.label), 'Total'];
       const rows = [hdrs, ...etapas.map(e => {
         const dist  = getDist(e);
         const total = Object.values(dist).reduce((s, v) => s + v, 0);
@@ -245,6 +245,9 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
           total,
         ];
       })];
+      // Linhas de total: "Total geral" (R$) e "% do total"
+      rows.push(['Total geral', '', '', '', '', '', '', '', ...months.map(m => monthTotals[m.key] || 0), grandTotal]);
+      rows.push(['% do total', '', '', '', '', '', '', '', ...months.map(m => grandTotal > 0 ? monthTotals[m.key] / grandTotal : 0), grandTotal > 0 ? 1 : 0]);
       const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
       const rng = XLSX.utils.decode_range(ws['!ref']);
       for (let R = 1; R <= rng.e.r; R++) {
@@ -257,7 +260,12 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
           if (ws[addr]) ws[addr].z = '#,##0.00';
         }
       }
-      ws['!cols']   = [...USO_COL_KEYS.map(k => ({ wch: Math.max(8, Math.round(getUsoW(k) / 7)) })), ...months.map(() => ({ wch: 16 })), { wch: 16 }];
+      // Última linha ("% do total") formatada como porcentagem
+      for (let C = 8; C <= rng.e.c; C++) {
+        const addr = XLSX.utils.encode_cell({ r: rng.e.r, c: C });
+        if (ws[addr]) ws[addr].z = '0.00%';
+      }
+      ws['!cols']   = [...USO_COL_KEYS.map(k => ({ wch: Math.max(8, Math.round(getUsoW(k) / 7)) })), { wch: 16 }, ...months.map(() => ({ wch: 16 })), { wch: 16 }];
       ws['!freeze'] = { xSplit: 3, ySplit: 1 };
       XLSX.utils.book_append_sheet(wb, ws, 'Uso da Tarefa');
       XLSX.writeFile(wb, `uso-tarefa-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -269,7 +277,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     try {
       const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
       const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      const BRAND = [1, 67, 134];
+      const BRAND = [28, 69, 132];
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
       doc.setFontSize(13); doc.text('Uso da Tarefa', 14, 14);
@@ -311,11 +319,16 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       ]);
       autoTable(doc, {
         startY: 25,
-        head: [[ ...USO_COL_LABELS, ...months.map(m => m.label), 'Total']],
+        head: [[ ...USO_COL_LABELS, 'Valor (R$)', ...months.map(m => m.label), 'Total']],
         body: body.map(r => r.vals),
+        foot: [
+          ['Total geral', '', '', '', '', '', '', '', ...months.map(m => monthTotals[m.key] > 0 ? fmtBRL(monthTotals[m.key]) : '—'), grandTotal > 0 ? fmtBRL(grandTotal) : '—'],
+          ['% do total', '', '', '', '', '', '', '', ...months.map(m => grandTotal > 0 ? (monthTotals[m.key] / grandTotal * 100).toFixed(2) + '%' : '—'), grandTotal > 0 ? '100%' : '—'],
+        ],
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
         bodyStyles: { fontSize: 7, textColor: 40 },
+        footStyles: { fillColor: [225, 232, 242], textColor: 20, fontStyle: 'bold', fontSize: 7, halign: 'right' },
         alternateRowStyles: { fillColor: [248, 249, 250] },
         columnStyles: { ...fixedStyles, ...monthStyles },
         horizontalPageBreak: true,
@@ -326,6 +339,9 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
             data.cell.styles.fontStyle = 'bold';
             data.cell.styles.fillColor = [232, 240, 252];
             data.cell.styles.textColor = 20;
+          }
+          if (data.section === 'foot' && data.column.index === 0) {
+            data.cell.styles.halign = 'left';
           }
         },
         didDrawPage: ({ pageNumber }) => {
@@ -368,7 +384,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
 
         {/* Lado esquerdo — hierarquia com colunas redimensionáveis e reordenáveis.
             overflowX: hidden — sem barra interna; o painel dimensiona ao conteúdo (item 10). */}
-        <div ref={leftRef} style={{ flexShrink: 0, overflowY: 'auto', overflowX: 'hidden', borderRight: '1px solid var(--border)' }}>
+        <div ref={leftRef} className="uso-hide-scrollbar" style={{ flexShrink: 0, overflowY: 'auto', overflowX: 'hidden', borderRight: '1px solid var(--border)' }}>
           <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
               {usoColOrder.map(k => <col key={k} style={{ width: getUsoW(k) }} />)}
@@ -659,6 +675,39 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
   const [exportingPDF, setExportingPDF] = React.useState(false);
   const curvaRef = React.useRef(null);
+  const chartRef = React.useRef(null);
+
+  // Serializa o SVG da curva (inline das cores var(--…)) e devolve {dataUrl, w, h} para o PDF.
+  const capturarGraficoCurva = () => new Promise((resolve) => {
+    const svg = chartRef.current?.querySelector('svg');
+    if (!svg) { resolve(null); return; }
+    const vb = svg.viewBox.baseVal;
+    const w = vb && vb.width ? vb.width : (svg.clientWidth || 1000);
+    const h = vb && vb.height ? vb.height : (svg.clientHeight || 300);
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    let s = new XMLSerializer().serializeToString(clone);
+    s = s.replace(/var\(--brand\)/g, '#1c4584')
+         .replace(/var\(--border\)/g, '#e2e8f0')
+         .replace(/var\(--text-muted\)/g, '#64748b')
+         .replace(/var\(--font-mono\)/g, 'monospace');
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale; canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve({ dataUrl: canvas.toDataURL('image/png'), w, h });
+      } catch { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+  });
 
   const hasData = months.length > 0 && Object.values(filteredPlanned).some(v => v > 0);
 
@@ -742,7 +791,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     try {
       const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
       const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      const BRAND = [1, 67, 134];
+      const BRAND = [28, 69, 132];
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
       const footerFn = ({ pageNumber }) => {
@@ -755,12 +804,22 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
 
+      // ── Gráfico da Curva S (imagem) ─────────────────────────────────────
+      let startY1 = 25;
+      const grafico = await capturarGraficoCurva();
+      if (grafico) {
+        const imgW = W - 28;
+        const imgH = Math.min(90, imgW * (grafico.h / grafico.w));
+        doc.addImage(grafico.dataUrl, 'PNG', 14, startY1, imgW, imgH);
+        startY1 += imgH + 8;
+      }
+
       // ── Tabela 1: Resumo Mensal ─────────────────────────────────────────
       const { blM, blA, repM, repA, rrM, rrA, difBL, difRep } = computeSeries();
       const fmt      = v => v != null ? v.toFixed(2) + '%' : '—';
       const cabMeses = months.map(m => m.label);
       autoTable(doc, {
-        startY: 25,
+        startY: startY1,
         head: [['Atividade', ...cabMeses]],
         body: [
           ['LB Mensal',              ...blM.map(fmt)],
@@ -951,7 +1010,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             </div>
           </div>
         </div>
-        <div className="card-body" style={{ padding: '12px 16px 0', overflowX: 'auto' }}>
+        <div ref={chartRef} className="card-body" style={{ padding: '12px 16px 0', overflowX: 'auto' }}>
           <SCurveChart
             months={months}
             reprogramado={seriesReprog}
@@ -1600,6 +1659,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // Painel lateral de detalhes da tarefa selecionada
   const [detailId,     setDetailId]    = React.useState(null);
   const [detailTab,    setDetailTab]   = React.useState('detalhes');
+  const succByIdAll = React.useMemo(() => computeSuccessors(etapas), [etapas]);
   // Usuário logado (autor de anexos/comentários/eventos). Resolvido 1x via sessão.
   const [currentUser, setCurrentUser] = React.useState({ id: 'sistema', nome: 'Sistema', email: '', isAdmin: isAdmin(userProfile) });
   const currentUserRef = React.useRef(currentUser);
@@ -1634,6 +1694,17 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const redoRef        = React.useRef(null);
   const applyOutlineRef = React.useRef(null);
   const saveTimerRef   = React.useRef(null);
+  // Foco de seleção após undo/redo ou "Editar tarefa" — leva a Lista a selecionar/rolar até a tarefa
+  const [histFocus, setHistFocus] = React.useState(null); // { id, nonce }
+  const focusNonceRef = React.useRef(0);
+  const focarTarefa = (id) => { if (id) setHistFocus({ id, nonce: ++focusNonceRef.current }); };
+  // Primeiro id cujo conteúdo difere entre dois snapshots de etapas
+  const diffTaskId = (a, b) => {
+    const mb = new Map(b.map(e => [e.id, e]));
+    for (const e of a) { const o = mb.get(e.id); if (!o || JSON.stringify(o) !== JSON.stringify(e)) return e.id; }
+    for (const e of b) { if (!a.find(x => x.id === e.id)) return e.id; }
+    return null;
+  };
 
   // Carrega vínculos orçamento × cronograma para a obra selecionada
   React.useEffect(() => {
@@ -1907,10 +1978,12 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
 
   const undo = () => {
     if (hidxRef.current <= 0) { toast('Nada para desfazer', { tone: 'neutral', icon: 'alert' }); return; }
+    const prev = histRef.current[hidxRef.current];
     hidxRef.current--;
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
     setEtapas(snap);
     D.cronograma[obraSel] = snap;
+    focarTarefa(diffTaskId(prev, snap));
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       handleSaveResult(await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes));
@@ -1920,10 +1993,12 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
 
   const redo = () => {
     if (hidxRef.current >= histRef.current.length - 1) { toast('Nada para refazer', { tone: 'neutral', icon: 'alert' }); return; }
+    const prev = histRef.current[hidxRef.current];
     hidxRef.current++;
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
     setEtapas(snap);
     D.cronograma[obraSel] = snap;
+    focarTarefa(diffTaskId(prev, snap));
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       handleSaveResult(await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes));
@@ -2282,31 +2357,49 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                                 </span>
                               </div>
 
-                              {/* Dependências */}
-                              {(detailTask.dep || []).length > 0 && (
-                                <>
-                                  <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
-                                  <div style={{ fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Dependências</div>
-                                  {detailTask.dep.map((dep, di) => {
-                                    const depId = typeof dep === 'string' ? dep : dep.id;
-                                    const depTipo = typeof dep === 'string' ? 'TI' : (dep.tipo || 'TI');
-                                    const depTask = etapas.find(e => e.id === depId);
-                                    return (
-                                      <div key={di} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
-                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--brand)', background: 'var(--brand-tint)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{depId}</span>
-                                        <span title={depTask?.etapa || depId} style={{ flex: 1, minWidth: 0, color: 'var(--text-soft)', fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{depTask?.etapa || depId}</span>
-                                        <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{depTipo}</span>
-                                      </div>
-                                    );
-                                  })}
-                                </>
-                              )}
+                              {/* Vínculos — predecessoras e sucessoras */}
+                              {(() => {
+                                const preds = (detailTask.dep || []).map(dep => {
+                                  const id = typeof dep === 'string' ? dep : dep.id;
+                                  const tipo = typeof dep === 'string' ? 'TI' : (dep.tipo || 'TI');
+                                  const t = etapas.find(e => e.id === id);
+                                  return { id, tipo, t };
+                                });
+                                const succs = (succByIdAll[detailTask.id] || []).map(sid => {
+                                  const t = etapas.find(e => e.id === sid);
+                                  const link = (t?.dep || []).find(d => (typeof d === 'string' ? d : d.id) === detailTask.id);
+                                  const tipo = typeof link === 'string' ? 'TI' : (link?.tipo || 'TI');
+                                  return { id: sid, tipo, t };
+                                });
+                                if (!preds.length && !succs.length) return null;
+                                const linkRow = (v, i) => (
+                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
+                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--brand)', background: 'var(--brand-tint)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{v.t?.displayId ?? v.id}</span>
+                                    <span title={v.t?.etapa || v.id} style={{ flex: 1, minWidth: 0, color: 'var(--text-soft)', fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.t?.etapa || v.id}</span>
+                                    <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{v.tipo}</span>
+                                  </div>
+                                );
+                                const secTitle = { fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 };
+                                return (
+                                  <>
+                                    <div style={{ height: 1, background: 'var(--border)', margin: '12px 0' }} />
+                                    {preds.length > 0 && (<>
+                                      <div style={secTitle}>Predecessoras</div>
+                                      {preds.map(linkRow)}
+                                    </>)}
+                                    {succs.length > 0 && (<>
+                                      <div style={{ ...secTitle, marginTop: preds.length ? 12 : 0 }}>Sucessoras</div>
+                                      {succs.map(linkRow)}
+                                    </>)}
+                                  </>
+                                );
+                              })()}
 
                               {/* Botão Editar */}
                               <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
                                 <button className="btn btn-ghost"
                                   style={{ width: '100%', justifyContent: 'center', gap: 6, fontSize: 12.5 }}
-                                  onClick={() => { setView('lista'); setDetailId(null); }}>
+                                  onClick={() => { focarTarefa(detailTask.id); setView('lista'); setDetailId(null); }}>
                                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -2349,6 +2442,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   obraId={obraSel}
                   undo={undo}
                   redo={redo}
+                  focusTaskId={histFocus}
                   vinculos={vinculos}
                   orcamentoItensMap={orcamentoItensMap}
                   readOnly={readOnly}
