@@ -352,9 +352,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   const exportPDFGantt = async () => {
     setExportingPDF(true);
     try {
-      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
-        import('jspdf'), import('jspdf-autotable'),
-      ]);
+      const { jsPDF } = await import('jspdf');
       const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: pdfFormat });
       const BRAND = [1, 67, 134];
       const W = doc.internal.pageSize.getWidth();   // 420mm
@@ -367,7 +365,9 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
       const HDR_H    = 14;   // 7mm trimestres + 7mm meses
       const BAR_H    = 3.5;
       const tlX      = ML + LABEL_W;
-      const mpd      = TL_W / (dynTotal * 30);  // mm por dia
+      // Timeline em calendário real (mesmos meses do eixo da aba): do 1º ao último mês,
+      // ancorado em tlStartOffset (perto da 1ª tarefa), sem o vazio do epoch 2024.
+      const mpd      = TL_W / calTotalDays;  // mm por dia
 
       const availH      = H - MT - MB - HDR_H;
       const rowsPerPage = Math.max(1, Math.floor(availH / ROW_H));
@@ -382,10 +382,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
       };
 
       const drawGanttHeader = (startY) => {
-        // Trimestres
+        // Trimestres (calendário real)
         let x = tlX;
-        dynQuarters.forEach((q, qi) => {
-          const qW = (q.end - q.start) * 30 * mpd;
+        calQuarters.forEach((q, qi) => {
+          const qW = q.days * mpd;
           doc.setFillColor(qi % 2 === 0 ? 244 : 250, 246, 251);
           doc.rect(x, startY, qW, 7, 'F');
           doc.setFontSize(6.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(50);
@@ -397,10 +397,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         });
         doc.setDrawColor(175); doc.setLineWidth(0.3);
         doc.line(ML, startY + 7, W - MR, startY + 7);
-        // Meses
+        // Meses (calendário real — dias corretos por mês)
         x = tlX;
-        dynMonths.forEach((m) => {
-          const mW = 30 * mpd;
+        calMonths.forEach((m) => {
+          const mW = m.days * mpd;
           doc.setFontSize(6);
           doc.setFont('helvetica', m.isQ ? 'bold' : 'normal');
           doc.setTextColor(m.isQ ? 30 : 80);
@@ -456,15 +456,15 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           doc.text(nameStr, ML + indent, y + ROW_H / 2 + 1.8);
           doc.setFont('helvetica', 'normal');
 
-          // Barra ou marco
-          const bx = tlX + ini * mpd;
+          // Barra ou marco (offset relativo ao início visual da timeline)
+          const bx = tlX + (ini - tlStartOffset) * mpd;
           const bw = Math.max(dur * mpd, 0.8);
           const by = y + (ROW_H - BAR_H) / 2;
           const [r, g, b] = pdfBarColor(e);
 
           if (e.milestone) {
             // Marco: quadrado preenchido (visual de losango)
-            const cx = tlX + ini * mpd;
+            const cx = tlX + (ini - tlStartOffset) * mpd;
             const cy = y + ROW_H / 2;
             doc.setFillColor(r, g, b);
             doc.rect(cx - 2, cy - 2, 4, 4, 'F');
@@ -487,7 +487,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         });
 
         // Linha "hoje" (tracejada)
-        const todayX = tlX + today * mpd;
+        const todayX = tlX + (today - tlStartOffset) * mpd;
         if (todayX >= tlX && todayX <= tlX + TL_W) {
           doc.setDrawColor(220, 38, 38); doc.setLineWidth(0.4);
           doc.setLineDashPattern([1.5, 1], 0);
@@ -500,77 +500,12 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         doc.setTextColor(0);
       };
 
-      // Paginar verticalmente o gráfico
+      // Paginar verticalmente o gráfico (só o Gantt — a lista sai no PDF da própria aba Lista)
       const totalGanttPages = Math.ceil(visible.length / rowsPerPage);
       for (let p = 0; p < totalGanttPages; p++) {
         drawGanttPage(visible.slice(p * rowsPerPage, (p + 1) * rowsPerPage), p);
       }
 
-      // ── Tabela de dados ───────────────────────────────────────────────
-      doc.addPage();
-      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(0);
-      doc.text('Lista de Tarefas', ML, 12);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7); doc.setTextColor(130);
-      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, ML, 17);
-      doc.setTextColor(0);
-      const wbs  = computeAllWBS(etapas);
-      const body = etapas.map(e => {
-        const gv  = e.isGroup ? groupVals[e.id] : null;
-        const ini = gv ? gv.inicio : e.inicio;
-        const dur = gv ? gv.dur    : e.dur;
-        const av  = gv ? gv.avanco : e.avanco;
-        const cst = gv ? (gv.custo || 0) : (e.custo || 0);
-        return {
-          _isGroup: e.isGroup,
-          vals: [
-            wbs[e.id] || '',
-            String(e.displayId ?? e.id),
-            '  '.repeat(e.nivel || 0) + e.etapa,
-            isoToBR(offsetToISO(ini)),
-            isoToBR(offsetToISO(ini + dur)),
-            dur + 'd',
-            av + '%',
-            e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura'),
-            fmtBRL(cst),
-            e.isGroup ? '' : formatDepList(e.dep, etapas),
-          ],
-        };
-      });
-      autoTable(doc, {
-        startY: 20,
-        head: [['WBS', 'ID', 'Nome', 'Início', 'Término', 'Dur', 'Avanço', 'Status', 'Custo (R$)', 'Predecessoras']],
-        body: body.map(r => r.vals),
-        theme: 'grid',
-        headStyles: { fillColor: BRAND, textColor: 255, fontSize: 8, fontStyle: 'bold' },
-        bodyStyles: { fontSize: 8, textColor: 40 },
-        alternateRowStyles: { fillColor: [248, 249, 250] },
-        columnStyles: {
-          0: { cellWidth: 12 },
-          1: { cellWidth: 8,  halign: 'center' },
-          2: { cellWidth: 70 },
-          3: { cellWidth: 20, halign: 'center' },
-          4: { cellWidth: 20, halign: 'center' },
-          5: { cellWidth: 12, halign: 'right' },
-          6: { cellWidth: 12, halign: 'right' },
-          7: { cellWidth: 18, halign: 'center' },
-          8: { cellWidth: 28, halign: 'right' },
-          9: { cellWidth: 'auto' },
-        },
-        margin: { top: 20, right: 14, bottom: 14, left: 14 },
-        didParseCell: (data) => {
-          if (data.section === 'body' && body[data.row.index]?._isGroup) {
-            data.cell.styles.fontStyle = 'bold';
-            data.cell.styles.fillColor = [232, 240, 252];
-            data.cell.styles.textColor = 20;
-          }
-        },
-        didDrawPage: ({ pageNumber }) => {
-          doc.setFontSize(8); doc.setTextColor(150);
-          doc.text(`Lista — pág. ${pageNumber}`, W - 20, H - 6);
-          doc.setTextColor(0);
-        },
-      });
       doc.save(`gantt-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setExportingPDF(false); }
   };
@@ -1014,15 +949,24 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   <div style={caption}>Realce</div>
                 </div>
 
-                {/* Linha de base — escolha da versão visível (item movido do cabeçalho) */}
-                {baselines.length > 0 && (
+                {/* Linha de base — escolha da versão visível (baselines e reprogramações) */}
+                {(baselines.length > 0 || reprogramacoes.length > 0) && (
                   <div style={groupBox}>
                     <div style={{ ...groupContent, justifyContent: 'center' }}>
                       <div style={rowStyle}>
-                        <select value={blVisivelId || ''} onChange={e => onSelectBaseline?.(e.target.value || null)} title="Linha de base comparada no Gantt"
+                        <select value={blVisivelId || ''} onChange={e => onSelectBaseline?.(e.target.value || null)} title="Linha de base comparada no Gantt (linha de base ou reprogramação salva)"
                           style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', minWidth: 150, cursor: 'pointer' }}>
                           <option value="">Sem linha de base</option>
-                          {baselines.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                          {baselines.length > 0 && (
+                            <optgroup label="Linhas de base">
+                              {baselines.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                            </optgroup>
+                          )}
+                          {reprogramacoes.length > 0 && (
+                            <optgroup label="Reprogramações">
+                              {reprogramacoes.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
+                            </optgroup>
+                          )}
                         </select>
                       </div>
                     </div>

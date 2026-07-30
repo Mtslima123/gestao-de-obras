@@ -187,6 +187,11 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
     Object.fromEntries(folhas.map(f => [f.id, String(f.fator_peso ?? 1)]))
   );
   const setPeso = (id, val) => setPesos(p => ({ ...p, [id]: val }));
+  // Refs dos inputs de fator peso — Enter confirma e pula para a próxima subtarefa
+  const pesoRefs = React.useRef([]);
+  // Unidade base usada para distribuir os pesos deste grupo (registro/documentação)
+  const [unidade, setUnidade] = React.useState(etapa.peso_unidade || '');
+  const UNIDADES_PESO = ['m²', 'm', 'm³', 'un', 'vb', '%', 'pav'];
 
   const nomePai = React.useCallback(
     (f) => (f.parentId && f.parentId !== etapa.id ? (etapas.find(e => e.id === f.parentId)?.etapa || '') : ''),
@@ -217,7 +222,7 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={() => onSave(pesos)} disabled={saving || folhas.length === 0}>
+          <button className="btn btn-primary" onClick={() => onSave(pesos, unidade)} disabled={saving || folhas.length === 0}>
             {saving ? 'Salvando…' : 'Salvar distribuição'}
           </button>
         </>
@@ -228,13 +233,23 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
           Esta tarefa não tem subtarefas para distribuir.
         </div>
       ) : (
+        <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)' }}>Unidade base:</span>
+          <select className="input" value={unidade} onChange={e => setUnidade(e.target.value)}
+            title="Unidade usada para distribuir os pesos deste grupo (apenas registro)" style={{ width: 130 }}>
+            <option value="">— não informada</option>
+            {UNIDADES_PESO.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+          <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>referência de como os pesos foram distribuídos</span>
+        </div>
         <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'var(--surface-muted)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
             <span style={{ flex: 1 }}>Subtarefa</span>
             <span style={{ width: 90, textAlign: 'center' }}>Fator peso</span>
             <span style={{ width: 120, textAlign: 'right' }}>Valor (R$)</span>
           </div>
-          {folhas.map(f => {
+          {folhas.map((f, idx) => {
             const pai = nomePai(f);
             return (
               <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--border-subtle)' }}>
@@ -243,10 +258,18 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
                   {pai && <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>em {pai}</div>}
                 </div>
                 <input
+                  ref={el => { pesoRefs.current[idx] = el; }}
                   type="number" min="0" step="any"
                   className="input"
                   value={pesos[f.id] ?? ''}
                   onChange={e => setPeso(f.id, e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const next = pesoRefs.current[idx + 1];
+                      if (next) { next.focus(); next.select(); } else e.currentTarget.blur();
+                    }
+                  }}
                   style={{ width: 90, textAlign: 'right' }}
                 />
                 <span className="mono" style={{ width: 120, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
@@ -263,6 +286,7 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
             </span>
           </div>
         </div>
+        </>
       )}
     </Modal>
   );
@@ -511,13 +535,14 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   };
 
   // ── Salvar distribuição de pesos (fator_peso) de volta no cronograma ───────
-  const handleSalvarPesos = async (novosPesos) => {
+  const handleSalvarPesos = async (novosPesos, unidade) => {
     setSalvandoPeso(true);
-    const novasEtapas = etapas.map(e =>
-      novosPesos[e.id] != null
-        ? { ...e, fator_peso: Math.max(0, parseFloat(novosPesos[e.id]) || 0) }
-        : e
-    );
+    const novasEtapas = etapas.map(e => {
+      let ne = e;
+      if (novosPesos[e.id] != null) ne = { ...ne, fator_peso: Math.max(0, parseFloat(novosPesos[e.id]) || 0) };
+      if (e.id === distribuirEtapaId) ne = { ...ne, peso_unidade: unidade || null };
+      return ne;
+    });
     const { error } = await supabase.from('cronogramas')
       .update({ etapas: novasEtapas, updated_at: new Date().toISOString() })
       .eq('obra_id', obraSel);
@@ -874,7 +899,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                 Nenhum item associado a esta tarefa.
               </div>
             ) : (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 260, overflowY: 'auto' }}>
                 {vinculosEtapa.map(v => (
                   <div key={v.id} style={{
                     display: 'flex', alignItems: 'center', gap: 10,

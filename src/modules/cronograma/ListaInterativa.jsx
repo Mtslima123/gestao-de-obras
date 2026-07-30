@@ -107,12 +107,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [bandH, setBandH] = React.useState(26);
   React.useEffect(() => {
     if (bandRowRef.current) {
-      const h = bandRowRef.current.offsetHeight;
+      // getBoundingClientRect dá altura fracionária real; Math.ceil garante inteiro >= real
+      // (offsetHeight arredondava e abria a fresta por onde o corpo aparecia rolando).
+      const h = Math.ceil(bandRowRef.current.getBoundingClientRect().height);
       if (h && h !== bandH) setBandH(h);
     }
   }); // sem deps: mede após cada render (leitura barata; auto-estabiliza pelo guard acima)
-  // Onde a linha de nomes gruda: 1px acima de bandH para sobrepor a banda e cobrir a
-  // costura sub-pixel (offsetHeight arredonda; sem isso abre uma fresta e o corpo aparece rolando).
+  // Onde a linha de nomes gruda: 1px acima de bandH para sobrepor a banda e cobrir a costura.
   const bandTop = Math.max(0, bandH - 1);
 
   // Fixa o bloco (formatação+banda+cabeçalho+tabela) sob a topbar ao rolar a página.
@@ -121,6 +122,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // { left, width } (fixado). Um espaçador preserva a altura para não haver salto.
   const listaSentinelRef = React.useRef(null);
   const [listaPinned, setListaPinned] = React.useState(null);
+  // Offset do topo do card no documento (topbar + abas + ribbon acima dele). Usado para a
+  // altura do card caber na viewport sem estourar a página (barra de rolagem interna própria).
+  const [listaDocTop, setListaDocTop] = React.useState(null);
   React.useEffect(() => {
     let raf = 0;
     const check = () => {
@@ -128,6 +132,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       const s = listaSentinelRef.current;
       if (!s) return;
       const r = s.getBoundingClientRect();
+      const dt = Math.round(r.top + window.scrollY);
+      setListaDocTop(prev => (prev === dt ? prev : dt));
       if (r.top <= topbarH) {
         setListaPinned(prev => (prev && Math.abs(prev.left - r.left) < 0.5 && Math.abs(prev.width - r.width) < 0.5) ? prev : { left: r.left, width: r.width });
       } else {
@@ -387,6 +393,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [dragOverCol, setDragOverCol] = React.useState(null); // { id, side: 'before' | 'after' }
   const listaRef   = React.useRef(null);
   const [exportingPDF, setExportingPDF] = React.useState(false);
+  const [pdfFormat, setPdfFormat] = React.useState('a3');
 
   React.useEffect(() => {
     if (obraId) localStorage.setItem(`ls_cols_${obraId}`, JSON.stringify(colOrder));
@@ -502,6 +509,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           cursor: !isFrozen ? 'grab' : undefined,
           userSelect: 'none',
           textAlign: 'left',
+          // Faixa opaca 1px abaixo do cabeçalho: veda a costura sub-pixel por onde o corpo aparecia rolando.
+          boxShadow: '0 1px 0 0 var(--brand)',
           ...(multiSelCols.includes(colId) ? { background: 'color-mix(in srgb, white 22%, var(--brand))' } : {}),
         }}
         draggable={!isFrozen}
@@ -1879,7 +1888,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     setExportingPDF(true);
     try {
       const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: pdfFormat });
       const BRAND = [1, 67, 134];
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
@@ -1970,19 +1979,22 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
 
   const btnStyle = { fontSize: 12, padding: '4px 10px', height: 30, gap: 5, display: 'flex', alignItems: 'center' };
+  // Altura do card no fluxo: cabe da posição real do card até a base da viewport (não estoura a página).
+  const listaTopPx = listaDocTop != null ? listaDocTop : topbarH;
+  const listaFlowH = `calc(100vh - ${listaTopPx}px - 8px)`;
 
   return (
     <>
     {/* Sentinela: marca onde o card fixo começa (para detectar quando prender) */}
     <div ref={listaSentinelRef} aria-hidden="true" style={{ height: 0 }} />
     {/* Espaçador: preserva a altura do fluxo quando o card fixo sai do fluxo (position:fixed) */}
-    {listaPinned && <div aria-hidden="true" style={{ marginTop: 8, height: `calc(100vh - ${topbarH}px - 8px)` }} />}
+    {listaPinned && <div aria-hidden="true" style={{ marginTop: 8, height: listaFlowH }} />}
 
     {/* Card FIXO: menu em abas (ribbon) + banda + cabeçalho + tabela; congela sob a topbar */}
     <div ref={listaRef} className="card"
       style={listaPinned
         ? { position: 'fixed', top: topbarH + 10, left: listaPinned.left, width: listaPinned.width, height: `calc(100vh - ${topbarH + 10}px - 8px)`, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
-        : { marginTop: 8, height: `calc(100vh - ${topbarH}px - 8px)`, display: 'flex', flexDirection: 'column' }
+        : { marginTop: 8, height: listaFlowH, display: 'flex', flexDirection: 'column' }
       }>
 
       {/* ── Menu em abas (ribbon estilo MS Project): Tarefa | Inserir | Exibir ─── */}
@@ -2444,6 +2456,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         <button style={cmdBtn} onClick={exportExcelLista} title="Exportar para Excel (.xlsx)">
                           <Icon name="download" size={13} /> Excel
                         </button>
+                        <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
+                          style={{ fontSize: 12, height: 28, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                          <option value="a4">A4</option>
+                          <option value="a3">A3</option>
+                          <option value="a2">A2</option>
+                          <option value="a1">A1</option>
+                        </select>
                         <button style={{ ...cmdBtn, minWidth: 70 }} onClick={exportPDFLista} disabled={exportingPDF} title="Exportar para PDF">
                           <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
                         </button>
@@ -2566,10 +2585,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               );
             })()}
             <tr>
-              <th onClick={selectAll} title="Selecionar tudo" style={{ width: GUTTER_W, minWidth: GUTTER_W, position: 'sticky', top: bandTop, left: 0, zIndex: 7, userSelect: 'none', cursor: 'pointer' }} />
+              <th onClick={selectAll} title="Selecionar tudo" style={{ width: GUTTER_W, minWidth: GUTTER_W, position: 'sticky', top: bandTop, left: 0, zIndex: 7, userSelect: 'none', cursor: 'pointer', boxShadow: '0 1px 0 0 var(--brand)' }} />
               {colOrder.filter(c => !hiddenCols.has(c)).map(colId => renderTh(colId))}
               {customCols.filter(col => !hiddenCols.has(col.id)).map(col => (
-                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandTop, zIndex: 3, userSelect: 'none', cursor: 'pointer', textAlign: 'left',
+                <th key={col.id} style={{ minWidth: getColW(col.id) || 110, position: 'sticky', top: bandTop, zIndex: 3, userSelect: 'none', cursor: 'pointer', textAlign: 'left', boxShadow: '0 1px 0 0 var(--brand)',
                     ...(multiSelCols.includes(col.id) ? { background: 'color-mix(in srgb, white 22%, var(--brand))' } : {}) }}
                   onClick={(ev) => { if (ev.target.closest('[data-colmenu]')) return; selectColumn(col.id, ev); }}
                   onContextMenu={(ev) => { if (ev.target.closest('[data-colmenu]')) return; ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId: col.id }); }}>

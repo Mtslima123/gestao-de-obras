@@ -82,6 +82,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   const getUsoW = (col) => usoColW[col] ?? USO_COL_DEFAULT[col] ?? 80;
   const usoRef  = React.useRef(null);
   const [exportingPDF, setExportingPDF] = React.useState(false);
+  const [pdfFormat, setPdfFormat] = React.useState('a3');
 
   // Ordem das colunas do painel esquerdo (arrastar cabeçalhos), persistida por obra
   const [usoColOrder, setUsoColOrder] = React.useState(() => {
@@ -276,7 +277,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     setExportingPDF(true);
     try {
       const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: pdfFormat });
       const BRAND = [28, 69, 132];
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
@@ -322,8 +323,8 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
         head: [[ ...USO_COL_LABELS, 'Valor (R$)', ...months.map(m => m.label), 'Total']],
         body: body.map(r => r.vals),
         foot: [
-          ['Total geral', '', '', '', '', '', '', '', ...months.map(m => monthTotals[m.key] > 0 ? fmtBRL(monthTotals[m.key]) : '—'), grandTotal > 0 ? fmtBRL(grandTotal) : '—'],
-          ['% do total', '', '', '', '', '', '', '', ...months.map(m => grandTotal > 0 ? (monthTotals[m.key] / grandTotal * 100).toFixed(2) + '%' : '—'), grandTotal > 0 ? '100%' : '—'],
+          [{ content: 'Total geral', colSpan: 8, styles: { halign: 'left' } }, ...months.map(m => monthTotals[m.key] > 0 ? fmtBRL(monthTotals[m.key]) : '—'), grandTotal > 0 ? fmtBRL(grandTotal) : '—'],
+          [{ content: '% do total', colSpan: 8, styles: { halign: 'left' } }, ...months.map(m => grandTotal > 0 ? (monthTotals[m.key] / grandTotal * 100).toFixed(2) + '%' : '—'), grandTotal > 0 ? '100%' : '—'],
         ],
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
@@ -373,6 +374,13 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
           onClick={exportExcelUso} title="Exportar para Excel (.xlsx)">
           <Icon name="download" size={13} /> Excel
         </button>
+        <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
+          style={{ fontSize: 12, height: 28, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+          <option value="a4">A4</option>
+          <option value="a3">A3</option>
+          <option value="a2">A2</option>
+          <option value="a1">A1</option>
+        </select>
         <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5, minWidth: 72 }}
           onClick={exportPDFUso} disabled={exportingPDF} title="Exportar para PDF">
           <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
@@ -534,9 +542,10 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
 // Recebe séries já computadas e desenha grade, barras mensais, linhas planejado/
 // realizado com pontos, e o marcador "hoje". Cores da marca (navy) + verde/cinza.
 const SCurveChart = ({ months = [], reprogramado = [], real = [], baseline = null, monthlyPct = [], todayIdx = -1,
-  show = { bl: true, rep: true, real: true }, height = 300 }) => {
+  show = { bl: true, rep: true, real: true }, height = 300,
+  previstoM = [], replanM = [], execM = [], showBarras = false }) => {
   const N = months.length || 1;
-  const pL = 54, pR = 20, pT = 18, pB = 52;
+  const pL = 54, pR = showBarras ? 50 : 20, pT = 18, pB = 52;
   const svgW = 1000, svgH = height;
   const chartW = svgW - pL - pR, chartH = svgH - pT - pB;
   const xC = (i) => pL + (chartW / N) * (i + 0.5);
@@ -554,15 +563,56 @@ const SCurveChart = ({ months = [], reprogramado = [], real = [], baseline = nul
   const baselinePts = (show.bl && baseline) ? ptsOf(baseline) : '';
   const repPts  = show.rep  ? ptsOf(reprogramado) : '';
   const realPts = show.real ? ptsOf(real) : '';
+  // ── Barras mensais agrupadas (Previsto/Replanejado/Executado) — eixo secundário ──
+  const barSeries = [];
+  if (showBarras && show.bl && baseline) barSeries.push({ data: previstoM, color: '#cbd5e1', label: '#64748b' });
+  if (showBarras && show.rep)            barSeries.push({ data: replanM,  color: 'var(--brand)', label: 'var(--brand)' });
+  if (showBarras && show.real)           barSeries.push({ data: execM,    color: '#16a34a', label: '#16a34a' });
+  const niceCeil = (v) => {
+    if (!(v > 0)) return 1;
+    const base = Math.pow(10, Math.floor(Math.log10(v)));
+    const n = v / base;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * base;
+  };
+  let barPeak = 0;
+  barSeries.forEach(s => (s.data || []).forEach(v => { if (v != null && v > barPeak) barPeak = v; }));
+  const barMax = niceCeil(barPeak);
+  const yBar = (v) => (pT + chartH) - (v / barMax) * chartH;
+  const fmtPct = (v) => v.toFixed(2).replace('.', ',') + '%';
+  const groupW = (chartW / N) * 0.6;
+  const nb = barSeries.length;
+  const subW = nb ? groupW / nb : groupW;
   return (
-    <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={svgH} style={{ display: 'block', minWidth: Math.max(600, N * 36) }}>
+    <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={svgH} style={{ display: 'block', minWidth: Math.max(600, N * (showBarras ? 44 : 36)) }}>
       {[0, 20, 40, 60, 80, 100].map(pct => (
         <g key={pct}>
           <line x1={pL} y1={yS(pct)} x2={pL + chartW} y2={yS(pct)} stroke="var(--border)" strokeWidth="1" strokeDasharray={pct === 0 || pct === 100 ? undefined : '3,4'} />
           <text x={pL - 6} y={yS(pct) + 4} textAnchor="end" fontSize="10" fill="var(--text-muted)" fontFamily="var(--font-mono)">{pct}%</text>
+          {showBarras && <text x={pL + chartW + 6} y={yS(pct) + 4} textAnchor="start" fontSize="9" fill="var(--text-muted)" fontFamily="var(--font-mono)">{(barMax * pct / 100).toFixed(1).replace('.', ',')}%</text>}
         </g>
       ))}
-      {monthlyPct.map((pct, i) => { const bh = (pct / 100) * chartH; return <rect key={i} x={xC(i) - barW / 2} y={yS(0) - bh} width={barW} height={bh} fill="#e2e8f0" rx="2" />; })}
+      {showBarras
+        ? barSeries.map((s, si) => (
+            <g key={'bs' + si}>
+              {months.map((m, i) => {
+                const v = (s.data || [])[i];
+                if (v == null || v <= 0.3) return null;
+                const x = xC(i) - groupW / 2 + si * subW;
+                const y = yBar(v);
+                const bw = Math.max(subW * 0.82, 1);
+                const cx = x + bw / 2;
+                return (
+                  <g key={i}>
+                    <rect x={x} y={y} width={bw} height={(pT + chartH) - y} fill={s.color} rx="1" />
+                    <text transform={`rotate(-90 ${cx.toFixed(1)} ${(y - 3).toFixed(1)})`} x={cx.toFixed(1)} y={(y - 3).toFixed(1)}
+                      textAnchor="start" fontSize="6.5" fill={s.label} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
+                  </g>
+                );
+              })}
+            </g>
+          ))
+        : monthlyPct.map((pct, i) => { const bh = (pct / 100) * chartH; return <rect key={i} x={xC(i) - barW / 2} y={yS(0) - bh} width={barW} height={bh} fill="#e2e8f0" rx="2" />; })}
+      {showBarras && <text x={pL + chartW + 6} y={pT - 6} textAnchor="start" fontSize="9" fill="var(--text-muted)">% no mês</text>}
       {todayIdx >= 0 && (
         <g>
           <line x1={xC(todayIdx)} y1={pT} x2={xC(todayIdx)} y2={pT + chartH} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4,3" />
@@ -596,6 +646,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   // Toggles das linhas do gráfico Curva S (Linha de Base / Reprogramado / Real).
   const [showSerie, setShowSerie] = React.useState({ bl: true, rep: true, real: true });
   const toggleSerie = (k) => setShowSerie(s => ({ ...s, [k]: !s[k] }));
+  // Barras mensais (%) agrupadas por série (Previsto/Replanejado/Executado) — opcional
+  const [showBarras, setShowBarras] = React.useState(true);
   // Custo efetivo: com vínculos, usa o valor vinculado distribuído (cobre folhas e grupos)
   const hasVinc  = Object.keys(valorVinculadoMap).length > 0;
   const custoEf  = (e, gv) => hasVinc
@@ -674,6 +726,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   }, [selMonKey, reprogramacoes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [exportingPDF, setExportingPDF] = React.useState(false);
+  const [pdfFormat, setPdfFormat] = React.useState('a3');
   const curvaRef = React.useRef(null);
   const chartRef = React.useRef(null);
 
@@ -790,7 +843,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     setExportingPDF(true);
     try {
       const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: pdfFormat });
       const BRAND = [28, 69, 132];
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
@@ -811,25 +864,53 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         const imgW = W - 28;
         const imgH = Math.min(90, imgW * (grafico.h / grafico.w));
         doc.addImage(grafico.dataUrl, 'PNG', 14, startY1, imgW, imgH);
-        startY1 += imgH + 8;
+        startY1 += imgH + 5;
+        // Legenda das séries (o SVG não inclui a legenda, que é HTML fora dele)
+        const leg = [];
+        if (showSerie.real) leg.push({ label: 'Real', color: [22, 163, 74], dashed: false });
+        if (showSerie.rep)  leg.push({ label: hasRep ? `Reprogramado (${repNome})` : 'Reprogramado', color: [28, 69, 132], dashed: false });
+        if (showSerie.bl && blEtapas) leg.push({ label: `Linha de Base (${blNome})`, color: [148, 163, 184], dashed: true });
+        let lx = 14; const ly = startY1 + 2;
+        doc.setFontSize(8); doc.setLineWidth(0.9);
+        leg.forEach(item => {
+          doc.setDrawColor(item.color[0], item.color[1], item.color[2]);
+          if (item.dashed) doc.setLineDashPattern([1.2, 1], 0);
+          doc.line(lx, ly, lx + 9, ly);
+          doc.setLineDashPattern([], 0);
+          doc.setTextColor(70);
+          doc.text(item.label, lx + 11, ly + 1.2);
+          lx += 11 + doc.getTextWidth(item.label) + 9;
+        });
+        doc.setFillColor(226, 232, 240);
+        doc.rect(lx, ly - 1.6, 5, 3.2, 'F');
+        doc.setTextColor(70);
+        doc.text('Prod. mensal', lx + 7, ly + 1.2);
+        doc.setTextColor(0);
+        startY1 += 9;
       }
 
       // ── Tabela 1: Resumo Mensal ─────────────────────────────────────────
       const { blM, blA, repM, repA, rrM, rrA, difBL, difRep } = computeSeries();
       const fmt      = v => v != null ? v.toFixed(2) + '%' : '—';
       const cabMeses = months.map(m => m.label);
+      const nColRes  = 1 + months.length;
+      const grpRow   = (label, rgb) => [{ content: label, colSpan: nColRes, styles: { fillColor: rgb, textColor: 255, fontStyle: 'bold', halign: 'left', fontSize: 7 } }];
       autoTable(doc, {
         startY: startY1,
-        head: [['Atividade', ...cabMeses]],
+        head: [['', ...cabMeses]],
         body: [
-          ['LB Mensal',              ...blM.map(fmt)],
-          ['LB Acumulado',           ...blA.map(fmt)],
-          ['Reprogramado Mensal',    ...repM.map(fmt)],
-          ['Reprogramado Acumulado', ...repA.map(fmt)],
-          ['Real Mensal',            ...rrM.map(fmt)],
-          ['Real Acumulado',         ...rrA.map(fmt)],
-          ['Dif. vs LB Acumulado',   ...difBL.map(fmt)],
-          ['Dif. vs Rep. Acumulado', ...difRep.map(fmt)],
+          grpRow(blEtapas ? blNome : 'Linha de Base', [16, 43, 84]),
+          ['Mensal',    ...blM.map(fmt)],
+          ['Acumulado', ...blA.map(fmt)],
+          grpRow(hasRep ? repNome : 'Reprogramação', [28, 69, 132]),
+          ['Mensal',    ...repM.map(fmt)],
+          ['Acumulado', ...repA.map(fmt)],
+          grpRow('Real', [21, 128, 61]),
+          ['Mensal',    ...rrM.map(fmt)],
+          ['Acumulado', ...rrA.map(fmt)],
+          grpRow('Diferenças', [71, 85, 105]),
+          ['Dif. vs LB Acum.',  ...difBL.map(fmt)],
+          ['Dif. vs Rep. Acum.', ...difRep.map(fmt)],
         ],
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
@@ -848,20 +929,23 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       const groupValsExp = computeGroupValues(etapas);
       const distRows     = etapas.filter(e => e.isGroup || e.showInDist === true);
       const folhas       = etapas.filter(e => !e.isGroup);
-      const totCusto     = folhas.reduce((s, e) => s + (e.custo || 0), 0);
+      const totCusto     = folhas.reduce((s, e) => s + custoEf(e), 0);
       const avancoGeral  = totCusto > 0
-        ? folhas.reduce((s, e) => s + (e.avanco || 0) * (e.custo || 0), 0) / totCusto : 0;
+        ? folhas.reduce((s, e) => s + (e.avanco || 0) * custoEf(e), 0) / totCusto : 0;
+      const selColIdx    = 4 + months.findIndex(m => m.key === selMonKey); // coluna do mês selecionado
+      const blendC       = (rgb, a) => [Math.round(255 + (rgb[0] - 255) * a), Math.round(255 + (rgb[1] - 255) * a), Math.round(255 + (rgb[2] - 255) * a)];
       const distBody = distRows.map(e => {
         const gv      = e.isGroup ? (groupValsExp[e.id] || {}) : {};
-        const taskCst = e.isGroup ? (gv.custo || 0) : (e.custo || 0);
+        const taskCst = custoEf(e, gv);
         const taskAv  = e.isGroup ? (gv.avanco || 0) : (e.avanco || 0);
         const peso    = totCusto > 0 ? taskCst / totCusto * 100 : 0;
         const mDist   = monthlyDist[e.id] || {};
+        const mf      = months.map(m => taskCst > 0 ? (mDist[m.key] || 0) / taskCst : 0); // fração 0..1 por mês
         return {
-          _isGroup: e.isGroup,
+          _isGroup: e.isGroup, _av: taskAv, _mf: mf,
           vals: [
             e.etapa, fmtBRL(taskCst), peso.toFixed(2) + '%', taskAv.toFixed(1) + '%',
-            ...months.map(m => taskCst > 0 ? ((mDist[m.key] || 0) / taskCst * 100).toFixed(2) + '%' : '—'),
+            ...months.map((m, i) => taskCst > 0 ? (mf[i] * 100).toFixed(2) + '%' : '—'),
             '100%',
           ],
         };
@@ -891,9 +975,31 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         horizontalPageBreakRepeat: 0,
         margin: { top: 25, right: 14, bottom: 14, left: 14 },
         didParseCell: (data) => {
-          if (data.section === 'body' && distBody[data.row.index]?._isGroup) {
+          const row = distBody[data.row.index];
+          const ci  = data.column.index;
+          if (data.section === 'body' && row?._isGroup) {
             data.cell.styles.fontStyle = 'bold';
             data.cell.styles.fillColor = [232, 240, 252];
+          }
+          // Conc. % — verde 100% / azul >0 / cinza 0 (folhas e grupos)
+          if (data.section === 'body' && ci === 3) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = row._av >= 100 ? [22, 163, 74] : row._av > 0 ? [28, 69, 132] : [148, 163, 184];
+            if (!row._isGroup) data.cell.styles.fillColor = blendC([28, 69, 132], 0.05);
+          }
+          // Meses — heat azul proporcional (só folhas; grupos mantêm o fundo do grupo)
+          if (data.section === 'body' && ci >= 4 && ci < 4 + months.length && !row._isGroup) {
+            const f = row._mf[ci - 4] || 0;
+            if (f > 0.005) data.cell.styles.fillColor = blendC([28, 69, 132], Math.min(1, 0.05 + 0.5 * f));
+            else if (ci === selColIdx) data.cell.styles.fillColor = blendC([28, 69, 132], 0.06);
+          }
+          // Coluna do mês selecionado — leve realce no cabeçalho e rodapé
+          if (ci === selColIdx && (data.section === 'head' || data.section === 'foot')) {
+            data.cell.styles.fontStyle = 'bold';
+          }
+          // Rodapé Conc. % em verde
+          if (data.section === 'foot' && ci === 3) {
+            data.cell.styles.textColor = [22, 163, 74];
           }
         },
         didDrawPage: footerFn,
@@ -923,7 +1029,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
   // Séries acumuladas para o gráfico (mesmas do Resumo Mensal): Linha de Base (blA),
   // Reprogramado (repA) e Real (rrA = plano ao vivo). Cada uma com toggle de exibição.
-  const { blA: seriesBaselineFull, repA: seriesReprog, rrA: seriesReal, repM: monthlyPctSeries } = computeSeries();
+  const { blM: seriesPrevistoM, blA: seriesBaselineFull, repA: seriesReprog, rrA: seriesReal, repM: monthlyPctSeries, rrM: seriesExecM } = computeSeries();
   const seriesBaseline = baselineDist ? seriesBaselineFull : null;
   const todayIdx = months.findIndex(m => m.key === todayKey);
 
@@ -994,15 +1100,24 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                 </>
               );
             })()}
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-soft)' }}>
-              <span style={{ width: 14, height: 12, background: '#e2e8f0', display: 'inline-block', borderRadius: 2 }} />
-              Prod. mensal
-            </span>
+            <label title="Mostrar/ocultar as barras de % de cada mês (Previsto, Replanejado, Executado)"
+              style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', color: 'var(--text-soft)' }}>
+              <input type="checkbox" checked={showBarras} onChange={() => setShowBarras(v => !v)} style={{ accentColor: 'var(--brand)', cursor: 'pointer' }} />
+              <span style={{ width: 14, height: 12, background: '#cbd5e1', display: 'inline-block', borderRadius: 2 }} />
+              Barras mensais (%)
+            </label>
             <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
               <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28 }}
                 onClick={exportExcel} title="Exportar para Excel (.xlsx)">
                 <Icon name="download" size={13} />Excel
               </button>
+              <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
+                style={{ fontSize: 12, height: 28, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                <option value="a4">A4</option>
+                <option value="a3">A3</option>
+                <option value="a2">A2</option>
+                <option value="a1">A1</option>
+              </select>
               <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28 }}
                 onClick={exportPDF} disabled={exportingPDF} title="Exportar para PDF">
                 <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'PDF'}
@@ -1017,6 +1132,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             real={seriesReal}
             baseline={seriesBaseline}
             monthlyPct={monthlyPctSeries}
+            previstoM={seriesPrevistoM}
+            replanM={monthlyPctSeries}
+            execM={seriesExecM}
+            showBarras={showBarras}
             todayIdx={todayIdx}
             show={showSerie}
           />
@@ -1908,7 +2027,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   };
 
   // Etapas da baseline visível (null = nenhuma)
-  const baselineEtapas = blVisivelId ? (baselines.find(b => b.id === blVisivelId)?.etapas || null) : null;
+  const baselineEtapas = blVisivelId
+    ? ((baselines.find(b => b.id === blVisivelId)?.etapas) || (reprogramacoes.find(r => r.id === blVisivelId)?.etapas) || null)
+    : null;
 
   const obra       = obras.find(o => o.id === obraSel) || obras[0];
   const concluidas = etapas.filter(e => effStatus(e) === 'done').length;
