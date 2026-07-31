@@ -1042,6 +1042,9 @@ a:hover { color: var(--brand-600); }
 .gantt-bar.done { background: var(--success); box-shadow: 0 1px 3px rgba(31,139,92,0.25); }
 .gantt-bar.late { background: var(--danger); box-shadow: 0 1px 3px rgba(179,36,30,0.25); }
 .gantt-bar.upcoming { background: var(--brand-400); box-shadow: 0 1px 3px rgba(61,127,201,0.25); }
+/* Barra de grupo/título: fina e em slate, como no Gantt do Cronograma */
+.gantt-bar.is-group { height: 10px; background: #334155; border-radius: 3px; box-shadow: none; }
+.gantt-bar.is-group .fill { display: none; }
 .gantt-bar .fill {
   position: absolute;
   left: 0; top: 0; bottom: 0;

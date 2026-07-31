@@ -5,6 +5,10 @@ import { supabase } from '../../services/supabase';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset } from '../cronograma/ganttUtils';
+import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
+import { getMonthRange, computeMonthlyDist, computeRealizedDist, computeGroupValues } from '../cronograma/scheduleEngine';
+import { SCurveChart } from '../cronograma/SCurveChart';
+import { pavimentosService } from '../../services/pavimentos.service';
 
 // Obra Detail Page
 const { brl: brlD } = AppData;
@@ -12,22 +16,25 @@ const { brl: brlD } = AppData;
 // ----- Gantt -----
 const MES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-// Calcula a janela de meses (rótulos + referencial em dias) a partir do período real das linhas exibidas.
-// inicio/dur das etapas estão em dias (mesmo referencial de ganttUtils.js/Cronograma.jsx) — nunca em "meses".
-function computeJanela(rows) {
-  if (!rows.length) return null;
-  const inicioMin = Math.min(...rows.map(e => e.inicio || 0));
-  const fimMax    = Math.max(...rows.map(e => (e.inicio || 0) + (e.dur || 0)));
+// Janela de meses igual ao Gantt do Cronograma: ancorada 1 mês antes da tarefa-folha mais
+// antiga (tlStartOffset) e estendida até o término (dias úteis, taskEnd) da última folha.
+function computeJanela(etapasAll) {
+  const folhas = etapasAll.filter(e => !e.isGroup);
+  const base = folhas.length ? folhas : etapasAll;
+  if (!base.length) return null;
+  const inicioMin = Math.min(...base.map(e => e.inicio || 0));
+  const fimMax    = Math.max(...base.map(e => taskEnd(e)));
   const dIni = offsetToDate(inicioMin);
+  const anchor = new Date(dIni.getFullYear(), dIni.getMonth() - 1, 1); // 1 mês de folga antes, dia 1
   const dFim = offsetToDate(fimMax);
-  const totalMeses = (dFim.getFullYear() * 12 + dFim.getMonth()) - (dIni.getFullYear() * 12 + dIni.getMonth()) + 1;
+  const totalMeses = (dFim.getFullYear() * 12 + dFim.getMonth()) - (anchor.getFullYear() * 12 + anchor.getMonth()) + 1;
 
   const primeiroDia = (y, m) => `${y}-${String(m + 1).padStart(2, '0')}-01`;
-  const inicioDias = dateToOffset(primeiroDia(dIni.getFullYear(), dIni.getMonth()));
+  const inicioDias = dateToOffset(primeiroDia(anchor.getFullYear(), anchor.getMonth()));
   const fimDias    = dateToOffset(primeiroDia(dFim.getFullYear(), dFim.getMonth() + 1));
 
   const meses = Array.from({ length: totalMeses }, (_, i) => {
-    const d = new Date(dIni.getFullYear(), dIni.getMonth() + i, 1);
+    const d = new Date(anchor.getFullYear(), anchor.getMonth() + i, 1);
     const nome = MES_ABREV[d.getMonth()];
     return (i === 0 || d.getMonth() === 0) ? `${nome}/${String(d.getFullYear()).slice(-2)}` : nome;
   });
@@ -40,15 +47,24 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
     ? etapas.filter(e => e.isGroup)
     : etapas; // sem grupos definidos: mostra tudo, evita card vazio
 
-  const janela = computeJanela(rows);
+  // Valores de grupo por rollup (mesmo cálculo do Gantt real): início/fim/avanço agregados.
+  const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
+  const janela = computeJanela(etapas);
   if (!janela) {
     return <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Nenhuma etapa cadastrada.</div>;
   }
   const { meses: janelaMeses, inicioDias: janelaInicioDias, spanDias: janelaSpanDias } = janela;
   const totalMonths = janelaMeses.length;
 
-  const barLeftPct  = (e) => ((e.inicio - janelaInicioDias) / janelaSpanDias) * 100;
-  const barWidthPct = (e) => (e.dur / janelaSpanDias) * 100;
+  // Início/fim efetivos: grupos usam o envelope calculado; folhas usam o término por dias úteis.
+  const effVals = (e) => {
+    const gv = e.isGroup ? groupVals[e.id] : null;
+    const ini = gv ? gv.inicio : e.inicio;
+    const fim = gv ? gv.inicio + gv.dur : taskEnd(e);
+    return { ini, fim, avanco: gv ? gv.avanco : e.avanco };
+  };
+  const barLeftPct  = (v) => ((v.ini - janelaInicioDias) / janelaSpanDias) * 100;
+  const barWidthPct = (v) => ((v.fim - v.ini) / janelaSpanDias) * 100;
 
   const hojeDias = dateToOffset(new Date().toISOString().slice(0, 10));
   const hojePct  = ((hojeDias - janelaInicioDias) / janelaSpanDias) * 100;
@@ -63,23 +79,26 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
             {janelaMeses.map((m, i) => <div key={i} className="gantt-month">{m}</div>)}
           </div>
         </div>
-        {rows.map((e, i) => (
-          <div className="gantt-row" key={i}>
-            <div className="gantt-label">{e.etapa}</div>
-            <div className="gantt-track">
-              <div
-                className={'gantt-bar ' + e.status}
-                style={{
-                  left: `calc(${barLeftPct(e)}% + 2px)`,
-                  width: `calc(${barWidthPct(e)}% - 4px)`,
-                }}
-              >
-                <div className="fill" style={{ width: e.avanco + '%' }}></div>
-                <span style={{ position: 'relative', zIndex: 1 }}>{e.avanco > 0 ? e.avanco + '%' : ''}</span>
+        {rows.map((e, i) => {
+          const v = effVals(e);
+          return (
+            <div className="gantt-row" key={i}>
+              <div className="gantt-label" style={e.isGroup ? { fontWeight: 700 } : undefined}>{e.etapa}</div>
+              <div className="gantt-track">
+                <div
+                  className={'gantt-bar ' + (e.isGroup ? 'is-group ' : '') + e.status}
+                  style={{
+                    left: `calc(${barLeftPct(v)}% + 2px)`,
+                    width: `calc(${barWidthPct(v)}% - 4px)`,
+                  }}
+                >
+                  <div className="fill" style={{ width: v.avanco + '%' }}></div>
+                  <span style={{ position: 'relative', zIndex: 1 }}>{!e.isGroup && v.avanco > 0 ? v.avanco + '%' : ''}</span>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {!resumoOnly && mostrarHoje && (
           <div className="gantt-today-line" style={{ left: `calc(220px + (100% - 220px) * ${hojePct / 100})` }}>
             <span className="gantt-today-label">Hoje</span>
@@ -99,25 +118,50 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
 
 // ----- Visão Geral tab -----
 const VisaoGeral = ({ etapas, etapasLoaded }) => {
-  const D = AppData;
+  // Curva S real (mesmo cálculo do módulo Cronograma): planejado x executado acumulados.
+  const curva = React.useMemo(() => {
+    const months = getMonthRange(etapas);
+    if (!months.length) return { months: [], planejado: [], executado: [], todayIdx: -1 };
+    const sumMes = (dist) => {
+      const t = {}; months.forEach(m => { t[m.key] = 0; });
+      Object.values(dist).forEach(d => months.forEach(m => { t[m.key] += (d[m.key] || 0); }));
+      return t;
+    };
+    const pMon = sumMes(computeMonthlyDist(etapas));
+    const rMon = sumMes(computeRealizedDist(etapas));
+    const grand = months.reduce((s, m) => s + pMon[m.key], 0) || 1;
+    let accP = 0, accR = 0;
+    const planejado = months.map(m => { accP += pMon[m.key]; return accP / grand * 100; });
+    const executado = months.map(m => { accR += rMon[m.key]; return accR / grand * 100; });
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return { months, planejado, executado, todayIdx: months.findIndex(m => m.key === todayKey) };
+  }, [etapas]);
+
   return (
     <div className="stack">
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="card-title">Curva S — Físico vs Financeiro</div>
-              <div className="card-subtitle">Acompanhamento mensal acumulado</div>
+              <div className="card-title">Curva S — Produção física acumulada</div>
+              <div className="card-subtitle">Distribuição mensal do custo · planejado x executado</div>
             </div>
             <div className="card-actions">
               <div className="legend">
-                <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Físico</span>
-                <span className="legend-item"><span className="legend-swatch" style={{ background: '#1f8b5c' }}></span>Financeiro</span>
-                <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--text-faint)', borderRadius: 999 }}></span>Planejado</span>
+                <span className="legend-item"><span className="legend-swatch" style={{ background: '#16a34a' }}></span>Executado</span>
+                <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Planejado</span>
               </div>
             </div>
           </div>
-          <div className="card-body">
-            <CurveS series={D.avancoSerie} />
+          <div className="card-body" style={{ overflowX: 'auto' }}>
+            {!etapasLoaded ? (
+              <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Carregando cronograma…</div>
+            ) : curva.months.length ? (
+              <SCurveChart months={curva.months} reprogramado={curva.planejado} real={curva.executado}
+                baseline={null} todayIdx={curva.todayIdx} show={{ bl: false, rep: true, real: true }} showBarras={false} />
+            ) : (
+              <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Sem cronograma com datas para exibir a curva.</div>
+            )}
           </div>
         </div>
 
@@ -353,6 +397,15 @@ const Fotos = ({ obra, readOnly = false }) => {
   const [editando,     setEditando]     = React.useState(null);
   const [filtroMes,    setFiltroMes]    = React.useState('');
   const [lightboxIdx,  setLightboxIdx]  = React.useState(null);
+  // Pavimentos cadastrados na obra — abastecem o dropdown do campo Pavimento
+  const [pavimentos,   setPavimentos]   = React.useState([]);
+  React.useEffect(() => { pavimentosService.listar(obra.id).then(setPavimentos); }, [obra.id]);
+  const registrarPavimento = (nome) => {
+    const n = String(nome || '').trim();
+    if (!n || pavimentos.includes(n)) return;
+    setPavimentos(prev => [...new Set([...prev, n])].sort());
+    pavimentosService.salvar(obra.id, [n]);
+  };
 
   const carregarFotos = async () => {
     setLoading(true);
@@ -394,13 +447,14 @@ const Fotos = ({ obra, readOnly = false }) => {
     // `url` é legada e NOT NULL — guardamos o próprio path (não geramos mais URL pública).
     const { error: dbErr } = await supabase.from('fotos_obra').insert([{ obra_id: obra.id, url: path, storage_path: path, ...metadados }]);
     if (dbErr) { toast('Erro ao salvar foto', { tone: 'danger' }); return; }
+    registrarPavimento(metadados.pavimento);
     toast('Foto salva', { tone: 'success', icon: 'check' });
     carregarFotos();
   };
 
   const atualizarFoto = async (id, metadados) => {
     const { error } = await supabase.from('fotos_obra').update(metadados).eq('id', id);
-    if (!error) { toast('Foto atualizada', { tone: 'success', icon: 'check' }); carregarFotos(); }
+    if (!error) { registrarPavimento(metadados.pavimento); toast('Foto atualizada', { tone: 'success', icon: 'check' }); carregarFotos(); }
   };
 
   const excluirFoto = async (foto) => {
@@ -478,8 +532,8 @@ const Fotos = ({ obra, readOnly = false }) => {
                 ))}
               </div>
       }
-      {showUpload && <UploadFotoModal obra={obra} onSave={salvarFoto} onClose={() => setShowUpload(false)} />}
-      {editando && <EditFotoModal foto={editando} onSave={(m) => { atualizarFoto(editando.id, m); setEditando(null); }} onClose={() => setEditando(null)} />}
+      {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFoto} onClose={() => setShowUpload(false)} />}
+      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={(m) => { atualizarFoto(editando.id, m); setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox fotos={fotosFiltradas} idx={lightboxIdx} onNavigate={setLightboxIdx} onClose={() => setLightboxIdx(null)} />
       )}
@@ -508,7 +562,7 @@ function compressImagem(file, maxW = 1200, quality = 0.82) {
 }
 
 // ----- Modal: Upload de Foto -----
-const UploadFotoModal = ({ obra, onSave, onClose }) => {
+const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
   const [file,    setFile]    = React.useState(null);
   const [preview, setPreview] = React.useState(null);
   const [saving,  setSaving]  = React.useState(false);
@@ -572,7 +626,10 @@ const UploadFotoModal = ({ obra, onSave, onClose }) => {
           </div>
           <div className="field">
             <label>Pavimento</label>
-            <input placeholder="Ex.: 3º Pavimento, Térreo" value={form.pavimento} onChange={e => set('pavimento', e.target.value)} />
+            <input list="pavimentos-obra-list" placeholder="Selecione ou digite" value={form.pavimento} onChange={e => set('pavimento', e.target.value)} />
+            <datalist id="pavimentos-obra-list">
+              {pavimentos.map(p => <option key={p} value={p} />)}
+            </datalist>
           </div>
           <div className="field full">
             <label>Descrição</label>
@@ -585,7 +642,7 @@ const UploadFotoModal = ({ obra, onSave, onClose }) => {
 };
 
 // ----- Modal: Editar Foto -----
-const EditFotoModal = ({ foto, onSave, onClose }) => {
+const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
   const [form, setForm] = React.useState({ data: foto.data || '', pavimento: foto.pavimento || '', descricao: foto.descricao || '' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   return (
@@ -604,7 +661,10 @@ const EditFotoModal = ({ foto, onSave, onClose }) => {
         </div>
         <div className="field">
           <label>Pavimento</label>
-          <input placeholder="Ex.: 3º Pavimento, Térreo" value={form.pavimento} onChange={e => set('pavimento', e.target.value)} />
+          <input list="pavimentos-obra-list-edit" placeholder="Selecione ou digite" value={form.pavimento} onChange={e => set('pavimento', e.target.value)} />
+          <datalist id="pavimentos-obra-list-edit">
+            {pavimentos.map(p => <option key={p} value={p} />)}
+          </datalist>
         </div>
         <div className="field full">
           <label>Descrição</label>
@@ -815,11 +875,15 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
 
       {/* TABS */}
       <div className="tabs">
-        {tabs.map(t => (
-          <button key={t.id} className={'tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
+        {tabs.map(t => {
+          const ativo = tab === t.id;
+          return (
+            <button key={t.id} className={'tab' + (ativo ? ' active' : '')} onClick={() => setTab(t.id)}
+              style={ativo ? { background: 'var(--brand)', color: '#fff', borderRadius: 8, borderBottomColor: 'transparent' } : undefined}>
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
       {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} />}
@@ -854,6 +918,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                       <tr style={{ borderBottom: '1px solid var(--border)' }}>
                         <th style={thS}>Etapa</th>
                         <th style={thS}>Início</th>
+                        <th style={thS}>Término</th>
                         <th style={thS}>Duração</th>
                         <th style={thS}>Avanço</th>
                         <th style={thS}>Status</th>
@@ -864,7 +929,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                       {etapasObra.map((e, i) => (
                         <tr key={i}>
                           <td style={tdS}>{e.etapa}</td>
-                          <td style={tdS}>Mês {Math.floor(e.inicio / 30) + 1}</td>
+                          <td style={tdS}>{isoToBR(offsetToISO(e.inicio))}</td>
+                          <td style={tdS}>{isoToBR(offsetToISO((e.inicio || 0) + (e.dur || 0)))}</td>
                           <td style={tdS}>{e.dur}d</td>
                           <td style={tdS}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>

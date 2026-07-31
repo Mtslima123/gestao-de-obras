@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { useToast, Modal } from '../../components/Modals';
 import { orcamentosService } from './orcamentos.service';
+import { vinculoService } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 import { moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
 
@@ -609,6 +610,19 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       if (!error && data && data.length > 0) { _itensCache[orcamento.id] = data; setItems(data); }
     });
   }, [orcamento.id]);
+
+  // Itens vinculados a alguma tarefa do cronograma (indicador na composição)
+  const [vinculadoSet, setVinculadoSet] = React.useState(() => new Set());
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!orcamento.obra_id) { setVinculadoSet(new Set()); return; }
+    vinculoService.listarPorObra(orcamento.obra_id).then((vinc) => {
+      if (cancelled) return;
+      const lista = Array.isArray(vinc) ? vinc : (vinc?.data || []);
+      setVinculadoSet(new Set(lista.map(v => v.orcamento_item_id)));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [orcamento.obra_id, orcamento.id]);
 
   // ── Utilitários de hierarquia ──────────────────────────────────────────────
   const getNivel = (codigo) => (codigo.match(/\./g) || []).length;
@@ -1276,6 +1290,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
                     const hasKids   = parentSet.has(it.codigo);
                     const isOpen    = !collapsed.has(it.codigo);
                     const indent    = nivel * 18;
+                    const vinculado = !hasKids && vinculadoSet.has(it.id);
 
                     return (
                       <tr
@@ -1306,6 +1321,10 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
                             >
                               {it.codigo}
                             </span>
+                            {vinculado && (
+                              <span title="Vinculada a uma tarefa do cronograma"
+                                style={{ flexShrink: 0, width: 8, height: 8, borderRadius: '50%', background: '#16a34a', boxShadow: '0 0 0 2px rgba(22,163,74,0.18)' }} />
+                            )}
                           </div>
                         </td>
 

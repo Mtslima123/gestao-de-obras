@@ -742,8 +742,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
           <div style={{ flex: '2 1 480px', minWidth: 0 }}>
           <div className="card">
             <div className="card-header" style={{ overflow: 'visible', height: 69 }}>
-              <div>
-                <div className="card-title">
+              <div style={{ minWidth: 0 }}>
+                <div className="card-title" style={{ whiteSpace: 'nowrap' }}>
                   Vínculos cadastrados
                   <span style={{ marginLeft: 8, background: 'var(--surface-muted)', borderRadius: 12, padding: '2px 8px', fontSize: 12, fontWeight: 400 }}>
                     {filtrados.length}
@@ -755,7 +755,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                   )}
                 </div>
                 {filtrados.length > 0 && (
-                  <div className="card-subtitle">
+                  <div className="card-subtitle" style={{ whiteSpace: 'nowrap' }}>
                     Total vinculado: <strong>{formatBRL(totalVinculado)}</strong>
                   </div>
                 )}
@@ -775,11 +775,11 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                   suggestions={sugestoesEtapa}
                   style={{ width: 190 }}
                 />
-                {(filtroItem || filtroEtapa) && (
-                  <button className="btn btn-ghost" onClick={() => { setFiltroItem(''); setFiltroEtapa(''); }}>
-                    <Icon name="x" size={14} />Limpar
-                  </button>
-                )}
+                {/* Sempre no layout (reserva o espaço) — invisível sem filtro, pra não mover os campos ao digitar */}
+                <button className="btn btn-ghost" onClick={() => { setFiltroItem(''); setFiltroEtapa(''); }}
+                  style={{ visibility: (filtroItem || filtroEtapa) ? 'visible' : 'hidden' }}>
+                  <Icon name="x" size={14} />Limpar
+                </button>
               </div>
             </div>
 
@@ -1000,6 +1000,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
 
 // ─── ResumoVinculos ───────────────────────────────────────────────────────────
 const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistribuir }) => {
+  const [filtroResumo, setFiltroResumo] = React.useState('');
   const porEtapa = {};
   vinculos.forEach(v => {
     if (!porEtapa[v.etapa_id]) porEtapa[v.etapa_id] = { itens: [], total: 0 };
@@ -1009,13 +1010,23 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistr
 
   const etapasComVinculo = etapas.filter(e => porEtapa[e.id]);
   if (etapasComVinculo.length === 0) return null;
+  const q = filtroResumo.trim().toLowerCase();
+  const etapasFiltradas = q ? etapasComVinculo.filter(e => (e.etapa || '').toLowerCase().includes(q)) : etapasComVinculo;
 
   return (
     <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div className="card-header" style={{ height: 69 }}>
-        <div>
-          <div className="card-title">Resumo por tarefa</div>
-          <div className="card-subtitle">Valor total recebido do orçamento por tarefa vinculada</div>
+      <div className="card-header" style={{ height: 69, overflow: 'visible' }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="card-title" style={{ whiteSpace: 'nowrap' }}>Resumo por tarefa</div>
+          <div className="card-subtitle" style={{ whiteSpace: 'nowrap' }}>Valor total recebido do orçamento por tarefa vinculada</div>
+        </div>
+        <div className="card-actions">
+          <input className="input" placeholder="Filtrar por tarefa…" value={filtroResumo}
+            onChange={e => setFiltroResumo(e.target.value)} style={{ width: 180 }} />
+          <button className="btn btn-ghost" onClick={() => setFiltroResumo('')}
+            style={{ visibility: filtroResumo ? 'visible' : 'hidden' }}>
+            <Icon name="x" size={14} />Limpar
+          </button>
         </div>
       </div>
       <div className="card-body" style={{ padding: 0, flex: 1, overflow: 'hidden' }}>
@@ -1030,7 +1041,10 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistr
             </tr>
           </thead>
           <tbody>
-            {etapasComVinculo.map(e => (
+            {etapasFiltradas.length === 0 && (
+              <tr><td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-faint)' }}>Nenhuma tarefa para o filtro.</td></tr>
+            )}
+            {etapasFiltradas.map(e => (
               <tr key={e.id}>
                 <td>
                   {' '.repeat((e.nivel || 0) * 2)}
