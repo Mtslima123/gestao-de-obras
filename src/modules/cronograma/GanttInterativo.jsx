@@ -75,7 +75,9 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   // Mantém o ref sincronizado com a prop a cada render
   etapasRef.current = etapas;
 
-  const today = React.useMemo(() => gmCalcToday(), []);
+  // "Hoje" no MESMO referencial das barras/tlStartOffset (calendário real, via dateToOffset).
+  // gmCalcToday usa mês fixo de 30 dias e desalinha da grade real com o tempo (linha HOJE atrasada).
+  const today = React.useMemo(() => dateToOffset(new Date().toISOString().slice(0, 10)), []);
 
   // Conflitos derivados da prop (atualiza após cada commit)
   const conflictIds = React.useMemo(() => {

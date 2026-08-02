@@ -4,10 +4,11 @@ import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
-import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset } from '../cronograma/ganttUtils';
+import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
-import { getMonthRange, computeMonthlyDist, computeRealizedDist, computeGroupValues } from '../cronograma/scheduleEngine';
+import { getMonthRange, computeMonthlyDist, computeRealizedDist, computeGroupValues, computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { SCurveChart } from '../cronograma/SCurveChart';
+import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { pavimentosService } from '../../services/pavimentos.service';
 
 // Obra Detail Page
@@ -117,8 +118,9 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
 };
 
 // ----- Visão Geral tab -----
-const VisaoGeral = ({ etapas, etapasLoaded }) => {
+const VisaoGeral = ({ etapas, etapasLoaded, weightOverride = null }) => {
   // Curva S real (mesmo cálculo do módulo Cronograma): planejado x executado acumulados.
+  // Com vínculos de orçamento, o valor vem do valor vinculado (weightOverride), não de e.custo.
   const curva = React.useMemo(() => {
     const months = getMonthRange(etapas);
     if (!months.length) return { months: [], planejado: [], executado: [], todayIdx: -1 };
@@ -127,8 +129,8 @@ const VisaoGeral = ({ etapas, etapasLoaded }) => {
       Object.values(dist).forEach(d => months.forEach(m => { t[m.key] += (d[m.key] || 0); }));
       return t;
     };
-    const pMon = sumMes(computeMonthlyDist(etapas));
-    const rMon = sumMes(computeRealizedDist(etapas));
+    const pMon = sumMes(computeMonthlyDist(etapas, weightOverride));
+    const rMon = sumMes(computeRealizedDist(etapas, weightOverride));
     const grand = months.reduce((s, m) => s + pMon[m.key], 0) || 1;
     let accP = 0, accR = 0;
     const planejado = months.map(m => { accP += pMon[m.key]; return accP / grand * 100; });
@@ -136,7 +138,7 @@ const VisaoGeral = ({ etapas, etapasLoaded }) => {
     const now = new Date();
     const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     return { months, planejado, executado, todayIdx: months.findIndex(m => m.key === todayKey) };
-  }, [etapas]);
+  }, [etapas, weightOverride]);
 
   return (
     <div className="stack">
@@ -802,6 +804,45 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     ? offsetToISO(Math.max(...etapasObra.map(e => (e.inicio || 0) + (e.dur || 0))))
     : null;
 
+  // Vínculos do orçamento — quando existem, o valor da distribuição vem do valor vinculado
+  // (mesma lógica do módulo Cronograma), senão a curva ficaria zerada com custo=0.
+  const [vinculosObra, setVinculosObra] = React.useState([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    vinculoService.listarPorObra(o.id).then(({ data, error }) => {
+      if (cancelled || error) return;
+      setVinculosObra(data || []);
+    });
+    return () => { cancelled = true; };
+  }, [o.id]);
+
+  const weightOverride = React.useMemo(() => {
+    if (!vinculosObra.length || !etapasObra.length) return null;
+    const itensMap = {};
+    vinculosObra.forEach(v => { if (v.orcamento_itens) itensMap[v.orcamento_item_id] = itemValor(v.orcamento_itens); });
+    return computeValorVinculadoMap(etapasObra, vinculosObra, itensMap);
+  }, [vinculosObra, etapasObra]);
+
+  // Avanço físico real + planejado acumulado até hoje (para o cabeçalho da obra)
+  const heroStats = React.useMemo(() => {
+    // Avanço físico igual ao Gantt (por custo / média simples), sem o peso financeiro dos vínculos.
+    const avancoFisico = computeAvancoFisico(etapasObra);
+    const months = getMonthRange(etapasObra);
+    let planejadoHoje = 0;
+    if (months.length) {
+      const dist = computeMonthlyDist(etapasObra, weightOverride);
+      const t = {}; months.forEach(m => { t[m.key] = 0; });
+      Object.values(dist).forEach(d => months.forEach(m => { t[m.key] += (d[m.key] || 0); }));
+      const grand = months.reduce((s, m) => s + t[m.key], 0) || 1;
+      const now = new Date();
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      let acc = 0;
+      for (const m of months) { acc += t[m.key]; if (m.key >= todayKey) break; }
+      planejadoHoje = Math.round(acc / grand * 100);
+    }
+    return { avancoFisico, planejadoHoje };
+  }, [etapasObra, weightOverride]);
+
   const tabs = [
     { id: 'visao',      label: 'Visão geral' },
     { id: 'cronograma', label: 'Cronograma'  },
@@ -855,8 +896,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
           <div className="hero-stats">
             <div className="hero-stat">
               <div className="label">Avanço físico</div>
-              <div className="value num" style={{ color: 'var(--brand)' }}>{o.avancoFisico}%</div>
-              <div className="meta">vs planejado 65%</div>
+              <div className="value num" style={{ color: 'var(--brand)' }}>{heroStats.avancoFisico}%</div>
+              <div className="meta">vs planejado {heroStats.planejadoHoje}%</div>
             </div>
             <div className="hero-stat">
               <div className="label">Entrega</div>
@@ -886,7 +927,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
         })}
       </div>
 
-      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} />}
+      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} weightOverride={weightOverride} />}
       {tab === 'cronograma' && (
         <div className="card">
           <div className="card-header">

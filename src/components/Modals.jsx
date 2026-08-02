@@ -254,6 +254,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     status:       obra?.status      || 'em_andamento',
     endereco:     obra?.endereco    || '',
     dataPrevista: obra?.previsto    || '',
+    dataFimObra:  obra?.dataFimObra || '',
     // Campos futuros: cliente, tipo, area, orcamento, risco, observacoes
   });
 
@@ -270,6 +271,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         status:      form.status,
         endereco:    form.endereco,
         previsto:    form.dataPrevista || obra.previsto,
+        dataFimObra: form.dataFimObra || null,
         // id não é sobrescrito — permanece imutável
       };
     } else {
@@ -286,6 +288,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         avancoFinanceiro: 0,
         inicio:           new Date().toISOString().slice(0, 10),
         previsto:         form.dataPrevista || new Date().toISOString().slice(0, 10),
+        dataFimObra:      form.dataFimObra || null,
         status:           'em_andamento',
         risco:            'baixo',
         etapaAtual:       'Em planejamento',
@@ -351,11 +354,19 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
           />
         </div>
         <div className="field">
-          <label>Data do cliente (entrega)</label>
+          <label>Entrega (cliente)</label>
           <input
             type="date"
             value={form.dataPrevista}
             onChange={e => set('dataPrevista', e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Data fim da obra</label>
+          <input
+            type="date"
+            value={form.dataFimObra}
+            onChange={e => set('dataFimObra', e.target.value)}
           />
         </div>
         {/* Campos futuros: cliente, tipo, área, orçamento, risco, observações */}

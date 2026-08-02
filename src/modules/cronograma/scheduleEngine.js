@@ -631,6 +631,18 @@ export function computeGroupValues(etapas) {
   return result;
 }
 
+// Avanço físico da obra: média do avanço das folhas ponderada pelo custo/valor de cada uma.
+// weightOverride (valor vinculado do orçamento) substitui e.custo quando há vínculos.
+// Sem custo/valor, cai na média simples do avanço (evita 0% quando o custo é 0).
+export function computeAvancoFisico(etapas, weightOverride = null) {
+  const folhas = (etapas || []).filter(e => !e.isGroup);
+  if (!folhas.length) return 0;
+  const w = (e) => weightOverride ? (weightOverride[e.id] || 0) : (e.custo || 0);
+  const totalW = folhas.reduce((s, e) => s + w(e), 0);
+  if (totalW > 0) return Math.round(folhas.reduce((s, e) => s + (e.avanco || 0) * w(e), 0) / totalW);
+  return Math.round(folhas.reduce((s, e) => s + (e.avanco || 0), 0) / folhas.length);
+}
+
 // Move um bloco de tarefas (tarefa + todos os descendentes) para nova posição no array.
 // O parentId das tarefas movidas não é alterado — apenas a ordem no array muda.
 export function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {

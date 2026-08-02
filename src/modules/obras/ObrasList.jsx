@@ -3,7 +3,8 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { Modal, ObraFormModal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
-import { offsetToISO } from '../cronograma/ganttUtils';
+import { offsetToISO, migrateEtapas } from '../cronograma/ganttUtils';
+import { computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { isAdmin } from '../../utils/permissions';
 
 // Obras — lista completa em cards
@@ -17,22 +18,26 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
   const [deleteObra,     setDeleteObra]    = React.useState(null);
   const [deleteStep,     setDeleteStep]    = React.useState(1);
   const [cronFinal,      setCronFinal]     = React.useState({}); // { [obraId]: 'YYYY-MM-DD' | null } — data final do cronograma, sempre calculada das etapas reais
+  const [avancoMap,      setAvancoMap]     = React.useState({}); // { [obraId]: % } — avanço físico calculado do cronograma (ponderado pelo valor)
   const [capaUrls,       setCapaUrls]      = React.useState({}); // { [obraId]: signedUrl } — capa via URL assinada (bucket privado)
 
-  // Recalcula a data final do cronograma de cada obra a cada vez que a lista é aberta/atualizada
+  // Recalcula a data final e o avanço físico do cronograma de cada obra ao abrir/atualizar a lista.
+  // Avanço físico = mesmo cálculo do Gantt (ponderado por custo, com média simples quando custo=0).
   React.useEffect(() => {
     const ids = obras.map(o => o.id);
-    if (ids.length === 0) { setCronFinal({}); return; }
+    if (ids.length === 0) { setCronFinal({}); setAvancoMap({}); return; }
     supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids).then(({ data }) => {
-      const map = {};
+      const fimMap = {}, avMap = {};
       (data || []).forEach(row => {
-        const etapas = row.etapas || [];
-        if (!etapas.length) { map[row.obra_id] = null; return; }
-        const fimMax = Math.max(...etapas.map(e => (e.inicio || 0) + (e.dur || 0)));
-        map[row.obra_id] = offsetToISO(fimMax);
+        try {
+          const etapas = migrateEtapas(row.etapas || []);
+          if (!etapas.length) { fimMap[row.obra_id] = null; avMap[row.obra_id] = 0; return; }
+          fimMap[row.obra_id] = offsetToISO(Math.max(...etapas.map(e => (e.inicio || 0) + (e.dur || 0))));
+          avMap[row.obra_id] = computeAvancoFisico(etapas);
+        } catch (e) { console.error('[obras] avanço/término', row.obra_id, e); }
       });
-      setCronFinal(map);
-    }).catch(err => console.error('[obras] falha ao carregar términos do cronograma', err));
+      setCronFinal(fimMap); setAvancoMap(avMap);
+    }).catch(err => console.error('[obras] falha ao carregar cronogramas', err));
   }, [obras]);
 
   // Capas via URL assinada (bucket obras-images privado). Path determinístico: obras/<id>/capa.jpg
@@ -192,25 +197,30 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
                 </span>
               </div>
 
-              <div>
-                <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span className="text-xs text-muted fw-600" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>Avanço físico</span>
-                  <span className="mono num fw-700" style={{ fontSize: 13, color: 'var(--brand)' }}>{o.avancoFisico}%</span>
-                </div>
-                <div className={'progress' + (o.risco === 'alto' ? ' danger' : o.avancoFisico >= 95 ? ' success' : '')}>
-                  <span style={{ width: o.avancoFisico + '%' }}></span>
-                </div>
-              </div>
+              {(() => {
+                const av = avancoMap[o.id] ?? o.avancoFisico ?? 0;
+                return (
+                  <div>
+                    <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span className="text-xs text-muted fw-600" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>Avanço físico</span>
+                      <span className="mono num fw-700" style={{ fontSize: 13, color: 'var(--brand)' }}>{av}%</span>
+                    </div>
+                    <div className={'progress' + (o.risco === 'alto' ? ' danger' : av >= 95 ? ' success' : '')}>
+                      <span style={{ width: av + '%' }}></span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="obra-card-foot">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Entrega ao cliente">
+                  <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Entrega (cliente)">
                     <Icon name="calendar" size={12} />
-                    <span className="mono">{o.previsto.split('-').reverse().join('/')}</span>
+                    <span className="mono">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</span>
                   </span>
-                  <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Término previsto do cronograma">
+                  <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Data fim da obra">
                     <Icon name="flag" size={12} />
-                    <span className="mono">{cronFinal[o.id] ? cronFinal[o.id].split('-').reverse().join('/') : '—'}</span>
+                    <span className="mono">{o.dataFimObra ? o.dataFimObra.split('-').reverse().join('/') : '—'}</span>
                   </span>
                 </div>
                 {o.alertas > 0 && (
