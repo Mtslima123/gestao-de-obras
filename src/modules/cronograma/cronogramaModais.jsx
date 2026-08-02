@@ -273,6 +273,14 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
     onClose();
   };
 
+  // Apenas registra os pavimentos na obra (disponíveis para reutilizar em inserções/fotos),
+  // sem criar subtarefas agora.
+  const handleSalvarPreCadastro = () => {
+    if (!validFloors.length) return;
+    onPavimentosCriados?.(validFloors);
+    onClose();
+  };
+
   return (
     <Modal
       title="Inserção automática de pavimentos"
@@ -284,9 +292,15 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
             {step === 1 ? 'Cancelar' : 'Voltar'}
           </button>
           {step === 1 ? (
-            <button className="btn btn-primary" disabled={!validFloors.length} onClick={() => setStep(2)}>
-              Próximo →
-            </button>
+            <>
+              <button className="btn btn-ghost" disabled={!validFloors.length} onClick={handleSalvarPreCadastro}
+                title="Salva os pavimentos na obra para reutilizar depois, sem criar subtarefas agora">
+                Salvar pré-cadastro
+              </button>
+              <button className="btn btn-primary" disabled={!validFloors.length} onClick={() => setStep(2)}>
+                Próximo →
+              </button>
+            </>
           ) : (
             <button className="btn btn-primary" disabled={!selectedTasks.length} onClick={handleConfirm}>
               Criar {validFloors.length} pavimento{validFloors.length !== 1 ? 's' : ''} em {selectedTasks.length} tarefa{selectedTasks.length !== 1 ? 's' : ''}
@@ -298,7 +312,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
       {step === 1 && (
         <div>
           <p style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
-            Informe os nomes dos pavimentos. Eles serão criados como subtarefas das tarefas que você selecionar.
+            Informe os nomes dos pavimentos. Use "Salvar pré-cadastro" para deixá-los disponíveis na obra (para reutilizar em inserções e fotos), ou "Próximo" para já criá-los como subtarefas das tarefas que você selecionar.
           </p>
           {floors.map((f, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>

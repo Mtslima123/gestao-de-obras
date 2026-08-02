@@ -39,8 +39,14 @@ function computeJanela(etapasAll) {
     const nome = MES_ABREV[d.getMonth()];
     return (i === 0 || d.getMonth() === 0) ? `${nome}/${String(d.getFullYear()).slice(-2)}` : nome;
   });
+  // Dias reais de cada mês — colunas proporcionais (28-31), como no Gantt do Cronograma,
+  // para as barras (posicionadas por dia) baterem exatamente com os cabeçalhos dos meses.
+  const mesesDias = Array.from({ length: totalMeses }, (_, i) => {
+    const d = new Date(anchor.getFullYear(), anchor.getMonth() + i, 1);
+    return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  });
 
-  return { meses, inicioDias, spanDias: fimDias - inicioDias, totalMeses };
+  return { meses, mesesDias, inicioDias, spanDias: fimDias - inicioDias, totalMeses };
 }
 
 const Gantt = ({ etapas, resumoOnly = false }) => {
@@ -54,7 +60,7 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
   if (!janela) {
     return <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Nenhuma etapa cadastrada.</div>;
   }
-  const { meses: janelaMeses, inicioDias: janelaInicioDias, spanDias: janelaSpanDias } = janela;
+  const { meses: janelaMeses, mesesDias: janelaMesesDias, inicioDias: janelaInicioDias, spanDias: janelaSpanDias } = janela;
   const totalMonths = janelaMeses.length;
 
   // Início/fim efetivos: grupos usam o envelope calculado; folhas usam o término por dias úteis.
@@ -76,7 +82,7 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
       <div style={{ minWidth: 220 + totalMonths * 70, position: 'relative' }}>
         <div className="gantt-head">
           <div style={{ padding: '8px 14px', fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>ETAPA</div>
-          <div className="gantt-month-row" style={{ gridTemplateColumns: `repeat(${totalMonths}, 1fr)` }}>
+          <div className="gantt-month-row" style={{ gridTemplateColumns: janelaMesesDias.map(d => `${d}fr`).join(' ') }}>
             {janelaMeses.map((m, i) => <div key={i} className="gantt-month">{m}</div>)}
           </div>
         </div>
@@ -563,6 +569,39 @@ function compressImagem(file, maxW = 1200, quality = 0.82) {
   });
 }
 
+// Campo Pavimento: combobox que lista os pavimentos cadastrados na obra (mesma fonte do
+// cronograma) e permite digitar livremente um novo.
+const PavimentoInput = ({ value, onChange, options = [] }) => {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+  const q = (value || '').toLowerCase();
+  const filtered = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <input placeholder="Selecione ou digite" value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)} style={{ width: '100%' }} />
+      {open && filtered.length > 0 && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 30, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, marginTop: 4, maxHeight: 200, overflowY: 'auto', boxShadow: '0 10px 30px rgba(0,0,0,0.14)' }}>
+          {filtered.map(o => (
+            <div key={o} onMouseDown={() => { onChange(o); setOpen(false); }}
+              style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-muted)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
+              {o}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ----- Modal: Upload de Foto -----
 const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
   const [file,    setFile]    = React.useState(null);
@@ -628,10 +667,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
           </div>
           <div className="field">
             <label>Pavimento</label>
-            <input list="pavimentos-obra-list" placeholder="Selecione ou digite" value={form.pavimento} onChange={e => set('pavimento', e.target.value)} />
-            <datalist id="pavimentos-obra-list">
-              {pavimentos.map(p => <option key={p} value={p} />)}
-            </datalist>
+            <PavimentoInput value={form.pavimento} onChange={v => set('pavimento', v)} options={pavimentos} />
           </div>
           <div className="field full">
             <label>Descrição</label>
@@ -663,10 +699,7 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
         </div>
         <div className="field">
           <label>Pavimento</label>
-          <input list="pavimentos-obra-list-edit" placeholder="Selecione ou digite" value={form.pavimento} onChange={e => set('pavimento', e.target.value)} />
-          <datalist id="pavimentos-obra-list-edit">
-            {pavimentos.map(p => <option key={p} value={p} />)}
-          </datalist>
+          <PavimentoInput value={form.pavimento} onChange={v => set('pavimento', v)} options={pavimentos} />
         </div>
         <div className="field full">
           <label>Descrição</label>
