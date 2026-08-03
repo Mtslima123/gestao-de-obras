@@ -5,7 +5,7 @@ import React from 'react';
 // Executado) com eixo secundário, e o marcador "hoje". Cores da marca (navy).
 export const SCurveChart = ({ months = [], reprogramado = [], real = [], baseline = null, monthlyPct = [], todayIdx = -1,
   show = { bl: true, rep: true, real: true }, height = 300,
-  previstoM = [], replanM = [], execM = [], showBarras = false }) => {
+  previstoM = [], replanM = [], execM = [], showBarras = false, repDashed = false }) => {
   const N = months.length || 1;
   const pL = 54, pR = showBarras ? 50 : 20, pT = 18, pB = 52;
   const svgW = 1000, svgH = height;
@@ -85,11 +85,25 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
       {/* Linha de Base — cinza tracejado */}
       {baselinePts && <polyline points={baselinePts} fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5,4" strokeLinejoin="round" />}
       {/* Reprogramado — azul */}
-      {show.rep && <polyline points={repPts} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" />}
-      {show.rep && reprogramado.map((v, i) => <circle key={'r' + i} cx={xC(i)} cy={yS(v)} r="3.5" fill="#fff" stroke="var(--brand)" strokeWidth="2" />)}
+      {show.rep && <polyline points={repPts} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" strokeDasharray={repDashed ? '6,4' : undefined} />}
+      {show.rep && reprogramado.map((v, i) => v == null ? null : (
+        <g key={'r' + i}>
+          <circle cx={xC(i)} cy={yS(v)} r="3.5" fill="#fff" stroke="var(--brand)" strokeWidth="2" />
+          <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'default' }}>
+            <title>{(months[i]?.label ? months[i].label + ': ' : '') + v.toFixed(2).replace('.', ',') + '%'}</title>
+          </circle>
+        </g>
+      ))}
       {/* Real — verde */}
       {show.real && <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" />}
-      {show.real && real.map((v, i) => v != null ? <circle key={'re' + i} cx={xC(i)} cy={yS(v)} r="3.5" fill="#16a34a" /> : null)}
+      {show.real && real.map((v, i) => v == null ? null : (
+        <g key={'re' + i}>
+          <circle cx={xC(i)} cy={yS(v)} r="3.5" fill="#16a34a" />
+          <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'default' }}>
+            <title>{(months[i]?.label ? months[i].label + ': ' : '') + v.toFixed(2).replace('.', ',') + '%'}</title>
+          </circle>
+        </g>
+      ))}
       {months.map((m, i) => {
         if (N > 18 && i % 2 !== 0) return null;
         if (N > 30 && i % 3 !== 0) return null;

@@ -4,11 +4,10 @@ import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
-import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap } from '../cronograma/ganttUtils';
+import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
-import { getMonthRange, computeMonthlyDist, computeRealizedDist, computeGroupValues, computeAvancoFisico } from '../cronograma/scheduleEngine';
+import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { SCurveChart } from '../cronograma/SCurveChart';
-import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { pavimentosService } from '../../services/pavimentos.service';
 
 // Obra Detail Page
@@ -124,19 +123,24 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
 };
 
 // ----- Visão Geral tab -----
-const VisaoGeral = ({ etapas, etapasLoaded, weightOverride = null }) => {
-  // Curva S real (mesmo cálculo do módulo Cronograma): planejado x executado acumulados.
-  // Com vínculos de orçamento, o valor vem do valor vinculado (weightOverride), não de e.custo.
+const VisaoGeral = ({ etapas, etapasLoaded }) => {
+  // Curva S de produção física: peso = duração de cada folha (sempre > 0 e cobre TODAS as
+  // tarefas, inclusive as executadas sem custo/vínculo). Planejado e Executado usam o mesmo
+  // peso; Executado = distribuição planejada escalada pelo avanço de cada folha.
   const curva = React.useMemo(() => {
     const months = getMonthRange(etapas);
     if (!months.length) return { months: [], planejado: [], executado: [], todayIdx: -1 };
-    const sumMes = (dist) => {
-      const t = {}; months.forEach(m => { t[m.key] = 0; });
-      Object.values(dist).forEach(d => months.forEach(m => { t[m.key] += (d[m.key] || 0); }));
-      return t;
-    };
-    const pMon = sumMes(computeMonthlyDist(etapas, weightOverride));
-    const rMon = sumMes(computeRealizedDist(etapas, weightOverride));
+    const durW = {};
+    etapas.forEach(e => { if (!e.isGroup) durW[e.id] = Math.max(1, e.dur || 1); });
+    const distPlan = computeMonthlyDist(etapas, durW); // { folhaId: { mês: dias no mês } }
+    const avancoOf = {};
+    etapas.forEach(e => { if (!e.isGroup) avancoOf[e.id] = Math.min(1, Math.max(0, (e.avanco || 0) / 100)); });
+    const pMon = {}, rMon = {};
+    months.forEach(m => { pMon[m.key] = 0; rMon[m.key] = 0; });
+    Object.entries(distPlan).forEach(([id, d]) => {
+      const av = avancoOf[id] || 0;
+      months.forEach(m => { const v = d[m.key] || 0; pMon[m.key] += v; rMon[m.key] += v * av; });
+    });
     const grand = months.reduce((s, m) => s + pMon[m.key], 0) || 1;
     let accP = 0, accR = 0;
     const planejado = months.map(m => { accP += pMon[m.key]; return accP / grand * 100; });
@@ -144,20 +148,20 @@ const VisaoGeral = ({ etapas, etapasLoaded, weightOverride = null }) => {
     const now = new Date();
     const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     return { months, planejado, executado, todayIdx: months.findIndex(m => m.key === todayKey) };
-  }, [etapas, weightOverride]);
+  }, [etapas]);
 
   return (
     <div className="stack">
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="card-title">Curva S — Produção física acumulada</div>
-              <div className="card-subtitle">Distribuição mensal do custo · planejado x executado</div>
+              <div className="card-title">Curva S — Planejado x Executado</div>
+              <div className="card-subtitle">Planejado = custo previsto acumulado · Executado = avanço físico realizado</div>
             </div>
             <div className="card-actions">
               <div className="legend">
                 <span className="legend-item"><span className="legend-swatch" style={{ background: '#16a34a' }}></span>Executado</span>
-                <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Planejado</span>
+                <span className="legend-item"><span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '2px dashed var(--brand)', marginRight: 4, verticalAlign: 'middle' }}></span>Planejado</span>
               </div>
             </div>
           </div>
@@ -166,7 +170,7 @@ const VisaoGeral = ({ etapas, etapasLoaded, weightOverride = null }) => {
               <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Carregando cronograma…</div>
             ) : curva.months.length ? (
               <SCurveChart months={curva.months} reprogramado={curva.planejado} real={curva.executado}
-                baseline={null} todayIdx={curva.todayIdx} show={{ bl: false, rep: true, real: true }} showBarras={false} />
+                baseline={null} todayIdx={curva.todayIdx} show={{ bl: false, rep: true, real: true }} showBarras={false} repDashed />
             ) : (
               <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Sem cronograma com datas para exibir a curva.</div>
             )}
@@ -837,33 +841,15 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     ? offsetToISO(Math.max(...etapasObra.map(e => (e.inicio || 0) + (e.dur || 0))))
     : null;
 
-  // Vínculos do orçamento — quando existem, o valor da distribuição vem do valor vinculado
-  // (mesma lógica do módulo Cronograma), senão a curva ficaria zerada com custo=0.
-  const [vinculosObra, setVinculosObra] = React.useState([]);
-  React.useEffect(() => {
-    let cancelled = false;
-    vinculoService.listarPorObra(o.id).then(({ data, error }) => {
-      if (cancelled || error) return;
-      setVinculosObra(data || []);
-    });
-    return () => { cancelled = true; };
-  }, [o.id]);
-
-  const weightOverride = React.useMemo(() => {
-    if (!vinculosObra.length || !etapasObra.length) return null;
-    const itensMap = {};
-    vinculosObra.forEach(v => { if (v.orcamento_itens) itensMap[v.orcamento_item_id] = itemValor(v.orcamento_itens); });
-    return computeValorVinculadoMap(etapasObra, vinculosObra, itensMap);
-  }, [vinculosObra, etapasObra]);
-
-  // Avanço físico real + planejado acumulado até hoje (para o cabeçalho da obra)
+  // Avanço físico real + planejado acumulado até hoje (para o cabeçalho da obra).
+  // Mesmo critério físico da Curva: distribuição por duração das tarefas.
   const heroStats = React.useMemo(() => {
-    // Avanço físico igual ao Gantt (por custo / média simples), sem o peso financeiro dos vínculos.
     const avancoFisico = computeAvancoFisico(etapasObra);
     const months = getMonthRange(etapasObra);
     let planejadoHoje = 0;
     if (months.length) {
-      const dist = computeMonthlyDist(etapasObra, weightOverride);
+      const durW = {}; etapasObra.forEach(e => { if (!e.isGroup) durW[e.id] = Math.max(1, e.dur || 1); });
+      const dist = computeMonthlyDist(etapasObra, durW);
       const t = {}; months.forEach(m => { t[m.key] = 0; });
       Object.values(dist).forEach(d => months.forEach(m => { t[m.key] += (d[m.key] || 0); }));
       const grand = months.reduce((s, m) => s + t[m.key], 0) || 1;
@@ -874,7 +860,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
       planejadoHoje = Math.round(acc / grand * 100);
     }
     return { avancoFisico, planejadoHoje };
-  }, [etapasObra, weightOverride]);
+  }, [etapasObra]);
 
   const tabs = [
     { id: 'visao',      label: 'Visão geral' },
@@ -960,7 +946,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
         })}
       </div>
 
-      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} weightOverride={weightOverride} />}
+      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} />}
       {tab === 'cronograma' && (
         <div className="card">
           <div className="card-header">
