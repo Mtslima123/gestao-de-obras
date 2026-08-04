@@ -25,7 +25,7 @@ import {
 
 export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
-  pavimentosSalvos = [], onPavimentosCriados,
+  pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   filtroStatus = '', setFiltroStatus, filtroResp = '', setFiltroResp,
   filtroPreset = '', setFiltroPreset, filtroPresetRange = { de: '', ate: '' }, setFiltroPresetRange,
@@ -1797,6 +1797,24 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     toast(`Coluna "${colDef.label}" adicionada`, { tone: 'success', icon: 'check' });
   };
 
+  // Exclui uma coluna PERSONALIZADA (não as padrão): remove a definição e o dado em todas as etapas.
+  const handleDeleteCol = (colId) => {
+    const col = customCols.find(c => c.id === colId);
+    if (!col) return;
+    const newCols = customCols.filter(c => c.id !== colId);
+    AppData.cronogramaCustomCols = newCols;
+    onCustomColsChange(newCols);
+    const novas = etapas.map(e => {
+      const cc = { ...(e.customCols || {}) };
+      delete cc[colId];
+      return { ...e, customCols: cc };
+    });
+    onCommit(novas, { silent: true });
+    setHiddenCols(prev => { const n = new Set(prev); n.delete(colId); return n; });
+    setMultiSelCols(prev => prev.filter(c => c !== colId));
+    toast(`Coluna "${col.label}" excluída`, { tone: 'neutral', icon: 'check' });
+  };
+
   const statusBadgeClass = s => s === 'done' ? 'success' : s === 'late' ? 'danger' : 'info';
   const statusLabel      = s => s === 'done' ? 'Concluída' : s === 'late' ? 'Atrasada' : 'Futura';
 
@@ -3467,6 +3485,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           onCommit={onCommit}
           pavimentosSalvos={pavimentosSalvos}
           onPavimentosCriados={onPavimentosCriados}
+          onPavimentoExcluir={onPavimentoExcluir}
           onClose={() => setShowPavimentos(false)}
         />
       )}
@@ -3597,6 +3616,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           <button onClick={() => { setShowAddCol(true); setCtxMenu(null); }}>
             Inserir coluna
           </button>
+          {!readOnly && customCols.some(c => c.id === ctxMenu.colId) && (
+            <button style={{ color: 'var(--danger)' }}
+              onClick={() => { handleDeleteCol(ctxMenu.colId); setCtxMenu(null); }}>
+              Excluir coluna
+            </button>
+          )}
         </div>
       )}
     </div>

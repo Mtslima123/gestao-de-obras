@@ -214,13 +214,13 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
 
               <div className="obra-card-foot">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Data fim do cronograma">
+                    <Icon name="flag" size={12} />
+                    <span className="mono">{cronFinal[o.id] ? cronFinal[o.id].split('-').reverse().join('/') : '—'}</span>
+                  </span>
                   <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Entrega (cliente)">
                     <Icon name="calendar" size={12} />
                     <span className="mono">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</span>
-                  </span>
-                  <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Data fim da obra">
-                    <Icon name="flag" size={12} />
-                    <span className="mono">{o.dataFimObra ? o.dataFimObra.split('-').reverse().join('/') : '—'}</span>
                   </span>
                 </div>
                 {o.alertas > 0 && (

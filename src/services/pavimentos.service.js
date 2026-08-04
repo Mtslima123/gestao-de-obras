@@ -25,4 +25,16 @@ export const pavimentosService = {
       .upsert(lista.map(nome => ({ obra_id: obraId, nome })), { onConflict: 'obra_id,nome', ignoreDuplicates: true });
     if (error) console.error('[pavimentos_obra] falha ao salvar', error);
   },
+
+  // Remove um pavimento do cadastro da obra.
+  async excluir(obraId, nome) {
+    const n = String(nome || '').trim();
+    if (!obraId || !n) return;
+    const { error } = await supabase
+      .from('pavimentos_obra')
+      .delete()
+      .eq('obra_id', obraId)
+      .eq('nome', n);
+    if (error) console.error('[pavimentos_obra] falha ao excluir', error);
+  },
 };

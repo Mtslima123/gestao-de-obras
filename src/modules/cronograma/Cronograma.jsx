@@ -1637,6 +1637,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     setPavimentosObra(prev => [...new Set([...prev, ...novos])]);
     pavimentosService.salvar(obraSel, novos);
   };
+  const excluirPavimentoObra = (nome) => {
+    setPavimentosObra(prev => prev.filter(n => n !== nome));
+    pavimentosService.excluir(obraSel, nome);
+  };
   // Preferências de visualização estilo MS Project (Mostrar/Ocultar), por obra.
   const [viewCfg, setViewCfg] = React.useState({ projSummary: false, summaryTasks: true });
   React.useEffect(() => {
@@ -2257,7 +2261,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           onFeriados={() => setShowFeriados(true)} onOutlineLevel={applyOutlineLevel}
                           onProjectInfo={() => setShowProjInfo(true)}
                           obraNome={obra?.nome || 'Projeto'}
-                          pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos}
+                          pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos} onPavimentoExcluir={excluirPavimentoObra}
                           showProjSummary={viewCfg.projSummary} showSummaryTasks={viewCfg.summaryTasks}
                           onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
                           onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })}

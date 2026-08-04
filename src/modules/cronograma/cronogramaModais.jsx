@@ -181,7 +181,7 @@ export const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 })
 };
 
 // ─── PavimentosModal ─────────────────────────────────────────────────────────
-export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados }) => {
+export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir }) => {
   const [step,          setStep]          = React.useState(1);
   // Pré-preenche com os pavimentos já cadastrados nesta obra (não precisa redigitar a cada vez).
   const [floors,        setFloors]        = React.useState(pavimentosSalvos.length ? [...pavimentosSalvos] : ['']);
@@ -314,33 +314,35 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
           <p style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
             Informe os nomes dos pavimentos. Use "Salvar pré-cadastro" para deixá-los disponíveis na obra (para reutilizar em inserções e fotos), ou "Próximo" para já criá-los como subtarefas das tarefas que você selecionar.
           </p>
-          {floors.map((f, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-              <span style={{ width: 20, textAlign: 'right', fontSize: 12, color: 'var(--text-faint)', flexShrink: 0 }}>{i + 1}.</span>
-              <input
-                ref={el => { floorInputRefs.current[i] = el; }}
-                className="input"
-                value={f}
-                autoFocus={i === 0}
-                onChange={ev => setFloors(fl => fl.map((x, j) => j === i ? ev.target.value : x))}
-                placeholder={`Ex.: Pavimento ${i + 1}`}
-                style={{ flex: 1 }}
-                onKeyDown={ev => {
-                  if (ev.key !== 'Enter') return;
-                  ev.preventDefault();
-                  if (i < floors.length - 1) floorInputRefs.current[i + 1]?.focus();
-                  else setFloors(fl => [...fl, '']);
-                }}
-              />
-              {floors.length > 1 && (
-                <button
-                  className="btn btn-ghost"
-                  style={{ width: 30, height: 30, padding: 0, fontSize: 16, lineHeight: 1 }}
-                  onClick={() => setFloors(fl => fl.filter((_, j) => j !== i))}
-                >×</button>
-              )}
-            </div>
-          ))}
+          <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 4 }}>
+            {floors.map((f, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                <span style={{ width: 20, textAlign: 'right', fontSize: 12, color: 'var(--text-faint)', flexShrink: 0 }}>{i + 1}.</span>
+                <input
+                  ref={el => { floorInputRefs.current[i] = el; }}
+                  className="input"
+                  value={f}
+                  autoFocus={i === 0}
+                  onChange={ev => setFloors(fl => fl.map((x, j) => j === i ? ev.target.value : x))}
+                  placeholder={`Ex.: Pavimento ${i + 1}`}
+                  style={{ flex: 1 }}
+                  onKeyDown={ev => {
+                    if (ev.key !== 'Enter') return;
+                    ev.preventDefault();
+                    if (i < floors.length - 1) floorInputRefs.current[i + 1]?.focus();
+                    else setFloors(fl => [...fl, '']);
+                  }}
+                />
+                {floors.length > 1 && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ width: 30, height: 30, padding: 0, fontSize: 16, lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => setFloors(fl => fl.filter((_, j) => j !== i))}
+                  >×</button>
+                )}
+              </div>
+            ))}
+          </div>
           <button className="btn btn-ghost" style={{ fontSize: 12, marginTop: 4, gap: 5 }} onClick={() => setFloors(fl => [...fl, ''])}>
             <Icon name="plus" size={12} /> Adicionar pavimento
           </button>
@@ -352,11 +354,15 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {pavimentosSalvos.filter(n => !floors.includes(n)).map(n => (
-                  <button key={n} type="button" className="btn btn-ghost"
-                    style={{ fontSize: 12, padding: '3px 10px', height: 26, borderRadius: 14 }}
-                    onClick={() => addOrFillFloor(n)}>
-                    {n}
-                  </button>
+                  <span key={n} className="btn btn-ghost"
+                    style={{ fontSize: 12, padding: '3px 6px 3px 10px', height: 26, borderRadius: 14, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ cursor: 'pointer' }} title="Adicionar aos pavimentos" onClick={() => addOrFillFloor(n)}>{n}</span>
+                    {onPavimentoExcluir && (
+                      <span role="button" title="Excluir do cadastro da obra"
+                        onClick={() => onPavimentoExcluir(n)}
+                        style={{ cursor: 'pointer', color: 'var(--text-faint)', fontSize: 13, lineHeight: 1, padding: '0 2px' }}>×</span>
+                    )}
+                  </span>
                 ))}
               </div>
             </div>

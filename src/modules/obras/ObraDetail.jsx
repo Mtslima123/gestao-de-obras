@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
@@ -16,8 +17,8 @@ const { brl: brlD } = AppData;
 // ----- Gantt -----
 const MES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-// Janela de meses igual ao Gantt do Cronograma: ancorada 1 mês antes da tarefa-folha mais
-// antiga (tlStartOffset) e estendida até o término (dias úteis, taskEnd) da última folha.
+// Janela de meses: começa no mês da tarefa-folha mais antiga (sem folga vazia à esquerda) e
+// vai até o término (dias úteis, taskEnd) da última folha.
 function computeJanela(etapasAll) {
   const folhas = etapasAll.filter(e => !e.isGroup);
   const base = folhas.length ? folhas : etapasAll;
@@ -25,7 +26,7 @@ function computeJanela(etapasAll) {
   const inicioMin = Math.min(...base.map(e => e.inicio || 0));
   const fimMax    = Math.max(...base.map(e => taskEnd(e)));
   const dIni = offsetToDate(inicioMin);
-  const anchor = new Date(dIni.getFullYear(), dIni.getMonth() - 1, 1); // 1 mês de folga antes, dia 1
+  const anchor = new Date(dIni.getFullYear(), dIni.getMonth(), 1); // começa no mês da 1ª tarefa (sem folga vazia)
   const dFim = offsetToDate(fimMax);
   const totalMeses = (dFim.getFullYear() * 12 + dFim.getMonth()) - (anchor.getFullYear() * 12 + anchor.getMonth()) + 1;
 
@@ -577,21 +578,48 @@ function compressImagem(file, maxW = 1200, quality = 0.82) {
 // cronograma) e permite digitar livremente um novo.
 const PavimentoInput = ({ value, onChange, options = [] }) => {
   const [open, setOpen] = React.useState(false);
-  const ref = React.useRef(null);
+  const [rect, setRect] = React.useState(null);
+  const wrapRef = React.useRef(null);
+  const inputRef = React.useRef(null);
+  const menuRef = React.useRef(null);
+
+  // Dropdown renderizado em portal (position fixed) para NÃO ficar dentro do corpo que rola do
+  // modal — evita a "segunda barra de rolagem" e o conflito de fechar ao clicar na barra externa.
+  // Limita a altura ao espaço disponível e abre para cima se não couber embaixo (não ultrapassa a tela).
+  const abrir = () => {
+    const el = inputRef.current;
+    if (!el) { setOpen(true); return; }
+    const r = el.getBoundingClientRect();
+    const margem = 10, desejada = 240;
+    const espacoAbaixo = window.innerHeight - r.bottom - margem;
+    const espacoAcima  = r.top - margem;
+    const paraBaixo = espacoAbaixo >= 140 || espacoAbaixo >= espacoAcima;
+    const maxHeight = Math.max(80, Math.min(desejada, paraBaixo ? espacoAbaixo : espacoAcima));
+    const top = paraBaixo ? r.bottom + 4 : r.top - 4 - maxHeight;
+    setRect({ top, left: r.left, width: r.width, maxHeight });
+    setOpen(true);
+  };
+
   React.useEffect(() => {
-    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
+    if (!open) return;
+    const onDown = (e) => {
+      if (wrapRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
   const q = (value || '').toLowerCase();
   const filtered = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <input placeholder="Selecione ou digite" value={value}
-        onChange={e => { onChange(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)} style={{ width: '100%' }} />
-      {open && filtered.length > 0 && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 30, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, marginTop: 4, maxHeight: 200, overflowY: 'auto', boxShadow: '0 10px 30px rgba(0,0,0,0.14)' }}>
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <input ref={inputRef} placeholder="Selecione ou digite" value={value}
+        onChange={e => { onChange(e.target.value); abrir(); }}
+        onFocus={abrir} style={{ width: '100%' }} />
+      {open && rect && filtered.length > 0 && createPortal(
+        <div ref={menuRef} style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 300, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: rect.maxHeight, overflowY: 'auto', boxShadow: '0 10px 30px rgba(0,0,0,0.14)' }}>
           {filtered.map(o => (
             <div key={o} onMouseDown={() => { onChange(o); setOpen(false); }}
               style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}
@@ -600,7 +628,8 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
               {o}
             </div>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -862,6 +891,9 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     return { avancoFisico, planejadoHoje };
   }, [etapasObra]);
 
+  // Valores agregados dos grupos (avanço/início/dur a partir dos filhos) — para a mini-Lista.
+  const groupValsObra = React.useMemo(() => computeGroupValues(etapasObra), [etapasObra]);
+
   const tabs = [
     { id: 'visao',      label: 'Visão geral' },
     { id: 'cronograma', label: 'Cronograma'  },
@@ -919,8 +951,12 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
               <div className="meta">vs planejado {heroStats.planejadoHoje}%</div>
             </div>
             <div className="hero-stat">
-              <div className="label">Entrega</div>
+              <div className="label">Entrega (cliente)</div>
               <div className="value num">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</div>
+            </div>
+            <div className="hero-stat">
+              <div className="label">Data fim da obra</div>
+              <div className="value num">{o.dataFimObra ? o.dataFimObra.split('-').reverse().join('/') : '—'}</div>
             </div>
             <div className="hero-stat">
               <div className="label">Fim do cronograma</div>
@@ -986,24 +1022,34 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                       </tr>
                     </thead>
                     <tbody>
-                      {etapasObra.map((e, i) => (
-                        <tr key={i}>
-                          <td style={tdS}>{e.etapa}</td>
-                          <td style={tdS}>{isoToBR(offsetToISO(e.inicio))}</td>
-                          <td style={tdS}>{isoToBR(offsetToISO((e.inicio || 0) + (e.dur || 0)))}</td>
-                          <td style={tdS}>{e.dur}d</td>
-                          <td style={tdS}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
-                              <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2 }}>
-                                <div style={{ width: e.avanco + '%', height: '100%', background: 'var(--brand)', borderRadius: 2 }} />
+                      {etapasObra.map((e, i) => {
+                        const isPai = !!e.isGroup;
+                        const gv = isPai ? groupValsObra[e.id] : null;
+                        const av = Math.round(gv ? gv.avanco : (e.avanco || 0)); // pai = rollup dos filhos
+                        const st = isPai ? (av >= 100 ? 'done' : e.status) : e.status;
+                        const rowBg = isPai ? 'var(--surface-muted)' : undefined;
+                        return (
+                          <tr key={i} style={{ background: rowBg }}>
+                            <td style={{ ...tdS, fontWeight: isPai ? 700 : 400, paddingLeft: 12 + (e.nivel || 0) * 14, color: isPai ? 'var(--brand)' : undefined }}>
+                              {isPai && <span style={{ color: 'var(--text-faint)', marginRight: 5, fontSize: 10 }}>▸</span>}
+                              {e.etapa}
+                            </td>
+                            <td style={tdS}>{isoToBR(offsetToISO(e.inicio))}</td>
+                            <td style={tdS}>{isoToBR(offsetToISO((e.inicio || 0) + (e.dur || 0)))}</td>
+                            <td style={tdS}>{e.dur}d</td>
+                            <td style={tdS}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
+                                <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2 }}>
+                                  <div style={{ width: av + '%', height: '100%', background: 'var(--brand)', borderRadius: 2 }} />
+                                </div>
+                                <span style={{ minWidth: 32, textAlign: 'right', fontWeight: isPai ? 700 : 400 }}>{av}%</span>
                               </div>
-                              <span style={{ minWidth: 32, textAlign: 'right' }}>{e.avanco}%</span>
-                            </div>
-                          </td>
-                          <td style={tdS}><span className={'badge badge-' + e.status}>{statusLabel[e.status] || e.status}</span></td>
-                          <td style={tdS}>{e.responsavel || '—'}</td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td style={tdS}><span className={'badge badge-' + st}>{statusLabel[st] || st}</span></td>
+                            <td style={tdS}>{isPai ? '—' : (e.responsavel || '—')}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

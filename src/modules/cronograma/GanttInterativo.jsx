@@ -22,7 +22,7 @@ import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
 export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
   baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
-  pavimentosSalvos = [], onPavimentosCriados,
+  pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   filtroStatus = '', filtroResp = '', filtroPreset = '', filtroPresetRange = { de: '', ate: '' }, filtroTaskIds = [] }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
@@ -1741,6 +1741,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           onCommit={onCommit}
           pavimentosSalvos={pavimentosSalvos}
           onPavimentosCriados={onPavimentosCriados}
+          onPavimentoExcluir={onPavimentoExcluir}
           onClose={() => setShowPavimentos(false)}
         />
       )}
