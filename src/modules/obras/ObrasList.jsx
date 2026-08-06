@@ -7,6 +7,10 @@ import { offsetToISO, migrateEtapas } from '../cronograma/ganttUtils';
 import { computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { isAdmin } from '../../utils/permissions';
 
+// Cache por módulo (persiste enquanto o app está aberto) — evita o delay de recalcular
+// término/avanço e reassinar capas toda vez que a lista de Obras é reaberta.
+const _obrasResumoCache = { cronFinal: {}, avancoMap: {}, capaUrls: {} };
+
 // Obras — lista completa em cards
 const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete, userProfile }) => {
   const D = AppData;
@@ -17,16 +21,18 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
   const [showEditObra,   setShowEditObra]  = React.useState(null);
   const [deleteObra,     setDeleteObra]    = React.useState(null);
   const [deleteStep,     setDeleteStep]    = React.useState(1);
-  const [cronFinal,      setCronFinal]     = React.useState({}); // { [obraId]: 'YYYY-MM-DD' | null } — data final do cronograma, sempre calculada das etapas reais
-  const [avancoMap,      setAvancoMap]     = React.useState({}); // { [obraId]: % } — avanço físico calculado do cronograma (ponderado pelo valor)
-  const [capaUrls,       setCapaUrls]      = React.useState({}); // { [obraId]: signedUrl } — capa via URL assinada (bucket privado)
+  const [cronFinal,      setCronFinal]     = React.useState(_obrasResumoCache.cronFinal); // { [obraId]: 'YYYY-MM-DD' | null } — data final do cronograma
+  const [avancoMap,      setAvancoMap]     = React.useState(_obrasResumoCache.avancoMap); // { [obraId]: % } — avanço físico calculado do cronograma
+  const [capaUrls,       setCapaUrls]      = React.useState(_obrasResumoCache.capaUrls);  // { [obraId]: signedUrl } — capa via URL assinada (bucket privado)
 
   // Recalcula a data final e o avanço físico do cronograma de cada obra ao abrir/atualizar a lista.
   // Avanço físico = mesmo cálculo do Gantt (ponderado por custo, com média simples quando custo=0).
   React.useEffect(() => {
     const ids = obras.map(o => o.id);
-    if (ids.length === 0) { setCronFinal({}); setAvancoMap({}); return; }
+    if (ids.length === 0) { _obrasResumoCache.cronFinal = {}; _obrasResumoCache.avancoMap = {}; setCronFinal({}); setAvancoMap({}); return; }
+    let cancelled = false;
     supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids).then(({ data }) => {
+      if (cancelled) return;
       const fimMap = {}, avMap = {};
       (data || []).forEach(row => {
         try {
@@ -36,21 +42,27 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
           avMap[row.obra_id] = computeAvancoFisico(etapas);
         } catch (e) { console.error('[obras] avanço/término', row.obra_id, e); }
       });
+      _obrasResumoCache.cronFinal = fimMap; _obrasResumoCache.avancoMap = avMap;
       setCronFinal(fimMap); setAvancoMap(avMap);
     }).catch(err => console.error('[obras] falha ao carregar cronogramas', err));
+    return () => { cancelled = true; };
   }, [obras]);
 
   // Capas via URL assinada (bucket obras-images privado). Path determinístico: obras/<id>/capa.jpg
   React.useEffect(() => {
     const comCapa = obras.filter(o => o.imageUrl);
-    if (!comCapa.length) { setCapaUrls({}); return; }
+    if (!comCapa.length) { _obrasResumoCache.capaUrls = {}; setCapaUrls({}); return; }
+    let cancelled = false;
     const pathToId = {};
     comCapa.forEach(o => { pathToId[`obras/${o.id}/capa.jpg`] = o.id; });
     supabase.storage.from('obras-images').createSignedUrls(Object.keys(pathToId), 3600).then(({ data }) => {
+      if (cancelled) return;
       const map = {};
       (data || []).forEach(u => { if (u.signedUrl && !u.error && pathToId[u.path]) map[pathToId[u.path]] = u.signedUrl; });
+      _obrasResumoCache.capaUrls = map;
       setCapaUrls(map);
     }).catch(err => console.error('[obras] falha ao carregar capas', err));
+    return () => { cancelled = true; };
   }, [obras]);
 
   const filtered = React.useMemo(() =>

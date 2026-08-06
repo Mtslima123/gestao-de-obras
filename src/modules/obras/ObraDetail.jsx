@@ -409,6 +409,7 @@ const Fotos = ({ obra, readOnly = false }) => {
   const [showUpload,   setShowUpload]   = React.useState(false);
   const [editando,     setEditando]     = React.useState(null);
   const [filtroMes,    setFiltroMes]    = React.useState('');
+  const [filtroPavimento, setFiltroPavimento] = React.useState('');
   const [lightboxIdx,  setLightboxIdx]  = React.useState(null);
   // Pavimentos cadastrados na obra — abastecem o dropdown do campo Pavimento
   const [pavimentos,   setPavimentos]   = React.useState([]);
@@ -477,8 +478,10 @@ const Fotos = ({ obra, readOnly = false }) => {
     toast('Foto excluída', { tone: 'neutral' });
   };
 
+  const pavimentosComFoto = [...new Set(fotos.map(f => f.pavimento).filter(Boolean))].sort();
   const fotosFiltradas = fotos.filter(f => {
     if (filtroMes && !(f.data || '').startsWith(filtroMes)) return false;
+    if (filtroPavimento && f.pavimento !== filtroPavimento) return false;
     return true;
   });
 
@@ -494,9 +497,17 @@ const Fotos = ({ obra, readOnly = false }) => {
             <input type="month" value={filtroMes}
               onChange={e => setFiltroMes(e.target.value)}
               style={{ height: 32, fontSize: 13, borderRadius: 6 }} />
-            {filtroMes && (
+            {pavimentosComFoto.length > 0 && (
+              <select value={filtroPavimento} onChange={e => setFiltroPavimento(e.target.value)}
+                title="Filtrar por pavimento"
+                style={{ height: 32, fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', padding: '0 8px', cursor: 'pointer' }}>
+                <option value="">Todos os pavimentos</option>
+                {pavimentosComFoto.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            )}
+            {(filtroMes || filtroPavimento) && (
               <button className="btn btn-ghost" style={{ height: 32 }}
-                onClick={() => setFiltroMes('')}>
+                onClick={() => { setFiltroMes(''); setFiltroPavimento(''); }}>
                 <Icon name="x" size={13} />Limpar
               </button>
             )}
