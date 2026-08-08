@@ -770,7 +770,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
 
         {/* Corpo da faixa */}
         {!ribbonCollapsed && (
-          <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', minHeight: 62 }}>
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', height: 110 }}>
 
             {/* ══ Aba TAREFA ══ */}
             {curTab === 'tarefa' && !readOnly && (

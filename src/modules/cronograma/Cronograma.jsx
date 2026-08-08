@@ -368,9 +368,6 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', marginBottom: 4 }}>
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Custo (R$) previsto por mês</span>
-        <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 8 }}>
-          Intensidade da célula = concentração no mês · clique numa tarefa para destacar
-        </span>
         <div style={{ flex: 1 }} />
         <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5 }}
           onClick={exportExcelUso} title="Exportar para Excel (.xlsx)">
@@ -510,7 +507,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                         </td>
                       );
                     })}
-                    <td style={{ ...tdNum, minWidth: 112, fontWeight: 700 }} title={total > 0 ? cfg.tot(total) : undefined}>
+                    <td style={{ ...tdNum, minWidth: 112, fontWeight: e.isGroup ? 700 : 400 }} title={total > 0 ? cfg.tot(total) : undefined}>
                       {total > 0 ? cfg.tot(total) : '—'}
                     </td>
                   </tr>
@@ -623,9 +620,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
   React.useEffect(() => {
     if (!reprogramacoes.length) return;
+    // Respeita a escolha do usuário (persistida por obra): só auto-seleciona quando
+    // ainda não há nenhuma reprogramação escolhida.
+    if (repVisivelId) return;
     const alvo = defaultRepId(reprogramacoes, selMonKey);
     if (alvo !== repVisivelId) onSelectReprogramacao?.(alvo);
-  }, [selMonKey, reprogramacoes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selMonKey, reprogramacoes, repVisivelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [exportingPDF, setExportingPDF] = React.useState(false);
   const [pdfFormat, setPdfFormat] = React.useState('a3');
@@ -1378,7 +1378,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                       : (taskDistSource[e.id] || {});
                     const taskCusto  = custoEf(e, gv);
                     const taskAvanco = e.isGroup ? (gv?.avanco || 0) : (e.avanco || 0);
-                    const rowBg = e.isGroup ? 'var(--surface-muted)' : (ri % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)');
+                    const rowBg = e.isGroup ? 'var(--brand-50)' : (ri % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)');
                     return (
                       <tr key={e.id} style={{ background: rowBg }}>
                         {/* Atividade (sticky) */}
@@ -1396,11 +1396,13 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                         </td>
                         {/* Valor */}
                         <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                          fontWeight: e.isGroup ? 700 : 400,
                           color: taskCusto > 0 ? 'var(--text)' : 'var(--text-faint)', fontSize: 10.5 }}>
                           {taskCusto > 0 ? fmtBRL(taskCusto) : '—'}
                         </td>
                         {/* Peso */}
-                        <td style={{ ...tdBase, textAlign: 'right', color: 'var(--text-soft)', fontSize: 10.5 }}>
+                        <td style={{ ...tdBase, textAlign: 'right', fontWeight: e.isGroup ? 700 : 400,
+                          color: e.isGroup ? 'var(--text)' : 'var(--text-soft)', fontSize: 10.5 }}>
                           {distTotal > 0 && taskCusto > 0 ? (taskCusto / distTotal * 100).toFixed(2) + '%' : '—'}
                         </td>
                         {/* Conc. — coluna destacada com fundo sutil */}
@@ -1435,7 +1437,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                         })}
                         {/* Total col */}
                         <td style={{ ...tdBase, textAlign: 'right', borderLeft: '2px solid var(--border)',
-                          fontWeight: 600, color: taskCusto > 0 ? 'var(--text-soft)' : 'var(--text-faint)', fontSize: 10.5 }}>
+                          fontWeight: e.isGroup ? 700 : 600, color: taskCusto > 0 ? (e.isGroup ? 'var(--text)' : 'var(--text-soft)') : 'var(--text-faint)', fontSize: 10.5 }}>
                           {taskCusto > 0 ? '100%' : '—'}
                         </td>
                       </tr>
@@ -1510,6 +1512,14 @@ function defaultRepId(reps, refMonthKey) {
   const anteriores = reps.filter(r => r.criadaEm.slice(0, 7) < ref);
   const pool = anteriores.length ? anteriores : reps;
   return pool.reduce((best, r) => (!best || r.criadaEm > best.criadaEm) ? r : best, null)?.id ?? null;
+}
+
+// ─── Seleção visível da Curva (Linha de Base / Reprogramação), persistida por obra ──
+function carregarBlVisivel(obraId) {
+  try { return localStorage.getItem('crono_bl_visivel_' + obraId) || null; } catch { return null; }
+}
+function carregarRepVisivel(obraId) {
+  try { return localStorage.getItem('crono_rep_visivel_' + obraId) || null; } catch { return null; }
 }
 
 // updated_at que acreditamos ser o vigente por obra (última carga ou último save nosso).
@@ -1611,9 +1621,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const [etapas,       setEtapas]       = React.useState([]);
   const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
   const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(defaultObraId || ''));
-  const [blVisivelId,  setBlVisivelId]  = React.useState(null);
+  const [blVisivelId,  setBlVisivelId]  = React.useState(() => carregarBlVisivel(defaultObraId || ''));
   const [reprogramacoes, setReprogramacoes] = React.useState(() => carregarReprogramacoes(defaultObraId || ''));
-  const [repVisivelId,   setRepVisivelId]   = React.useState(() => defaultRepId(carregarReprogramacoes(defaultObraId || '')));
+  const [repVisivelId,   setRepVisivelId]   = React.useState(() => carregarRepVisivel(defaultObraId || '') ?? defaultRepId(carregarReprogramacoes(defaultObraId || '')));
   const [showCriar,    setShowCriar]    = React.useState(false);
   const [showCriarRep,     setShowCriarRep]     = React.useState(false);
   const [showGerenciarRep, setShowGerenciarRep] = React.useState(false);
@@ -1712,6 +1722,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
 
   // Histórico de undo/redo unificado (Lista + Gantt)
   const histRef = React.useRef([etapas.map(e => ({ ...e }))]);
+  // Histórico paralelo das colunas personalizadas, alinhado por índice a histRef —
+  // permite que undo/redo restaure também a definição de colunas (add/excluir coluna).
+  const histColsRef = React.useRef([customCols]);
   const hidxRef = React.useRef(0);
   const undoRef        = React.useRef(null);
   const redoRef        = React.useRef(null);
@@ -1763,9 +1776,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         setVinculos(cached.vinculos);
         setOrcamentoItensMap(cached.orcamentoItensMap);
         histRef.current = [cached.etapas.map(e => ({ ...e }))];
+        histColsRef.current = [cached.customCols];
         hidxRef.current = 0;
-        setBlVisivelId(null);
-        setRepVisivelId(defaultRepId(cached.reprogramacoes || []));
+        setBlVisivelId(carregarBlVisivel(obraSel));
+        setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(cached.reprogramacoes || []));
         setLoadedObraId(obraSel);
         return;
       }
@@ -1788,6 +1802,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         setEtapas(etapasDB);
         D.cronograma[obraSel] = etapasDB;
         histRef.current = [etapasDB.map(e => ({ ...e }))];
+        histColsRef.current = [db.custom_cols?.length ? db.custom_cols : customCols];
         hidxRef.current = 0;
         if (db.custom_cols?.length) {
           setCustomCols(db.custom_cols);
@@ -1799,7 +1814,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         const reps = db.reprogramacoes?.length ? db.reprogramacoes : carregarReprogramacoes(obraSel);
         setReprogramacoes(reps);
         if (db.reprogramacoes?.length) salvarReprogramacoesLocal(obraSel, db.reprogramacoes);
-        setRepVisivelId(defaultRepId(reps));
+        setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(reps));
         // Feriados: DB é a fonte de verdade quando tem conteúdo; senão mantém o valor do
         // localStorage (setado no efeito keyed em obraSel) para migração suave.
         if (db.feriados && (db.feriados.dias?.length || db.feriados.sabadoUtil)) setFeriadosCfg(db.feriados);
@@ -1807,13 +1822,14 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         const mock = sanitizarERecuperar(migrateEtapas(D.cronograma[obraSel] || []));
         setEtapas(mock);
         histRef.current = [mock.map(e => ({ ...e }))];
+        histColsRef.current = [customCols];
         hidxRef.current = 0;
         setBaselines(carregarBaselines(obraSel));
         const reps = carregarReprogramacoes(obraSel);
         setReprogramacoes(reps);
-        setRepVisivelId(defaultRepId(reps));
+        setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(reps));
       }
-      setBlVisivelId(null);
+      setBlVisivelId(carregarBlVisivel(obraSel));
       setLoadedObraId(obraSel); // marca carga concluída — isLoading vira false
     }
     setConflito(false);   // recarregou do banco: baseline atualizada, conflito resolvido
@@ -1827,6 +1843,24 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       _cronCache[loadedObraId] = { etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap };
     }
   }, [etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap, loadedObraId, obraSel]);
+
+  // Persiste a seleção visível da Curva (Linha de Base / Reprogramação) por obra, para
+  // sobreviver a troca de aba e ao recarregar o app. Só grava após a carga concluir.
+  React.useEffect(() => {
+    if (!obraSel || loadedObraId !== obraSel) return;
+    try {
+      if (blVisivelId) localStorage.setItem('crono_bl_visivel_' + obraSel, blVisivelId);
+      else localStorage.removeItem('crono_bl_visivel_' + obraSel);
+    } catch { /* ignore */ }
+  }, [blVisivelId, obraSel, loadedObraId]);
+
+  React.useEffect(() => {
+    if (!obraSel || loadedObraId !== obraSel) return;
+    try {
+      if (repVisivelId) localStorage.setItem('crono_rep_visivel_' + obraSel, repVisivelId);
+      else localStorage.removeItem('crono_rep_visivel_' + obraSel);
+    } catch { /* ignore */ }
+  }, [repVisivelId, obraSel, loadedObraId]);
 
   // Trata o resultado de salvarCronograma (bloqueio otimista): conflito ou erro.
   // Retorna true quando houve problema (o chamador não deve exibir "sucesso").
@@ -1979,16 +2013,22 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     }
     // Auto-histórico: registra mudanças relevantes por tarefa (fora do undo/redo)
     taskDetailStore.diffAndLog(obraSel, etapas, clean, currentUserRef.current);
+    // customCols também entra no histórico (undo/redo restaura a definição de colunas).
+    const colsSnap = opts.customCols !== undefined ? opts.customCols : customCols;
+    if (opts.customCols !== undefined) { setCustomCols(opts.customCols); D.cronogramaCustomCols = opts.customCols; }
     const h = histRef.current.slice(0, hidxRef.current + 1);
     h.push(clean);
+    const hc = histColsRef.current.slice(0, hidxRef.current + 1);
+    hc.push(colsSnap);
     histRef.current = h;
+    histColsRef.current = hc;
     hidxRef.current = h.length - 1;
     setEtapas(clean);
     D.cronograma[obraSel] = clean;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     // O toast reflete o RESULTADO real da persistência (após o await), não a intenção.
     saveTimerRef.current = setTimeout(async () => {
-      const res = await salvarCronograma(obraSel, clean, customCols, baselines, reprogramacoes, opts.feriados);
+      const res = await salvarCronograma(obraSel, clean, colsSnap, baselines, reprogramacoes, opts.feriados);
       if (handleSaveResult(res)) return;   // conflito ou erro: sempre avisa (mesmo em save silencioso)
       if (opts.silent) return;
       const cfls = gmConflicts(clean);
@@ -2005,12 +2045,15 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const prev = histRef.current[hidxRef.current];
     hidxRef.current--;
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
+    const colsSnap = histColsRef.current[hidxRef.current] ?? customCols;
     setEtapas(snap);
+    setCustomCols(colsSnap);
     D.cronograma[obraSel] = snap;
+    D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      handleSaveResult(await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes));
+      handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes));
     }, 800);
     toast('Ação desfeita', { tone: 'neutral', icon: 'check' });
   };
@@ -2020,12 +2063,15 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const prev = histRef.current[hidxRef.current];
     hidxRef.current++;
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
+    const colsSnap = histColsRef.current[hidxRef.current] ?? customCols;
     setEtapas(snap);
+    setCustomCols(colsSnap);
     D.cronograma[obraSel] = snap;
+    D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      handleSaveResult(await salvarCronograma(obraSel, snap, customCols, baselines, reprogramacoes));
+      handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes));
     }, 800);
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
   };
@@ -2396,13 +2442,21 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                                   return { id: sid, tipo, t };
                                 });
                                 if (!preds.length && !succs.length) return null;
-                                const linkRow = (v, i) => (
-                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
-                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--brand)', background: 'var(--brand-tint)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{v.t?.displayId ?? v.id}</span>
-                                    <span title={v.t?.etapa || v.id} style={{ flex: 1, minWidth: 0, color: 'var(--text-soft)', fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.t?.etapa || v.id}</span>
-                                    <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{v.tipo}</span>
-                                  </div>
-                                );
+                                const paiNome = (t) => (t?.parentId ? (etapas.find(e => e.id === t.parentId)?.etapa || '') : '');
+                                const linkRow = (v, i) => {
+                                  const pai = paiNome(v.t);
+                                  const nome = v.t?.etapa || v.id;
+                                  return (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
+                                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--brand)', background: 'var(--brand-tint)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{v.t?.displayId ?? v.id}</span>
+                                      <span title={pai ? `${pai} · ${nome}` : nome} style={{ flex: 1, minWidth: 0 }}>
+                                        <span style={{ display: 'block', color: 'var(--text-soft)', fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nome}</span>
+                                        {pai && <span style={{ display: 'block', color: 'var(--text-faint)', fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>em {pai}</span>}
+                                      </span>
+                                      <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{v.tipo}</span>
+                                    </div>
+                                  );
+                                };
                                 const secTitle = { fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 };
                                 return (
                                   <>

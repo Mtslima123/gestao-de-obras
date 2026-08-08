@@ -6,6 +6,7 @@ import React from 'react';
 export const SCurveChart = ({ months = [], reprogramado = [], real = [], baseline = null, monthlyPct = [], todayIdx = -1,
   show = { bl: true, rep: true, real: true }, height = 300,
   previstoM = [], replanM = [], execM = [], showBarras = false, repDashed = false }) => {
+  const [hover, setHover] = React.useState(null); // { cx, cy, text, color, kind }
   const N = months.length || 1;
   const pL = 54, pR = showBarras ? 50 : 20, pT = 18, pB = 52;
   const svgW = 1000, svgH = height;
@@ -27,9 +28,9 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
   const realPts = show.real ? ptsOf(real) : '';
   // ── Barras mensais agrupadas (Previsto/Replanejado/Executado) — eixo secundário ──
   const barSeries = [];
-  if (showBarras && show.bl && baseline) barSeries.push({ data: previstoM, color: '#cbd5e1', label: '#64748b' });
-  if (showBarras && show.rep)            barSeries.push({ data: replanM,  color: 'var(--brand)', label: 'var(--brand)' });
-  if (showBarras && show.real)           barSeries.push({ data: execM,    color: '#16a34a', label: '#16a34a' });
+  if (showBarras && show.bl && baseline) barSeries.push({ data: previstoM, color: '#cbd5e1', label: '#64748b', name: 'Previsto' });
+  if (showBarras && show.rep)            barSeries.push({ data: replanM,  color: 'var(--brand)', label: 'var(--brand)', name: 'Replanejado' });
+  if (showBarras && show.real)           barSeries.push({ data: execM,    color: '#16a34a', label: '#16a34a', name: 'Executado' });
   const niceCeil = (v) => {
     if (!(v > 0)) return 1;
     const base = Math.pow(10, Math.floor(Math.log10(v)));
@@ -63,9 +64,13 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
                 const y = yBar(v);
                 const bw = Math.max(subW * 0.82, 1);
                 const cx = x + bw / 2;
+                const tip = `${s.name} · ${months[i]?.label || ''}: ${fmtPct(v)}`;
                 return (
                   <g key={i}>
-                    <rect x={x} y={y} width={bw} height={(pT + chartH) - y} fill={s.color} rx="1" />
+                    <rect x={x} y={y} width={bw} height={(pT + chartH) - y} fill={s.color} rx="1"
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={() => setHover({ cx, cy: y, text: tip, color: s.color, kind: 'bar' })}
+                      onMouseLeave={() => setHover(null)} />
                     <text transform={`rotate(-90 ${cx.toFixed(1)} ${(y - 3).toFixed(1)})`} x={cx.toFixed(1)} y={(y - 3).toFixed(1)}
                       textAnchor="start" fontSize="6.5" fill={s.label} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
                   </g>
@@ -89,9 +94,9 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
       {show.rep && reprogramado.map((v, i) => v == null ? null : (
         <g key={'r' + i}>
           <circle cx={xC(i)} cy={yS(v)} r="3.5" fill="#fff" stroke="var(--brand)" strokeWidth="2" />
-          <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'default' }}>
-            <title>{(months[i]?.label ? months[i].label + ': ' : '') + v.toFixed(2).replace('.', ',') + '%'}</title>
-          </circle>
+          <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'pointer' }}
+            onMouseEnter={() => setHover({ cx: xC(i), cy: yS(v), text: (months[i]?.label ? months[i].label + ': ' : '') + fmtPct(v), color: 'var(--brand)', kind: 'dot' })}
+            onMouseLeave={() => setHover(null)} />
         </g>
       ))}
       {/* Real — verde */}
@@ -99,9 +104,9 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
       {show.real && real.map((v, i) => v == null ? null : (
         <g key={'re' + i}>
           <circle cx={xC(i)} cy={yS(v)} r="3.5" fill="#16a34a" />
-          <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'default' }}>
-            <title>{(months[i]?.label ? months[i].label + ': ' : '') + v.toFixed(2).replace('.', ',') + '%'}</title>
-          </circle>
+          <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'pointer' }}
+            onMouseEnter={() => setHover({ cx: xC(i), cy: yS(v), text: (months[i]?.label ? months[i].label + ': ' : '') + fmtPct(v), color: '#16a34a', kind: 'dot' })}
+            onMouseLeave={() => setHover(null)} />
         </g>
       ))}
       {months.map((m, i) => {
@@ -110,6 +115,20 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
         return <text key={m.key} x={xC(i)} y={pT + chartH + 18} textAnchor="middle" fontSize="9.5" fill="var(--text-muted)">{m.label}</text>;
       })}
       <line x1={pL} y1={pT + chartH} x2={pL + chartW} y2={pT + chartH} stroke="var(--border)" strokeWidth="1" />
+      {/* Tooltip destacado no hover de pontos/colunas — desenhado por último (fica por cima). */}
+      {hover && (() => {
+        const w = Math.max(44, hover.text.length * 6.2 + 16);
+        const h = 20;
+        const bx = Math.max(pL, Math.min(hover.cx - w / 2, pL + chartW - w));
+        const by = Math.max(pT, hover.cy - h - 10);
+        return (
+          <g pointerEvents="none">
+            {hover.kind === 'dot' && <circle cx={hover.cx} cy={hover.cy} r="5.5" fill="none" stroke={hover.color} strokeWidth="2" />}
+            <rect x={bx} y={by} width={w} height={h} rx="4" fill="#0f172a" opacity="0.94" />
+            <text x={bx + w / 2} y={by + h / 2 + 3.6} textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff" fontFamily="var(--font-mono)">{hover.text}</text>
+          </g>
+        );
+      })()}
     </svg>
   );
 };

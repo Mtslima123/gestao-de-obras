@@ -4,7 +4,6 @@
 import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Icon } from '../../components/Icons';
-import { AppData } from '../../utils/data';
 import { Modal, useToast } from '../../components/Modals';
 import { computeValorVinculadoMap } from './ganttUtils';
 import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, dateToOffset } from './cronogramaDateUtils';
@@ -201,10 +200,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     });
     return out;
   }, [etapas, customCols]);
-  // Sugestões da coluna fixa "Pavimento" — mesmo mecanismo, alimentado por e.pavimento.
+  // Sugestões da coluna "Pavimento": primeiro os pavimentos pré-cadastrados (cadastro da obra),
+  // depois os valores já digitados nas etapas. Continua aceitando texto livre.
   const pavimentoOptions = React.useMemo(
-    () => [...new Set(etapas.map(e => e.pavimento).filter(Boolean))],
-    [etapas]
+    () => [...new Set([...pavimentosSalvos, ...etapas.map(e => e.pavimento).filter(Boolean)])],
+    [pavimentosSalvos, etapas]
   );
   const groupVals   = React.useMemo(() => computeGroupValues(etapas), [etapas]);
   const totalCusto  = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), [etapas]);
@@ -1790,10 +1790,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   const handleAddCol = (colDef) => {
     const newCols = [...customCols, colDef];
-    AppData.cronogramaCustomCols = newCols;
-    onCustomColsChange(newCols);
     const novas = etapas.map(e => ({ ...e, customCols: { ...(e.customCols || {}), [colDef.id]: '' } }));
-    onCommit(novas, { silent: true });
+    // Coluna + dados num único ponto de histórico (Ctrl+Z desfaz os dois juntos).
+    onCommit(novas, { silent: true, customCols: newCols });
     toast(`Coluna "${colDef.label}" adicionada`, { tone: 'success', icon: 'check' });
   };
 
@@ -1802,14 +1801,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const col = customCols.find(c => c.id === colId);
     if (!col) return;
     const newCols = customCols.filter(c => c.id !== colId);
-    AppData.cronogramaCustomCols = newCols;
-    onCustomColsChange(newCols);
     const novas = etapas.map(e => {
       const cc = { ...(e.customCols || {}) };
       delete cc[colId];
       return { ...e, customCols: cc };
     });
-    onCommit(novas, { silent: true });
+    // Coluna + dados num único ponto de histórico (Ctrl+Z recria a coluna com os dados).
+    onCommit(novas, { silent: true, customCols: newCols });
     setHiddenCols(prev => { const n = new Set(prev); n.delete(colId); return n; });
     setMultiSelCols(prev => prev.filter(c => c !== colId));
     toast(`Coluna "${col.label}" excluída`, { tone: 'neutral', icon: 'check' });
@@ -2081,7 +2079,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             {/* Corpo do ribbon (aba ativa). flexWrap sem overflow: os grupos quebram em telas
                estreitas em vez de gerar um container de scroll (que recortaria o popover de Colunas). */}
             {!ribbonCollapsed && (
-              <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', minHeight: 62 }}>
+              <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', height: 110 }}>
 
                 {/* ══ Aba TAREFA ══ */}
                 {curTab === 'tarefa' && !readOnly && (
@@ -3167,7 +3165,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       fontSize: 11, fontFamily: 'var(--font-mono, monospace)',
                     }}
                   >
-                    {(isSelected || isMultiSel || rangeRowIds.has(e.id)) ? '' : rowIdx + 1}
+                    {rowIdx + 1}
                   </td>
                   {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeEdges.get(e.id + '|' + colId)))}
 

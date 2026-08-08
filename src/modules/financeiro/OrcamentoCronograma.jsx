@@ -741,9 +741,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
           <div style={{ display: 'flex', gap: 'var(--gap)', alignItems: 'stretch', flexWrap: 'wrap', marginTop: 'var(--gap)' }}>
           <div style={{ flex: '2 1 480px', minWidth: 0 }}>
           <div className="card">
-            <div className="card-header" style={{ overflow: 'visible', height: 69 }}>
-              <div style={{ minWidth: 0 }}>
-                <div className="card-title" style={{ whiteSpace: 'nowrap' }}>
+            <div className="card-header" style={{ overflow: 'visible', height: 88, gap: 12 }}>
+              <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                <div className="card-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   Vínculos cadastrados
                   <span style={{ marginLeft: 8, background: 'var(--surface-muted)', borderRadius: 12, padding: '2px 8px', fontSize: 12, fontWeight: 400 }}>
                     {filtrados.length}
@@ -755,31 +755,32 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                   )}
                 </div>
                 {filtrados.length > 0 && (
-                  <div className="card-subtitle" style={{ whiteSpace: 'nowrap' }}>
+                  <div className="card-subtitle" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     Total vinculado: <strong>{formatBRL(totalVinculado)}</strong>
                   </div>
                 )}
               </div>
-              <div className="card-actions" style={{ overflow: 'visible' }}>
+              <div className="card-actions" style={{ overflow: 'visible', flexShrink: 0 }}>
                 <AutocompleteInput
                   value={filtroItem}
                   onChange={setFiltroItem}
                   placeholder="Filtrar por item…"
                   suggestions={sugestoesItem}
-                  style={{ width: 190 }}
+                  style={{ width: 150 }}
                 />
                 <AutocompleteInput
                   value={filtroEtapa}
                   onChange={setFiltroEtapa}
                   placeholder="Filtrar por tarefa…"
                   suggestions={sugestoesEtapa}
-                  style={{ width: 190 }}
+                  style={{ width: 150 }}
                 />
-                {/* Sempre no layout (reserva o espaço) — invisível sem filtro, pra não mover os campos ao digitar */}
-                <button className="btn btn-ghost" onClick={() => { setFiltroItem(''); setFiltroEtapa(''); }}
-                  style={{ visibility: (filtroItem || filtroEtapa) ? 'visible' : 'hidden' }}>
-                  <Icon name="x" size={14} />Limpar
-                </button>
+                {/* Só aparece com filtro ativo (não reserva espaço) — deixa os campos à direita e libera o título */}
+                {(filtroItem || filtroEtapa) && (
+                  <button className="btn btn-ghost" onClick={() => { setFiltroItem(''); setFiltroEtapa(''); }}>
+                    <Icon name="x" size={14} />Limpar
+                  </button>
+                )}
               </div>
             </div>
 
@@ -790,8 +791,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                   <thead>
                     <tr>
                       <th style={{ width: 90, position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Código</th>
-                      <th style={{ position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Item do Orçamento</th>
-                      <th style={{ position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Tarefa do Cronograma</th>
+                      <th style={{ whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Item do Orçamento</th>
+                      <th style={{ whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Tarefa do Cronograma</th>
                       <th style={{ width: 60, textAlign: 'center', position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Nível</th>
                       <th style={{ textAlign: 'right', width: 140, position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}>Valor (R$)</th>
                       <th style={{ width: 48, position: 'sticky', top: 0, background: 'var(--brand)', color: '#fff', borderBottom: '2px solid var(--brand-700)', zIndex: 2 }}></th>
@@ -1015,18 +1016,19 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistr
 
   return (
     <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div className="card-header" style={{ height: 69, overflow: 'visible' }}>
+      <div className="card-header" style={{ height: 88, overflow: 'visible', gap: 12 }}>
         <div style={{ minWidth: 0 }}>
-          <div className="card-title" style={{ whiteSpace: 'nowrap' }}>Resumo por tarefa</div>
-          <div className="card-subtitle" style={{ whiteSpace: 'nowrap' }}>Valor total recebido do orçamento por tarefa vinculada</div>
+          <div className="card-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Resumo por tarefa</div>
+          <div className="card-subtitle" style={{ lineHeight: 1.3 }}>Valor total recebido do orçamento por tarefa vinculada</div>
         </div>
-        <div className="card-actions">
+        <div className="card-actions" style={{ flexShrink: 0 }}>
           <input className="input" placeholder="Filtrar por tarefa…" value={filtroResumo}
-            onChange={e => setFiltroResumo(e.target.value)} style={{ width: 180 }} />
-          <button className="btn btn-ghost" onClick={() => setFiltroResumo('')}
-            style={{ visibility: filtroResumo ? 'visible' : 'hidden' }}>
-            <Icon name="x" size={14} />Limpar
-          </button>
+            onChange={e => setFiltroResumo(e.target.value)} style={{ width: 150 }} />
+          {filtroResumo && (
+            <button className="btn btn-ghost" onClick={() => setFiltroResumo('')}>
+              <Icon name="x" size={14} />Limpar
+            </button>
+          )}
         </div>
       </div>
       <div className="card-body" style={{ padding: 0, flex: 1, overflow: 'hidden' }}>

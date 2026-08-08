@@ -50,6 +50,7 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
 
   // Sucessoras: gravadas no dep da tarefa sucessora, apontando para esta tarefa (escrita reversa).
   const depId = (d) => (typeof d === 'string' ? d : d.id);
+  const paiNome = (t) => (t?.parentId ? (etapas.find(e => e.id === t.parentId)?.etapa || '') : '');
   const succIds = succMap[task.id] || [];
   const reschedule = (novas) => onCommit(autoScheduleFromDeps(novas));
   const updateSucc = (sid, patch) => reschedule(etapas.map(e => {
@@ -144,7 +145,10 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
                 return (
                   <tr key={i}>
                     <td style={{ ...tdSt, width: 30 }}>{pred?.displayId ?? d.id}</td>
-                    <td style={{ ...tdSt, textAlign: 'left' }} title={pred?.etapa ?? ''}>{pred?.etapa ?? '—'}</td>
+                    <td style={{ ...tdSt, textAlign: 'left' }} title={paiNome(pred) ? `${paiNome(pred)} · ${pred?.etapa ?? ''}` : (pred?.etapa ?? '')}>
+                      {pred?.etapa ?? '—'}
+                      {paiNome(pred) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(pred)}</div>}
+                    </td>
                     <td style={tdSt}>
                       <select value={d.tipo || 'TI'} disabled={locked} onChange={e => updatePred(i, { tipo: e.target.value })}
                         style={{ fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4 }}>
@@ -204,7 +208,10 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
                 return (
                   <tr key={sid}>
                     <td style={{ ...tdSt, width: 30 }}>{st?.displayId ?? sid}</td>
-                    <td style={{ ...tdSt, textAlign: 'left' }} title={st?.etapa ?? ''}>{st?.etapa ?? '—'}</td>
+                    <td style={{ ...tdSt, textAlign: 'left' }} title={paiNome(st) ? `${paiNome(st)} · ${st?.etapa ?? ''}` : (st?.etapa ?? '')}>
+                      {st?.etapa ?? '—'}
+                      {paiNome(st) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(st)}</div>}
+                    </td>
                     <td style={tdSt}>
                       <select value={tipo} disabled={locked} onChange={e => updateSucc(sid, { tipo: e.target.value })}
                         style={{ fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4 }}>

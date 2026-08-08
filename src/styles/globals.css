@@ -2469,14 +2469,15 @@ th.sticky-left { z-index: 4; }
 .cron-grid tbody tr:hover .sticky-left { background: var(--surface-muted); }
 
 /* Células de heatmap (distribuição mensal) */
+/* Célula de % por mês: destaque cinza claro uniforme (sem intensidade por valor). */
 .heat-cell { text-align: right; font-variant-numeric: tabular-nums;
-  background: rgb(28 69 132 / calc(0.05 + 0.5 * var(--f, 0))); color: #10305f; font-weight: 500; }
-.heat-cell.hot { font-weight: 600; }
-.heat-cell.group { background: rgb(51 65 85 / calc(0.06 + 0.28 * var(--f, 0))); color: var(--text); font-weight: 700; }
-.heat-cell.foot { background: rgb(15 23 42 / calc(0.05 + 0.16 * var(--f, 0))); color: var(--text); font-weight: 600; }
+  background: rgb(100 116 139 / 0.13); color: var(--text); font-weight: 500; }
+.heat-cell.hot { font-weight: 500; }
+.heat-cell.group { background: var(--brand-50); color: var(--text); font-weight: 700; }
+.heat-cell.foot { background: rgb(100 116 139 / 0.13); color: var(--text); font-weight: 600; }
 .heat-cell.empty { background: transparent; color: #cbd5e1; font-weight: 400; }
-[data-theme="dark"] .heat-cell { color: #bcd2f5; background: rgb(74 121 192 / calc(0.08 + 0.5 * var(--f, 0))); }
-[data-theme="dark"] .heat-cell.group { color: var(--text); background: rgb(148 163 184 / calc(0.06 + 0.24 * var(--f, 0))); }
+[data-theme="dark"] .heat-cell { color: var(--text); background: rgb(148 163 184 / 0.16); }
+[data-theme="dark"] .heat-cell.group { color: var(--text); background: rgb(148 163 184 / 0.16); }
 
 /* Cabeçalho em bandas da Lista (linha acima dos nomes de coluna) */
 .tbl thead tr.band-row th {
