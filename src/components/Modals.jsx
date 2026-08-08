@@ -3,6 +3,7 @@ import { Icon } from './Icons';
 import { AppData } from '../utils/data';
 import { orcamentosService } from '../modules/financeiro/orcamentos.service';
 import { notificacoesService } from '../services/notificacoes.service';
+import { logger } from '../services/logger';
 
 // Modals, toasts, dropdowns — shared interactive components
 
@@ -631,7 +632,7 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
   React.useEffect(() => {
     orcamentosService.listar().then(({ data }) => {
       setUsedObraIds(new Set((data || []).map(o => String(o.obra_id))));
-    }).catch(err => console.error('[orcamento] falha ao listar orçamentos existentes', err));
+    }).catch(err => logger.error('falha ao listar orcamentos existentes', { module: 'orcamento', action: 'listar', err }));
   }, []);
 
   const obrasDisponiveis = React.useMemo(

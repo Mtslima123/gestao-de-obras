@@ -1,4 +1,5 @@
 import { supabase } from '../../services/supabase';
+import { logger } from '../../services/logger';
 
 export const auditoriaService = {
   // Busca logs paginados com filtros opcionais
@@ -71,6 +72,9 @@ export const auditoriaService = {
       criticidade:    evento.criticidade   ?? 'media',
       origem:         'Web',
     }]);
+    // A auditoria era 100% fire-and-forget: se o insert falhava, o evento (às vezes
+    // crítico, ex.: redefinição de senha) sumia sem rastro. Agora deixa registro no log.
+    if (error) logger.error('falha ao registrar auditoria', { module: 'auditoria', action: evento.acao, err: error });
     return { data, error };
   },
 };

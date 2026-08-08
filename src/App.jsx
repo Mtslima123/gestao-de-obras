@@ -9,6 +9,7 @@ import { authService } from './modules/auth/auth.service';
 import { supabase } from './services/supabase';
 import { moduloLiberado, obraLiberada, obrasPermitidas } from './utils/permissions';
 import { obrasService } from './modules/obras/obras.service';
+import { logger, setContext, clearContext } from './services/logger';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
 // Renderizadas dentro de <Suspense> no corpo do App.
 const Dashboard                 = React.lazy(() => import('./modules/dashboard/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -25,7 +26,7 @@ import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakCol
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
-  componentDidCatch(error, info) { console.error('Render error:', error, info.componentStack); }
+  componentDidCatch(error, info) { logger.fatal('erro de renderizacao', { module: 'react', action: 'render', err: error, componentStack: info?.componentStack }); }
   render() {
     if (this.state.error) {
       return (
@@ -147,7 +148,7 @@ const AppInner = () => {
       .single();
     // PGRST116 = 0 linhas (usuário sem perfil cadastrado) — caso legítimo, não é erro.
     // Qualquer outro erro (rede/RLS/SQL) era engolido e virava "acesso negado" silencioso.
-    if (error && error.code !== 'PGRST116') console.error('[app] falha ao carregar perfil do usuário', error);
+    if (error && error.code !== 'PGRST116') logger.error('falha ao carregar perfil do usuario', { module: 'app', action: 'loadUserProfile', err: error });
     setUserProfile(data ?? null);
     return data ?? null;
   };
@@ -160,9 +161,12 @@ const AppInner = () => {
       setAcessoNegado(false);
       setUser(null);
       setUserProfile(null);
+      clearContext(); // some o userId dos logs após logout
       return;
     }
     setUser(session.user);
+    setContext({ userId: session.user.id, userEmail: session.user.email }); // enriquece os logs
+
     const perfil = await loadUserProfile(session.user.email);
     const autorizado = !!perfil && perfil.status === 'ativo';
     setAuthed(autorizado);
@@ -172,7 +176,7 @@ const AppInner = () => {
   React.useEffect(() => {
     authService.getSession().then(({ data: { session } }) => {
       if (session?.user) aplicarSessao(session);
-    }).catch(err => console.error('[app] falha ao restaurar sessão', err));
+    }).catch(err => logger.error('falha ao restaurar sessao', { module: 'app', action: 'getSession', err }));
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
       aplicarSessao(session);
     });

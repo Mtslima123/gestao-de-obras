@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { pavimentosService } from '../../services/pavimentos.service';
+import { logger } from '../../services/logger';
 import { SCurveChart } from './SCurveChart';
 import { FluxoExecutivo } from './FluxoExecutivo';
 import { useToast } from '../../components/Modals';
@@ -1543,7 +1544,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
   if (expected === undefined || expected === null) {
     const { error } = await supabase.from('cronogramas').upsert(
       { obra_id: obraId, ...payload }, { onConflict: 'obra_id' });
-    if (error) { console.error('[cronograma] falha ao salvar', error); return { error }; }
+    if (error) { logger.error('falha ao salvar cronograma', { module: 'cronograma', action: 'upsert', obraId, err: error }); return { error }; }
     _cronSavedAt[obraId] = nowISO;
     return { error: null };
   }
@@ -1551,7 +1552,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
   // Update condicional: só grava se o updated_at do banco ainda for o que carregamos.
   const { data, error } = await supabase.from('cronogramas')
     .update(payload).eq('obra_id', obraId).eq('updated_at', expected).select('updated_at');
-  if (error) { console.error('[cronograma] falha ao salvar', error); return { error }; }
+  if (error) { logger.error('falha ao salvar cronograma', { module: 'cronograma', action: 'update', obraId, err: error }); return { error }; }
   if (data && data.length) { _cronSavedAt[obraId] = nowISO; return { error: null }; }
 
   // 0 linhas: ou a linha ainda não existe, ou o updated_at mudou (conflito).
@@ -1559,12 +1560,12 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
     .select('updated_at').eq('obra_id', obraId).maybeSingle();
   if (!atual) {
     const { error: insErr } = await supabase.from('cronogramas').insert({ obra_id: obraId, ...payload });
-    if (insErr) { console.error('[cronograma] falha ao inserir', insErr); return { error: insErr }; }
+    if (insErr) { logger.error('falha ao inserir cronograma', { module: 'cronograma', action: 'insert', obraId, err: insErr }); return { error: insErr }; }
     _cronSavedAt[obraId] = nowISO;
     return { error: null };
   }
   // Conflito: mantém expected inalterado para os próximos saves seguirem barrando até recarregar.
-  console.warn('[cronograma] conflito de edição — outra sessão salvou', obraId);
+  logger.warn('conflito de edicao — outra sessao salvou', { module: 'cronograma', action: 'conflito', obraId });
   return { error: null, conflict: true };
 }
 

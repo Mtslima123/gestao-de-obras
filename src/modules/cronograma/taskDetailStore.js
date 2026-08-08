@@ -12,6 +12,7 @@
 // segmento como obra_id).
 
 import { supabase } from '../../services/supabase';
+import { logger } from '../../services/logger';
 import { notifBus } from '../../services/notificacoes.service';
 import { mkId, nowISO, extOf, normAuthor, validateFile, computeDiffEvents } from './taskDetailPure';
 
@@ -61,7 +62,7 @@ function readObra(obraId) {
 }
 function writeObra(obraId, data) {
   try { localStorage.setItem(LS_KEY(obraId), JSON.stringify(data)); }
-  catch (e) { console.error('[taskDetailStore] falha ao gravar metadados', e); }
+  catch (e) { logger.error('falha ao gravar metadados', { module: 'taskDetail', action: 'saveMeta', err: e }); }
 }
 function lsBucket(data, taskId) {
   if (!data[taskId]) data[taskId] = { attachments: [], history: [] };
@@ -204,7 +205,8 @@ const supa = {
     };
     const ins = await supabase.from('task_attachments').insert(row);
     if (ins.error) {
-      try { await supabase.storage.from(BUCKET).remove([path]); } catch { /* ok */ }
+      try { await supabase.storage.from(BUCKET).remove([path]); }
+      catch (e) { logger.error('falha ao remover anexo orfao do storage', { module: 'taskDetail', action: 'addAttachment.rollback', obraId, taskId, err: e }); }
       throw new Error('Falha ao salvar anexo: ' + ins.error.message);
     }
     await supa.logEvent(obraId, taskId, { type: 'attachment_add', text: file.name, ...a });
@@ -225,7 +227,7 @@ const supa = {
     const cur = await supabase.from('task_attachments').select('storage_path, name').eq('id', id).single();
     const { error } = await supabase.from('task_attachments').delete().eq('id', id);
     if (error) throw new Error(error.message);
-    if (cur.data?.storage_path) { try { await supabase.storage.from(BUCKET).remove([cur.data.storage_path]); } catch { /* ok */ } }
+    if (cur.data?.storage_path) { try { await supabase.storage.from(BUCKET).remove([cur.data.storage_path]); } catch (e) { logger.error('falha ao remover anexo do storage', { module: 'taskDetail', action: 'removeAttachment', obraId, taskId, err: e }); } }
     await supa.logEvent(obraId, taskId, { type: 'attachment_remove', text: cur.data?.name || '', ...normAuthor(author) });
   },
   async getBlobUrl(att) {
@@ -264,10 +266,10 @@ function pickBackend() {
     _bePromise = (async () => {
       try {
         const { error } = await supabase.from('task_history').select('id').limit(1);
-        if (error) { console.warn('[taskDetailStore] modo local (Supabase indisponível):', error.message); return local; }
+        if (error) { logger.warn('modo local ativado (Supabase indisponivel)', { module: 'taskDetail', action: 'pickBackend', err: error }); return local; }
         return supa;
       } catch (e) {
-        console.warn('[taskDetailStore] modo local (exceção no probe):', e?.message);
+        logger.warn('modo local ativado (excecao no probe)', { module: 'taskDetail', action: 'pickBackend', err: e });
         return local;
       }
     })();
@@ -304,10 +306,10 @@ export const taskDetailStore = {
       if (!evs.length) return;
       const be = await pickBackend();
       for (const { taskId, event } of evs) {
-        try { await be.logEvent(obraId, taskId, event); } catch (e) { console.error('[taskDetailStore] logEvent falhou', e); }
+        try { await be.logEvent(obraId, taskId, event); } catch (e) { logger.error('logEvent falhou', { module: 'taskDetail', action: 'logEvent', obraId, taskId, err: e }); }
       }
     } catch (e) {
-      console.error('[taskDetailStore] diffAndLog falhou (ignorado)', e);
+      logger.error('diffAndLog falhou', { module: 'taskDetail', action: 'diffAndLog', obraId, err: e });
     }
   },
 };

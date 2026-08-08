@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { useToast, Modal } from '../../components/Modals';
 import { orcamentosService } from './orcamentos.service';
+import { logger } from '../../services/logger';
 import { vinculoService } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 import { moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
@@ -247,7 +248,7 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
       setRemo(new Set());
       setStep(2);
     } catch (e) {
-      console.error('[orcamento] erro ao ler planilha', e);
+      logger.error('erro ao ler planilha', { module: 'orcamento', action: 'lerPlanilha', err: e });
       toast('Erro ao ler a planilha: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
     } finally {
       setParsing(false);
@@ -860,7 +861,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       if (idsToDelete.length) {
         const { error } = await orcamentosService.itens.excluirVarios(idsToDelete);
         if (error) {
-          console.error('[orcamento] erro ao substituir itens na importação', error);
+          logger.error('erro ao substituir itens na importacao', { module: 'orcamento', action: 'importar.substituir', err: error });
           toast('Erro ao substituir itens: ' + error.message, { tone: 'error', icon: 'alert' });
           setSaving(false);
           return; // nada foi alterado no banco
@@ -872,7 +873,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       if (toInsert.length) {
         const { error } = await orcamentosService.itens.criar(toInsert);
         if (error) {
-          console.error('[orcamento] erro ao inserir itens na importação', error);
+          logger.error('erro ao inserir itens na importacao', { module: 'orcamento', action: 'importar.inserir', err: error });
           toast('Erro ao importar itens: ' + error.message, { tone: 'error', icon: 'alert' });
           // Mantém os novos itens em memória (pendentes) para retry via "Salvar alterações"
           if (modo === 'substituir') setItems(newItems);
@@ -897,12 +898,12 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         .reduce((s, it) => s + it.valor_total, 0);
       const hoje = new Date().toISOString().slice(0, 10);
       const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: grandTotal, data: hoje });
-      if (errHeader) console.error('[orcamento] erro ao atualizar total do orçamento', errHeader);
+      if (errHeader) logger.error('erro ao atualizar total do orcamento', { module: 'orcamento', action: 'importar.total', err: errHeader });
       else setDataAtualizada(hoje);
 
       toast(`${toInsert.length} itens importados e salvos`, { tone: 'success', icon: 'check' });
     } catch (e) {
-      console.error('[orcamento] falha inesperada na importação', e);
+      logger.error('falha inesperada na importacao', { module: 'orcamento', action: 'importar', err: e });
       toast('Erro ao importar: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
     } finally {
       setSaving(false);
@@ -929,7 +930,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       if (toInsert.length) {
         const { error } = await orcamentosService.itens.criar(toInsert);
         if (error) {
-          console.error('[orcamento] erro ao inserir itens', error);
+          logger.error('erro ao inserir itens', { module: 'orcamento', action: 'salvar.inserir', err: error });
           toast('Erro ao inserir itens: ' + error.message, { tone: 'error', icon: 'alert' });
           setSaving(false);
           return;
@@ -943,7 +944,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         );
         const falha = resultados.find(r => r.error);
         if (falha) {
-          console.error('[orcamento] erro ao atualizar itens', falha.error);
+          logger.error('erro ao atualizar itens', { module: 'orcamento', action: 'salvar.atualizar', err: falha.error });
           toast('Erro ao atualizar itens: ' + falha.error.message, { tone: 'error', icon: 'alert' });
           setSaving(false);
           return;
@@ -954,7 +955,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       if (deletedIds.length) {
         const { error } = await orcamentosService.itens.excluirVarios(deletedIds);
         if (error) {
-          console.error('[orcamento] erro ao excluir itens', error);
+          logger.error('erro ao excluir itens', { module: 'orcamento', action: 'salvar.excluir', err: error });
           toast('Erro ao excluir itens: ' + error.message, { tone: 'error', icon: 'alert' });
           setSaving(false);
           return;
@@ -969,7 +970,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       const hoje = new Date().toISOString().slice(0, 10);
       const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: grandTotal, data: hoje });
       if (errHeader) {
-        console.error('[orcamento] erro ao atualizar total do orçamento', errHeader);
+        logger.error('erro ao atualizar total do orcamento', { module: 'orcamento', action: 'salvar.total', err: errHeader });
         toast('Erro ao atualizar total do orçamento: ' + errHeader.message, { tone: 'error', icon: 'alert' });
         setSaving(false);
         return;
@@ -984,7 +985,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       setDirty(false);
       toast('Itens salvos com sucesso', { tone: 'success', icon: 'check' });
     } catch (e) {
-      console.error('[orcamento] falha inesperada ao salvar', e);
+      logger.error('falha inesperada ao salvar', { module: 'orcamento', action: 'salvar', err: e });
       toast('Erro ao salvar: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
     } finally {
       setSaving(false);
@@ -1001,7 +1002,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       if (idsToDelete.length) {
         const { error } = await orcamentosService.itens.excluirVarios(idsToDelete);
         if (error) {
-          console.error('[orcamento] erro ao limpar itens', error);
+          logger.error('erro ao limpar itens', { module: 'orcamento', action: 'limpar', err: error });
           toast('Erro ao limpar itens: ' + error.message, { tone: 'error', icon: 'alert' });
           setClearing(false);
           return;
@@ -1011,7 +1012,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       // Zera o total e atualiza a data no cabeçalho do orçamento
       const hoje = new Date().toISOString().slice(0, 10);
       const { error: errHeader } = await orcamentosService.atualizar(orcamento.id, { valor: 0, data: hoje });
-      if (errHeader) console.error('[orcamento] erro ao zerar total do orçamento', errHeader);
+      if (errHeader) logger.error('erro ao zerar total do orcamento', { module: 'orcamento', action: 'limpar.total', err: errHeader });
       else setDataAtualizada(hoje);
 
       delete _itensCache[orcamento.id];
@@ -1021,7 +1022,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       setShowClearAll(false);
       toast('Todos os itens foram removidos', { tone: 'success', icon: 'check' });
     } catch (e) {
-      console.error('[orcamento] falha inesperada ao limpar itens', e);
+      logger.error('falha inesperada ao limpar itens', { module: 'orcamento', action: 'limpar', err: e });
       toast('Erro ao limpar itens: ' + (e?.message || e), { tone: 'error', icon: 'alert' });
     } finally {
       setClearing(false);

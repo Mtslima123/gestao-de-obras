@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
+import { logger } from '../../services/logger';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset } from '../cronograma/ganttUtils';
@@ -440,7 +441,7 @@ const Fotos = ({ obra, readOnly = false }) => {
         setFotos(data.map(f => ({ ...f, url: signed[f.storage_path] || f.url })));
       }
     } catch (err) {
-      console.error('[obra] falha ao carregar fotos', err);
+      logger.error('falha ao carregar fotos', { module: 'obra', action: 'carregarFotos', err });
     } finally {
       setLoading(false);
     }
@@ -674,7 +675,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
       onClose();
     } catch (e) {
       // onSave normalmente já exibe o toast de erro; mantém o modal aberto para nova tentativa
-      console.error('[fotos] falha ao salvar foto', e);
+      logger.error('falha ao salvar foto', { module: 'obra', action: 'salvarFoto', err: e });
     } finally {
       setSaving(false);
     }
@@ -768,7 +769,7 @@ const HeroImage = ({ obra, onObraUpdate }) => {
     supabase.storage.from('obras-images')
       .createSignedUrl(`obras/${obra.id}/capa.jpg`, 3600)
       .then(({ data }) => { if (alive) setHeroSrc(data?.signedUrl || null); })
-      .catch(err => console.error('[obra] falha ao carregar capa', err));
+      .catch(err => logger.error('falha ao carregar capa', { module: 'obra', action: 'carregarCapa', err }));
     return () => { alive = false; };
   }, [obra.id, obra.imageUrl]);
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { fluxoService } from './fluxo.service';
+import { logger } from '../../services/logger';
 
 const GROUP_PALETTE = [
   '#2563eb', '#ef4444', '#16a34a', '#7c3aed',
@@ -193,14 +194,14 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
         if (data.link_ports) setLinkPorts(data.link_ports);
       }
       dbLoadedRef.current = true;
-    }).catch(() => { dbLoadedRef.current = true; });
+    }).catch((err) => { dbLoadedRef.current = true; logger.error('falha ao carregar fluxo executivo', { module: 'fluxo', action: 'carregar', obraId, err }); });
     return () => { cancel = true; };
   }, [obraId]);
 
   React.useEffect(() => {
     if (!dbLoadedRef.current) return; // não grava antes de carregar do banco
     const t = setTimeout(() => {
-      fluxoService.salvar(obraId, { cards, linkOffsets, linkPorts }).catch(() => {});
+      fluxoService.salvar(obraId, { cards, linkOffsets, linkPorts }).catch((err) => logger.error('falha ao salvar fluxo executivo', { module: 'fluxo', action: 'salvar', obraId, err }));
     }, 800);
     return () => clearTimeout(t);
   }, [cards, linkOffsets, linkPorts, obraId]);

@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { Modal, ObraFormModal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
+import { logger } from '../../services/logger';
 import { offsetToISO, migrateEtapas } from '../cronograma/ganttUtils';
 import { computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { isAdmin } from '../../utils/permissions';
@@ -40,11 +41,11 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
           if (!etapas.length) { fimMap[row.obra_id] = null; avMap[row.obra_id] = 0; return; }
           fimMap[row.obra_id] = offsetToISO(Math.max(...etapas.map(e => (e.inicio || 0) + (e.dur || 0))));
           avMap[row.obra_id] = computeAvancoFisico(etapas);
-        } catch (e) { console.error('[obras] avanço/término', row.obra_id, e); }
+        } catch (e) { logger.error('falha ao calcular avanco/termino', { module: 'obras', action: 'resumo', obraId: row.obra_id, err: e }); }
       });
       _obrasResumoCache.cronFinal = fimMap; _obrasResumoCache.avancoMap = avMap;
       setCronFinal(fimMap); setAvancoMap(avMap);
-    }).catch(err => console.error('[obras] falha ao carregar cronogramas', err));
+    }).catch(err => logger.error('falha ao carregar cronogramas', { module: 'obras', action: 'carregarCronogramas', err }));
     return () => { cancelled = true; };
   }, [obras]);
 
@@ -61,7 +62,7 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
       (data || []).forEach(u => { if (u.signedUrl && !u.error && pathToId[u.path]) map[pathToId[u.path]] = u.signedUrl; });
       _obrasResumoCache.capaUrls = map;
       setCapaUrls(map);
-    }).catch(err => console.error('[obras] falha ao carregar capas', err));
+    }).catch(err => logger.error('falha ao carregar capas', { module: 'obras', action: 'carregarCapas', err }));
     return () => { cancelled = true; };
   }, [obras]);
 

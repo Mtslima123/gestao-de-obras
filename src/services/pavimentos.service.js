@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { logger } from './logger';
 
 // Pavimentos cadastrados por obra (tabela pavimentos_obra). Compartilhado entre o
 // Cronograma (inserção automática de pavimentos) e as Fotos da obra, para que um
@@ -12,7 +13,7 @@ export const pavimentosService = {
       .select('nome')
       .eq('obra_id', obraId)
       .order('nome');
-    if (error) { console.error('[pavimentos_obra] falha ao listar', error); return []; }
+    if (error) { logger.error('falha ao listar pavimentos', { module: 'pavimentos', action: 'listar', obraId, err: error }); return []; }
     return (data || []).map(r => r.nome);
   },
 
@@ -23,7 +24,7 @@ export const pavimentosService = {
     const { error } = await supabase
       .from('pavimentos_obra')
       .upsert(lista.map(nome => ({ obra_id: obraId, nome })), { onConflict: 'obra_id,nome', ignoreDuplicates: true });
-    if (error) console.error('[pavimentos_obra] falha ao salvar', error);
+    if (error) logger.error('falha ao salvar pavimentos', { module: 'pavimentos', action: 'salvar', obraId, err: error });
   },
 
   // Remove um pavimento do cadastro da obra.
@@ -35,6 +36,6 @@ export const pavimentosService = {
       .delete()
       .eq('obra_id', obraId)
       .eq('nome', n);
-    if (error) console.error('[pavimentos_obra] falha ao excluir', error);
+    if (error) logger.error('falha ao excluir pavimento', { module: 'pavimentos', action: 'excluir', obraId, err: error });
   },
 };
