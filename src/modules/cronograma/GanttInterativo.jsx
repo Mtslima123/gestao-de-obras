@@ -718,7 +718,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div ref={ganttRef} style={{ position: 'relative' }}>
+    <div ref={ganttRef} style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Faixa (ribbon) em abas — mesma da Lista; travada acima do scroller ── */}
       {(() => {
@@ -745,7 +745,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         const tabs = readOnly ? [{ id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }] : [{ id: 'tarefa', label: 'Tarefa' }, { id: 'inserir', label: 'Inserir' }, { id: 'exibir', label: 'Exibir' }, { id: 'cadastro', label: 'Cadastro' }, { id: 'exportar', label: 'Exportar' }];
         const curTab = tabs.some(t => t.id === activeTab) ? activeTab : tabs[0].id;
         return (
-      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         {/* Tira de abas + status + recolher */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--surface-muted)', borderBottom: '1px solid var(--border)', padding: '0 8px' }}>
           {tabs.map(t => (
@@ -1139,10 +1139,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           overflow: 'auto', maxWidth: '100%', userSelect: 'none', cursor: editMode ? 'grab' : 'default',
           // Altura mínima: não deixa a caixa encolher ao recolher grupos (piso = até 10 linhas, ou todas se forem menos)
           minHeight: headerH + Math.min(etapas.length, 10) * GM_ROW_H,
-          // Viewport de altura limitada: o Gantt ganha scroll vertical próprio (necessário
-          // para a virtualização). Tunável conforme a topbar/cabeçalho do card. Encolhe
-          // quando o Formulário de Tarefa (painel inferior) está aberto.
-          maxHeight: (showTaskForm && selected.size > 0) ? 'calc(100vh - 300px - 220px)' : 'calc(100vh - 300px)',
+          // Preenche o espaço que sobrar dentro do card (que já vem com a altura certa de fora,
+          // calculada em Cronograma.jsx) — o ribbon acima e o Formulário de Tarefa abaixo (se
+          // aberto) têm flexShrink:0, então esse scroller encolhe/cresce sozinho ao redor deles.
+          flex: 1,
         }}
         onMouseDown={onContDown}
         onClick={() => { if (!dragged.current) { setSel(new Set()); if (onTaskSelect) onTaskSelect(null); } }}

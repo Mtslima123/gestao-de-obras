@@ -1639,6 +1639,50 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     try { const raw = localStorage.getItem('ls_crono_feriados_' + obraSel); setFeriadosCfg(raw ? JSON.parse(raw) : { dias: [], sabadoUtil: false }); }
     catch { setFeriadosCfg({ dias: [], sabadoUtil: false }); }
   }, [obraSel]);
+
+  // Altura real da topbar (mesmo padrão de ListaInterativa.jsx) — usada para congelar o card
+  // do Gantt exatamente abaixo dela, sem corte, ao rolar a página.
+  const [topbarH, setTopbarH] = React.useState(60);
+  React.useEffect(() => {
+    const measure = () => { const tb = document.querySelector('.topbar'); if (tb) setTopbarH(tb.offsetHeight); };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  // Fixa o card do Gantt (título+legenda+ribbon+grade) sob a topbar ao rolar a página — mesmo
+  // mecanismo de `listaPinned` em ListaInterativa.jsx (sentinela + position:fixed via JS). Os
+  // cartões de indicador (acima) NÃO entram no congelamento — só o que vem abaixo deles.
+  const ganttSentinelRef = React.useRef(null);
+  const [ganttPinned, setGanttPinned] = React.useState(null);
+  const [ganttDocTop, setGanttDocTop] = React.useState(null);
+  React.useEffect(() => {
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      const s = ganttSentinelRef.current;
+      if (!s) return;
+      const r = s.getBoundingClientRect();
+      const dt = Math.round(r.top + window.scrollY);
+      setGanttDocTop(prev => (prev === dt ? prev : dt));
+      if (r.top <= topbarH) {
+        setGanttPinned(prev => (prev && Math.abs(prev.left - r.left) < 0.5 && Math.abs(prev.width - r.width) < 0.5) ? prev : { left: r.left, width: r.width });
+      } else {
+        setGanttPinned(prev => (prev ? null : prev));
+      }
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(check); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined' && ganttSentinelRef.current) {
+      ro = new ResizeObserver(onScroll);
+      ro.observe(ganttSentinelRef.current);
+    }
+    const id = setTimeout(check, 0);
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); clearTimeout(id); if (raf) cancelAnimationFrame(raf); if (ro) ro.disconnect(); };
+  }, [topbarH]);
+
   // Pavimentos já usados nesta obra (tabela própria `pavimentos_obra`), sugeridos como chips
   // no modal "Inserção automática de pavimentos".
   const [pavimentosObra, setPavimentosObra] = React.useState([]);
@@ -2276,10 +2320,22 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 const dtColor = detailTask
                   ? (dtStatus === 'done' ? '#1b8f5e' : dtStatus === 'late' ? '#c0281f' : dtStatus === 'upcoming' ? '#3d7fc9' : 'var(--brand)')
                   : 'var(--brand)';
+                // Altura única do card (não depende de `ganttDocTop`) — assim o documento
+                // sempre tem espaço de rolagem suficiente pra levar o topo do card até o
+                // gatilho de congelamento, não importa quão alta seja a seção de cards de
+                // indicador acima (se dependesse de docTop, a altura pré-scroll encolheria
+                // conforme os cards ficassem mais altos, quase zerando a rolagem disponível).
+                const ganttCardH = `calc(100vh - ${topbarH + 10}px)`;
                 return (
-                  <div style={{ display: 'flex', gap: 'var(--gap)', marginTop: 'var(--gap)', alignItems: 'flex-start' }}>
+                  <>
+                  <div ref={ganttSentinelRef} aria-hidden="true" style={{ height: 0 }} />
+                  {ganttPinned && <div aria-hidden="true" style={{ marginTop: 'var(--gap)', height: ganttCardH }} />}
+                  <div style={ganttPinned
+                    ? { display: 'flex', gap: 'var(--gap)', alignItems: 'flex-start', position: 'fixed', top: topbarH + 10, left: ganttPinned.left, width: ganttPinned.width, height: ganttCardH, zIndex: 5, margin: 0 }
+                    : { display: 'flex', gap: 'var(--gap)', marginTop: 'var(--gap)', alignItems: 'flex-start', height: ganttCardH }
+                  }>
                     {/* Card do Gantt */}
-                    <div className="card" style={{ flex: 1, minWidth: 0 }}>
+                    <div className="card" style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
                       <div className="card-header">
                         <div>
                           <div className="card-title">{obra.nome} · Gantt interativo</div>
@@ -2299,7 +2355,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           </div>
                         </div>
                       </div>
-                      <div className="card-body" style={{ padding: 0 }}>
+                      <div className="card-body" style={{ padding: 0, flex: 1, minHeight: 0, overflow: 'hidden' }}>
                         <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} customCols={customCols}
                           baselines={baselines} reprogramacoes={reprogramacoes}
                           blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
@@ -2492,6 +2548,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                       </div>
                     )}
                   </div>
+                  </>
                 );
               })()}
 

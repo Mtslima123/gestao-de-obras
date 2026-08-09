@@ -1995,22 +1995,25 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
 
   const btnStyle = { fontSize: 12, padding: '4px 10px', height: 30, gap: 5, display: 'flex', alignItems: 'center' };
-  // Altura do card no fluxo: cabe da posição real do card até a base da viewport (não estoura a página).
-  const listaTopPx = listaDocTop != null ? listaDocTop : topbarH;
-  const listaFlowH = `calc(100vh - ${listaTopPx}px - 8px)`;
+  // Altura única do card (não depende de `listaDocTop`) — assim o documento sempre tem
+  // espaço de rolagem suficiente pra levar o topo do card até o gatilho de congelamento,
+  // não importa quão alta seja a seção de cards de indicador acima (se dependesse de
+  // docTop, a altura pré-scroll encolheria conforme os cards ficassem mais altos, quase
+  // zerando a rolagem disponível).
+  const listaCardH = `calc(100vh - ${topbarH + 10}px)`;
 
   return (
     <>
     {/* Sentinela: marca onde o card fixo começa (para detectar quando prender) */}
     <div ref={listaSentinelRef} aria-hidden="true" style={{ height: 0 }} />
     {/* Espaçador: preserva a altura do fluxo quando o card fixo sai do fluxo (position:fixed) */}
-    {listaPinned && <div aria-hidden="true" style={{ marginTop: 8, height: listaFlowH }} />}
+    {listaPinned && <div aria-hidden="true" style={{ marginTop: 8, height: listaCardH }} />}
 
     {/* Card FIXO: menu em abas (ribbon) + banda + cabeçalho + tabela; congela sob a topbar */}
     <div ref={listaRef} className="card"
       style={listaPinned
-        ? { position: 'fixed', top: topbarH + 10, left: listaPinned.left, width: listaPinned.width, height: `calc(100vh - ${topbarH + 10}px - 8px)`, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
-        : { marginTop: 8, height: listaFlowH, display: 'flex', flexDirection: 'column' }
+        ? { position: 'fixed', top: topbarH + 10, left: listaPinned.left, width: listaPinned.width, height: listaCardH, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
+        : { marginTop: 8, height: listaCardH, display: 'flex', flexDirection: 'column' }
       }>
 
       {/* ── Menu em abas (ribbon estilo MS Project): Tarefa | Inserir | Exibir ─── */}

@@ -199,7 +199,9 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
 
               <div className="obra-card-head" style={{ paddingTop: 6 }}>
                 <div style={{ flex: 1 }}>
-                  {o.sigla && o.sigla !== o.id && <div className="obra-card-id">{o.sigla}</div>}
+                  {/* Sempre reserva a linha da sigla (mesmo vazia) — senão os cards sem sigla
+                     ficam com o nome/avanço/datas mais alto que os cards com sigla. */}
+                  <div className="obra-card-id">{(o.sigla && o.sigla !== o.id) ? o.sigla : ' '}</div>
                   <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)', marginBottom: 3 }}>
                     ID: {o.id.length > 12 ? o.id.slice(0, 12) + '…' : o.id}
                   </div>
