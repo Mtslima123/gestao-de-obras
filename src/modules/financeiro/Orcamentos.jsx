@@ -5,6 +5,8 @@ import { useToast, Modal } from '../../components/Modals';
 import { orcamentosService } from './orcamentos.service';
 import { logger } from '../../services/logger';
 import { vinculoService } from './vinculoService';
+import { supabase } from '../../services/supabase';
+import { migrateEtapas } from '../cronograma/ganttUtils';
 import { formatBRL } from '../../utils/formatters';
 import { moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
 
@@ -576,6 +578,24 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
   const [exportingExcel, setExportingExcel] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false); // menu "Exportar" (Excel/PDF)
   const exportRef = React.useRef(null);
+
+  // Card "gruda" sob a topbar ao rolar a página (sticky); a lista rola por dentro do card.
+  // Mede a altura do card-header (H) e limita o card-body para o card caber na viewport
+  // quando grudado no topo STICKY_TOP.
+  const STICKY_TOP = 92; // topbar (60) + 32px de respiro entre as linhas
+  const cardHeaderRef = React.useRef(null);
+  const composicaoBodyRef = React.useRef(null);
+  const [tableMaxH, setTableMaxH] = React.useState(null);
+  React.useLayoutEffect(() => {
+    const recompute = () => {
+      const H = cardHeaderRef.current?.offsetHeight || 0;
+      setTableMaxH(Math.max(200, window.innerHeight - STICKY_TOP - H - 24)); // 24px respiro no rodapé
+    };
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, [items.length]);
+
   React.useEffect(() => {
     if (!exportOpen) return;
     const h = (e) => { if (exportRef.current && !exportRef.current.contains(e.target)) setExportOpen(false); };
@@ -605,6 +625,35 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
     document.addEventListener('mouseup', onUp);
   };
 
+  // Auto-ajuste de largura (duplo-clique na alça): mede o maior conteúdo da coluna via Canvas.
+  const autoFitCol = (id) => {
+    if (id === 'acoes') return;
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = id === 'nome' ? '13px system-ui, sans-serif'
+             : id === 'codigo' ? '600 11.5px ui-monospace, monospace'
+             : '12px ui-monospace, monospace';
+    const col = ORCA_COLS.find(c => c.id === id);
+    const cellText = (it) => {
+      const hasKids = parentSet.has(it.codigo);
+      switch (id) {
+        case 'codigo': return it.codigo || '';
+        case 'nome':   return it.nome || '';
+        case 'quant':  return hasKids ? '—' : fmtNum(it.quantidade);
+        case 'un':     return hasKids ? '—' : (it.unidade || '').toUpperCase();
+        case 'vunit':  return hasKids ? '—' : fmtNum(it.valor_unitario);
+        case 'vtotal': return brlFull(it.valor_total);
+        default:       return '';
+      }
+    };
+    let max = ctx.measureText(col?.label || '').width;
+    for (const it of items) {
+      let w = ctx.measureText(cellText(it)).width;
+      if (id === 'codigo') w += getNivel(it.codigo) * 18 + 30; // indent + chevron + bolinha
+      if (w > max) max = w;
+    }
+    setColWidths(prev => ({ ...prev, [id]: Math.max(50, Math.round(max + 28)) })); // +28 padding lateral
+  };
+
   React.useEffect(() => {
     if (_itensCache[orcamento.id]) { setItems(_itensCache[orcamento.id]); return; }
     orcamentosService.itens.listar(orcamento.id).then(({ data, error }) => {
@@ -614,16 +663,39 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
 
   // Itens vinculados a alguma tarefa do cronograma (indicador na composição)
   const [vinculadoSet, setVinculadoSet] = React.useState(() => new Set());
+  // item_id -> nome da tarefa do cronograma vinculada (para o tooltip da bolinha verde)
+  const [vinculoTarefaMap, setVinculoTarefaMap] = React.useState({});
   React.useEffect(() => {
     let cancelled = false;
-    if (!orcamento.obra_id) { setVinculadoSet(new Set()); return; }
-    vinculoService.listarPorObra(orcamento.obra_id).then((vinc) => {
+    if (!orcamento.obra_id) { setVinculadoSet(new Set()); setVinculoTarefaMap({}); return; }
+    Promise.all([
+      vinculoService.listarPorObra(orcamento.obra_id),
+      supabase.from('cronogramas').select('etapas').eq('obra_id', orcamento.obra_id).maybeSingle(),
+    ]).then(([vinc, cron]) => {
       if (cancelled) return;
       const lista = Array.isArray(vinc) ? vinc : (vinc?.data || []);
       setVinculadoSet(new Set(lista.map(v => v.orcamento_item_id)));
-    }).catch(() => {});
+      // Nome das tarefas vem do JSON `etapas` do cronograma (resolve etapa_id -> nome).
+      const etapas = migrateEtapas(cron?.data?.etapas || []);
+      const nomeById = Object.fromEntries(etapas.map(e => [e.id, e.etapa]));
+      setVinculoTarefaMap(Object.fromEntries(
+        lista.map(v => [v.orcamento_item_id, nomeById[v.etapa_id] || 'Tarefa removida'])
+      ));
+    }).catch(err => logger.error('falha ao listar vinculos da obra', { module: 'orcamento', action: 'listarVinculos', err }));
     return () => { cancelled = true; };
   }, [orcamento.obra_id, orcamento.id]);
+
+  // Códigos protegidos contra exclusão: item vinculado + todos os seus ancestrais
+  // (excluir um ancestral apagaria o item vinculado junto).
+  const protegidoSet = React.useMemo(() => {
+    const s = new Set();
+    items.forEach(it => {
+      if (!vinculadoSet.has(it.id)) return;
+      const parts = it.codigo.split('.');
+      for (let i = 1; i <= parts.length; i++) s.add(parts.slice(0, i).join('.'));
+    });
+    return s;
+  }, [items, vinculadoSet]);
 
   // ── Utilitários de hierarquia ──────────────────────────────────────────────
   const getNivel = (codigo) => (codigo.match(/\./g) || []).length;
@@ -716,6 +788,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
     setDirty(true);
   };
 
+  // Garante que `ordem` == posição no array, para o reload (que ordena por ordem,codigo)
+  // refletir exatamente a ordem exibida. Marca como dirty os itens já existentes que mudaram.
+  const reindexOrdem = (list) => list.map((it, i) =>
+    it.ordem === i ? it : { ...it, ordem: i, _dirty: it._new ? it._dirty : true });
+
   const makeNewRow = (codigo, ordem) => ({
     id: 'tmp-' + Math.random().toString(36).slice(2),
     orcamento_id: orcamento.id,
@@ -730,17 +807,21 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
   });
 
   const addBelow = (refCodigo) => {
-    const ref = items.find(it => it.codigo === refCodigo);
-    // Avança além de todos os descendentes para inserir após a subárvore inteira
-    let insertIdx = items.findIndex(it => it.codigo === refCodigo);
-    while (
-      insertIdx + 1 < items.length &&
-      items[insertIdx + 1].codigo.startsWith(refCodigo + '.')
-    ) {
-      insertIdx++;
+    const parts  = refCodigo.split('.');
+    const parent = parts.slice(0, -1).join('.'); // '' para item de raiz
+    const newCode = nextCode(refCodigo, items);
+    // Insere no FIM do bloco de irmãos: último item sob o mesmo pai (ou fim da lista, na raiz).
+    let insertIdx = items.length - 1;
+    if (parent) {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].codigo === parent || items[i].codigo.startsWith(parent + '.')) { insertIdx = i; break; }
+      }
     }
-    const newRow = makeNewRow(nextCode(refCodigo, items), (ref?.ordem ?? 0) + 1);
-    setItems(prev => { const n = [...prev]; n.splice(insertIdx + 1, 0, newRow); return n; });
+    setItems(prev => {
+      const n = [...prev];
+      n.splice(insertIdx + 1, 0, makeNewRow(newCode, insertIdx + 1));
+      return reindexOrdem(n);
+    });
     setDirty(true);
   };
 
@@ -774,7 +855,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       const renumbered = renumber(prev);
       const n = [...renumbered];
       n.splice(idx, 0, newRow);
-      return n;
+      return reindexOrdem(n);
     });
     setDirty(true);
   };
@@ -798,20 +879,19 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       ? Math.max(...existingChildren.map(ch => items.findIndex(it => it.codigo === ch.codigo)))
       : parentIdx;
 
-    const ref = items[lastChildIdx];
-    const newRow = makeNewRow(newCode, (ref?.ordem ?? 0) + 1);
-    setItems(prev => { const n = [...prev]; n.splice(lastChildIdx + 1, 0, newRow); return n; });
+    const newRow = makeNewRow(newCode, lastChildIdx + 1);
+    setItems(prev => { const n = [...prev]; n.splice(lastChildIdx + 1, 0, newRow); return reindexOrdem(n); });
     // Garante que o pai fique expandido
     setCollapsed(prev => { const next = new Set(prev); next.delete(parentCodigo); return next; });
     setDirty(true);
   };
 
-  // Pede confirmação antes de excluir quando o item (ou seus filhos) tem quantidade lançada
+  // Sempre pede confirmação antes de excluir uma linha (item ou grupo).
   const requestRemove = (codigo) => {
     const afetados = items.filter(it => it.codigo === codigo || it.codigo.startsWith(codigo + '.'));
-    const temQuantidade = afetados.some(it => Number(it.quantidade) > 0);
-    if (!temQuantidade) {
-      removeRow(codigo); // sem quantidade: exclui direto, como antes
+    // Item vinculado a uma tarefa do cronograma não pode ser excluído (protege o vínculo).
+    if (afetados.some(it => vinculadoSet.has(it.id))) {
+      toast('Este item está vinculado a uma tarefa do cronograma. Remova o vínculo antes de excluir.', { tone: 'warning', icon: 'alert-triangle' });
       return;
     }
     const item = items.find(it => it.codigo === codigo);
@@ -821,6 +901,8 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       quantidade: item?.quantidade,
       unidade: item?.unidade,
       isGrupo: afetados.length > 1,
+      temQuantidade: afetados.some(it => Number(it.quantidade) > 0),
+      count: afetados.length,
     });
   };
 
@@ -832,9 +914,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       .map(it => it.id);
     if (toDelete.length) setDeletedIds(prev => [...prev, ...toDelete]);
 
-    setItems(prev => prev.filter(it =>
+    setItems(prev => reindexOrdem(prev.filter(it =>
       it.codigo !== codigo && !it.codigo.startsWith(codigo + '.')
-    ));
+    )));
     setDirty(true);
   };
 
@@ -1202,12 +1284,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       </div>
 
       {/* Composição */}
-      <div style={{ marginTop: 'var(--gap)' }}>
-        {/* Tabela de itens */}
-        <div className="card" style={{ overflow: 'hidden' }}>
-          <div className="card-header">
+      <div style={{ display: 'contents' }}>
+        {/* Tabela de itens — gruda sob a topbar ao rolar */}
+        <div className="card" style={{ overflow: 'hidden', marginTop: 32, position: 'sticky', top: STICKY_TOP, zIndex: 2 }}>
+          <div className="card-header" ref={cardHeaderRef}>
             <div>
-              <div className="card-title">Composição orçamentária</div>
               <div className="card-subtitle">
                 {items.length === 0
                   ? 'Nenhum item. Use + abaixo para adicionar.'
@@ -1268,7 +1349,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
               )}
             </div>
           </div>
-          <div className="card-body flush" style={{ overflowX: 'auto' }}>
+          <div ref={composicaoBodyRef} className="card-body flush" style={{ overflow: 'auto', maxHeight: tableMaxH ? `${tableMaxH}px` : undefined, minHeight: 200 }}>
             <table className="orca-table" style={{ tableLayout: 'fixed', width: tableWidth, minWidth: '100%' }}>
               <thead>
                 <tr>
@@ -1278,8 +1359,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
                       <th key={col.id} className={col.right ? 'right' : undefined}
                         style={{ width: w, minWidth: w, position: 'relative', userSelect: 'none', borderRight: '1px solid var(--border)' }}>
                         {col.label}
-                        <div className="orca-col-grip" title="Arraste para redimensionar"
-                          onMouseDown={(ev) => startColResize(ev, col.id)} />
+                        <div className="orca-col-grip" title="Arraste para redimensionar · duplo-clique para ajustar"
+                          onMouseDown={(ev) => startColResize(ev, col.id)}
+                          onDoubleClick={(ev) => { ev.stopPropagation(); ev.preventDefault(); autoFitCol(col.id); }} />
                       </th>
                     );
                   })}
@@ -1323,7 +1405,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
                               {it.codigo}
                             </span>
                             {vinculado && (
-                              <span title="Vinculada a uma tarefa do cronograma"
+                              <span title={vinculoTarefaMap[it.id] ? `Vinculada a: ${vinculoTarefaMap[it.id]}` : 'Vinculada a uma tarefa do cronograma'}
                                 style={{ flexShrink: 0, width: 8, height: 8, borderRadius: '50%', background: '#16a34a', boxShadow: '0 0 0 2px rgba(22,163,74,0.18)' }} />
                             )}
                           </div>
@@ -1418,8 +1500,10 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
                               )}
                               <button
                                 className="orca-row-btn danger"
-                                title="Remover linha (e filhos)"
+                                title={protegidoSet.has(it.codigo) ? 'Vinculada ao cronograma: remova o vínculo antes de excluir' : 'Remover linha (e filhos)'}
                                 onClick={() => requestRemove(it.codigo)}
+                                disabled={protegidoSet.has(it.codigo)}
+                                style={protegidoSet.has(it.codigo) ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
                               >×</button>
                             </div>
                           )}
@@ -1480,9 +1564,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         >
           <p style={{ fontSize: 14 }}>
             {pendingDelete.isGrupo ? (
-              <>O grupo <strong>{pendingDelete.codigo}{pendingDelete.nome ? ` · ${pendingDelete.nome}` : ''}</strong> contém itens com quantidade lançada, que também serão removidos.</>
-            ) : (
+              <>O grupo <strong>{pendingDelete.codigo}{pendingDelete.nome ? ` · ${pendingDelete.nome}` : ''}</strong> e todos os seus itens serão removidos{pendingDelete.temQuantidade ? ', inclusive itens com quantidade lançada' : ''}.</>
+            ) : pendingDelete.temQuantidade ? (
               <>O item <strong>{pendingDelete.codigo}{pendingDelete.nome ? ` · ${pendingDelete.nome}` : ''}</strong> tem <strong>{fmtNum(pendingDelete.quantidade)} {pendingDelete.unidade || ''}</strong> lançado.</>
+            ) : (
+              <>O item <strong>{pendingDelete.codigo}{pendingDelete.nome ? ` · ${pendingDelete.nome}` : ''}</strong> será removido.</>
             )}
             {' '}Tem certeza que deseja excluir?
           </p>

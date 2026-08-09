@@ -8,7 +8,7 @@ import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
-import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico } from '../cronograma/scheduleEngine';
+import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
 import { SCurveChart } from '../cronograma/SCurveChart';
 import { pavimentosService } from '../../services/pavimentos.service';
 
@@ -80,7 +80,7 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
 
   return (
     <div className="gantt" style={{ overflowX: 'auto' }}>
-      <div style={{ minWidth: 220 + totalMonths * 70, position: 'relative' }}>
+      <div style={{ minWidth: 220 + totalMonths * 70, position: 'relative', paddingTop: 12 }}>
         <div className="gantt-head">
           <div style={{ padding: '8px 14px', fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>ETAPA</div>
           <div className="gantt-month-row" style={{ gridTemplateColumns: janelaMesesDias.map(d => `${d}fr`).join(' ') }}>
@@ -94,7 +94,7 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
               <div className="gantt-label" style={e.isGroup ? { fontWeight: 700 } : undefined}>{e.etapa}</div>
               <div className="gantt-track">
                 <div
-                  className={'gantt-bar ' + (e.isGroup ? 'is-group ' : '') + e.status}
+                  className={'gantt-bar ' + (e.isGroup ? 'is-group ' : '') + effStatus(e)}
                   style={{
                     left: `calc(${barLeftPct(v)}% + 2px)`,
                     width: `calc(${barWidthPct(v)}% - 4px)`,
@@ -109,7 +109,7 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
         })}
         {!resumoOnly && mostrarHoje && (
           <div className="gantt-today-line" style={{ left: `calc(220px + (100% - 220px) * ${hojePct / 100})` }}>
-            <span className="gantt-today-label">Hoje</span>
+            <span className="gantt-today-label" style={{ top: 0 }}>Hoje</span>
           </div>
         )}
       </div>
@@ -848,6 +848,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   });
   React.useEffect(() => { sessionStorage.setItem('obra_tab', tab); }, [tab]);
   const [cronoView, setCronoView] = React.useState('gantt');
+  const [cronoCollapsed, setCronoCollapsed] = React.useState(() => new Set()); // grupos recolhidos na mini-Lista
   const [showEdit,   setShowEdit]   = React.useState(false);
   const [deleteStep, setDeleteStep] = React.useState(0);
   const D = AppData;
@@ -963,19 +964,19 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
               <div className="meta">vs planejado {heroStats.planejadoHoje}%</div>
             </div>
             <div className="hero-stat">
-              <div className="label">Entrega (cliente)</div>
-              <div className="value num">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</div>
+              <div className="label">Fim do cronograma</div>
+              <div className="value num">{cronFinalISO ? cronFinalISO.split('-').reverse().join('/') : '—'}</div>
+              {(!etapasLoaded || !cronFinalISO) && (
+                <div className="meta">{!etapasLoaded ? 'Carregando…' : 'Sem cronograma'}</div>
+              )}
             </div>
             <div className="hero-stat">
               <div className="label">Data fim da obra</div>
               <div className="value num">{o.dataFimObra ? o.dataFimObra.split('-').reverse().join('/') : '—'}</div>
             </div>
             <div className="hero-stat">
-              <div className="label">Fim do cronograma</div>
-              <div className="value num">{cronFinalISO ? cronFinalISO.split('-').reverse().join('/') : '—'}</div>
-              {(!etapasLoaded || !cronFinalISO) && (
-                <div className="meta">{!etapasLoaded ? 'Carregando…' : 'Sem cronograma'}</div>
-              )}
+              <div className="label">Entrega (cliente)</div>
+              <div className="value num">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</div>
             </div>
           </div>
         </div>
@@ -1005,8 +1006,10 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
               </div>
             </div>
             <div className="card-actions">
-              <button className={'chip' + (cronoView === 'gantt' ? ' active' : '')} onClick={() => setCronoView('gantt')}>Gantt</button>
-              <button className={'chip' + (cronoView === 'lista' ? ' active' : '')} onClick={() => setCronoView('lista')}>Lista</button>
+              <button className={'chip' + (cronoView === 'gantt' ? ' active' : '')} onClick={() => setCronoView('gantt')}
+                style={cronoView === 'gantt' ? { background: 'var(--brand)', borderColor: 'var(--brand)', color: '#fff' } : undefined}>Gantt</button>
+              <button className={'chip' + (cronoView === 'lista' ? ' active' : '')} onClick={() => setCronoView('lista')}
+                style={cronoView === 'lista' ? { background: 'var(--brand)', borderColor: 'var(--brand)', color: '#fff' } : undefined}>Lista</button>
               <button className="btn btn-sm btn-primary" onClick={() => onOpenCronograma && onOpenCronograma(o.id)}>
                 <Icon name="arrow-right" size={13} />Ir para Cronograma
               </button>
@@ -1034,34 +1037,76 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                       </tr>
                     </thead>
                     <tbody>
-                      {etapasObra.map((e, i) => {
-                        const isPai = !!e.isGroup;
-                        const gv = isPai ? groupValsObra[e.id] : null;
-                        const av = Math.round(gv ? gv.avanco : (e.avanco || 0)); // pai = rollup dos filhos
-                        const st = isPai ? (av >= 100 ? 'done' : e.status) : e.status;
-                        const rowBg = isPai ? 'var(--surface-muted)' : undefined;
-                        return (
-                          <tr key={i} style={{ background: rowBg }}>
-                            <td style={{ ...tdS, fontWeight: isPai ? 700 : 400, paddingLeft: 12 + (e.nivel || 0) * 14, color: isPai ? 'var(--brand)' : undefined }}>
-                              {isPai && <span style={{ color: 'var(--text-faint)', marginRight: 5, fontSize: 10 }}>▸</span>}
-                              {e.etapa}
-                            </td>
-                            <td style={tdS}>{isoToBR(offsetToISO(e.inicio))}</td>
-                            <td style={tdS}>{isoToBR(offsetToISO((e.inicio || 0) + (e.dur || 0)))}</td>
-                            <td style={tdS}>{e.dur}d</td>
-                            <td style={tdS}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
-                                <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2 }}>
-                                  <div style={{ width: av + '%', height: '100%', background: 'var(--brand)', borderRadius: 2 }} />
+                      {(() => {
+                        // Linha de Resumo do Projeto (agrega toda a obra)
+                        const rows = [];
+                        if (etapasObra.length) {
+                          const ini = Math.min(...etapasObra.map(e => e.inicio || 0));
+                          const fim = Math.max(...etapasObra.map(e => (e.inicio || 0) + (e.dur || 0)));
+                          const av = Math.round(computeAvancoFisico(etapasObra));
+                          const st = av >= 100 ? 'done' : 'upcoming';
+                          rows.push(
+                            <tr key="resumo-projeto" style={{ background: 'var(--brand-50)' }}>
+                              <td style={{ ...tdS, fontWeight: 800, color: 'var(--brand)' }}>Resumo do projeto</td>
+                              <td style={tdS}>{isoToBR(offsetToISO(ini))}</td>
+                              <td style={tdS}>{isoToBR(offsetToISO(fim))}</td>
+                              <td style={tdS}>{fim - ini}d</td>
+                              <td style={tdS}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
+                                  <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2 }}>
+                                    <div style={{ width: av + '%', height: '100%', background: 'var(--brand)', borderRadius: 2 }} />
+                                  </div>
+                                  <span style={{ minWidth: 32, textAlign: 'right', fontWeight: 800 }}>{av}%</span>
                                 </div>
-                                <span style={{ minWidth: 32, textAlign: 'right', fontWeight: isPai ? 700 : 400 }}>{av}%</span>
-                              </div>
-                            </td>
-                            <td style={tdS}><span className={'badge badge-' + st}>{statusLabel[st] || st}</span></td>
-                            <td style={tdS}>{isPai ? '—' : (e.responsavel || '—')}</td>
-                          </tr>
-                        );
-                      })}
+                              </td>
+                              <td style={tdS}><span className={'badge badge-' + st}>{statusLabel[st] || st}</span></td>
+                              <td style={tdS}>—</td>
+                            </tr>
+                          );
+                        }
+                        // Aplica recolhimento: esconde descendentes de grupos recolhidos
+                        let hideUntil = null;
+                        etapasObra.forEach((e, i) => {
+                          const niv = e.nivel || 0;
+                          if (hideUntil !== null) {
+                            if (niv > hideUntil) return;   // ainda dentro do grupo recolhido
+                            hideUntil = null;
+                          }
+                          const isPai = !!e.isGroup;
+                          const colapsado = isPai && cronoCollapsed.has(e.id);
+                          if (isPai && colapsado) hideUntil = niv;
+                          const gv = isPai ? groupValsObra[e.id] : null;
+                          const av = Math.round(gv ? gv.avanco : (e.avanco || 0)); // pai = rollup dos filhos
+                          const st = isPai ? (av >= 100 ? 'done' : e.status) : e.status;
+                          const rowBg = isPai ? 'var(--surface-muted)' : undefined;
+                          rows.push(
+                            <tr key={i} style={{ background: rowBg }}>
+                              <td style={{ ...tdS, fontWeight: isPai ? 700 : 400, paddingLeft: 12 + niv * 14, color: isPai ? 'var(--brand)' : undefined }}>
+                                {isPai
+                                  ? <span onClick={() => setCronoCollapsed(prev => { const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; })}
+                                      title={colapsado ? 'Expandir' : 'Recolher'}
+                                      style={{ color: 'var(--text-muted)', marginRight: 5, fontSize: 10, cursor: 'pointer', userSelect: 'none' }}>{colapsado ? '▸' : '▾'}</span>
+                                  : null}
+                                {e.etapa}
+                              </td>
+                              <td style={tdS}>{isoToBR(offsetToISO(e.inicio))}</td>
+                              <td style={tdS}>{isoToBR(offsetToISO((e.inicio || 0) + (e.dur || 0)))}</td>
+                              <td style={tdS}>{e.dur}d</td>
+                              <td style={tdS}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
+                                  <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2 }}>
+                                    <div style={{ width: av + '%', height: '100%', background: 'var(--brand)', borderRadius: 2 }} />
+                                  </div>
+                                  <span style={{ minWidth: 32, textAlign: 'right', fontWeight: isPai ? 700 : 400 }}>{av}%</span>
+                                </div>
+                              </td>
+                              <td style={tdS}><span className={'badge badge-' + st}>{statusLabel[st] || st}</span></td>
+                              <td style={tdS}>{isPai ? '—' : (e.responsavel || '—')}</td>
+                            </tr>
+                          );
+                        });
+                        return rows;
+                      })()}
                     </tbody>
                   </table>
                 </div>
