@@ -456,10 +456,18 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const fontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
     ctx.font = `700 10.5px ${fontFamily}`;
     let max = ctx.measureText(label.toUpperCase()).width + 30; // espaço da seta/redimensionar do cabeçalho
-    ctx.font = `11px ${fontFamily}`;
     filtrada.forEach(e => {
       const text = String(colFilterValue(e, colId)?.label ?? '');
-      const w = ctx.measureText(text).width;
+      // A coluna TAREFA tem indentação da árvore (10 + nível*20) + o botão de recolher (20px),
+      // que precisam entrar na largura, senão os nomes ficam cortados. Fonte maior/negrito no grupo.
+      let lead = 0;
+      if (colId === 'etapa') {
+        lead = 30 + (e.nivel || 0) * 20;
+        ctx.font = e.isGroup ? `700 12px ${fontFamily}` : `400 11px ${fontFamily}`;
+      } else {
+        ctx.font = `11px ${fontFamily}`;
+      }
+      const w = lead + ctx.measureText(text).width;
       if (w > max) max = w;
     });
     setColWidths(prev => ({ ...prev, [colId]: Math.max(50, Math.ceil(max) + 24) }));
@@ -2082,7 +2090,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             {/* Corpo do ribbon (aba ativa). flexWrap sem overflow: os grupos quebram em telas
                estreitas em vez de gerar um container de scroll (que recortaria o popover de Colunas). */}
             {!ribbonCollapsed && (
-              <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', height: 110 }}>
+              <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', padding: '6px 8px', minHeight: 62 }}>
 
                 {/* ══ Aba TAREFA ══ */}
                 {curTab === 'tarefa' && !readOnly && (
