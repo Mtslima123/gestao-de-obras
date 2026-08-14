@@ -2023,7 +2023,7 @@ a:hover { color: var(--brand-600); }
   background: var(--brand);
   border-bottom: 2px solid var(--brand-700);
   border-right: 1px solid var(--brand-600);
-  padding: 9px 10px;
+  padding: 6px 10px;
 }
 .tbl-lista thead th:last-child { border-right: none; }
 .tbl-lista tbody td {
@@ -2485,7 +2485,8 @@ th.sticky-left { z-index: 4; }
   background: #eef1f6; /* opção C: cinza com mais contraste que o quase-branco anterior */
   color: #5b657a;
   font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-  text-align: left; padding: 8px 10px 4px;
+  text-align: left; padding: 6px 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border);
 }

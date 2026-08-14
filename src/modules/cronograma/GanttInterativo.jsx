@@ -362,6 +362,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
 
       const ML = 14, MR = 14, MT = 20, MB = 14;
       const LABEL_W  = 72;
+      const PCT_W    = 12;   // sub-coluna de % no fim da área de rótulos (como no site)
       const TL_W     = W - ML - MR - LABEL_W;
       const ROW_H    = 7;
       const HDR_H    = 14;   // 7mm trimestres + 7mm meses
@@ -414,6 +415,11 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         });
         doc.setDrawColor(155); doc.setLineWidth(0.3);
         doc.line(ML, startY + 14, W - MR, startY + 14);
+        // Rótulos da coluna de rótulos: TAREFA (esq.) e % (dir.)
+        doc.setFontSize(6); doc.setFont('helvetica', 'bold'); doc.setTextColor(120);
+        doc.text('TAREFA', ML + 4, startY + 14 - 3);
+        doc.text('%', tlX - 2, startY + 14 - 3, { align: 'right' });
+        doc.setFont('helvetica', 'normal');
       };
 
       const drawGanttPage = (slice, pageIdx) => {
@@ -448,14 +454,17 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           doc.setDrawColor(228); doc.setLineWidth(0.1);
           doc.line(ML, y + ROW_H, W - ML - MR, y + ROW_H);
 
-          // Nome da tarefa (coluna esquerda)
+          // Nome da tarefa (coluna esquerda) — com respiro da borda
           const indent = (e.nivel || 0) * 2.5;
           doc.setFontSize(6.5);
           doc.setFont('helvetica', e.isGroup ? 'bold' : 'normal');
           doc.setTextColor(e.isGroup ? 15 : 40);
-          const maxTxtW = LABEL_W - indent - 3;
+          const maxTxtW = LABEL_W - indent - PCT_W - 7;
           const nameStr = doc.splitTextToSize(e.etapa, maxTxtW)[0];
-          doc.text(nameStr, ML + indent, y + ROW_H / 2 + 1.8);
+          doc.text(nameStr, ML + 4 + indent, y + ROW_H / 2 + 1.8);
+          // % de avanço numa coluna à esquerda (como no site), à direita da área de rótulos
+          doc.setFontSize(6); doc.setTextColor(e.isGroup ? 15 : 90);
+          doc.text(`${Math.round(av)}%`, tlX - 2, y + ROW_H / 2 + 1.8, { align: 'right' });
           doc.setFont('helvetica', 'normal');
 
           // Barra ou marco (offset relativo ao início visual da timeline)
@@ -479,23 +488,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
               doc.setFillColor(r, g, b);
               doc.rect(bx, by, bw * (av / 100), BAR_H, 'F');
             }
-            // % dentro da barra
-            const execW = bw * (av / 100);
-            if (av > 5 && execW > 5) {
-              doc.setFontSize(4.5); doc.setTextColor(255);
-              doc.text(`${av}%`, bx + execW / 2, by + BAR_H / 2 + 1.5, { align: 'center' });
-            }
+            // (o % agora fica na coluna à esquerda, não sobre a barra)
           }
         });
 
-        // Linha "hoje" (tracejada)
-        const todayX = tlX + (today - tlStartOffset) * mpd;
-        if (todayX >= tlX && todayX <= tlX + TL_W) {
-          doc.setDrawColor(220, 38, 38); doc.setLineWidth(0.4);
-          doc.setLineDashPattern([1.5, 1], 0);
-          doc.line(todayX, bodyY, todayX, bodyY + slice.length * ROW_H);
-          doc.setLineDashPattern([], 0); doc.setLineWidth(0.2);
-        }
         // Número da página
         doc.setFontSize(7); doc.setTextColor(160);
         doc.text(`Cronograma — pág. ${pageIdx + 1}`, W - MR, H - 6, { align: 'right' });
@@ -649,7 +645,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
     if (!leaves.length) return 0;
     const minIni = Math.min(...leaves.map(e => e.inicio));
     const d = offsetToDate(minIni);
-    const snapped = new Date(d.getFullYear(), d.getMonth() - 1, 1); // 1 mês de folga antes, dia 1
+    const snapped = new Date(d.getFullYear(), d.getMonth(), 1); // âncora no mês da 1ª tarefa, dia 1
     return Math.max(0, dateToOffset(
       `${snapped.getFullYear()}-${String(snapped.getMonth() + 1).padStart(2, '0')}-01`
     ));
@@ -1137,8 +1133,9 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         ref={cRef}
         style={{
           overflow: 'auto', maxWidth: '100%', userSelect: 'none', cursor: editMode ? 'grab' : 'default',
-          // Altura mínima: não deixa a caixa encolher ao recolher grupos (piso = até 10 linhas, ou todas se forem menos)
-          minHeight: headerH + Math.min(etapas.length, 10) * GM_ROW_H,
+          // minHeight:0 é essencial no flex-column: sem ele o scroller não encolhe abaixo do
+          // conteúdo e seu rodapé (a barra de rolagem horizontal) é cortado pelo card de altura fixa.
+          minHeight: 0,
           // Preenche o espaço que sobrar dentro do card (que já vem com a altura certa de fora,
           // calculada em Cronograma.jsx) — o ribbon acima e o Formulário de Tarefa abaixo (se
           // aberto) têm flexShrink:0, então esse scroller encolhe/cresce sozinho ao redor deles.
@@ -1357,7 +1354,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                       </button>
                     : <span style={{ width: 16, flexShrink: 0 }} />
                   }
-                  {/* Nome da tarefa com indentação + pill de status ao lado */}
+                  {/* Nome da tarefa com indentação (status vem pela cor da barra) */}
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, paddingLeft: (e.nivel || 0) * 10 }}>
                     <span style={{
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -1366,18 +1363,6 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                     }}>
                       {e.etapa}
                     </span>
-                    {!e.isGroup && (() => {
-                      const es = effStatus(e);
-                      const st = es === 'done'     ? { label: 'Concluída',   color: '#15803d',      bg: '#dcfce7' }
-                               : es === 'late'     ? { label: 'Atrasada',    color: '#dc2626',      bg: '#fee2e2' }
-                               : es === 'upcoming' ? { label: 'Futura',      color: '#60a5fa',      bg: 'rgba(96,165,250,0.14)' }
-                               :                           { label: 'Em execução', color: 'var(--brand)', bg: 'var(--brand-tint)' };
-                      return (
-                        <span className="badge" style={{ flexShrink: 0, color: st.color, background: st.bg, border: 'none', fontSize: 9.5, lineHeight: 1.6, padding: '0 7px', textTransform: 'none' }}>
-                          {st.label}
-                        </span>
-                      );
-                    })()}
                   </div>
                   {isLock && <Icon name="shield" size={10} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
                   {/* Percentual de progresso — grupos usam o avanço calculado (rollup) */}
@@ -1495,13 +1480,13 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                           left: posX(bar.inicio) + 3,
                           width: Math.max((workEnd(bar.inicio, bar.dur) - bar.inicio) * zoomDayW - 6, 10),
                           top: '50%', transform: 'translateY(-50%)',
-                          height: GM_BAR_H - 4,
+                          height: 10,
                           backgroundColor: sc.track,
-                          borderRadius: 7,
-                          border: `${borderW}px solid ${borderCol}`,
+                          borderRadius: 2,
+                          border: (isConf || isCrit) ? `${borderW}px solid ${borderCol}` : 'none',
                           boxShadow: isSel
-                            ? `0 0 0 2px white, 0 0 0 3px ${sc.fill}, 0 4px 14px rgba(0,0,0,0.16)`
-                            : '0 1px 3px rgba(0,0,0,0.10)',
+                            ? `0 0 0 2px white, 0 0 0 2px ${sc.fill}`
+                            : 'none',
                           display: 'flex', alignItems: 'center', overflow: 'hidden',
                           cursor: editMode && !isLock ? 'grab' : 'pointer',
                           transition: draft ? 'none' : 'left 0.15s ease, width 0.15s ease, box-shadow 0.12s',
@@ -1514,8 +1499,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                             position: 'absolute', left: 0, top: 0, bottom: 0,
                             width: e.avanco + '%',
                             backgroundColor: sc.fill,
-                            backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.16) 0%, transparent 60%, rgba(0,0,0,0.06) 100%)',
-                            borderRadius: 6,
+                            borderRadius: 2,
                           }} />
                         )}
                         {/* Ícone de restrição */}
@@ -1530,14 +1514,14 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                         {editMode && !isLock && (
                           <div data-gb={e.id}
                             onMouseDown={(ev) => { ev.stopPropagation(); onBarDown(ev, e.id, 'resizeLeft'); }}
-                            style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${sc.fill}44`, borderRadius: '7px 0 0 7px' }}
+                            style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${sc.fill}44`, borderRadius: '2px 0 0 2px' }}
                           />
                         )}
                         {/* Handle resize direita */}
                         {editMode && !isLock && (
                           <div data-gb={e.id}
                             onMouseDown={(ev) => { ev.stopPropagation(); onBarDown(ev, e.id, 'resizeRight'); }}
-                            style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${sc.fill}44`, borderRadius: '0 7px 7px 0' }}
+                            style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize', zIndex: 5, background: `${sc.fill}44`, borderRadius: '0 2px 2px 0' }}
                           />
                         )}
                       </div>
@@ -1576,7 +1560,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
             position: 'absolute',
             left: labelWidth + Math.min(Math.max(0, today - tlStartOffset), calTotalDays) * zoomDayW,
             top: 0, bottom: 0, width: 0,
-            borderLeft: '2px solid var(--danger)',
+            borderLeft: '1.5px dashed var(--danger)',
             zIndex: 10, pointerEvents: 'none',
           }}>
             <div style={{
@@ -1659,7 +1643,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                       d={pathD}
                       fill="none"
                       stroke={warn ? '#d97706' : 'var(--text-faint)'}
-                      strokeWidth={warn ? 1.8 : 1.2}
+                      strokeWidth={warn ? 1.3 : 0.8}
                       markerEnd={warn ? 'url(#arr-warn)' : 'url(#arr-dep)'}
                     />
                     {label && (

@@ -509,6 +509,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const w = getColW(colId);
     return (
       <th key={colId}
+        title={col.label}
         className={dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : undefined}
         style={{
           width: w, minWidth: w,
@@ -2599,14 +2600,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 <tr className="band-row" ref={bandRowRef}>
                   <th className="band-th" onClick={selectAll} title="Selecionar tudo" style={{ position: 'sticky', top: 0, left: 0, zIndex: 7, width: GUTTER_W, minWidth: GUTTER_W, cursor: 'pointer' }} />
                   {frozenVis.length > 0 && (
-                    <th colSpan={frozenVis.length} className="band-th" style={{ position: 'sticky', top: 0, left: GUTTER_W, zIndex: 6, width: frozenW, minWidth: frozenW }}>
+                    <th colSpan={frozenVis.length} className="band-th" title={LISTA_BAND_LABELS.etapa} style={{ position: 'sticky', top: 0, left: GUTTER_W, zIndex: 6, width: frozenW, minWidth: frozenW }}>
                       {LISTA_BAND_LABELS.etapa}
                     </th>
                   )}
                   {runs.map((r, i) => (
-                    <th key={'band-' + i} colSpan={r.cols.length} className="band-th">{LISTA_BAND_LABELS[r.band] || ''}</th>
+                    <th key={'band-' + i} colSpan={r.cols.length} className="band-th" title={LISTA_BAND_LABELS[r.band] || ''}>{LISTA_BAND_LABELS[r.band] || ''}</th>
                   ))}
-                  {custVis.length > 0 && <th colSpan={custVis.length} className="band-th">{LISTA_BAND_LABELS.custom}</th>}
+                  {custVis.length > 0 && <th colSpan={custVis.length} className="band-th" title={LISTA_BAND_LABELS.custom}>{LISTA_BAND_LABELS.custom}</th>}
                   <th className="band-th" />
                 </tr>
               );

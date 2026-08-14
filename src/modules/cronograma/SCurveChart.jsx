@@ -81,16 +81,16 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
         : monthlyPct.map((pct, i) => { const bh = (pct / 100) * chartH; return <rect key={i} x={xC(i) - barW / 2} y={yS(0) - bh} width={barW} height={bh} fill="#e2e8f0" rx="2" />; })}
       {showBarras && <text x={pL + chartW + 6} y={pT - 6} textAnchor="start" fontSize="9" fill="var(--text-muted)">% no mês</text>}
       {todayIdx >= 0 && (
-        <g>
+        <g pointerEvents="none">
           <line x1={xC(todayIdx)} y1={pT} x2={xC(todayIdx)} y2={pT + chartH} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4,3" />
           <text x={xC(todayIdx)} y={pT - 5} textAnchor="middle" fontSize="9" fill="#94a3b8">hoje</text>
         </g>
       )}
-      <path d={areaPath} fill="var(--brand)" opacity="0.06" />
+      <path d={areaPath} fill="var(--brand)" opacity="0.06" pointerEvents="none" />
       {/* Linha de Base — cinza tracejado */}
-      {baselinePts && <polyline points={baselinePts} fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5,4" strokeLinejoin="round" />}
+      {baselinePts && <polyline points={baselinePts} fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5,4" strokeLinejoin="round" pointerEvents="none" />}
       {/* Reprogramado — azul */}
-      {show.rep && <polyline points={repPts} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" strokeDasharray={repDashed ? '6,4' : undefined} />}
+      {show.rep && <polyline points={repPts} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" strokeDasharray={repDashed ? '6,4' : undefined} pointerEvents="none" />}
       {show.rep && reprogramado.map((v, i) => v == null ? null : (
         <g key={'r' + i}>
           <circle cx={xC(i)} cy={yS(v)} r="3.5" fill="#fff" stroke="var(--brand)" strokeWidth="2" />
@@ -100,7 +100,7 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
         </g>
       ))}
       {/* Real — verde */}
-      {show.real && <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" />}
+      {show.real && <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" pointerEvents="none" />}
       {show.real && real.map((v, i) => v == null ? null : (
         <g key={'re' + i}>
           <circle cx={xC(i)} cy={yS(v)} r="3.5" fill="#16a34a" />
