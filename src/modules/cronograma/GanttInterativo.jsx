@@ -35,6 +35,8 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   const [search]      = React.useState(''); // busca removida do Gantt; mantido p/ matchesSearch (sempre passa)
   const [showBaseline, setShowBaseline] = React.useState(true);   // toggle "Linha de base"
   const [showCritical, setShowCritical] = React.useState(false);  // toggle "Caminho crítico"
+  const [showToday, setShowToday] = React.useState(() => localStorage.getItem('ls_crono_gantt_hoje') !== '0'); // linha do "hoje"
+  React.useEffect(() => { try { localStorage.setItem('ls_crono_gantt_hoje', showToday ? '1' : '0'); } catch { /* ignore */ } }, [showToday]);
   // Faixa (ribbon) em abas — mesma da Lista. Aba compartilha a chave com a Lista.
   const [activeTab, setActiveTab] = React.useState(() => localStorage.getItem('ls_crono_ribbon_tab') || 'tarefa');
   React.useEffect(() => { try { localStorage.setItem('ls_crono_ribbon_tab', activeTab); } catch { /* ignore */ } }, [activeTab]);
@@ -351,7 +353,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
     });
   };
 
-  const exportPDFGantt = async () => {
+  const exportPDFGantt = async (mode = 'save') => {
     setExportingPDF(true);
     try {
       const { jsPDF } = await import('jspdf');
@@ -504,7 +506,13 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
         drawGanttPage(visible.slice(p * rowsPerPage, (p + 1) * rowsPerPage), p);
       }
 
-      doc.save(`gantt-${new Date().toISOString().slice(0, 10)}.pdf`);
+      if (mode === 'print') {
+        // Abre o PDF já com o diálogo de impressão (autoPrint embute a ação no PDF).
+        doc.autoPrint();
+        window.open(doc.output('bloburl'), '_blank');
+      } else {
+        doc.save(`gantt-${new Date().toISOString().slice(0, 10)}.pdf`);
+      }
     } finally { setExportingPDF(false); }
   };
 
@@ -719,8 +727,8 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
       {/* ── Faixa (ribbon) em abas — mesma da Lista; travada acima do scroller ── */}
       {(() => {
         const darkToggle = (active) => ({
-          fontSize: 12, padding: '4px 12px', height: 32, gap: 6, fontWeight: 600,
-          borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+          fontSize: 11, padding: '2px 8px', height: 24, gap: 5, fontWeight: 600,
+          borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
           border: active ? '1px solid #1e293b' : '1px solid var(--border)',
           background: active ? '#1e293b' : 'var(--surface)',
           color: active ? '#fff' : 'var(--text-muted)',
@@ -943,6 +951,12 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                         Caminho crítico
                       </button>
                     </div>
+                    <div style={rowStyle}>
+                      <button onClick={() => setShowToday(v => !v)} style={{ ...darkToggle(showToday), width: '100%', justifyContent: 'flex-start' }} title="Mostrar/ocultar a linha do dia de hoje">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="3" x2="12" y2="21" strokeDasharray="3 3"/></svg>
+                        Hoje
+                      </button>
+                    </div>
                   </div>
                   <div style={caption}>Realce</div>
                 </div>
@@ -1112,8 +1126,12 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                         <option value="a1">A1</option>
                         <option value="a0">A0</option>
                       </select>
-                      <button style={cmdBtn} onClick={exportPDFGantt} disabled={exportingPDF} title="Exportar para PDF">
+                      <button style={cmdBtn} onClick={() => exportPDFGantt('save')} disabled={exportingPDF} title="Exportar para PDF">
                         <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
+                      </button>
+                      <button style={cmdBtn} onClick={() => exportPDFGantt('print')} disabled={exportingPDF} title="Abre o PDF já com o diálogo de impressão">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                        Imprimir
                       </button>
                     </div>
                   </div>
@@ -1157,7 +1175,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
             display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
             padding: '0 14px 10px 18px',
             background: 'var(--surface, #fff)',
-            position: 'sticky', left: 0, top: 0, zIndex: 10, overflow: 'visible',
+            position: 'sticky', left: 0, top: 0, zIndex: 12, overflow: 'visible',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 4 }}>
               <span style={{ minWidth: 30, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-faint)', flexShrink: 0 }}>EAP</span>
@@ -1274,7 +1292,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   borderLeft: '3px solid var(--brand)',
                   display: 'flex', alignItems: 'center', gap: 6,
                   fontSize: 12.5, fontWeight: 700, color: 'var(--brand)',
-                  position: 'sticky', left: 0, zIndex: 5, background: 'var(--brand-50)',
+                  position: 'sticky', left: 0, zIndex: 11, background: 'var(--brand-50)',
                 }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', minWidth: 30, flexShrink: 0 }}>0</span>
                   <span style={{ width: 16, flexShrink: 0 }} />
@@ -1327,7 +1345,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                     display: 'flex', alignItems: 'center', gap: 6,
                     fontSize: 12.5, fontWeight: isSel ? 600 : (e.isGroup ? 600 : 500),
                     color: isSel ? 'var(--brand)' : 'var(--text)',
-                    position: 'sticky', left: 0, zIndex: 5,
+                    position: 'sticky', left: 0, zIndex: 11,
                     backgroundColor: lblBase, backgroundImage: lblTint,
                     cursor: 'default',
                     transition: 'background-color 0.12s, color 0.12s',
@@ -1556,6 +1574,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
           {botPad > 0 && <div style={{ gridColumn: '1 / -1', height: botPad }} />}
 
           {/* ── Linha HOJE ────────────────────────────────────────────────── */}
+          {showToday && (
           <div style={{
             position: 'absolute',
             left: labelWidth + Math.min(Math.max(0, today - tlStartOffset), calTotalDays) * zoomDayW,
@@ -1572,6 +1591,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
               HOJE
             </div>
           </div>
+          )}
 
           {/* ── SVG: setas de dependência tipadas (TI/TT/II/IT) ──────────── */}
           <svg style={{

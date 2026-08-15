@@ -1140,12 +1140,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         startY: 25,
         head: [['Código', 'Nome', 'Quant.', 'Un.', 'Valor Unit.', 'Valor Total']],
         body: body.map(r => r.vals),
-        foot: [['', 'Total', '', '', '', brlFull(grandTotal)]],
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 8, fontStyle: 'bold' },
         bodyStyles: { fontSize: 7.5, textColor: 40 },
         alternateRowStyles: { fillColor: [248, 249, 250] },
-        footStyles: { fillColor: [225, 232, 242], fontStyle: 'bold', fontSize: 8 },
+        footStyles: { fillColor: BRAND, textColor: 255, fontStyle: 'bold', fontSize: 9 },
         columnStyles: { 2: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
         margin: { top: 25, right: 14, bottom: 14, left: 14 },
         didParseCell: (data) => {

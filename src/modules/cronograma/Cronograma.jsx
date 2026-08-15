@@ -1304,9 +1304,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
         const thBase = {
           fontSize: 10.5, fontWeight: 600, letterSpacing: '0.07em',
-          textTransform: 'uppercase', color: 'var(--text-soft)',
-          borderBottom: '2px solid var(--border)',
-          background: 'var(--surface-muted)',
+          textTransform: 'uppercase', color: '#fff',
+          borderBottom: '2px solid var(--brand-700)',
+          background: 'var(--brand)',
           whiteSpace: 'nowrap', padding: '8px 6px',
         };
         const tdBase = {
@@ -1350,13 +1350,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                     </th>
                     <th style={{ ...thBase, textAlign: 'right' }}>Valor (R$)</th>
                     <th style={{ ...thBase, textAlign: 'right' }}>Peso %</th>
-                    <th style={{ ...thBase, textAlign: 'right', background: 'rgba(1,67,134,0.05)' }}>Conc. %</th>
+                    <th style={{ ...thBase, textAlign: 'right', background: 'var(--brand-700)' }}>Conc. %</th>
                     {months.map(m => (
                       <th key={m.key} style={{
-                        ...thBase, textAlign: 'right',
-                        color: m.key === selMonKey ? 'var(--brand)' : 'var(--text-soft)',
+                        ...thBase, textAlign: 'right', color: '#fff',
                         fontWeight: m.key === selMonKey ? 700 : 600,
-                        background: m.key === selMonKey ? 'rgba(1,67,134,0.10)' : 'var(--surface-muted)',
+                        background: m.key === selMonKey ? 'var(--brand-700)' : 'var(--brand)',
                       }}>{m.label}</th>
                     ))}
                     <th style={{ ...thBase, textAlign: 'right', borderLeft: '2px solid var(--border)' }}>Total</th>

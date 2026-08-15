@@ -1719,6 +1719,26 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return disp + tipo + lag;
   }).join('; ');
 
+  // Exibição das colunas Pred./Suces. com o NOME da tarefa (a edição continua por código).
+  const depTipoLag = (d) => {
+    if (!d || typeof d === 'string') return '';
+    const t = d.tipo && d.tipo !== 'TI' ? d.tipo : '';
+    const l = d.lag ? ((d.lag > 0 ? '+' : '') + d.lag + 'd') : '';
+    return [t, l].filter(Boolean).join(' ');
+  };
+  const nomeDaTarefa = (id) => etapas.find(x => x.id === id)?.etapa || (idToDisplayId[id] ?? id);
+  const formatDepNames = (dep) => (dep || []).map(d => {
+    const id = typeof d === 'string' ? d : d.id;
+    const tl = depTipoLag(d);
+    return nomeDaTarefa(id) + (tl ? ` (${tl})` : '');
+  }).join('; ');
+  const formatSuccNames = (taskId) => (succMap[taskId] || []).map(sid => {
+    const s = etapas.find(x => x.id === sid);
+    const link = (s?.dep || []).find(d => (typeof d === 'string' ? d : d.id) === taskId);
+    const tl = depTipoLag(link);
+    return nomeDaTarefa(sid) + (tl ? ` (${tl})` : '');
+  }).join('; ');
+
   // Edita a Sucessora escrevendo o vínculo reverso (predecessora) nas outras tarefas.
   const handleSuccSave = (taskId, raw) => {
     const alvos  = parseDep(raw, etapas);                 // [{id: idDoSucessor, tipo, lag}]
@@ -2296,6 +2316,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                                 background: 'var(--surface)', border: '1px solid var(--border)',
                                 borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.13)',
                                 padding: '8px 0', zIndex: 9999, minWidth: 200,
+                                maxHeight: 340, overflowY: 'auto',
                               }}>
                                 <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 600, color: 'var(--text-soft)', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid var(--border-subtle)' }}>
                                   Visibilidade das colunas
@@ -2663,7 +2684,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               const projAvanco = !tp
                 ? (leaves.length ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length) : 0)
                 : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp);
-              const bg   = 'var(--brand-50)';
+              const bg   = 'color-mix(in srgb, var(--brand) 14%, var(--surface))';
               const num  = { textAlign: 'right', fontWeight: 700, fontSize: 12 };
               const stick = (cid, extra) => ({ position: 'sticky', left: frozenLeft[cid], background: bg, zIndex: 1, ...extra });
               const fmtDt = (o) => offsetToDate(o).toLocaleDateString('pt-BR');
@@ -2682,7 +2703,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               };
               return (
                 <tr style={{ fontWeight: 600, borderBottom: '2px solid var(--border)', background: bg, height: 40 }}>
-                  <td style={{ position: 'sticky', left: 0, zIndex: 2, background: bg, width: GUTTER_W, minWidth: GUTTER_W }} />
+                  <td style={{ position: 'sticky', left: 0, zIndex: 2, background: bg, width: GUTTER_W, minWidth: GUTTER_W, borderLeft: '3px solid var(--brand)' }} />
                   {colOrder.filter(c => !hiddenCols.has(c)).map(c => cellFor[c] || <td key={c} />)}
                   {customCols.filter(col => !hiddenCols.has(col.id)).map(col => <td key={col.id} />)}
                   <td />
@@ -2944,9 +2965,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
-                      const txt = formatDepList(e.dep, etapas);
+                      const txt = formatDepNames(e.dep);
                       return (
-                        <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={txt || undefined}>
+                        <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={txt || undefined}>
                           {txt || <span className="text-faint">—</span>}
                         </div>
                       );
@@ -2965,9 +2986,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           if (ev.key === 'Escape') { setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
-                      const txt = formatSucc(e.id);
+                      const txt = formatSuccNames(e.id);
                       return (
-                        <div onDoubleClick={() => !readOnly && setEditingSucc(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={txt || undefined}>
+                        <div onDoubleClick={() => !readOnly && setEditingSucc(e.id)} style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={txt || undefined}>
                           {txt || <span className="text-faint">—</span>}
                         </div>
                       );
