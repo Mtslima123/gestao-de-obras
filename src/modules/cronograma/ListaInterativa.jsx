@@ -248,6 +248,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     }
     catch { return LISTA_DEFAULT_ORDER; }
   });
+  // Sanitiza a ordem salva: remove colunas que não existem mais (ex.: "saldo" removida)
+  // para não gerar célula sem cabeçalho em quem já tinha a ordem no localStorage.
+  React.useEffect(() => {
+    setColOrder(prev => {
+      const valid = prev.filter(c => LISTA_COL_DEFS[c] || customCols.some(cc => cc.id === c));
+      return valid.length === prev.length ? prev : valid;
+    });
+  }, [customCols]);
   const [colWidths, setColWidths] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(`ls_widths_${obraId}`) || 'null') || {}; }
     catch { return {}; }
@@ -2694,7 +2702,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 etapa: <td key="etapa" style={stick('etapa', { fontWeight: 700, fontSize: 12.5, color: 'var(--brand)', boxShadow: '1px 0 0 var(--border)' })}><span style={{ paddingLeft: 10 }}>{obraNome}</span></td>,
                 inicio: <td key="inicio" className="mono text-sm">{leaves.length ? fmtDt(projInicio) : ''}</td>,
                 fim:    <td key="fim" className="mono text-sm">{leaves.length ? fmtDt(projFim) : ''}</td>,
-                duracao: <td key="duracao" className="mono num"><span className="text-muted mono" style={{ fontSize: 12 }}>{projDur}d</span></td>,
+                duracao: <td key="duracao" className="mono num" style={{ textAlign: 'center' }}><span className="text-muted mono" style={{ fontSize: 12 }}>{projDur}d</span></td>,
                 avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 50 }}><div className="progress groupbar"><span style={{ width: projAvanco + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{projAvanco}%</span></div></td>,
                 peso:   <td key="peso" className="num mono" style={num}>100%</td>,
                 custo:  <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
@@ -2791,11 +2799,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   </td>
                 ),
                 duracao: (
-                  <td key="duracao" className="mono num" onClick={ev => ev.stopPropagation()}>
+                  <td key="duracao" className="mono num" style={{ textAlign: 'center' }} onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
                       <span className="text-muted mono" style={{ fontSize: 12 }}>{eDur}d</span>
                     ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: alignJC(effFmt(e, 'duracao').align) }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: 'center' }}>
                         {/* Largura fixa no wrapper (não no input): o input do EditableCell usa
                            width:100% ao editar, então sem isso ele estica até a borda da coluna
                            e empurra o "d" pra longe — o 100% precisa resolver contra uma caixa
@@ -2965,9 +2973,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
-                      const txt = formatDepNames(e.dep);
+                      const txt = formatDepList(e.dep, etapas);
                       return (
-                        <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={txt || undefined}>
+                        <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={formatDepNames(e.dep) || undefined}>
                           {txt || <span className="text-faint">—</span>}
                         </div>
                       );
@@ -2986,9 +2994,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           if (ev.key === 'Escape') { setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
-                      const txt = formatSuccNames(e.id);
+                      const txt = formatSucc(e.id);
                       return (
-                        <div onDoubleClick={() => !readOnly && setEditingSucc(e.id)} style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={txt || undefined}>
+                        <div onDoubleClick={() => !readOnly && setEditingSucc(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={formatSuccNames(e.id) || undefined}>
                           {txt || <span className="text-faint">—</span>}
                         </div>
                       );

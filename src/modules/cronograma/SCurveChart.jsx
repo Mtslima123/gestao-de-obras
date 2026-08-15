@@ -5,7 +5,7 @@ import React from 'react';
 // Executado) com eixo secundário, e o marcador "hoje". Cores da marca (navy).
 export const SCurveChart = ({ months = [], reprogramado = [], real = [], baseline = null, monthlyPct = [], todayIdx = -1,
   show = { bl: true, rep: true, real: true }, height = 300,
-  previstoM = [], replanM = [], execM = [], showBarras = false, repDashed = false }) => {
+  previstoM = [], replanM = [], execM = [], showBarras = false, showLines = true, repDashed = false }) => {
   const [hover, setHover] = React.useState(null); // { cx, cy, text, color, kind }
   const N = months.length || 1;
   const pL = 54, pR = showBarras ? 50 : 20, pT = 18, pB = 52;
@@ -13,33 +13,29 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
   const chartW = svgW - pL - pR, chartH = svgH - pT - pB;
   const xC = (i) => pL + (chartW / N) * (i + 0.5);
   const yS = (pct) => pT + (1 - pct / 100) * chartH;
-  const barW = (chartW / N) * 0.55;
   const ptsOf = (arr) => arr.map((v, i) => v != null ? `${xC(i).toFixed(1)},${yS(v).toFixed(1)}` : null).filter(Boolean).join(' ');
-  const firstX = xC(0).toFixed(1), lastX = xC(N - 1).toFixed(1);
-  // Área leve sob a linha Real (ou Reprogramado, se Real oculto).
-  const areaSrc = (show.real && real.length) ? real : (show.rep ? reprogramado : []);
-  const areaPath = areaSrc.length
-    ? `M${firstX},${yS(areaSrc[0]).toFixed(1)} ` +
-      areaSrc.slice(1).map((v, i) => `L${xC(i + 1).toFixed(1)},${yS(v).toFixed(1)}`).join(' ') +
-      ` L${lastX},${(pT + chartH).toFixed(1)} L${firstX},${(pT + chartH).toFixed(1)} Z`
-    : '';
-  const baselinePts = (show.bl && baseline) ? ptsOf(baseline) : '';
-  const repPts  = show.rep  ? ptsOf(reprogramado) : '';
-  const realPts = show.real ? ptsOf(real) : '';
+  const baselinePts = (showLines && show.bl && baseline) ? ptsOf(baseline) : '';
+  const repPts  = (showLines && show.rep)  ? ptsOf(reprogramado) : '';
+  const realPts = (showLines && show.real) ? ptsOf(real) : '';
   // ── Barras mensais agrupadas (Previsto/Replanejado/Executado) — eixo secundário ──
   const barSeries = [];
-  if (showBarras && show.bl && baseline) barSeries.push({ data: previstoM, color: '#cbd5e1', label: '#64748b', name: 'Previsto' });
-  if (showBarras && show.rep)            barSeries.push({ data: replanM,  color: 'var(--brand)', label: 'var(--brand)', name: 'Replanejado' });
-  if (showBarras && show.real)           barSeries.push({ data: execM,    color: '#16a34a', label: '#16a34a', name: 'Executado' });
+  // Barras em tons mais claros que as linhas (mesma família de cor), para não se confundirem
+  // com a linha Reprogramado (azul) e a linha Real (verde). Só entram no grupo as séries que
+  // têm valores — assim as colunas se ajeitam sem deixar vão de uma série vazia/oculta.
+  const hasVals = (arr) => (arr || []).some(v => v != null && v > 0.3);
+  if (showBarras && show.bl && baseline && hasVals(previstoM)) barSeries.push({ data: previstoM, color: '#cbd5e1', label: '#64748b', name: 'Previsto' });
+  if (showBarras && show.rep && hasVals(replanM))              barSeries.push({ data: replanM,  color: '#9bb8e0', label: 'var(--brand)', name: 'Replanejado' });
+  if (showBarras && show.real && hasVals(execM))               barSeries.push({ data: execM,    color: '#74c99a', label: '#15803d', name: 'Real' });
   const niceCeil = (v) => {
     if (!(v > 0)) return 1;
     const base = Math.pow(10, Math.floor(Math.log10(v)));
-    const n = v / base;
-    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * base;
+    const n = v / base; // 1..10
+    const step = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find(s => n <= s + 1e-9) ?? 10;
+    return step * base;
   };
   let barPeak = 0;
   barSeries.forEach(s => (s.data || []).forEach(v => { if (v != null && v > barPeak) barPeak = v; }));
-  const barMax = niceCeil(barPeak);
+  const barMax = niceCeil(barPeak * 1.08); // topo justo ao pico, com folga para o rótulo
   const yBar = (v) => (pT + chartH) - (v / barMax) * chartH;
   const fmtPct = (v) => v.toFixed(2).replace('.', ',') + '%';
   const groupW = (chartW / N) * 0.6;
@@ -54,8 +50,7 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
           {showBarras && <text x={pL + chartW + 6} y={yS(pct) + 4} textAnchor="start" fontSize="9" fill="var(--text-muted)" fontFamily="var(--font-mono)">{(barMax * pct / 100).toFixed(1).replace('.', ',')}%</text>}
         </g>
       ))}
-      {showBarras
-        ? barSeries.map((s, si) => (
+      {showBarras && barSeries.map((s, si) => (
             <g key={'bs' + si}>
               {months.map((m, i) => {
                 const v = (s.data || [])[i];
@@ -77,21 +72,11 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
                 );
               })}
             </g>
-          ))
-        : monthlyPct.map((pct, i) => { const bh = (pct / 100) * chartH; return <rect key={i} x={xC(i) - barW / 2} y={yS(0) - bh} width={barW} height={bh} fill="#e2e8f0" rx="2" />; })}
+          ))}
       {showBarras && <text x={pL + chartW + 6} y={pT - 6} textAnchor="start" fontSize="9" fill="var(--text-muted)">% no mês</text>}
-      {todayIdx >= 0 && (
-        <g pointerEvents="none">
-          <line x1={xC(todayIdx)} y1={pT} x2={xC(todayIdx)} y2={pT + chartH} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4,3" />
-          <text x={xC(todayIdx)} y={pT - 5} textAnchor="middle" fontSize="9" fill="#94a3b8">hoje</text>
-        </g>
-      )}
-      <path d={areaPath} fill="var(--brand)" opacity="0.06" pointerEvents="none" />
-      {/* Linha de Base — cinza tracejado */}
-      {baselinePts && <polyline points={baselinePts} fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5,4" strokeLinejoin="round" pointerEvents="none" />}
       {/* Reprogramado — azul */}
       {show.rep && <polyline points={repPts} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" strokeDasharray={repDashed ? '6,4' : undefined} pointerEvents="none" />}
-      {show.rep && reprogramado.map((v, i) => v == null ? null : (
+      {showLines && show.rep && reprogramado.map((v, i) => v == null ? null : (
         <g key={'r' + i}>
           <circle cx={xC(i)} cy={yS(v)} r="3.5" fill="#fff" stroke="var(--brand)" strokeWidth="2" />
           <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'pointer' }}
@@ -99,9 +84,11 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
             onMouseLeave={() => setHover(null)} />
         </g>
       ))}
+      {/* Linha de Base — cinza tracejado (por cima da Reprogramado para não ficar escondida quando coincidem) */}
+      {baselinePts && <polyline points={baselinePts} fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5,4" strokeLinejoin="round" pointerEvents="none" />}
       {/* Real — verde */}
       {show.real && <polyline points={realPts} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" pointerEvents="none" />}
-      {show.real && real.map((v, i) => v == null ? null : (
+      {showLines && show.real && real.map((v, i) => v == null ? null : (
         <g key={'re' + i}>
           <circle cx={xC(i)} cy={yS(v)} r="3.5" fill="#16a34a" />
           <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'pointer' }}

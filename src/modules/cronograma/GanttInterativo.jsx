@@ -19,6 +19,53 @@ import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN,
          buildTaskFilterPredicate } from './cronogramaShared';
 
+// Dropdown de linha de base com lista rolável (altura máxima + barra de rolagem),
+// para não crescer demais quando há muitas reprogramações salvas.
+function BaselineSelect({ value, baselines, reprogramacoes, onChange }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const val = value || '';
+  const current = !val
+    ? 'Sem linha de base'
+    : (baselines.find(b => b.id === val)?.nome || reprogramacoes.find(r => r.id === val)?.nome || 'Sem linha de base');
+  const pick = id => { onChange?.(id); setOpen(false); };
+
+  const optStyle = active => ({
+    display: 'block', width: '100%', textAlign: 'left', fontSize: 12, padding: '5px 8px',
+    border: 'none', borderRadius: 4, cursor: 'pointer',
+    background: active ? 'var(--brand)' : 'transparent', color: active ? '#fff' : 'var(--text)',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  });
+  const grpStyle = { fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', padding: '6px 8px 2px' };
+
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 150 }}>
+      <button type="button" onClick={() => setOpen(v => !v)}
+        title="Linha de base comparada no Gantt (linha de base ou reprogramação salva)"
+        style={{ height: 28, width: '100%', fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current}</span>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 30, left: 0, minWidth: '100%', zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', maxHeight: 220, overflowY: 'auto', padding: 4 }}>
+          <button type="button" style={optStyle(!val)} onClick={() => pick(null)}>Sem linha de base</button>
+          {baselines.length > 0 && <div style={grpStyle}>Linhas de base</div>}
+          {baselines.map(b => <button key={b.id} type="button" style={optStyle(val === b.id)} onClick={() => pick(b.id)}>{b.nome}</button>)}
+          {reprogramacoes.length > 0 && <div style={grpStyle}>Reprogramações</div>}
+          {reprogramacoes.map(r => <button key={r.id} type="button" style={optStyle(val === r.id)} onClick={() => pick(r.id)}>{r.nome}</button>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
   baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
@@ -966,20 +1013,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                   <div style={groupBox}>
                     <div style={{ ...groupContent, justifyContent: 'center' }}>
                       <div style={rowStyle}>
-                        <select value={blVisivelId || ''} onChange={e => onSelectBaseline?.(e.target.value || null)} title="Linha de base comparada no Gantt (linha de base ou reprogramação salva)"
-                          style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', minWidth: 150, cursor: 'pointer' }}>
-                          <option value="">Sem linha de base</option>
-                          {baselines.length > 0 && (
-                            <optgroup label="Linhas de base">
-                              {baselines.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
-                            </optgroup>
-                          )}
-                          {reprogramacoes.length > 0 && (
-                            <optgroup label="Reprogramações">
-                              {reprogramacoes.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
-                            </optgroup>
-                          )}
-                        </select>
+                        <BaselineSelect value={blVisivelId} baselines={baselines} reprogramacoes={reprogramacoes} onChange={id => onSelectBaseline?.(id)} />
                       </div>
                     </div>
                     <div style={caption}>Linha de base</div>

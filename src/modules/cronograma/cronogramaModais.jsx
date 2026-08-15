@@ -634,7 +634,8 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
 };
 
 // ─── Modal: Salvar Linha de Base ─────────────────────────────────────────────
-export const CriarLinhaModal = ({ baselines, totalEtapas, onClose, onCreate, onUpdate }) => {
+export const CriarLinhaModal = ({ baselines, totalEtapas, nomesUsados = [], onClose, onCreate, onUpdate }) => {
+  const toast = useToast();
   const temExistentes = baselines.length > 0;
   const [modo,     setModo]     = React.useState('nova');  // 'nova' | 'sobrescrever'
   const [nome,     setNome]     = React.useState(`Linha de Base ${baselines.length + 1}`);
@@ -642,10 +643,14 @@ export const CriarLinhaModal = ({ baselines, totalEtapas, onClose, onCreate, onU
 
   const targetBL = baselines.find(b => b.id === targetId);
   const labelBtn = modo === 'nova' ? 'Criar' : 'Sobrescrever';
+  const nomeDup  = modo === 'nova' && !!nome.trim() && nomesUsados.includes(nome.trim().toLowerCase());
   const disabled = modo === 'nova' ? !nome.trim() : !targetId;
 
   const handleConfirm = () => {
-    if (modo === 'nova' && nome.trim()) { onCreate(nome.trim()); onClose(); }
+    if (modo === 'nova' && nome.trim()) {
+      if (nomeDup) { toast('Já existe uma linha de base ou reprogramação com esse nome.', { tone: 'danger' }); return; }
+      onCreate(nome.trim()); onClose();
+    }
     else if (modo === 'sobrescrever' && targetId) { onUpdate(targetId, targetBL?.nome || nome.trim()); onClose(); }
   };
 
@@ -654,7 +659,7 @@ export const CriarLinhaModal = ({ baselines, totalEtapas, onClose, onCreate, onU
     border: '1px solid var(--border)', marginBottom: 6 };
 
   return (
-    <Modal title="Salvar Linha de Base" onClose={onClose}
+    <Modal title="Salvar Linha de Base" size="sm" draggable onClose={onClose}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
@@ -695,6 +700,11 @@ export const CriarLinhaModal = ({ baselines, totalEtapas, onClose, onCreate, onU
               placeholder="Ex: Planejamento Inicial"
               style={{ width: '100%' }}
             />
+            {nomeDup && (
+              <p style={{ fontSize: 12, color: 'var(--danger, #dc2626)', margin: '6px 0 0' }}>
+                Já existe uma linha de base ou reprogramação com esse nome.
+              </p>
+            )}
           </div>
         )}
 
@@ -729,7 +739,7 @@ export const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDupli
   const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
 
   return (
-    <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="lg" onClose={onClose}
+    <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="md" draggable onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
     >
       {baselines.length === 0
@@ -737,6 +747,7 @@ export const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDupli
             Nenhuma linha de base cadastrada. Clique em "Criar Linha de Base" para começar.
           </p>
         : (
+          <div style={{ maxHeight: 340, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
           <table className="tbl">
             <thead>
               <tr>
@@ -751,7 +762,7 @@ export const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDupli
               {baselines.map(b => (
                 <tr key={b.id}>
                   <td className="strong">{b.nome}</td>
-                  <td className="mono text-muted">{b.criadaEm}</td>
+                  <td className="mono text-muted">{isoToBR(b.criadaEm)}</td>
                   <td className="right num">{b.etapas.length}</td>
                   <td style={{ textAlign: 'center' }}>
                     <input type="radio" name="bl-visivel"
@@ -792,6 +803,7 @@ export const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDupli
               ))}
             </tbody>
           </table>
+          </div>
         )
       }
     </Modal>
@@ -894,17 +906,21 @@ export const FeriadosModal = ({ cfg, onChange, onClose }) => {
 };
 
 // ─── Modal: Salvar Reprogramação ─────────────────────────────────────────────
-export const CriarReprogramacaoModal = ({ totalEtapas, onClose, onCreate }) => {
+export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], onClose, onCreate }) => {
+  const toast = useToast();
   const hoje = new Date();
   const mesLabel = hoje.toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '/');
   const [nome, setNome] = React.useState(`Reprogramação ${mesLabel}`);
+  const nomeDup = !!nome.trim() && nomesUsados.includes(nome.trim().toLowerCase());
 
   const handleConfirm = () => {
-    if (nome.trim()) { onCreate(nome.trim()); onClose(); }
+    if (!nome.trim()) return;
+    if (nomeDup) { toast('Já existe uma linha de base ou reprogramação com esse nome.', { tone: 'danger' }); return; }
+    onCreate(nome.trim()); onClose();
   };
 
   return (
-    <Modal title="Salvar Reprogramação" onClose={onClose}
+    <Modal title="Salvar Reprogramação" size="sm" draggable onClose={onClose}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
@@ -924,6 +940,11 @@ export const CriarReprogramacaoModal = ({ totalEtapas, onClose, onCreate }) => {
             placeholder="Ex: Reprogramação 07/2026"
             style={{ width: '100%' }}
           />
+          {nomeDup && (
+            <p style={{ fontSize: 12, color: 'var(--danger, #dc2626)', margin: '6px 0 0' }}>
+              Já existe uma linha de base ou reprogramação com esse nome.
+            </p>
+          )}
         </div>
         <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>
           Salva uma cópia do cronograma atual ({totalEtapas} etapas), como ele está agora, para você
@@ -939,7 +960,7 @@ export const GerenciarReprogramacoesModal = ({ reprogramacoes, repVisivelId, onS
   const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
 
   return (
-    <Modal title="Gerenciar Reprogramações" subtitle={`${reprogramacoes.length} reprogramação${reprogramacoes.length !== 1 ? 'ões' : ''} salva${reprogramacoes.length !== 1 ? 's' : ''}`} size="lg" onClose={onClose}
+    <Modal title="Gerenciar Reprogramações" subtitle={`${reprogramacoes.length} reprogramação${reprogramacoes.length !== 1 ? 'ões' : ''} salva${reprogramacoes.length !== 1 ? 's' : ''}`} size="md" draggable onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
     >
       {reprogramacoes.length === 0
@@ -947,6 +968,7 @@ export const GerenciarReprogramacoesModal = ({ reprogramacoes, repVisivelId, onS
             Nenhuma reprogramação salva. Clique em "Salvar Reprogramação" para começar.
           </p>
         : (
+          <div style={{ maxHeight: 340, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
           <table className="tbl">
             <thead>
               <tr>
@@ -961,7 +983,7 @@ export const GerenciarReprogramacoesModal = ({ reprogramacoes, repVisivelId, onS
               {reprogramacoes.map(r => (
                 <tr key={r.id}>
                   <td className="strong">{r.nome}</td>
-                  <td className="mono text-muted">{r.criadaEm}</td>
+                  <td className="mono text-muted">{isoToBR(r.criadaEm)}</td>
                   <td className="right num">{r.etapas.length}</td>
                   <td style={{ textAlign: 'center' }}>
                     <input type="radio" name="rep-visivel"
@@ -996,6 +1018,7 @@ export const GerenciarReprogramacoesModal = ({ reprogramacoes, repVisivelId, onS
               ))}
             </tbody>
           </table>
+          </div>
         )
       }
     </Modal>

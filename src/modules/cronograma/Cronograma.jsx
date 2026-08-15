@@ -5,6 +5,7 @@ import { supabase } from '../../services/supabase';
 import { pavimentosService } from '../../services/pavimentos.service';
 import { logger } from '../../services/logger';
 import { SCurveChart } from './SCurveChart';
+import { SCurveChart2 } from './SCurveChart2';
 import { FluxoExecutivo } from './FluxoExecutivo';
 import { useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
@@ -70,6 +71,10 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   const leftRef  = React.useRef(null);
   const rightRef = React.useRef(null);
   const syncing  = React.useRef(false);
+  // Altura da barra de rolagem horizontal do painel direito. O painel esquerdo não tem
+  // essa barra, então reservamos o mesmo espaço embaixo dele para as linhas de total dos
+  // dois painéis ficarem alinhadas (senão o esquerdo rola ~17px a mais e sobrepõe).
+  const [botGutter, setBotGutter] = React.useState(0);
   // Segue a altura de linha configurada na Lista (mesma chave), com fonte menor no padrão dela.
   const usoRowH = (() => { const v = parseInt(localStorage.getItem('ls_crono_row_h_v2') || '', 10); return Number.isFinite(v) ? Math.min(120, Math.max(20, v)) : 21; })();
   const usoFont = 12;
@@ -133,6 +138,18 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     L.addEventListener('scroll', sl);
     R.addEventListener('scroll', sr);
     return () => { L.removeEventListener('scroll', sl); R.removeEventListener('scroll', sr); };
+  }, []);
+
+  // Mede a barra de rolagem horizontal do painel direito e reflete no espaçador do esquerdo.
+  React.useEffect(() => {
+    const R = rightRef.current;
+    if (!R) return;
+    const measure = () => setBotGutter(R.offsetHeight - R.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(R);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
 
   // UsoTarefaView mostra todas as tarefas independente de collapsed na Lista
@@ -465,6 +482,8 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
               </tr>
             </tbody>
           </table>
+          {/* Reserva o mesmo espaço da barra de rolagem horizontal do painel direito */}
+          <div style={{ height: botGutter, flexShrink: 0 }} />
         </div>
 
         {/* Lado direito — grade temporal. table-layout: auto + células sem recorte:
@@ -543,11 +562,18 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   const toast = useToast();
   // Colapso LOCAL da tabela "Distribuição por tarefa" — não mexe no `collapsed` da Lista.
   const [collapsedCurva, setCollapsedCurva] = React.useState(() => new Set());
-  // Toggles das linhas do gráfico Curva S (Linha de Base / Reprogramado / Real).
-  const [showSerie, setShowSerie] = React.useState({ bl: true, rep: true, real: true });
-  const toggleSerie = (k) => setShowSerie(s => ({ ...s, [k]: !s[k] }));
-  // Barras mensais (%) agrupadas por série (Previsto/Replanejado/Executado) — opcional
-  const [showBarras, setShowBarras] = React.useState(true);
+  // Duas curvas selecionáveis (Curva 1 / Curva 2). Cada uma guarda suas próprias opções.
+  const [curvaSel, setCurvaSel] = React.useState('c1'); // 'c1' | 'c2'
+  const [serieMap,  setSerieMap]  = React.useState({ c1: { bl: true, rep: true, real: true }, c2: { bl: true, rep: true, real: true } });
+  const [barrasMap, setBarrasMap] = React.useState({ c1: true, c2: true });
+  const [linhasMap, setLinhasMap] = React.useState({ c1: true, c2: true });
+  // Valores/atalhos da curva ATIVA — mantêm os nomes já usados no restante do componente.
+  const showSerie   = serieMap[curvaSel];
+  const showBarras  = barrasMap[curvaSel];
+  const showLinhas  = linhasMap[curvaSel];
+  const toggleSerie   = (k)  => setSerieMap(m => ({ ...m, [curvaSel]: { ...m[curvaSel], [k]: !m[curvaSel][k] } }));
+  const setShowBarras = (fn) => setBarrasMap(m => ({ ...m, [curvaSel]: typeof fn === 'function' ? fn(m[curvaSel]) : fn }));
+  const setShowLinhas = (fn) => setLinhasMap(m => ({ ...m, [curvaSel]: typeof fn === 'function' ? fn(m[curvaSel]) : fn }));
   // Custo efetivo: com vínculos, usa o valor vinculado distribuído (cobre folhas e grupos)
   const hasVinc  = Object.keys(valorVinculadoMap).length > 0;
   const custoEf  = (e, gv) => hasVinc
@@ -619,19 +645,33 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
   });
 
+  // Marca quando o usuário mexe no seletor de reprogramação — inclusive escolher "Sem
+  // reprogramação". A partir daí, não auto-selecionamos mais a padrão.
+  const repTouched = React.useRef(false);
   React.useEffect(() => {
     if (!reprogramacoes.length) return;
-    // Respeita a escolha do usuário (persistida por obra): só auto-seleciona quando
-    // ainda não há nenhuma reprogramação escolhida.
-    if (repVisivelId) return;
+    // Respeita a escolha do usuário: só auto-seleciona quando ainda não há reprogramação
+    // escolhida E o usuário não interagiu com o seletor.
+    if (repVisivelId || repTouched.current) return;
     const alvo = defaultRepId(reprogramacoes, selMonKey);
     if (alvo !== repVisivelId) onSelectReprogramacao?.(alvo);
   }, [selMonKey, reprogramacoes, repVisivelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [exportingPDF, setExportingPDF] = React.useState(false);
   const [pdfFormat, setPdfFormat] = React.useState('a3');
+  const [expOpen, setExpOpen] = React.useState(false);
+  const [expSel, setExpSel]  = React.useState({ grafico: true, resumo: true, dist: true });
   const curvaRef = React.useRef(null);
   const chartRef = React.useRef(null);
+  const expRef   = React.useRef(null);
+
+  // Fecha o painel de exportação ao clicar fora dele
+  React.useEffect(() => {
+    if (!expOpen) return;
+    const onDoc = e => { if (expRef.current && !expRef.current.contains(e.target)) setExpOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [expOpen]);
 
   // Serializa o SVG da curva (inline das cores var(--…)) e devolve {dataUrl, w, h} para o PDF.
   const capturarGraficoCurva = () => new Promise((resolve) => {
@@ -697,8 +737,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       const { blM, blA, repM, repA, rrM, rrA, difBL, difRep } = computeSeries();
       const fmt = v => v != null ? parseFloat(v.toFixed(4)) : null;
 
-      // Sheet 1 — Resumo Mensal
       const cabMeses = months.map(m => m.label);
+
+      // Sheet 1 — Resumo Mensal
+      if (expSel.resumo) {
       const resumo = [
         ['Atividade', ...cabMeses],
         ['LB Mensal (%)',              ...blM.map(fmt)],
@@ -711,8 +753,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         ['Dif. vs Rep. Acumulado (%)', ...difRep.map(fmt)],
       ];
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), 'Resumo Mensal');
+      }
 
       // Sheet 2 — Distribuição por Tarefa
+      if (expSel.dist) {
       const groupValsExp = computeGroupValues(etapas);
       const distRows = etapas.filter(e => e.isGroup || e.showInDist === true);
       const folhas = etapas.filter(e => !e.isGroup);
@@ -736,7 +780,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       dist.push(['Total geral', totalCusto, 100, parseFloat(avancoGeral.toFixed(2)), ...totalMonPcts, 100]);
 
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dist), 'Distribuição');
+      }
 
+      if (wb.SheetNames.length === 0) { toast('Selecione ao menos uma tabela para o Excel.', { tone: 'warn' }); return; }
       XLSX.writeFile(wb, `curva-fisica-${new Date().toISOString().slice(0,10)}.xlsx`);
       } catch (err) { toast('Erro ao exportar Excel: ' + err.message, { tone: 'danger' }); }
     });
@@ -745,6 +791,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   const exportPDF = async () => {
     setExportingPDF(true);
     try {
+      if (!expSel.grafico && !expSel.resumo && !expSel.dist) { toast('Selecione ao menos um item para o PDF.', { tone: 'warn' }); return; }
       const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
       const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: pdfFormat });
       const BRAND = [28, 69, 132];
@@ -762,7 +809,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
       // ── Gráfico da Curva S (imagem) ─────────────────────────────────────
       let startY1 = 25;
-      const grafico = await capturarGraficoCurva();
+      const grafico = expSel.grafico ? await capturarGraficoCurva() : null;
       if (grafico) {
         const imgW = W - 28;
         const imgH = Math.min(90, imgW * (grafico.h / grafico.w));
@@ -770,9 +817,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         startY1 += imgH + 5;
         // Legenda das séries (o SVG não inclui a legenda, que é HTML fora dele)
         const leg = [];
-        if (showSerie.real) leg.push({ label: 'Real', color: [22, 163, 74], dashed: false });
-        if (showSerie.rep)  leg.push({ label: hasRep ? `Reprogramado (${repNome})` : 'Reprogramado', color: [28, 69, 132], dashed: false });
-        if (showSerie.bl && blEtapas) leg.push({ label: `Linha de Base (${blNome})`, color: [148, 163, 184], dashed: true });
+        const c2 = curvaSel === 'c2';
+        if (showLinhas && showSerie.real) leg.push({ label: c2 ? 'Executado' : 'Real', color: [22, 163, 74], dashed: false });
+        if (showLinhas && showSerie.rep)  leg.push({ label: c2 ? 'Replanejado' : (hasRep ? `Reprogramado (${repNome})` : 'Reprogramado'), color: [28, 69, 132], dashed: false });
+        if (showLinhas && showSerie.bl && blEtapas) leg.push({ label: c2 ? 'Previsto (Linha de Base)' : `Linha de Base (${blNome})`, color: [148, 163, 184], dashed: true });
         let lx = 14; const ly = startY1 + 2;
         doc.setFontSize(8); doc.setLineWidth(0.9);
         leg.forEach(item => {
@@ -798,7 +846,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       const cabMeses = months.map(m => m.label);
       const nColRes  = 1 + months.length;
       const grpRow   = (label, rgb) => [{ content: label, colSpan: nColRes, styles: { fillColor: rgb, textColor: 255, fontStyle: 'bold', halign: 'left', fontSize: 7 } }];
-      autoTable(doc, {
+      if (expSel.resumo) autoTable(doc, {
         startY: startY1,
         head: [['', ...cabMeses]],
         body: [
@@ -808,7 +856,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
           grpRow(hasRep ? repNome : 'Reprogramação', [28, 69, 132]),
           ['Mensal',    ...repM.map(fmt)],
           ['Acumulado', ...repA.map(fmt)],
-          grpRow('Real', [21, 128, 61]),
+          grpRow('Real + Reprogramado', [21, 128, 61]),
           ['Mensal',    ...rrM.map(fmt)],
           ['Acumulado', ...rrA.map(fmt)],
           grpRow('Diferenças', [71, 85, 105]),
@@ -829,6 +877,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       });
 
       // ── Tabela 2: Distribuição por Tarefa ──────────────────────────────
+      if (expSel.dist) {
       const groupValsExp = computeGroupValues(etapas);
       const distRows     = etapas.filter(e => e.isGroup || e.showInDist === true);
       const folhas       = etapas.filter(e => !e.isGroup);
@@ -842,7 +891,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         const taskCst = custoEf(e, gv);
         const taskAv  = e.isGroup ? (gv.avanco || 0) : (e.avanco || 0);
         const peso    = totCusto > 0 ? taskCst / totCusto * 100 : 0;
-        const mDist   = monthlyDist[e.id] || {};
+        const mDist   = e.isGroup ? getGroupMonthlyDist(e.id, etapas, monthlyDist) : (monthlyDist[e.id] || {});
         const mf      = months.map(m => taskCst > 0 ? (mDist[m.key] || 0) / taskCst : 0); // fração 0..1 por mês
         return {
           _isGroup: e.isGroup, _av: taskAv, _mf: mf,
@@ -854,7 +903,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         };
       });
       const totMonPcts = months.map(m => totCusto > 0 ? ((filteredPlanned[m.key] || 0) / totCusto * 100).toFixed(2) + '%' : '—');
-      const startY2    = (doc.lastAutoTable?.finalY ?? 60) + 12;
+      // Início da tabela: após a última seção (+12) ou logo abaixo do gráfico (+6). Nunca
+      // acima de 32mm, para o título "Distribuição por Tarefa" não colar no cabeçalho (título + data).
+      let startY2 = (doc.lastAutoTable?.finalY != null ? doc.lastAutoTable.finalY + 12 : startY1 + 6);
+      if (startY2 < 32) startY2 = 32;
       doc.setFontSize(10); doc.setTextColor(0);
       doc.text('Distribuição por Tarefa', 14, startY2 - 4);
       autoTable(doc, {
@@ -865,7 +917,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
         bodyStyles: { fontSize: 7 },
-        footStyles: { fillColor: [225, 232, 242], fontStyle: 'bold', fontSize: 7 },
+        footStyles: { fillColor: [225, 232, 242], textColor: 20, fontStyle: 'bold', fontSize: 7, halign: 'right' },
         columnStyles: {
           0: { cellWidth: 45, halign: 'left' },
           1: { cellWidth: 22, halign: 'right' },
@@ -892,8 +944,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
           }
           // Meses — heat azul proporcional (só folhas; grupos mantêm o fundo do grupo)
           if (data.section === 'body' && ci >= 4 && ci < 4 + months.length && !row._isGroup) {
-            const f = row._mf[ci - 4] || 0;
-            if (f > 0.005) data.cell.styles.fillColor = blendC([28, 69, 132], Math.min(1, 0.05 + 0.5 * f));
+            const pct = (row._mf[ci - 4] || 0) * 100;
+            if (pct > 0.5) data.cell.styles.fillColor = [235, 237, 240]; // cinza chapado, igual ao site
             else if (ci === selColIdx) data.cell.styles.fillColor = blendC([28, 69, 132], 0.06);
           }
           // Coluna do mês selecionado — leve realce no cabeçalho e rodapé
@@ -907,6 +959,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         },
         didDrawPage: footerFn,
       });
+      }
       doc.save(`curva-fisica-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally {
       setExportingPDF(false);
@@ -935,6 +988,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   const { blM: seriesPrevistoM, blA: seriesBaselineFull, repA: seriesReprog, rrA: seriesReal, repM: monthlyPctSeries, rrM: seriesExecM } = computeSeries();
   const seriesBaseline = baselineDist ? seriesBaselineFull : null;
   const todayIdx = months.findIndex(m => m.key === todayKey);
+  // Curva 2 (faseada): índice do mês de referência (corte). A série é a "Real + Reprogramado"
+  // (rrM mensal / rrA acumulado), verde até o mês selecionado e azul depois.
+  const selIdx = (() => { const i = months.findIndex(m => m.key === selMonKey); return i >= 0 ? i : months.length - 1; })();
 
   const thSt = {
     padding: '9px 14px', fontSize: 10.5, fontWeight: 600,
@@ -948,7 +1004,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     <div ref={curvaRef} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
 
       {/* ── Comparar com: Linha de Base / Reprogramação ──────────────────── */}
-      <div className="card" style={{ padding: '10px 16px', display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="card" style={{ padding: '10px 16px', display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', overflow: 'visible' }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-soft)' }}>Comparar com:</span>
         <select className="input" style={{ minWidth: 180 }} value={blVisivelId || ''}
           onChange={e => onSelectBaseline?.(e.target.value || null)} title="Linha de base comparada na Curva Física">
@@ -956,7 +1012,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
           {baselines.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
         </select>
         <select className="input" style={{ minWidth: 180 }} value={repVisivelId || ''}
-          onChange={e => onSelectReprogramacao?.(e.target.value || null)} title="Reprogramação comparada na Curva Física">
+          onChange={e => { repTouched.current = true; onSelectReprogramacao?.(e.target.value || null); }} title="Reprogramação comparada na Curva Física">
           <option value="">Sem reprogramação</option>
           {reprogramacoes.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
         </select>
@@ -968,23 +1024,70 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             {months.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
           </select>
         </span>
+
+        {/* ── Exportar (fora do gráfico): escolhe o que extrair ───────────── */}
+        <div ref={expRef} style={{ marginLeft: 'auto', position: 'relative' }}>
+          <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28 }}
+            onClick={() => setExpOpen(v => !v)} title="Exportar gráfico e/ou tabelas">
+            <Icon name="download" size={13} />Exportar
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
+          {expOpen && (
+            <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 12, minWidth: 240, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-soft)', textTransform: 'uppercase', letterSpacing: 0.3 }}>Incluir</div>
+              {[['grafico', 'Gráfico Curva S'], ['resumo', 'Resumo Mensal'], ['dist', 'Distribuição por tarefa']].map(([k, label]) => (
+                <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
+                  <input type="checkbox" checked={expSel[k]} onChange={() => setExpSel(s => ({ ...s, [k]: !s[k] }))} style={{ accentColor: 'var(--brand)', cursor: 'pointer' }} />
+                  {label}
+                </label>
+              ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginTop: 2 }}>
+                <span style={{ color: 'var(--text-soft)' }}>Formato PDF:</span>
+                <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
+                  style={{ fontSize: 12, height: 26, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                  <option value="a4">A4</option>
+                  <option value="a3">A3</option>
+                  <option value="a2">A2</option>
+                  <option value="a1">A1</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28, flex: 1 }}
+                  onClick={exportExcel} disabled={!expSel.resumo && !expSel.dist} title="Exportar tabelas para Excel (.xlsx)">
+                  <Icon name="download" size={13} />Excel
+                </button>
+                <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28, flex: 1 }}
+                  onClick={exportPDF} disabled={exportingPDF || (!expSel.grafico && !expSel.resumo && !expSel.dist)} title="Exportar para PDF">
+                  <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'PDF'}
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>O gráfico entra apenas no PDF.</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Gráfico SVG ───────────────────────────────────────────────────── */}
       <div className="card">
         <div className="card-header">
           <div>
-            <div className="card-title">Curva S — Produção física acumulada</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <select value={curvaSel} onChange={e => setCurvaSel(e.target.value)} title="Escolher qual curva exibir"
+                style={{ height: 26, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
+                <option value="c1">Curva 1</option>
+                <option value="c2">Curva 2</option>
+              </select>
+              <div className="card-title">Curva S — Produção física acumulada</div>
+            </div>
             <div className="card-subtitle">
-              Distribuição mensal do custo planejado e realizado · calculado automaticamente pelo cronograma
-              {hasRep && ` · Planejado = Reprogramação "${repNome}"`}
+              Distribuição mensal do custo planejado e realizado
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center', fontSize: 12 }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center', justifyContent: 'center', flex: 1, flexWrap: 'wrap', fontSize: 12 }}>
             {(() => {
               const legItem = (k, cor, tracejado, label, enabled = true) => (
                 <label title={enabled ? 'Marque/desmarque para mostrar/ocultar' : 'Selecione para comparar'}
-                  style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12,
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, whiteSpace: 'nowrap',
                     cursor: enabled ? 'pointer' : 'default',
                     color: enabled ? 'var(--text-soft)' : 'var(--text-faint)',
                     opacity: enabled ? 1 : 0.5 }}>
@@ -998,8 +1101,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               return (
                 <>
                   {legItem('real', '#16a34a', false, 'Real')}
-                  {legItem('rep', 'var(--brand)', false, hasRep ? `Reprogramado (${repNome})` : 'Reprogramado')}
-                  {legItem('bl', '#94a3b8', true, seriesBaseline ? `Linha de Base (${blNome})` : 'Linha de Base', !!seriesBaseline)}
+                  {legItem('rep', 'var(--brand)', false, 'Reprogramado', hasRep)}
+                  {legItem('bl', '#94a3b8', true, 'Linha de Base', !!seriesBaseline)}
                 </>
               );
             })()}
@@ -1007,41 +1110,47 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', color: 'var(--text-soft)' }}>
               <input type="checkbox" checked={showBarras} onChange={() => setShowBarras(v => !v)} style={{ accentColor: 'var(--brand)', cursor: 'pointer' }} />
               <span style={{ width: 14, height: 12, background: '#cbd5e1', display: 'inline-block', borderRadius: 2 }} />
-              Barras mensais (%)
+              Barras
             </label>
-            <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
-              <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28 }}
-                onClick={exportExcel} title="Exportar para Excel (.xlsx)">
-                <Icon name="download" size={13} />Excel
-              </button>
-              <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
-                style={{ fontSize: 12, height: 28, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
-                <option value="a4">A4</option>
-                <option value="a3">A3</option>
-                <option value="a2">A2</option>
-                <option value="a1">A1</option>
-              </select>
-              <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28 }}
-                onClick={exportPDF} disabled={exportingPDF} title="Exportar para PDF">
-                <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'PDF'}
-              </button>
-            </div>
+            <label title="Mostrar/ocultar as linhas acumuladas. Desmarque para ver só as colunas."
+              style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', color: 'var(--text-soft)' }}>
+              <input type="checkbox" checked={showLinhas} onChange={() => setShowLinhas(v => !v)} style={{ accentColor: 'var(--brand)', cursor: 'pointer' }} />
+              <span style={{ width: 18, height: 3, background: 'var(--text-soft)', display: 'inline-block', borderRadius: 2 }} />
+              Linhas
+            </label>
           </div>
         </div>
         <div ref={chartRef} className="card-body" style={{ padding: '12px 16px 0', overflowX: 'auto' }}>
-          <SCurveChart
-            months={months}
-            reprogramado={seriesReprog}
-            real={seriesReal}
-            baseline={seriesBaseline}
-            monthlyPct={monthlyPctSeries}
-            previstoM={seriesPrevistoM}
-            replanM={monthlyPctSeries}
-            execM={seriesExecM}
-            showBarras={showBarras}
-            todayIdx={todayIdx}
-            show={showSerie}
-          />
+          {curvaSel === 'c1' ? (
+            <SCurveChart
+              months={months}
+              reprogramado={hasRep ? seriesReprog : []}
+              real={seriesReal}
+              baseline={seriesBaseline}
+              monthlyPct={monthlyPctSeries}
+              previstoM={seriesPrevistoM}
+              replanM={hasRep ? monthlyPctSeries : []}
+              execM={seriesExecM}
+              showBarras={showBarras}
+              showLines={showLinhas}
+              todayIdx={todayIdx}
+              show={showSerie}
+            />
+          ) : (
+            <SCurveChart2
+              months={months}
+              selIdx={selIdx}
+              previstoM={seriesPrevistoM}
+              execM={seriesExecM}
+              replanM={seriesExecM}
+              baselineA={seriesBaseline}
+              execA={seriesReal}
+              replanA={seriesReal}
+              show={showSerie}
+              showBarras={showBarras}
+              showLines={showLinhas}
+            />
+          )}
         </div>
       </div>
 
@@ -1243,7 +1352,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   {/* ── Real ── */}
                   <tr>
                     <td colSpan={totalCols} style={{ ...grpHdrGreen, borderTop: '2px solid rgba(255,255,255,0.2)' }}>
-                      Real
+                      Real + Reprogramado
                     </td>
                   </tr>
                   <tr>
@@ -1930,7 +2039,14 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   };
 
   // Handlers de linha de base
+  // Nomes já usados por linhas de base e reprogramações (para bloquear duplicados, sem diferenciar tipo)
+  const nomesUsados = [...baselines, ...reprogramacoes].map(x => (x.nome || '').trim().toLowerCase());
+
   const criarLinha = (nome) => {
+    if (nomesUsados.includes(nome.trim().toLowerCase())) {
+      toast('Já existe uma linha de base ou reprogramação com esse nome.', { tone: 'danger' });
+      return;
+    }
     const nova = {
       id: 'BL-' + Date.now(),
       nome,
@@ -1968,7 +2084,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const duplicarLinha = (id) => {
     const orig = baselines.find(b => b.id === id);
     if (!orig) return;
-    const copia = { ...orig, id: 'BL-' + Date.now(), nome: orig.nome + ' (cópia)', etapas: orig.etapas.map(e => ({ ...e })) };
+    // Gera um nome de cópia único (não repete outra linha de base nem reprogramação)
+    let nomeCopia = `${orig.nome} (cópia)`;
+    let n = 2;
+    while (nomesUsados.includes(nomeCopia.trim().toLowerCase())) { nomeCopia = `${orig.nome} (cópia ${n})`; n++; }
+    const copia = { ...orig, id: 'BL-' + Date.now(), nome: nomeCopia, etapas: orig.etapas.map(e => ({ ...e })) };
     const novas = [...baselines, copia];
     setBaselines(novas);
     salvarBaselines(obraSel, novas);
@@ -1978,6 +2098,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
 
   // Handlers de reprogramação (retrato imutável — sem sobrescrever/duplicar)
   const criarReprogramacao = (nome) => {
+    if (nomesUsados.includes(nome.trim().toLowerCase())) {
+      toast('Já existe uma linha de base ou reprogramação com esse nome.', { tone: 'danger' });
+      return;
+    }
     const nova = {
       id: 'RP-' + Date.now(),
       nome,
@@ -2619,6 +2743,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         <CriarLinhaModal
           baselines={baselines}
           totalEtapas={etapas.length}
+          nomesUsados={nomesUsados}
           onClose={() => setShowCriar(false)}
           onCreate={criarLinha}
           onUpdate={atualizarLinha}
@@ -2639,6 +2764,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       {showCriarRep && (
         <CriarReprogramacaoModal
           totalEtapas={etapas.length}
+          nomesUsados={nomesUsados}
           onClose={() => setShowCriarRep(false)}
           onCreate={criarReprogramacao}
         />
