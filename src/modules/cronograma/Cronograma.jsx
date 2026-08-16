@@ -22,7 +22,7 @@ import {
   CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal,
 } from './cronogramaModais';
 import { GM_TOTAL, gmConflicts } from './cronogramaShared';
-import { _cronCache, _cronSavedAt } from './cronogramaCache';
+import { _cronCache, _cronSavedAt, invalidateOcCache } from './cronogramaCache';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
@@ -1654,6 +1654,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
       { obra_id: obraId, ...payload }, { onConflict: 'obra_id' });
     if (error) { logger.error('falha ao salvar cronograma', { module: 'cronograma', action: 'upsert', obraId, err: error }); return { error }; }
     _cronSavedAt[obraId] = nowISO;
+    invalidateOcCache(obraId);
     return { error: null };
   }
 
@@ -1661,7 +1662,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
   const { data, error } = await supabase.from('cronogramas')
     .update(payload).eq('obra_id', obraId).eq('updated_at', expected).select('updated_at');
   if (error) { logger.error('falha ao salvar cronograma', { module: 'cronograma', action: 'update', obraId, err: error }); return { error }; }
-  if (data && data.length) { _cronSavedAt[obraId] = nowISO; return { error: null }; }
+  if (data && data.length) { _cronSavedAt[obraId] = nowISO; invalidateOcCache(obraId); return { error: null }; }
 
   // 0 linhas: ou a linha ainda não existe, ou o updated_at mudou (conflito).
   const { data: atual } = await supabase.from('cronogramas')
@@ -1670,6 +1671,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
     const { error: insErr } = await supabase.from('cronogramas').insert({ obra_id: obraId, ...payload });
     if (insErr) { logger.error('falha ao inserir cronograma', { module: 'cronograma', action: 'insert', obraId, err: insErr }); return { error: insErr }; }
     _cronSavedAt[obraId] = nowISO;
+    invalidateOcCache(obraId);
     return { error: null };
   }
   // Conflito: mantém expected inalterado para os próximos saves seguirem barrando até recarregar.
@@ -2171,7 +2173,26 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
 
   // ── Commit (fonte única de verdade) ────────────────────────────────────────
   const commit = (novas, opts = {}) => {
-    const clean = novas.map(e => ({ ...e }));
+    // Tarefa que chega a 100% de avanço trava o valor vinculado no que ele vale agora
+    // (deixa de entrar no rateio proporcional do grupo — ver `distributeToLeaves` em
+    // ganttUtils.js); se reabrir (avanço < 100), destrava e volta ao rateio normal.
+    // Roda pra QUALQUER commit (Lista, Gantt, colar, etc.) — é o único caminho de gravação —
+    // então também "pega" tarefas que já estavam 100% concluídas antes desta trava existir,
+    // na primeira vez que qualquer edição tocar o cronograma delas.
+    const precisaTravar   = novas.some(e => !e.isGroup && (e.avanco ?? 0) >= 100 && e.valorVinculadoFixo == null);
+    const precisaDestravar = novas.some(e => !e.isGroup && (e.avanco ?? 0) < 100 && e.valorVinculadoFixo != null);
+    let ajustadas = novas;
+    if (precisaTravar || precisaDestravar) {
+      const valorMap = precisaTravar ? computeValorVinculadoMap(novas, vinculos, orcamentoItensMap) : null;
+      ajustadas = novas.map(e => {
+        if (e.isGroup) return e;
+        const done = (e.avanco ?? 0) >= 100;
+        if (done && e.valorVinculadoFixo == null) return { ...e, valorVinculadoFixo: valorMap[e.id] || 0 };
+        if (!done && e.valorVinculadoFixo != null) return { ...e, valorVinculadoFixo: null };
+        return e;
+      });
+    }
+    const clean = ajustadas.map(e => ({ ...e }));
     // Qualquer commit que traga `feriados` (config de calendário/pavimentos salvos) também
     // sincroniza o estado local — sem isso, quem chamou onCommit(novas, {feriados}) fora do
     // fluxo do FeriadosModal (ex.: PavimentosModal) só veria o valor novo após recarregar.

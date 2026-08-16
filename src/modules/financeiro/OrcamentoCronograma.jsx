@@ -5,7 +5,7 @@ import { supabase } from '../../services/supabase';
 import { vinculoService, itemValor } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
-import { invalidateCronCache } from '../cronograma/cronogramaCache';
+import { invalidateCronCache, _ocCache } from '../cronograma/cronogramaCache';
 
 // ─── AutocompleteInput ────────────────────────────────────────────────────────
 const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
@@ -251,6 +251,7 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
           </div>
           {folhas.map((f, idx) => {
             const pai = nomePai(f);
+            const concluida = (f.avanco ?? 0) >= 100;
             return (
               <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--border-subtle)' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -263,6 +264,8 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
                   className="input"
                   value={pesos[f.id] ?? ''}
                   onChange={e => setPeso(f.id, e.target.value)}
+                  disabled={concluida}
+                  title={concluida ? 'Tarefa concluída — peso e valor travados' : undefined}
                   onKeyDown={e => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
@@ -270,7 +273,7 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
                       if (next) { next.focus(); next.select(); } else e.currentTarget.blur();
                     }
                   }}
-                  style={{ width: 90, textAlign: 'right' }}
+                  style={{ width: 90, textAlign: 'right', opacity: concluida ? 0.55 : 1, cursor: concluida ? 'not-allowed' : 'text' }}
                 />
                 <span className="mono" style={{ width: 120, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
                   {formatBRL(valorPorFolha[f.id] || 0)}
@@ -291,9 +294,6 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
     </Modal>
   );
 };
-
-// Cache por obra (vínculos + itens + etapas), evita rebuscar ao voltar; resetado no F5
-const _ocCache = {};
 
 // ─── ItensOrcamentoSelect ─────────────────────────────────────────────────────
 // Multi-select com busca isolado: digitar só re-renderiza este componente, não a tela toda
@@ -419,6 +419,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   // Estado do modal de distribuição de pesos (fator_peso das subtarefas de um grupo)
   const [distribuirEtapaId, setDistribuirEtapaId] = React.useState(null);
   const [salvandoPeso,      setSalvandoPeso]      = React.useState(false);
+  // Baseline do bloqueio otimista ao gravar etapas (mesmo padrão de _cronSavedAt em Cronograma.jsx)
+  const etapasUpdatedAtRef = React.useRef(null);
 
   React.useEffect(() => {
     if (!obraSel) {
@@ -426,16 +428,18 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
       return;
     }
     const c = _ocCache[obraSel];
-    if (c) { setVinculos(c.vinculos); setItens(c.itens); setEtapas(c.etapas); return; }
+    if (c) { setVinculos(c.vinculos); setItens(c.itens); setEtapas(c.etapas); etapasUpdatedAtRef.current = c.updatedAt ?? null; return; }
     setLoading(true);
     Promise.all([
       vinculoService.listarPorObra(obraSel),
       vinculoService.itensPorObra(obraSel),
-      supabase.from('cronogramas').select('etapas').eq('obra_id', obraSel).single(),
+      supabase.from('cronogramas').select('etapas, updated_at').eq('obra_id', obraSel).single(),
     ]).then(([vincRes, itensRes, cronRes]) => {
       const v = vincRes.data || [], it = itensRes.data || [], et = migrateEtapas(cronRes.data?.etapas || []);
+      const updatedAt = cronRes.data?.updated_at ?? null;
       setVinculos(v); setItens(it); setEtapas(et);
-      _ocCache[obraSel] = { vinculos: v, itens: it, etapas: et };
+      etapasUpdatedAtRef.current = updatedAt;
+      _ocCache[obraSel] = { vinculos: v, itens: it, etapas: et, updatedAt };
       setLoading(false);
     });
   }, [obraSel]);
@@ -539,20 +543,29 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     setSalvandoPeso(true);
     const novasEtapas = etapas.map(e => {
       let ne = e;
-      if (novosPesos[e.id] != null) ne = { ...ne, fator_peso: Math.max(0, parseFloat(novosPesos[e.id]) || 0) };
+      // Tarefa 100% concluída: peso travado, não deixa a distribuição alterá-lo.
+      if (novosPesos[e.id] != null && (e.avanco ?? 0) < 100) ne = { ...ne, fator_peso: Math.max(0, parseFloat(novosPesos[e.id]) || 0) };
       if (e.id === distribuirEtapaId) ne = { ...ne, peso_unidade: unidade || null };
       return ne;
     });
-    const { error } = await supabase.from('cronogramas')
-      .update({ etapas: novasEtapas, updated_at: new Date().toISOString() })
-      .eq('obra_id', obraSel);
+    const nowISO = new Date().toISOString();
+    const expected = etapasUpdatedAtRef.current;
+    const query = supabase.from('cronogramas').update({ etapas: novasEtapas, updated_at: nowISO }).eq('obra_id', obraSel);
+    const { data, error } = await (expected ? query.eq('updated_at', expected) : query).select('updated_at');
     if (error) {
       toast('Erro ao salvar os pesos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
       setSalvandoPeso(false);
       return;
     }
+    if (expected && (!data || !data.length)) {
+      // Outra sessão (ex.: a Lista) salvou o cronograma nesse meio-tempo — não sobrescreve.
+      toast('Este cronograma foi alterado em outra tela enquanto você editava. Recarregue e tente de novo.', { tone: 'warning', icon: 'alert-triangle' });
+      setSalvandoPeso(false);
+      return;
+    }
+    etapasUpdatedAtRef.current = nowISO;
     setEtapas(novasEtapas);
-    if (_ocCache[obraSel]) _ocCache[obraSel].etapas = novasEtapas;
+    if (_ocCache[obraSel]) { _ocCache[obraSel].etapas = novasEtapas; _ocCache[obraSel].updatedAt = nowISO; }
     // Invalida o cache do Cronograma para a Lista reler os pesos novos do banco.
     invalidateCronCache(obraSel);
     setDistribuirEtapaId(null);

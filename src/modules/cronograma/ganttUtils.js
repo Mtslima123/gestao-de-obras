@@ -131,10 +131,11 @@ export function migrateEtapas(raw) {
     collapsed: false, responsavel: '', customCols: {},
     milestone: false, custo: 0, showInDist: false,
     restricaoTipo: 'asap', restricaoData: '',
-    fator_peso: 1,
+    fator_peso: 1, valorVinculadoFixo: null,
     ...e,
     showInDist: e.showInDist ?? false,
     fator_peso: e.fator_peso ?? 1,
+    valorVinculadoFixo: e.valorVinculadoFixo ?? null,
     dep: (e.dep || []).map(d =>
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
     ),
@@ -174,17 +175,24 @@ export function computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap) {
 
   const leafValues = {};
 
-  // Distribui recursivamente o valor de um nó até suas folhas pelo fator_peso
+  // Distribui recursivamente o valor de um nó até suas folhas pelo fator_peso.
+  // Folhas concluídas com valor travado (ver Cronograma.jsx `commit`) recebem sempre o
+  // valor congelado no momento da conclusão — não entram mais no rateio proporcional,
+  // então editar o peso de uma irmã aberta não influencia mais o que já foi concluído.
   function distributeToLeaves(etapaId, value) {
     const children = etapas.filter(e => e.parentId === etapaId);
     if (children.length === 0) {
       leafValues[etapaId] = (leafValues[etapaId] || 0) + value;
       return;
     }
-    const totalFator = children.reduce((s, c) => s + (c.fator_peso ?? 1), 0);
+    const travadas = children.filter(c => c.valorVinculadoFixo != null);
+    const abertas  = children.filter(c => c.valorVinculadoFixo == null);
+    travadas.forEach(c => distributeToLeaves(c.id, c.valorVinculadoFixo));
+    const restante = Math.max(0, value - travadas.reduce((s, c) => s + c.valorVinculadoFixo, 0));
+    const totalFator = abertas.reduce((s, c) => s + (c.fator_peso ?? 1), 0);
     if (totalFator <= 0) return;
-    children.forEach(c => {
-      distributeToLeaves(c.id, value * ((c.fator_peso ?? 1) / totalFator));
+    abertas.forEach(c => {
+      distributeToLeaves(c.id, restante * ((c.fator_peso ?? 1) / totalFator));
     });
   }
 

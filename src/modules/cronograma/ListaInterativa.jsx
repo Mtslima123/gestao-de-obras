@@ -1412,7 +1412,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const leaf = task && !task.isGroup;
         if      (colId === 'custo'     && leaf) setEditingCusto(taskId + '_custo');
         else if (colId === 'custoReal' && leaf) setEditingCusto(taskId + '_real');
-        else if (colId === 'fatorPeso' && leaf) setEditingFatorPeso(taskId);
+        else if (colId === 'fatorPeso' && leaf && effStatus(task) !== 'done') setEditingFatorPeso(taskId);
         else if (colId === 'dep'       && leaf) setEditingDep(taskId);
         else if (colId === 'succ'      && leaf) setEditingSucc(taskId);
         else {
@@ -2874,8 +2874,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   <td key="fatorPeso" className="num" style={{ textAlign: 'right', fontSize: 12 }} onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
                       <span className="text-faint">—</span>
-                    ) : readOnly ? (
-                      <span className="mono" style={{ display: 'block', textAlign: 'right' }}>{(e.fator_peso ?? 1).toLocaleString('pt-BR')}</span>
+                    ) : readOnly || effStatus(e) === 'done' ? (
+                      <span className="mono" style={{ display: 'block', textAlign: 'right' }}
+                        title={!readOnly ? 'Tarefa concluída — peso e valor travados' : undefined}>{(e.fator_peso ?? 1).toLocaleString('pt-BR')}</span>
                     ) : editingFatorPeso === e.id ? (
                       <input
                         autoFocus type="number" min="0" step="any"

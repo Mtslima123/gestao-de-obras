@@ -14,10 +14,11 @@ export function migrateEtapas(raw) {
     collapsed: false, responsavel: '', pavimento: '', customCols: {},
     milestone: false, custo: 0, showInDist: false,
     restricaoTipo: 'asap', restricaoData: '',
-    fator_peso: 1, modo: 'auto',
+    fator_peso: 1, valorVinculadoFixo: null, modo: 'auto',
     ...e,
     showInDist: e.showInDist ?? false,
     fator_peso: e.fator_peso ?? 1,
+    valorVinculadoFixo: e.valorVinculadoFixo ?? null,
     modo: e.modo === 'manual' ? 'manual' : 'auto',
     dep: (e.dep || []).map(d =>
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
@@ -453,7 +454,10 @@ export function applyFieldToEtapa(e, field, rawValue, etapas) {
   if (field === 'restricaoTipo') { return { ...e, restricaoTipo: rawValue }; }
   if (field === 'restricaoData') { return { ...e, restricaoData: rawValue }; }
   if (field === 'custo' || field === 'custoRealizado') { return { ...e, [field]: parseBRL(rawValue) }; }
-  if (field === 'fator_peso')  { const v = parseFloat(rawValue); return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) }; }
+  if (field === 'fator_peso')  {
+    if ((e.avanco ?? 0) >= 100) return e; // tarefa concluída: peso travado, não altera
+    const v = parseFloat(rawValue); return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) };
+  }
   if (field.startsWith('cc_')) { return { ...e, customCols: { ...(e.customCols || {}), [field]: rawValue } }; }
   return { ...e, [field]: rawValue };
 }

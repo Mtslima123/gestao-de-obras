@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   getISOWeek, buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
-  buildCalendarWeeks, buildCalendarDays,
+  buildCalendarWeeks, buildCalendarDays, computeValorVinculadoMap,
 } from '../modules/cronograma/ganttUtils';
 
 describe('getISOWeek', () => {
@@ -93,5 +93,40 @@ describe('buildCalendarDays', () => {
     expect(dias[0].isWeekend).toBe(false);
     expect(dias[1].isWeekend).toBe(true);
     expect(dias[2].isWeekend).toBe(true);
+  });
+});
+
+describe('computeValorVinculadoMap', () => {
+  const vinculos = [{ etapa_id: 'grupo', orcamento_item_id: 'item1' }];
+  const orcamentoItensMap = { item1: 1000 };
+
+  it('distribui proporcionalmente pelo fator_peso entre folhas abertas', () => {
+    const etapas = [
+      { id: 'grupo', parentId: null, isGroup: true, nivel: 0 },
+      { id: 'a', parentId: 'grupo', isGroup: false, nivel: 1, fator_peso: 3, avanco: 0 },
+      { id: 'b', parentId: 'grupo', isGroup: false, nivel: 1, fator_peso: 1, avanco: 0 },
+    ];
+    const map = computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap);
+    expect(map.a).toBeCloseTo(750);
+    expect(map.b).toBeCloseTo(250);
+    expect(map.grupo).toBeCloseTo(1000);
+  });
+
+  it('folha com valorVinculadoFixo mantém o valor travado e não é afetada pelo peso das irmãs', () => {
+    const etapas = [
+      { id: 'grupo', parentId: null, isGroup: true, nivel: 0 },
+      { id: 'a', parentId: 'grupo', isGroup: false, nivel: 1, fator_peso: 1, avanco: 100, valorVinculadoFixo: 200 },
+      { id: 'b', parentId: 'grupo', isGroup: false, nivel: 1, fator_peso: 1, avanco: 0, valorVinculadoFixo: null },
+    ];
+    const map = computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap);
+    expect(map.a).toBe(200); // travado, ignora fator_peso
+    expect(map.b).toBeCloseTo(800); // recebe o restante (1000 - 200), sozinha entre as abertas
+    expect(map.grupo).toBeCloseTo(1000);
+
+    // Aumentar o peso da irmã aberta não deve alterar o valor travado de 'a'.
+    const etapasReponderadas = etapas.map(e => (e.id === 'b' ? { ...e, fator_peso: 99 } : e));
+    const map2 = computeValorVinculadoMap(etapasReponderadas, vinculos, orcamentoItensMap);
+    expect(map2.a).toBe(200);
+    expect(map2.b).toBeCloseTo(800);
   });
 });
