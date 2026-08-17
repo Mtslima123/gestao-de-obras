@@ -67,7 +67,7 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
                       onMouseEnter={() => setHover({ cx, cy: y, text: tip, color: s.color, kind: 'bar' })}
                       onMouseLeave={() => setHover(null)} />
                     <text transform={`rotate(-90 ${cx.toFixed(1)} ${(y - 3).toFixed(1)})`} x={cx.toFixed(1)} y={(y - 3).toFixed(1)}
-                      textAnchor="start" fontSize="6.5" fill={s.label} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
+                      textAnchor="start" fontSize="8.5" fontWeight="600" fill={s.label} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
                   </g>
                 );
               })}

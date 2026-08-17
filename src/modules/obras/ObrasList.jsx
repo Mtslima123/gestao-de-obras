@@ -4,9 +4,10 @@ import { AppData } from '../../utils/data';
 import { Modal, ObraFormModal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
-import { offsetToISO, migrateEtapas } from '../cronograma/ganttUtils';
+import { offsetToISO, migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
 import { computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { isAdmin } from '../../utils/permissions';
+import { vinculoService, itemValor } from '../financeiro/vinculoService';
 
 // Cache por módulo (persiste enquanto o app está aberto) — evita o delay de recalcular
 // término/avanço e reassinar capas toda vez que a lista de Obras é reaberta.
@@ -27,20 +28,38 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
   const [capaUrls,       setCapaUrls]      = React.useState(_obrasResumoCache.capaUrls);  // { [obraId]: signedUrl } — capa via URL assinada (bucket privado)
 
   // Recalcula a data final e o avanço físico do cronograma de cada obra ao abrir/atualizar a lista.
-  // Avanço físico = mesmo cálculo do Gantt (ponderado por custo, com média simples quando custo=0).
+  // Avanço físico = mesmo cálculo do Cronograma: ponderado pelo valor vinculado ao orçamento
+  // quando a obra tem vínculos orçamento×cronograma, senão por custo (ver Cronograma.jsx `avancoTotal`).
   React.useEffect(() => {
     const ids = obras.map(o => o.id);
     if (ids.length === 0) { _obrasResumoCache.cronFinal = {}; _obrasResumoCache.avancoMap = {}; setCronFinal({}); setAvancoMap({}); return; }
     let cancelled = false;
-    supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids).then(({ data }) => {
+    Promise.all([
+      supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids),
+      vinculoService.listarPorObras(ids),
+    ]).then(([{ data }, { data: vinculosData }]) => {
       if (cancelled) return;
+      // Agrupa vínculos + mapa de valor do item de orçamento por obra (mesma lógica do
+      // efeito de vínculos em Cronograma.jsx, só que para várias obras de uma vez).
+      const vinculosPorObra = {}, itensMapPorObra = {};
+      (vinculosData || []).forEach(v => {
+        (vinculosPorObra[v.obra_id] = vinculosPorObra[v.obra_id] || []).push(v);
+        if (v.orcamento_itens) {
+          const m = itensMapPorObra[v.obra_id] = itensMapPorObra[v.obra_id] || {};
+          m[v.orcamento_item_id] = itemValor(v.orcamento_itens);
+        }
+      });
       const fimMap = {}, avMap = {};
       (data || []).forEach(row => {
         try {
           const etapas = migrateEtapas(row.etapas || []);
           if (!etapas.length) { fimMap[row.obra_id] = null; avMap[row.obra_id] = 0; return; }
           fimMap[row.obra_id] = offsetToISO(Math.max(...etapas.map(e => (e.inicio || 0) + (e.dur || 0))));
-          avMap[row.obra_id] = computeAvancoFisico(etapas);
+          const vinculosObra = vinculosPorObra[row.obra_id] || [];
+          const weightOverride = vinculosObra.length > 0
+            ? computeValorVinculadoMap(etapas, vinculosObra, itensMapPorObra[row.obra_id] || {})
+            : null;
+          avMap[row.obra_id] = computeAvancoFisico(etapas, weightOverride);
         } catch (e) { logger.error('falha ao calcular avanco/termino', { module: 'obras', action: 'resumo', obraId: row.obra_id, err: e }); }
       });
       _obrasResumoCache.cronFinal = fimMap; _obrasResumoCache.avancoMap = avMap;
@@ -218,7 +237,7 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
                   <div>
                     <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
                       <span className="text-xs text-muted fw-600" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>Avanço físico</span>
-                      <span className="mono num fw-700" style={{ fontSize: 13, color: 'var(--brand)' }}>{av}%</span>
+                      <span className="mono num fw-700" style={{ fontSize: 13, color: 'var(--brand)' }}>{av.toFixed(2)}%</span>
                     </div>
                     <div className={'progress' + (o.risco === 'alto' ? ' danger' : av >= 95 ? ' success' : '')}>
                       <span style={{ width: av + '%' }}></span>

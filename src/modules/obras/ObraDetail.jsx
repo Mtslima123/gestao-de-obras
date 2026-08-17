@@ -6,11 +6,12 @@ import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
-import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset } from '../cronograma/ganttUtils';
+import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
 import { SCurveChart } from '../cronograma/SCurveChart';
 import { pavimentosService } from '../../services/pavimentos.service';
+import { vinculoService, itemValor } from '../financeiro/vinculoService';
 
 // Obra Detail Page
 const { brl: brlD } = AppData;
@@ -879,6 +880,24 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     return () => { cancelled = true; };
   }, [o.id]);
 
+  // Vínculos orçamento × cronograma — mesmo peso usado pelo Cronograma no cálculo do avanço
+  // físico (ver Cronograma.jsx `avancoTotal`), senão o % daqui diverge do módulo Cronograma
+  // sempre que a obra tiver itens de orçamento vinculados a etapas.
+  const [vinculosObra, setVinculosObra] = React.useState([]);
+  const [orcamentoItensMapObra, setOrcamentoItensMapObra] = React.useState({});
+  React.useEffect(() => {
+    let cancelled = false;
+    vinculoService.listarPorObra(o.id).then(({ data }) => {
+      if (cancelled) return;
+      if (!data?.length) { setVinculosObra([]); setOrcamentoItensMapObra({}); return; }
+      setVinculosObra(data);
+      const m = {};
+      data.forEach(v => { if (v.orcamento_itens) m[v.orcamento_item_id] = itemValor(v.orcamento_itens); });
+      setOrcamentoItensMapObra(m);
+    });
+    return () => { cancelled = true; };
+  }, [o.id]);
+
   const cronFinalISO = etapasObra.length
     ? offsetToISO(Math.max(...etapasObra.map(e => (e.inicio || 0) + (e.dur || 0))))
     : null;
@@ -886,7 +905,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   // Avanço físico real + planejado acumulado até hoje (para o cabeçalho da obra).
   // Mesmo critério físico da Curva: distribuição por duração das tarefas.
   const heroStats = React.useMemo(() => {
-    const avancoFisico = computeAvancoFisico(etapasObra);
+    const valorVinculadoMapObra = computeValorVinculadoMap(etapasObra, vinculosObra, orcamentoItensMapObra);
+    const avancoFisico = computeAvancoFisico(etapasObra, vinculosObra.length > 0 ? valorVinculadoMapObra : null);
     const months = getMonthRange(etapasObra);
     let planejadoHoje = 0;
     if (months.length) {
@@ -899,10 +919,10 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
       const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       let acc = 0;
       for (const m of months) { acc += t[m.key]; if (m.key >= todayKey) break; }
-      planejadoHoje = Math.round(acc / grand * 100);
+      planejadoHoje = acc / grand * 100;
     }
     return { avancoFisico, planejadoHoje };
-  }, [etapasObra]);
+  }, [etapasObra, vinculosObra, orcamentoItensMapObra]);
 
   // Valores agregados dos grupos (avanço/início/dur a partir dos filhos) — para a mini-Lista.
   const groupValsObra = React.useMemo(() => computeGroupValues(etapasObra), [etapasObra]);
@@ -960,8 +980,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
           <div className="hero-stats">
             <div className="hero-stat">
               <div className="label">Avanço físico</div>
-              <div className="value num" style={{ color: 'var(--brand)' }}>{heroStats.avancoFisico}%</div>
-              <div className="meta">vs planejado {heroStats.planejadoHoje}%</div>
+              <div className="value num" style={{ color: 'var(--brand)' }}>{heroStats.avancoFisico.toFixed(2)}%</div>
+              <div className="meta">vs planejado {heroStats.planejadoHoje.toFixed(2)}%</div>
             </div>
             <div className="hero-stat">
               <div className="label">Fim do cronograma</div>

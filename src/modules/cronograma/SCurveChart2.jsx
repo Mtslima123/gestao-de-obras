@@ -80,7 +80,7 @@ export const SCurveChart2 = ({ months = [], selIdx = 0,
                   onMouseEnter={() => setHover({ cx, cy: y, text: tip, color: fill, kind: 'bar' })}
                   onMouseLeave={() => setHover(null)} />
                 <text transform={`rotate(-90 ${cx.toFixed(1)} ${(y - 3).toFixed(1)})`} x={cx.toFixed(1)} y={(y - 3).toFixed(1)}
-                  textAnchor="start" fontSize="6.5" fill={lblCol} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
+                  textAnchor="start" fontSize="8.5" fontWeight="600" fill={lblCol} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
               </g>
             );
           })}

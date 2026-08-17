@@ -591,7 +591,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
 
   const handleToggleCollapse = (id) => {
     const novas = etapas.map(e => e.id === id ? { ...e, collapsed: !e.collapsed } : e);
-    onCommit(novas, { silent: true });
+    onCommit(novas, { silent: true, skipHistory: true });
   };
 
   // ── Ações da faixa (mesma lógica da Lista, sobre a seleção em Set) ───────────

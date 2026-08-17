@@ -13,6 +13,14 @@ export const vinculoService = {
       .select('*, orcamento_itens(id, codigo, nome, valor_total, quantidade, valor_unitario, orcamento_id)')
       .eq('obra_id', obraId),
 
+  // Versão em lote de listarPorObra — usada por telas que listam várias obras de uma vez
+  // (ex.: cards de Obras), evitando uma query por obra.
+  listarPorObras: (obraIds) =>
+    supabase
+      .from('orcamento_cronograma_vinculos')
+      .select('*, orcamento_itens(id, codigo, nome, valor_total, quantidade, valor_unitario, orcamento_id)')
+      .in('obra_id', obraIds),
+
   // Cria um vínculo entre um item do orçamento e uma etapa do cronograma
   criar: (dados, userId) =>
     supabase

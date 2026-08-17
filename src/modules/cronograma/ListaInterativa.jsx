@@ -22,7 +22,11 @@ import {
   buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter,
 } from './cronogramaShared';
 
-export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false,
+// Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
+// quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
+const EMPTY_HIDDEN_COLS = new Set();
+
+export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
@@ -260,10 +264,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     try { return JSON.parse(localStorage.getItem(`ls_widths_${obraId}`) || 'null') || {}; }
     catch { return {}; }
   });
-  const [hiddenCols, setHiddenCols] = React.useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(`ls_hidden_${obraId}`) || '[]')); }
-    catch { return new Set(); }
-  });
   // Filtro por coluna (seta do cabeçalho, estilo Project): { [colId]: { excluded: string[] } }.
   // A presença da chave indica filtro ativo; 'excluded' guarda os valores DESMARCADOS.
   const [columnFilters, setColumnFilters] = React.useState(() => {
@@ -410,9 +410,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (obraId) localStorage.setItem(`ls_widths_${obraId}`, JSON.stringify(colWidths));
   }, [colWidths, obraId]);
   React.useEffect(() => {
-    if (obraId) localStorage.setItem(`ls_hidden_${obraId}`, JSON.stringify([...hiddenCols]));
-  }, [hiddenCols, obraId]);
-  React.useEffect(() => {
     if (obraId) localStorage.setItem(`ls_filters_${obraId}`, JSON.stringify(columnFilters));
   }, [columnFilters, obraId]);
   React.useEffect(() => {
@@ -420,7 +417,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   }, [sortSpec, obraId]);
 
   const toggleColVisibility = (colId) => {
-    setHiddenCols(prev => {
+    onHiddenColsChange(prev => {
       const next = new Set(prev);
       next.has(colId) ? next.delete(colId) : next.add(colId);
       return next;
@@ -1460,8 +1457,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (f.align)    style.textAlign = f.align;
     return { style: Object.keys(style).length ? style : null, classes };
   };
-  // Borda externa do intervalo (só nas arestas do retângulo, estilo Excel) via box-shadow.
-  // O tom de fundo só entra quando a célula NÃO tem cor própria (assim a cor dela aparece).
+  // Borda externa do intervalo (só nas arestas do retângulo, estilo Excel) via box-shadow —
+  // sem preencher o fundo das células (senão cada linha vira uma "caixa" contra a borda
+  // padrão da tabela, em vez de um único retângulo de seleção).
   const rangeSelStyle = (edges, hasOwnBg, frozen) => {
     if (!edges) return null;
     const sh = [];
@@ -1470,23 +1468,28 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (edges.l) sh.push('inset 1px 0 0 0 var(--brand)');
     if (edges.r) sh.push('inset -1px 0 0 0 var(--brand)');
     const s = { boxShadow: sh.join(', ') };
-    // Colunas congeladas precisam de fundo OPACO (senão vazam o conteúdo rolado por baixo)
-    if (!hasOwnBg) s.background = frozen
-      ? 'color-mix(in srgb, var(--brand) 10%, var(--surface))'
-      : 'color-mix(in srgb, var(--brand) 10%, transparent)';
+    // Colunas congeladas precisam de fundo OPACO (senão vazam o conteúdo rolado por baixo);
+    // as demais ficam transparentes — só a borda externa marca a seleção.
+    if (!hasOwnBg && frozen) s.background = 'color-mix(in srgb, var(--brand) 10%, var(--surface))';
     return s;
   };
-  const decorateCell = (cell, colId, taskId, fmt, edges) => {
+  const decorateCell = (cell, colId, taskId, fmt, edges, rowIdx = 0, isLastRow = true) => {
     if (!cell) return null;
     const eff = { ...(fmt?.__row || {}), ...(fmt?.[colId] || {}) };
     const dragCls = dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : '';
     const { style: fmtStyle, classes: fmtClasses } = fmtToCss(eff);
     const cls     = [cell.props.className, dragCls, ...fmtClasses].filter(Boolean).join(' ');
     const selStyle = rangeSelStyle(edges, !!eff.bg, LISTA_FROZEN.includes(colId));
-    // Coluna inteira marcada via Ctrl+clique no cabeçalho: destaca todas as células dela,
-    // não só o cabeçalho (mesmo tom da linha selecionada) — recua se a célula já tem cor própria.
+    // Coluna inteira marcada via Ctrl+clique no cabeçalho: só a borda externa do retângulo
+    // (topo da 1ª linha, base da última, laterais em toda a coluna) — sem preencher o fundo
+    // das células, estilo Excel — recua se a célula já tem cor própria.
     const colMultiSelStyle = (multiSelCols.includes(colId) && !eff.bg)
-      ? { background: 'color-mix(in srgb, var(--brand) 8%, var(--surface))' } : null;
+      ? { boxShadow: [
+          rowIdx === 0 && 'inset 0 1px 0 0 var(--brand)',
+          isLastRow    && 'inset 0 -1px 0 0 var(--brand)',
+          'inset 1px 0 0 0 var(--brand)',
+          'inset -1px 0 0 0 var(--brand)',
+        ].filter(Boolean).join(', ') } : null;
     const styled = { ...(cell.props.style || {}), ...(fmtStyle || {}), ...(colMultiSelStyle || {}), ...(selStyle || {}) };
     // Colunas-pegada (se houver) não participam da seleção de célula
     if (ROW_DRAG_COLS.has(colId)) {
@@ -1768,7 +1771,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   const handleToggleCollapse = (id) => {
     const novas = etapas.map(e => e.id === id ? { ...e, collapsed: !e.collapsed } : e);
-    onCommit(novas, { silent: true });
+    onCommit(novas, { silent: true, skipHistory: true });
   };
 
   // ── Ações (usadas pelo ribbon, menu de contexto e atalhos) ───────────────────
@@ -1843,9 +1846,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       delete cc[colId];
       return { ...e, customCols: cc };
     });
-    // Coluna + dados num único ponto de histórico (Ctrl+Z recria a coluna com os dados).
-    onCommit(novas, { silent: true, customCols: newCols });
-    setHiddenCols(prev => { const n = new Set(prev); n.delete(colId); return n; });
+    // Coluna + dados + visibilidade num único ponto de histórico (Ctrl+Z recria a coluna com os dados).
+    const newHidden = new Set(hiddenCols); newHidden.delete(colId);
+    onCommit(novas, { silent: true, customCols: newCols, hiddenCols: [...newHidden] });
     setMultiSelCols(prev => prev.filter(c => c !== colId));
     toast(`Coluna "${col.label}" excluída`, { tone: 'neutral', icon: 'check' });
   };
@@ -2358,7 +2361,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                                 {hiddenCols.size > 0 && (
                                   <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '6px 14px 2px' }}>
                                     <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 0', color: 'var(--brand)' }}
-                                      onClick={() => setHiddenCols(new Set())}>
+                                      onClick={() => onHiddenColsChange(new Set())}>
                                       Mostrar todas
                                     </button>
                                   </div>
@@ -2690,8 +2693,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               const w  = (x) => hasVinculos ? (valorVinculadoMap[x.id] || 0) : (x.custo || 0);
               const tp = leaves.reduce((s, x) => s + w(x), 0);
               const projAvanco = !tp
-                ? (leaves.length ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length) : 0)
-                : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp);
+                ? (leaves.length ? leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length : 0)
+                : leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp;
               const bg   = 'color-mix(in srgb, var(--brand) 14%, var(--surface))';
               const num  = { textAlign: 'right', fontWeight: 700, fontSize: 12 };
               const stick = (cid, extra) => ({ position: 'sticky', left: frozenLeft[cid], background: bg, zIndex: 1, ...extra });
@@ -2703,7 +2706,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 inicio: <td key="inicio" className="mono text-sm">{leaves.length ? fmtDt(projInicio) : ''}</td>,
                 fim:    <td key="fim" className="mono text-sm">{leaves.length ? fmtDt(projFim) : ''}</td>,
                 duracao: <td key="duracao" className="mono num" style={{ textAlign: 'center' }}><span className="text-muted mono" style={{ fontSize: 12 }}>{projDur}d</span></td>,
-                avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 50 }}><div className="progress groupbar"><span style={{ width: projAvanco + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{projAvanco}%</span></div></td>,
+                avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 50 }}><div className="progress groupbar"><span style={{ width: projAvanco + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{projAvanco.toFixed(2)}%</span></div></td>,
                 peso:   <td key="peso" className="num mono" style={num}>100%</td>,
                 custo:  <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
                 custoReal: <td key="custoReal" className="num mono" style={num}>{fmtBRL(totalReal)}</td>,
@@ -3209,7 +3212,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   >
                     {rowIdx + 1}
                   </td>
-                  {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeEdges.get(e.id + '|' + colId)))}
+                  {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeEdges.get(e.id + '|' + colId), rowIdx, rowIdx === filtrada.length - 1))}
 
                   {/* Colunas personalizadas */}
                   {customCols.filter(col => !hiddenCols.has(col.id)).map(col => {
@@ -3276,7 +3279,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           onExitEdit={exitEdit} />
                       </td>
                     );
-                    return decorateCell(cell, col.id, e.id, e.fmt, rangeEdges.get(e.id + '|' + col.id));
+                    return decorateCell(cell, col.id, e.id, e.fmt, rangeEdges.get(e.id + '|' + col.id), rowIdx, rowIdx === filtrada.length - 1);
                   })}
 
                   <td></td>
@@ -3633,7 +3636,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           </button>
           {multiSelCols.length > 1 ? (
             <button onClick={() => {
-              setHiddenCols(prev => new Set([...prev, ...multiSelCols.filter(c => !LISTA_FROZEN.includes(c))]));
+              onHiddenColsChange(prev => new Set([...prev, ...multiSelCols.filter(c => !LISTA_FROZEN.includes(c))]));
               setMultiSelCols([]);
               setCtxMenu(null);
             }}>
@@ -3647,7 +3650,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           {hiddenCols.size > 0 && (
             <>
               <hr />
-              <button onClick={() => { setHiddenCols(new Set()); setCtxMenu(null); }}>
+              <button onClick={() => { onHiddenColsChange(new Set()); setCtxMenu(null); }}>
                 Reexibir todas
               </button>
             </>

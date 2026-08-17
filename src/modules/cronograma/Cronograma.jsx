@@ -761,23 +761,29 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       const distRows = etapas.filter(e => e.isGroup || e.showInDist === true);
       const folhas = etapas.filter(e => !e.isGroup);
       const totalCusto = folhas.reduce((s, e) => s + custoEf(e), 0);
-      const avancoGeral = totalCusto > 0
-        ? folhas.reduce((s, e) => s + (e.avanco || 0) * custoEf(e), 0) / totalCusto : 0;
+      // Conc. % geral (rodapé) = acumulado da distribuição mensal até o mês de referência,
+      // mesma lógica usada por linha logo abaixo.
+      const concGeralAteRef = totalCusto > 0
+        ? months.reduce((s, m, i) => i <= selIdx ? s + (filteredPlanned[m.key] || 0) : s, 0) / totalCusto * 100
+        : 0;
 
       const cabDist = ['Atividade', 'Valor (R$)', 'Peso %', 'Conc. %', ...cabMeses, 'Total'];
       const dist = [cabDist];
       distRows.forEach(e => {
         const gv = e.isGroup ? (groupValsExp[e.id] || {}) : {};
         const taskCusto  = custoEf(e, gv);
-        const taskAvanco = e.isGroup ? (gv.avanco || 0) : (e.avanco || 0);
         const peso = totalCusto > 0 ? taskCusto / totalCusto * 100 : 0;
-        const mDist = monthlyDist[e.id] || {};
+        const mDist = e.isGroup ? getGroupMonthlyDist(e.id, etapas, monthlyDist) : (monthlyDist[e.id] || {});
+        // Conc. % = acumulado até o mês de referência selecionado (não o avanco bruto).
+        const concAteRef = taskCusto > 0
+          ? months.reduce((s, m, i) => i <= selIdx ? s + (mDist[m.key] || 0) : s, 0) / taskCusto * 100
+          : 0;
         const monPcts = months.map(m => taskCusto > 0 ? parseFloat(((mDist[m.key] || 0) / taskCusto * 100).toFixed(4)) : null);
-        dist.push([e.etapa, taskCusto, parseFloat(peso.toFixed(4)), parseFloat(taskAvanco.toFixed(2)), ...monPcts, 100]);
+        dist.push([e.etapa, taskCusto, parseFloat(peso.toFixed(4)), parseFloat(concAteRef.toFixed(2)), ...monPcts, 100]);
       });
       // Rodapé
       const totalMonPcts = months.map(m => totalCusto > 0 ? parseFloat(((filteredPlanned[m.key] || 0) / totalCusto * 100).toFixed(4)) : null);
-      dist.push(['Total geral', totalCusto, 100, parseFloat(avancoGeral.toFixed(2)), ...totalMonPcts, 100]);
+      dist.push(['Total geral', totalCusto, 100, parseFloat(concGeralAteRef.toFixed(2)), ...totalMonPcts, 100]);
 
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dist), 'Distribuição');
       }
@@ -882,21 +888,26 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       const distRows     = etapas.filter(e => e.isGroup || e.showInDist === true);
       const folhas       = etapas.filter(e => !e.isGroup);
       const totCusto     = folhas.reduce((s, e) => s + custoEf(e), 0);
-      const avancoGeral  = totCusto > 0
-        ? folhas.reduce((s, e) => s + (e.avanco || 0) * custoEf(e), 0) / totCusto : 0;
-      const selColIdx    = 4 + months.findIndex(m => m.key === selMonKey); // coluna do mês selecionado
+      const selColIdx    = 4 + selIdx; // coluna do mês selecionado
+      // Conc. % geral (rodapé) = acumulado da distribuição mensal até o mês de referência.
+      const concGeralAteRef = totCusto > 0
+        ? months.reduce((s, m, i) => i <= selIdx ? s + (filteredPlanned[m.key] || 0) : s, 0) / totCusto * 100
+        : 0;
       const blendC       = (rgb, a) => [Math.round(255 + (rgb[0] - 255) * a), Math.round(255 + (rgb[1] - 255) * a), Math.round(255 + (rgb[2] - 255) * a)];
       const distBody = distRows.map(e => {
         const gv      = e.isGroup ? (groupValsExp[e.id] || {}) : {};
         const taskCst = custoEf(e, gv);
-        const taskAv  = e.isGroup ? (gv.avanco || 0) : (e.avanco || 0);
         const peso    = totCusto > 0 ? taskCst / totCusto * 100 : 0;
         const mDist   = e.isGroup ? getGroupMonthlyDist(e.id, etapas, monthlyDist) : (monthlyDist[e.id] || {});
         const mf      = months.map(m => taskCst > 0 ? (mDist[m.key] || 0) / taskCst : 0); // fração 0..1 por mês
+        // Conc. % = acumulado até o mês de referência selecionado (não o avanco bruto).
+        const concAteRef = taskCst > 0
+          ? mf.reduce((s, f, i) => i <= selIdx ? s + f * 100 : s, 0)
+          : 0;
         return {
-          _isGroup: e.isGroup, _av: taskAv, _mf: mf,
+          _isGroup: e.isGroup, _conc: concAteRef, _mf: mf,
           vals: [
-            e.etapa, fmtBRL(taskCst), peso.toFixed(2) + '%', taskAv.toFixed(1) + '%',
+            e.etapa, fmtBRL(taskCst), peso.toFixed(2) + '%', concAteRef.toFixed(2) + '%',
             ...months.map((m, i) => taskCst > 0 ? (mf[i] * 100).toFixed(2) + '%' : '—'),
             '100%',
           ],
@@ -913,7 +924,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         startY: startY2,
         head: [['Atividade', 'Valor (R$)', 'Peso %', 'Conc. %', ...cabMeses, 'Total']],
         body: distBody.map(r => r.vals),
-        foot: [['Total geral', fmtBRL(totCusto), '100%', avancoGeral.toFixed(1) + '%', ...totMonPcts, '100%']],
+        foot: [['Total geral', fmtBRL(totCusto), '100%', concGeralAteRef.toFixed(2) + '%', ...totMonPcts, '100%']],
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
         bodyStyles: { fontSize: 7 },
@@ -939,7 +950,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
           // Conc. % — verde 100% / azul >0 / cinza 0 (folhas e grupos)
           if (data.section === 'body' && ci === 3) {
             data.cell.styles.fontStyle = 'bold';
-            data.cell.styles.textColor = row._av >= 100 ? [22, 163, 74] : row._av > 0 ? [28, 69, 132] : [148, 163, 184];
+            data.cell.styles.textColor = row._conc >= 100 ? [22, 163, 74] : row._conc > 0 ? [28, 69, 132] : [148, 163, 184];
             if (!row._isGroup) data.cell.styles.fillColor = blendC([28, 69, 132], 0.05);
           }
           // Meses — heat azul proporcional (só folhas; grupos mantêm o fundo do grupo)
@@ -1424,11 +1435,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         };
         const fmt = v => v > 0.005 ? v.toFixed(2) + '%' : '—';
 
-        // Avanco médio ponderado geral (para o rodapé)
-        const folhas = visibleRows.filter(e => !e.isGroup);
-        const totalCustoFolha = folhas.reduce((s, e) => s + custoEf(e), 0);
-        const avancoGeral = totalCustoFolha > 0
-          ? folhas.reduce((s, e) => s + (e.avanco || 0) * custoEf(e), 0) / totalCustoFolha
+        // Conc. % geral (rodapé) = acumulado da distribuição mensal até o mês de referência,
+        // mesma lógica da coluna por linha (ver `concAteRef` acima).
+        const concGeralAteRef = distTotal > 0
+          ? months.reduce((s, m, i) => i <= selIdx ? s + (filteredPlanned[m.key] || 0) : s, 0) / distTotal * 100
           : 0;
 
         return (
@@ -1486,7 +1496,11 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                       ? getGroupMonthlyDist(e.id, visibleRows, taskDistSource)
                       : (taskDistSource[e.id] || {});
                     const taskCusto  = custoEf(e, gv);
-                    const taskAvanco = e.isGroup ? (gv?.avanco || 0) : (e.avanco || 0);
+                    // Conc. % = acumulado da distribuição mensal até o mês de referência
+                    // selecionado (não o `avanco` bruto da tarefa) — mesma lógica da Curva S.
+                    const concAteRef = taskCusto > 0
+                      ? months.reduce((s, m, i) => i <= selIdx ? s + (taskDist[m.key] || 0) : s, 0) / taskCusto * 100
+                      : 0;
                     const rowBg = e.isGroup ? 'var(--brand-50)' : (ri % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)');
                     return (
                       <tr key={e.id} style={{ background: rowBg }}>
@@ -1516,9 +1530,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                         </td>
                         {/* Conc. — coluna destacada com fundo sutil */}
                         <td style={{ ...tdBase, textAlign: 'right', background: 'rgba(1,67,134,0.05)',
-                          color: taskAvanco === 100 ? '#16a34a' : taskAvanco > 0 ? 'var(--brand)' : 'var(--text-faint)',
+                          color: Math.round(concAteRef) >= 100 ? '#16a34a' : concAteRef > 0 ? 'var(--brand)' : 'var(--text-faint)',
                           fontWeight: 600, fontSize: 10.5 }}>
-                          {taskAvanco > 0 ? taskAvanco.toFixed(0) + '%' : '—'}
+                          {concAteRef > 0.005 ? concAteRef.toFixed(2) + '%' : '—'}
                         </td>
                         {/* Meses */}
                         {months.map(m => {
@@ -1566,7 +1580,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right', fontSize: 10.5 }}>100%</td>
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
                       background: 'rgba(1,67,134,0.05)', color: '#16a34a', fontSize: 10.5 }}>
-                      {avancoGeral > 0 ? avancoGeral.toFixed(0) + '%' : '—'}
+                      {concGeralAteRef > 0.005 ? concGeralAteRef.toFixed(2) + '%' : '—'}
                     </td>
                     {months.map(m => {
                       const pct = distTotal > 0 ? ((filteredPlanned[m.key]) || 0) / distTotal * 100 : 0;
@@ -1749,6 +1763,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     try { const raw = localStorage.getItem('ls_crono_feriados_' + obraSel); setFeriadosCfg(raw ? JSON.parse(raw) : { dias: [], sabadoUtil: false }); }
     catch { setFeriadosCfg({ dias: [], sabadoUtil: false }); }
   }, [obraSel]);
+  // Colunas ocultas da Lista (Exibir → Colunas) — por obra, no histórico de undo/redo
+  // (ver commit/undo/redo abaixo), igual a customCols e feriadosCfg.
+  const [hiddenCols, setHiddenCols] = React.useState(() => new Set());
+  React.useEffect(() => {
+    try { setHiddenCols(new Set(JSON.parse(localStorage.getItem('ls_hidden_' + obraSel) || '[]'))); }
+    catch { setHiddenCols(new Set()); }
+  }, [obraSel]);
 
   // Altura real da topbar (mesmo padrão de ListaInterativa.jsx) — usada para congelar o card
   // do Gantt exatamente abaixo dela, sem corte, ao rolar a página.
@@ -1880,6 +1901,12 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // Histórico paralelo das colunas personalizadas, alinhado por índice a histRef —
   // permite que undo/redo restaure também a definição de colunas (add/excluir coluna).
   const histColsRef = React.useRef([customCols]);
+  // Histórico paralelo do calendário de feriados, alinhado por índice a histRef —
+  // permite que undo/redo restaure também o calendário (ver saveFeriados/commit abaixo).
+  const histFeriadosRef = React.useRef([feriadosCfg]);
+  // Histórico paralelo das colunas ocultas da Lista, alinhado por índice a histRef —
+  // permite que undo/redo restaure também exibir/ocultar coluna.
+  const histHiddenColsRef = React.useRef([[...hiddenCols]]);
   const hidxRef = React.useRef(0);
   const undoRef        = React.useRef(null);
   const redoRef        = React.useRef(null);
@@ -1916,6 +1943,18 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   React.useEffect(() => {
     let cancelled = false;
     setIniciando(false); // outra obra sem cronograma volta a exibir o empty-state
+    // Lê o calendário de feriados persistido (mesma lógica do efeito keyed em obraSel, linha
+    // acima) — usado para semear histFeriadosRef sem depender do estado feriadosCfg, que só
+    // é atualizado num efeito separado e pode ainda não ter sido aplicado neste ponto.
+    const lerFeriadosLS = (obraId) => {
+      try { const raw = localStorage.getItem('ls_crono_feriados_' + obraId); return raw ? JSON.parse(raw) : { dias: [], sabadoUtil: false }; }
+      catch { return { dias: [], sabadoUtil: false }; }
+    };
+    // Idem para colunas ocultas — puramente local/navegador, não vem do banco.
+    const lerHiddenColsLS = (obraId) => {
+      try { return JSON.parse(localStorage.getItem('ls_hidden_' + obraId) || '[]'); }
+      catch { return []; }
+    };
     async function carregar() {
       if (!obraSel) { setLoadedObraId(null); return; }
       // Pavimentos salvos (tabela própria) — não faz parte do cache de etapas/baselines,
@@ -1932,6 +1971,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         setOrcamentoItensMap(cached.orcamentoItensMap);
         histRef.current = [cached.etapas.map(e => ({ ...e }))];
         histColsRef.current = [cached.customCols];
+        histFeriadosRef.current = [lerFeriadosLS(obraSel)];
+        histHiddenColsRef.current = [lerHiddenColsLS(obraSel)];
         hidxRef.current = 0;
         setBlVisivelId(carregarBlVisivel(obraSel));
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(cached.reprogramacoes || []));
@@ -1958,6 +1999,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         D.cronograma[obraSel] = etapasDB;
         histRef.current = [etapasDB.map(e => ({ ...e }))];
         histColsRef.current = [db.custom_cols?.length ? db.custom_cols : customCols];
+        histFeriadosRef.current = [lerFeriadosLS(obraSel)];
+        histHiddenColsRef.current = [lerHiddenColsLS(obraSel)];
         hidxRef.current = 0;
         if (db.custom_cols?.length) {
           setCustomCols(db.custom_cols);
@@ -1972,12 +2015,17 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(reps));
         // Feriados: DB é a fonte de verdade quando tem conteúdo; senão mantém o valor do
         // localStorage (setado no efeito keyed em obraSel) para migração suave.
-        if (db.feriados && (db.feriados.dias?.length || db.feriados.sabadoUtil)) setFeriadosCfg(db.feriados);
+        if (db.feriados && (db.feriados.dias?.length || db.feriados.sabadoUtil)) {
+          setFeriadosCfg(db.feriados);
+          histFeriadosRef.current[0] = db.feriados; // ponto zero do histórico já nasce consistente
+        }
       } else {
         const mock = sanitizarERecuperar(migrateEtapas(D.cronograma[obraSel] || []));
         setEtapas(mock);
         histRef.current = [mock.map(e => ({ ...e }))];
         histColsRef.current = [customCols];
+        histFeriadosRef.current = [lerFeriadosLS(obraSel)];
+        histHiddenColsRef.current = [lerHiddenColsLS(obraSel)];
         hidxRef.current = 0;
         setBaselines(carregarBaselines(obraSel));
         const reps = carregarReprogramacoes(obraSel);
@@ -2133,6 +2181,16 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     salvarCronograma(obraSel, etapas, novasCols, baselines, reprogramacoes).then(handleSaveResult);
   };
 
+  // Exibir/ocultar coluna na Lista — entra no histórico de undo/redo (ver commit acima).
+  // Aceita um Set direto ou uma função atualizadora (mesma assinatura de um setState).
+  const onHiddenColsChange = (updater) => {
+    const next = typeof updater === 'function' ? updater(hiddenCols) : updater;
+    const nextArr = [...next].sort();
+    const curArr = [...hiddenCols].sort();
+    if (JSON.stringify(nextArr) === JSON.stringify(curArr)) return; // sem mudança real
+    commit(etapas, { silent: true, hiddenCols: nextArr });
+  };
+
   // Etapas da baseline visível (null = nenhuma)
   const baselineEtapas = blVisivelId
     ? ((baselines.find(b => b.id === blVisivelId)?.etapas) || (reprogramacoes.find(r => r.id === blVisivelId)?.etapas) || null)
@@ -2155,8 +2213,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     if (!folhas.length) return 0;
     const peso = (e) => vinculos.length ? (valorVinculadoMapFull[e.id] || 0) : (e.custo || 0);
     const totalPeso = folhas.reduce((s, e) => s + peso(e), 0);
-    if (!totalPeso) return Math.round(folhas.reduce((s, e) => s + e.avanco, 0) / folhas.length);
-    return Math.round(folhas.reduce((s, e) => s + e.avanco * peso(e), 0) / totalPeso);
+    if (!totalPeso) return folhas.reduce((s, e) => s + e.avanco, 0) / folhas.length;
+    return folhas.reduce((s, e) => s + e.avanco * peso(e), 0) / totalPeso;
   }, [etapas, vinculos, valorVinculadoMapFull]);
 
   // Distribuição mensal de custos — alimenta Uso da Tarefa e Curva S
@@ -2205,13 +2263,33 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     // customCols também entra no histórico (undo/redo restaura a definição de colunas).
     const colsSnap = opts.customCols !== undefined ? opts.customCols : customCols;
     if (opts.customCols !== undefined) { setCustomCols(opts.customCols); D.cronogramaCustomCols = opts.customCols; }
-    const h = histRef.current.slice(0, hidxRef.current + 1);
-    h.push(clean);
-    const hc = histColsRef.current.slice(0, hidxRef.current + 1);
-    hc.push(colsSnap);
-    histRef.current = h;
-    histColsRef.current = hc;
-    hidxRef.current = h.length - 1;
+    const feriadosSnap = opts.feriados !== undefined ? opts.feriados : feriadosCfg;
+    // hiddenCols (colunas ocultas da Lista) também entra no histórico — exibir/ocultar coluna
+    // vira um passo de Ctrl+Z de verdade, ao contrário do collapse (skipHistory abaixo).
+    const hiddenColsSnap = opts.hiddenCols !== undefined ? opts.hiddenCols : [...hiddenCols];
+    if (opts.hiddenCols !== undefined) {
+      setHiddenCols(new Set(opts.hiddenCols));
+      try { localStorage.setItem('ls_hidden_' + obraSel, JSON.stringify(opts.hiddenCols)); } catch { /* ignore */ }
+    }
+    // skipHistory: usado por ações que não são "edições" de verdade (ex.: expandir/recolher
+    // grupo) — aplica e salva normalmente, mas não ocupa um slot de undo/redo. Sem isso, cada
+    // toggle de collapse entraria no mesmo histórico linear das edições reais, fazendo o
+    // Ctrl+Z desfazer o toggle em vez da última edição pretendida pelo usuário.
+    if (!opts.skipHistory) {
+      const h = histRef.current.slice(0, hidxRef.current + 1);
+      h.push(clean);
+      const hc = histColsRef.current.slice(0, hidxRef.current + 1);
+      hc.push(colsSnap);
+      const hf = histFeriadosRef.current.slice(0, hidxRef.current + 1);
+      hf.push(feriadosSnap);
+      const hh = histHiddenColsRef.current.slice(0, hidxRef.current + 1);
+      hh.push(hiddenColsSnap);
+      histRef.current = h;
+      histColsRef.current = hc;
+      histFeriadosRef.current = hf;
+      histHiddenColsRef.current = hh;
+      hidxRef.current = h.length - 1;
+    }
     setEtapas(clean);
     D.cronograma[obraSel] = clean;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -2235,14 +2313,20 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     hidxRef.current--;
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
     const colsSnap = histColsRef.current[hidxRef.current] ?? customCols;
+    const feriadosSnap = histFeriadosRef.current[hidxRef.current] ?? feriadosCfg;
+    const hiddenColsSnap = histHiddenColsRef.current[hidxRef.current] ?? [...hiddenCols];
     setEtapas(snap);
     setCustomCols(colsSnap);
+    setFeriadosCfg(feriadosSnap);
+    setHiddenCols(new Set(hiddenColsSnap));
+    try { localStorage.setItem('ls_crono_feriados_' + obraSel, JSON.stringify(feriadosSnap)); } catch { /* ignore */ }
+    try { localStorage.setItem('ls_hidden_' + obraSel, JSON.stringify(hiddenColsSnap)); } catch { /* ignore */ }
     D.cronograma[obraSel] = snap;
     D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes));
+      handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
     }, 800);
     toast('Ação desfeita', { tone: 'neutral', icon: 'check' });
   };
@@ -2253,14 +2337,20 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     hidxRef.current++;
     const snap = histRef.current[hidxRef.current].map(e => ({ ...e }));
     const colsSnap = histColsRef.current[hidxRef.current] ?? customCols;
+    const feriadosSnap = histFeriadosRef.current[hidxRef.current] ?? feriadosCfg;
+    const hiddenColsSnap = histHiddenColsRef.current[hidxRef.current] ?? [...hiddenCols];
     setEtapas(snap);
     setCustomCols(colsSnap);
+    setFeriadosCfg(feriadosSnap);
+    setHiddenCols(new Set(hiddenColsSnap));
+    try { localStorage.setItem('ls_crono_feriados_' + obraSel, JSON.stringify(feriadosSnap)); } catch { /* ignore */ }
+    try { localStorage.setItem('ls_hidden_' + obraSel, JSON.stringify(hiddenColsSnap)); } catch { /* ignore */ }
     D.cronograma[obraSel] = snap;
     D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes));
+      handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
     }, 800);
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
   };
@@ -2361,7 +2451,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 const totalPlan = Object.values(monthlyTotals).reduce((s, v) => s + v, 0);
                 const todayKey = new Date().toISOString().slice(0, 7);
                 const planToDate = Object.entries(monthlyTotals).reduce((s, [k, v]) => k <= todayKey ? s + v : s, 0);
-                const plannedPct = totalPlan > 0 ? Math.round(planToDate / totalPlan * 100) : 0;
+                const plannedPct = totalPlan > 0 ? planToDate / totalPlan * 100 : 0;
                 const deltaPp = avancoTotal - plannedPct;
                 // Término projetado = maior data de término das tarefas (real). Comparação com base = TODO.
                 const maxEnd = leaves.length ? Math.max(...leaves.map(e => taskEnd(e))) : 0;
@@ -2371,10 +2461,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 const realAcum     = Object.entries(realizedTotals).reduce((s, [k, v]) => k <= mesAtual ? s + v : s, 0);
                 const incorridoTot = Object.values(realizedTotals).reduce((s, v) => s + v, 0);
                 const previstoPct  = plannedPct; // planToDate / totalPlan (%)
-                const prodMesPct   = totalPlan > 0 ? Math.round((realizedTotals[mesAtual] || 0) / totalPlan * 100) : 0;
-                const planMesPct   = totalPlan > 0 ? Math.round((monthlyTotals[mesAtual] || 0) / totalPlan * 100) : 0;
+                const prodMesPct   = totalPlan > 0 ? (realizedTotals[mesAtual] || 0) / totalPlan * 100 : 0;
+                const planMesPct   = totalPlan > 0 ? (monthlyTotals[mesAtual] || 0) / totalPlan * 100 : 0;
                 const deltaMesPp   = prodMesPct - planMesPct;
-                const desvioPp     = totalPlan > 0 ? (Math.round(realAcum / totalPlan * 100) - previstoPct) : 0;
+                const desvioPp     = totalPlan > 0 ? (Math.round(realAcum / totalPlan * 100) - Math.round(previstoPct)) : 0;
                 const incorridoPct = totalPlan > 0 ? Math.round(incorridoTot / totalPlan * 100) : 0;
                 const nowCurva     = new Date();
                 const mesLabel     = nowCurva.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '/' + String(nowCurva.getFullYear()).slice(2);
@@ -2386,18 +2476,18 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                     <div className="kpi" style={{ padding: '18px 20px' }}>
                       <div className="kpi-label">Avanço realizado</div>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                        <div className="kpi-value num" style={{ fontSize: 30 }}>{avancoTotal}<span className="unit">%</span></div>
-                        <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600, fontSize: 12 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp} pp vs previsto</span>
+                        <div className="kpi-value num" style={{ fontSize: 30 }}>{avancoTotal.toFixed(2)}<span className="unit">%</span></div>
+                        <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600, fontSize: 12 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp.toFixed(2)} pp vs previsto</span>
                       </div>
                       <div className="kpi-bar"><span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} /><span className="kpi-bar-target" style={{ left: previstoPct + '%' }} /></div>
-                      <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">realizado × previsto ({previstoPct}%)</span></div>
+                      <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">realizado × previsto ({previstoPct.toFixed(2)}%)</span></div>
                     </div>
                     <div className="kpi" style={{ padding: '18px 20px' }}>
                       <div className="kpi-label">Produção do mês</div>
-                      <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{prodMesPct}<span className="unit">%</span></div>
+                      <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{prodMesPct.toFixed(2)}<span className="unit">%</span></div>
                       <div className="kpi-foot" style={{ marginTop: 6 }}>
-                        <span style={{ color: '#d97706', fontWeight: 600 }}>{deltaMesPp >= 0 ? '+' : ''}{deltaMesPp} pp</span>
-                        <span className="kpi-foot-text"> vs planejado ({planMesPct}%)</span>
+                        <span style={{ color: '#d97706', fontWeight: 600 }}>{deltaMesPp >= 0 ? '+' : ''}{deltaMesPp.toFixed(2)} pp</span>
+                        <span className="kpi-foot-text"> vs planejado ({planMesPct.toFixed(2)}%)</span>
                       </div>
                       <div className="kpi-foot" style={{ marginTop: 2, textTransform: 'capitalize' }}><span className="kpi-foot-text">{mesLabel} · mês corrente</span></div>
                     </div>
@@ -2423,11 +2513,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 <div className="kpi-grid cols-5">
                   <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Avanço físico</div>
-                    <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{avancoTotal}<span className="unit">%</span></div>
+                    <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{avancoTotal.toFixed(2)}<span className="unit">%</span></div>
                     <div className="kpi-bar"><span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} /><span className="kpi-bar-target" style={{ left: plannedPct + '%' }} /></div>
                     <div className="kpi-foot" style={{ marginTop: 6 }}>
-                      <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp} pp</span>
-                      <span className="kpi-foot-text"> vs previsto ({plannedPct}%)</span>
+                      <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp.toFixed(2)} pp</span>
+                      <span className="kpi-foot-text"> vs previsto ({plannedPct.toFixed(2)}%)</span>
                     </div>
                   </div>
                   <div className="kpi" style={{ padding: '18px 20px' }}>
@@ -2719,6 +2809,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   onCommit={commit}
                   customCols={customCols}
                   onCustomColsChange={handleCustomColsChange}
+                  hiddenCols={hiddenCols}
+                  onHiddenColsChange={onHiddenColsChange}
                   obraId={obraSel}
                   undo={undo}
                   redo={redo}
@@ -2822,7 +2914,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
           grupos:        String(grupos.length),
           tarefas:       String(leaves.length),
           manuais:       `${manuais} de ${leaves.length}`,
-          avanco:        `${avancoTotal}%`,
+          avanco:        `${avancoTotal.toFixed(2)}%`,
           custoPrevisto: fmtBRL(custoPrev),
           feriados:      `${feriadosCfg.dias?.length || 0} dia(s)`,
           sabadoUtil:    feriadosCfg.sabadoUtil ? 'Sim' : 'Não',
