@@ -17,7 +17,7 @@ import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal } from '
 import { TaskFormPanel } from './TaskFormPanel';
 import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
-  LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, respInitials, respColor, VIRT_MIN,
+  LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, VIRT_MIN,
   ColumnHeaderFilterMenu, resolveColType, FILTER_BLANK_KEY,
   buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter,
 } from './cronogramaShared';
@@ -921,35 +921,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     } else {
       // Nada copiado: insere N linhas em branco (N = nº de linhas do intervalo, ou 1)
       const n = Math.max(1, new Set(rangeCellList().map(x => x.taskId)).size);
-      for (let i = 0; i < n; i++) insertTask(id, 'above');
+      insertBlankRows(id, 'above', n);
     }
-  };
-  // Ctrl++ (inserir cópia): duplica as LINHAS SELECIONADAS acima da primeira — determinístico,
-  // funciona com 1 ou várias linhas, sem depender do clipboard (rowClipRef).
-  const duplicateSelectedRows = () => {
-    if (readOnly) return;
-    const ids = [...selectedRowIds()];
-    const idxs = ids.map(id => etapas.findIndex(x => x.id === id)).filter(i => i >= 0).sort((a, b) => a - b);
-    if (!idxs.length) return;
-    const insertAt = idxs[0];
-    const ref = etapas[insertAt];
-    let base = [...etapas];
-    const clones = idxs.map(i => {
-      const src = etapas[i];
-      const clone = {
-        ...JSON.parse(JSON.stringify(src)),
-        id: nextEtapaId(base), displayId: nextDisplayId(base),
-        dep: [], isGroup: false, collapsed: false,
-        nivel: ref.nivel, parentId: ref.parentId,
-        customCols: { ...emptyCustomCols(customCols), ...(src.customCols || {}) },
-      };
-      base = [...base, clone];
-      return clone;
-    });
-    const novas = [...etapas];
-    novas.splice(insertAt, 0, ...clones);
-    onCommit(novas, { silent: true });
-    setSelectedId(clones[0].id);
   };
 
   // ── Formatação de célula/linha (compartilhada, salva no JSON do cronograma) ──
@@ -1322,7 +1295,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === '+' || ev.key === '=' || ev.code === 'NumpadAdd')) {
       if (editingNow || readOnly) return;
       ev.preventDefault();
-      duplicateSelectedRows(); // insere cópia da(s) linha(s) selecionada(s) — funciona com 1 também
+      const ids = [...selectedRowIds()];
+      const idxs = ids.map(id => etapas.findIndex(x => x.id === id)).filter(i => i >= 0).sort((a, b) => a - b);
+      if (idxs.length) {
+        const pivotId = etapas[idxs[0]].id;
+        if (rowClipRef.current && rowClipRef.current.length) {
+          pasteRow(pivotId); // cola a cópia feita com Ctrl+C (uso único)
+        } else {
+          insertBlankRows(pivotId, 'above', idxs.length); // nada copiado: linha(s) em branco
+        }
+      }
       setMarquee(null);
       return;
     }
@@ -1408,7 +1390,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const task = filtrada.find(x => x.id === taskId);
         const leaf = task && !task.isGroup;
         if      (colId === 'custo'     && leaf) setEditingCusto(taskId + '_custo');
-        else if (colId === 'custoReal' && leaf) setEditingCusto(taskId + '_real');
+        else if (colId === 'custoReal' && leaf && !valorVinculadoMap[taskId]) setEditingCusto(taskId + '_real');
         else if (colId === 'fatorPeso' && leaf && effStatus(task) !== 'done') setEditingFatorPeso(taskId);
         else if (colId === 'dep'       && leaf) setEditingDep(taskId);
         else if (colId === 'succ'      && leaf) setEditingSucc(taskId);
@@ -1545,38 +1527,47 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     setMultiSel(ms => ms.filter(id => etapas.find(e => e.id === id)));
   }, [etapas, selectedId]);
 
-  // Insere uma nova tarefa acima ou abaixo da tarefa de referência
-  const insertTask = (referenceId, position) => {
+  // Insere `count` tarefas em branco acima ou abaixo da tarefa de referência, todas
+  // de uma vez (um único onCommit) — necessário para count > 1, já que onCommit
+  // sucessivos a partir do mesmo `etapas` (closure) se sobrescreveriam.
+  const insertBlankRows = (referenceId, position, count = 1) => {
     const refIdx = etapas.findIndex(e => e.id === referenceId);
     if (refIdx < 0) return;
     const ref = etapas[refIdx];
-    const newTask = {
-      id:            nextEtapaId(etapas),
-      displayId:     nextDisplayId(etapas),
-      etapa:         'Nova Tarefa',
-      inicio:        ref.inicio,
-      dur:           1,
-      avanco:        0,
-      status:        'upcoming',
-      dep:           [],
-      nivel:         ref.nivel,
-      parentId:      ref.parentId,
-      isGroup:       false,
-      collapsed:     false,
-      responsavel:   '',
-      custo:         0,
-      custoRealizado: 0,
-      showInDist:    false,
-      restricaoTipo: 'asap',
-      restricaoData: '',
-      modo:          'auto',
-      customCols:    emptyCustomCols(customCols),
-    };
+    let base = [...etapas];
+    const blanks = Array.from({ length: count }, () => {
+      const blank = {
+        id:            nextEtapaId(base),
+        displayId:     nextDisplayId(base),
+        etapa:         'Nova Tarefa',
+        inicio:        ref.inicio,
+        dur:           1,
+        avanco:        0,
+        status:        'upcoming',
+        dep:           [],
+        nivel:         ref.nivel,
+        parentId:      ref.parentId,
+        isGroup:       false,
+        collapsed:     false,
+        responsavel:   '',
+        custo:         0,
+        custoRealizado: 0,
+        showInDist:    false,
+        restricaoTipo: 'asap',
+        restricaoData: '',
+        modo:          'auto',
+        customCols:    emptyCustomCols(customCols),
+      };
+      base = [...base, blank];
+      return blank;
+    });
     const novas = [...etapas];
-    novas.splice(position === 'above' ? refIdx : refIdx + 1, 0, newTask);
+    novas.splice(position === 'above' ? refIdx : refIdx + 1, 0, ...blanks);
     onCommit(novas, { silent: true });
-    setSelectedId(newTask.id);
+    setSelectedId(blanks[0].id);
   };
+  // Insere uma nova tarefa acima ou abaixo da tarefa de referência
+  const insertTask = (referenceId, position) => insertBlankRows(referenceId, position, 1);
 
   // Fecha menu de contexto ao clicar fora ou pressionar Escape
   React.useEffect(() => {
@@ -2705,7 +2696,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 etapa: <td key="etapa" style={stick('etapa', { fontWeight: 700, fontSize: 12.5, color: 'var(--brand)', boxShadow: '1px 0 0 var(--border)' })}><span style={{ paddingLeft: 10 }}>{obraNome}</span></td>,
                 inicio: <td key="inicio" className="mono text-sm">{leaves.length ? fmtDt(projInicio) : ''}</td>,
                 fim:    <td key="fim" className="mono text-sm">{leaves.length ? fmtDt(projFim) : ''}</td>,
-                duracao: <td key="duracao" className="mono num" style={{ textAlign: 'center' }}><span className="text-muted mono" style={{ fontSize: 12 }}>{projDur}d</span></td>,
+                duracao: <td key="duracao" className="mono num" style={{ textAlign: 'center' }}><span className="mono" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{projDur}d</span></td>,
                 avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 50 }}><div className="progress groupbar"><span style={{ width: projAvanco + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{projAvanco.toFixed(2)}%</span></div></td>,
                 peso:   <td key="peso" className="num mono" style={num}>100%</td>,
                 custo:  <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
@@ -2804,7 +2795,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 duracao: (
                   <td key="duracao" className="mono num" style={{ textAlign: 'center' }} onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
-                      <span className="text-muted mono" style={{ fontSize: 12 }}>{eDur}d</span>
+                      <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{eDur}d</span>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: 'center' }}>
                         {/* Largura fixa no wrapper (não no input): o input do EditableCell usa
@@ -2913,6 +2904,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       </span>
                     ) : readOnly ? (
                       <span className="mono" style={{ fontSize: 12, display: 'block', textAlign: 'right' }}>{fmtBRL(e.custoRealizado || 0)}</span>
+                    ) : valorVinculadoMap[e.id] ? (
+                      <span className="mono" style={{ fontSize: 12, display: 'block', textAlign: 'right', cursor: 'not-allowed', color: 'var(--text-muted)' }}
+                        title="Não é possível editar: esta tarefa tem valor vinculado ao orçamento. O custo real é derivado do vínculo.">
+                        {fmtBRL(e.custoRealizado || 0)}
+                      </span>
                     ) : editingCusto === e.id + '_real' ? (
                       <input autoFocus type="number" min="0" defaultValue={e.custoRealizado || 0}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
@@ -2944,15 +2940,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 resp: (
                   <td key="resp" onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? null : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {e.responsavel && (
-                          <span className="avatar" style={{ width: 26, height: 26, flex: '0 0 26px', fontSize: 11, background: respColor(e.responsavel) }}>
-                            {respInitials(e.responsavel)}
-                          </span>
-                        )}
-                        <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} readOnly={readOnly} style={{ fontSize: 12.5 }}
+                      <EditableCell value={e.responsavel || ''} onSave={v => handleCellSave(e.id, 'responsavel', v)} readOnly={readOnly} style={{ fontSize: 12.5 }}
                         onExitEdit={exitEdit} />
-                      </div>
                     )}
                   </td>
                 ),
@@ -3023,8 +3012,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           <button
                             title={manual ? 'Agendada Manualmente (datas fixas)' : 'Agendada Automaticamente (calculada por dependências)'}
                             onClick={ev => { ev.stopPropagation(); if (readOnly) return; setOpenModoMenu(openModoMenu === e.id ? null : e.id); }}
-                            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: readOnly ? 'default' : 'pointer', color: manual ? 'var(--brand)' : 'var(--text-muted)' }}>
-                            <Icon name={manual ? 'pin' : 'clock'} size={14} />
+                            style={{ boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 18, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: readOnly ? 'default' : 'pointer', color: manual ? 'var(--brand)' : 'var(--text-muted)' }}>
+                            <Icon name={manual ? 'pin' : 'clock'} size={12} />
                           </button>
                           {openModoMenu === e.id && !readOnly && (
                             <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 60, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', padding: 4, minWidth: 210, textAlign: 'left' }}>

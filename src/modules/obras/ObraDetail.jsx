@@ -9,7 +9,7 @@ import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
-import { SCurveChart } from '../cronograma/SCurveChart';
+import { SCurveChart2 } from '../cronograma/SCurveChart2';
 import { pavimentosService } from '../../services/pavimentos.service';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 
@@ -92,7 +92,7 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
           const v = effVals(e);
           return (
             <div className="gantt-row" key={i}>
-              <div className="gantt-label" style={e.isGroup ? { fontWeight: 700 } : undefined}>{e.etapa}</div>
+              <div className="gantt-label" style={{ paddingLeft: 14 + (e.nivel || 0) * 14, fontWeight: e.isGroup ? 700 : 400 }}>{e.etapa}</div>
               <div className="gantt-track">
                 <div
                   className={'gantt-bar ' + (e.isGroup ? 'is-group ' : '') + effStatus(e)}
@@ -126,45 +126,103 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
 };
 
 // ----- Visão Geral tab -----
-const VisaoGeral = ({ etapas, etapasLoaded }) => {
-  // Curva S de produção física: peso = duração de cada folha (sempre > 0 e cobre TODAS as
-  // tarefas, inclusive as executadas sem custo/vínculo). Planejado e Executado usam o mesmo
-  // peso; Executado = distribuição planejada escalada pelo avanço de cada folha.
+const VisaoGeral = ({ etapas, etapasLoaded, baselines = [], obraId }) => {
+  // "Previsto" = a linha de base mais antiga da obra (plano original aprovado), a mesma
+  // fonte usada como "Linha de Base" no Cronograma → Curva Física.
+  const baseline = React.useMemo(() => (
+    baselines.length
+      ? [...baselines].sort((a, b) => (a.criadaEm || '').localeCompare(b.criadaEm || ''))[0]
+      : null
+  ), [baselines]);
+
+  // Mês de referência (corte Executado/Replanejado) — mesmo controle da Curva Física do
+  // Cronograma. null = usa o mês atual automaticamente. Persistido por obra: a aba Visão
+  // Geral é desmontada ao trocar de aba/página, então o estado local sozinho se perderia.
+  const [selMonKey, setSelMonKey] = React.useState(() => {
+    try { return localStorage.getItem(`vg_refmes_${obraId}`) || null; } catch { return null; }
+  });
+  React.useEffect(() => {
+    if (!obraId || !selMonKey) return;
+    try { localStorage.setItem(`vg_refmes_${obraId}`, selMonKey); } catch { /* ignore */ }
+  }, [selMonKey, obraId]);
+
+  // Curva S faseada (mesma lógica do Cronograma → Curva Física, "Real + Reprogramado"):
+  // uma única distribuição acumulada do cronograma AO VIVO (peso = duração de cada folha),
+  // colorida verde (Executado) até o mês atual e azul (Replanejado) dali em diante, comparada
+  // com o "Previsto" (linha de base), quando existir.
   const curva = React.useMemo(() => {
     const months = getMonthRange(etapas);
-    if (!months.length) return { months: [], planejado: [], executado: [], todayIdx: -1 };
+    if (!months.length) return { months: [], acumulado: [], previsto: null, todayIdx: -1 };
     const durW = {};
     etapas.forEach(e => { if (!e.isGroup) durW[e.id] = Math.max(1, e.dur || 1); });
     const distPlan = computeMonthlyDist(etapas, durW); // { folhaId: { mês: dias no mês } }
-    const avancoOf = {};
-    etapas.forEach(e => { if (!e.isGroup) avancoOf[e.id] = Math.min(1, Math.max(0, (e.avanco || 0) / 100)); });
-    const pMon = {}, rMon = {};
-    months.forEach(m => { pMon[m.key] = 0; rMon[m.key] = 0; });
-    Object.entries(distPlan).forEach(([id, d]) => {
-      const av = avancoOf[id] || 0;
-      months.forEach(m => { const v = d[m.key] || 0; pMon[m.key] += v; rMon[m.key] += v * av; });
+    const pMon = {};
+    months.forEach(m => { pMon[m.key] = 0; });
+    Object.values(distPlan).forEach(d => {
+      months.forEach(m => { pMon[m.key] += d[m.key] || 0; });
     });
     const grand = months.reduce((s, m) => s + pMon[m.key], 0) || 1;
-    let accP = 0, accR = 0;
-    const planejado = months.map(m => { accP += pMon[m.key]; return accP / grand * 100; });
-    const executado = months.map(m => { accR += rMon[m.key]; return accR / grand * 100; });
+    let accP = 0;
+    const acumulado = months.map(m => { accP += pMon[m.key]; return accP / grand * 100; });
+
+    let previsto = null;
+    if (baseline?.etapas?.length) {
+      const durWB = {};
+      baseline.etapas.forEach(e => { if (!e.isGroup) durWB[e.id] = Math.max(1, e.dur || 1); });
+      const distB = computeMonthlyDist(baseline.etapas, durWB);
+      const bMon = {};
+      months.forEach(m => { bMon[m.key] = 0; });
+      Object.values(distB).forEach(d => {
+        months.forEach(m => { bMon[m.key] += d[m.key] || 0; });
+      });
+      const grandB = months.reduce((s, m) => s + bMon[m.key], 0) || 1;
+      let accB = 0;
+      previsto = months.map(m => { accB += bMon[m.key]; return accB / grandB * 100; });
+    }
+
     const now = new Date();
     const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    return { months, planejado, executado, todayIdx: months.findIndex(m => m.key === todayKey) };
-  }, [etapas]);
+    // Fora da janela: obra já concluída (hoje depois do fim) conta tudo como Executado;
+    // obra ainda não iniciada (hoje antes do início) conta tudo como Replanejado.
+    let todayIdx = months.findIndex(m => m.key === todayKey);
+    if (todayIdx === -1) todayIdx = todayKey > months[months.length - 1].key ? months.length - 1 : -1;
+    return { months, acumulado, previsto, todayIdx };
+  }, [etapas, baseline]);
+
+  // Índice de corte usado no gráfico: mês de referência escolhido, senão o mês atual.
+  const refIdx = React.useMemo(() => {
+    if (!curva.months.length) return -1;
+    if (selMonKey) {
+      const i = curva.months.findIndex(m => m.key === selMonKey);
+      if (i >= 0) return i;
+    }
+    return curva.todayIdx;
+  }, [curva.months, curva.todayIdx, selMonKey]);
 
   return (
     <div className="stack">
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="card-title">Curva S — Planejado x Executado</div>
-              <div className="card-subtitle">Planejado = custo previsto acumulado · Executado = avanço físico realizado</div>
+              <div className="card-title">Curva S — Real x Replanejado</div>
             </div>
-            <div className="card-actions">
+            <div className="card-actions" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              {curva.months.length > 0 && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-soft)' }}>Mês de referência:</span>
+                  <select className="input" style={{ minWidth: 130 }} value={selMonKey ?? curva.months[refIdx]?.key ?? ''}
+                    onChange={e => setSelMonKey(e.target.value)}
+                    title="Mês que separa o Executado (verde) do Replanejado (azul)">
+                    {curva.months.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                  </select>
+                </span>
+              )}
               <div className="legend">
                 <span className="legend-item"><span className="legend-swatch" style={{ background: '#16a34a' }}></span>Executado</span>
-                <span className="legend-item"><span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '2px dashed var(--brand)', marginRight: 4, verticalAlign: 'middle' }}></span>Planejado</span>
+                <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Replanejado</span>
+                {curva.previsto && (
+                  <span className="legend-item"><span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '2px dashed #94a3b8', marginRight: 4, verticalAlign: 'middle' }}></span>Previsto</span>
+                )}
               </div>
             </div>
           </div>
@@ -172,8 +230,9 @@ const VisaoGeral = ({ etapas, etapasLoaded }) => {
             {!etapasLoaded ? (
               <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Carregando cronograma…</div>
             ) : curva.months.length ? (
-              <SCurveChart months={curva.months} reprogramado={curva.planejado} real={curva.executado}
-                baseline={null} todayIdx={curva.todayIdx} show={{ bl: false, rep: true, real: true }} showBarras={false} repDashed />
+              <SCurveChart2 months={curva.months} selIdx={refIdx}
+                execA={curva.acumulado} replanA={curva.acumulado} baselineA={curva.previsto}
+                show={{ bl: !!curva.previsto, rep: true, real: true }} showBarras={false} />
             ) : (
               <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Sem cronograma com datas para exibir a curva.</div>
             )}
@@ -859,6 +918,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   // Busca as etapas do cronograma da obra — não depende de o usuário já ter aberto o módulo Cronograma
   const [etapasObra, setEtapasObra] = React.useState(() => AppData.cronograma[o.id] || []);
   const [etapasLoaded, setEtapasLoaded] = React.useState(!!AppData.cronograma[o.id]?.length);
+  // Linhas de base do cronograma — usadas na Curva S da Visão Geral como "Previsto".
+  const [baselinesObra, setBaselinesObra] = React.useState([]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -869,12 +930,13 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     if (cache?.length) { setEtapasObra(cache); setEtapasLoaded(true); }
     else setEtapasLoaded(false);
     // maybeSingle: cronograma inexistente/apagado retorna data=null (sem erro)
-    supabase.from('cronogramas').select('etapas').eq('obra_id', o.id).maybeSingle().then(({ data, error }) => {
+    supabase.from('cronogramas').select('etapas, baselines').eq('obra_id', o.id).maybeSingle().then(({ data, error }) => {
       if (cancelled) return;
       if (error) { setEtapasLoaded(true); return; } // falha de rede: mantém o que já havia
       const etapas = data?.etapas ? migrateEtapas(data.etapas) : []; // apagado = vazio (não volta pro cache)
       AppData.cronograma[o.id] = etapas; // mantém o cache compartilhado com o módulo Cronograma
       setEtapasObra(etapas);
+      setBaselinesObra(data?.baselines || []);
       setEtapasLoaded(true);
     });
     return () => { cancelled = true; };
@@ -1015,7 +1077,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
         })}
       </div>
 
-      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} />}
+      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} baselines={baselinesObra} obraId={o.id} />}
       {tab === 'cronograma' && (
         <div className="card">
           <div className="card-header">

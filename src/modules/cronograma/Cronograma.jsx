@@ -558,7 +558,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
 };
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
-const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, valorVinculadoMap = {}, onCommit }) => {
+const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, selMonKey, setSelMonKey, valorVinculadoMap = {}, onCommit }) => {
   const toast = useToast();
   // Colapso LOCAL da tabela "Distribuição por tarefa" — não mexe no `collapsed` da Lista.
   const [collapsedCurva, setCollapsedCurva] = React.useState(() => new Set());
@@ -638,12 +638,9 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     ? months.reduce((s, m) => s + (repDist[m.key] || 0), 0)
     : null;
 
-  // Mês selecionado para a coluna Produção — também decide sozinho qual Reprogramação
+  // Mês de referência (selMonKey) vem por prop agora — persistido por obra no componente
+  // pai, para sobreviver à troca de sub-aba. Também decide sozinho qual Reprogramação
   // comparar (a mais recente salva antes deste mês), pelo efeito logo abaixo.
-  const [selMonKey, setSelMonKey] = React.useState(() => {
-    const n = new Date();
-    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
-  });
 
   // Marca quando o usuário mexe no seletor de reprogramação — inclusive escolher "Sem
   // reprogramação". A partir daí, não auto-selecionamos mais a padrão.
@@ -1644,6 +1641,13 @@ function carregarBlVisivel(obraId) {
 function carregarRepVisivel(obraId) {
   try { return localStorage.getItem('crono_rep_visivel_' + obraId) || null; } catch { return null; }
 }
+function carregarMesRef(obraId) {
+  try { return localStorage.getItem('crono_mesref_' + obraId) || null; } catch { return null; }
+}
+function mesAtualKey() {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+}
 
 // updated_at que acreditamos ser o vigente por obra (última carga ou último save nosso).
 // Base do bloqueio otimista: se o banco divergir disso, outra pessoa salvou no meio.
@@ -1749,6 +1753,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const [blVisivelId,  setBlVisivelId]  = React.useState(() => carregarBlVisivel(defaultObraId || ''));
   const [reprogramacoes, setReprogramacoes] = React.useState(() => carregarReprogramacoes(defaultObraId || ''));
   const [repVisivelId,   setRepVisivelId]   = React.useState(() => carregarRepVisivel(defaultObraId || '') ?? defaultRepId(carregarReprogramacoes(defaultObraId || '')));
+  // Mês de referência da Curva Física — persistido por obra pelo mesmo motivo de blVisivelId/
+  // repVisivelId: a view "curva" é desmontada ao trocar de sub-aba, perdendo estado local.
+  const [selMonKey,      setSelMonKey]      = React.useState(() => carregarMesRef(defaultObraId || '') || mesAtualKey());
   const [showCriar,    setShowCriar]    = React.useState(false);
   const [showCriarRep,     setShowCriarRep]     = React.useState(false);
   const [showGerenciarRep, setShowGerenciarRep] = React.useState(false);
@@ -1976,6 +1983,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         hidxRef.current = 0;
         setBlVisivelId(carregarBlVisivel(obraSel));
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(cached.reprogramacoes || []));
+        setSelMonKey(carregarMesRef(obraSel) || mesAtualKey());
         setLoadedObraId(obraSel);
         return;
       }
@@ -2033,6 +2041,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(reps));
       }
       setBlVisivelId(carregarBlVisivel(obraSel));
+      setSelMonKey(carregarMesRef(obraSel) || mesAtualKey());
       setLoadedObraId(obraSel); // marca carga concluída — isLoading vira false
     }
     setConflito(false);   // recarregou do banco: baseline atualizada, conflito resolvido
@@ -2064,6 +2073,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       else localStorage.removeItem('crono_rep_visivel_' + obraSel);
     } catch { /* ignore */ }
   }, [repVisivelId, obraSel, loadedObraId]);
+
+  React.useEffect(() => {
+    if (!obraSel || loadedObraId !== obraSel) return;
+    try { localStorage.setItem('crono_mesref_' + obraSel, selMonKey); } catch { /* ignore */ }
+  }, [selMonKey, obraSel, loadedObraId]);
 
   // Trata o resultado de salvarCronograma (bloqueio otimista): conflito ou erro.
   // Retorna true quando houve problema (o chamador não deve exibir "sucesso").
@@ -2459,20 +2473,18 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 // ── Derivações por-view da Curva Física (aba view === 'curva') ────────
                 const mesAtual     = todayKey; // "YYYY-MM" do mês corrente
                 const realAcum     = Object.entries(realizedTotals).reduce((s, [k, v]) => k <= mesAtual ? s + v : s, 0);
-                const incorridoTot = Object.values(realizedTotals).reduce((s, v) => s + v, 0);
                 const previstoPct  = plannedPct; // planToDate / totalPlan (%)
                 const prodMesPct   = totalPlan > 0 ? (realizedTotals[mesAtual] || 0) / totalPlan * 100 : 0;
                 const planMesPct   = totalPlan > 0 ? (monthlyTotals[mesAtual] || 0) / totalPlan * 100 : 0;
                 const deltaMesPp   = prodMesPct - planMesPct;
                 const desvioPp     = totalPlan > 0 ? (Math.round(realAcum / totalPlan * 100) - Math.round(previstoPct)) : 0;
-                const incorridoPct = totalPlan > 0 ? Math.round(incorridoTot / totalPlan * 100) : 0;
                 const nowCurva     = new Date();
                 const mesLabel     = nowCurva.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '/' + String(nowCurva.getFullYear()).slice(2);
                 // TODO: delta de dias do término projetado vs linha de base — sem baseline no pipeline (mock).
                 const terminoDeltaDias = 22;
                 return (
                   view === 'curva' ? (
-                  <div className="kpi-grid cols-5">
+                  <div className="kpi-grid">
                     <div className="kpi" style={{ padding: '18px 20px' }}>
                       <div className="kpi-label">Avanço realizado</div>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
@@ -2495,12 +2507,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                       <div className="kpi-label">Desvio acumulado</div>
                       <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4, color: 'var(--danger)' }}>{desvioPp >= 0 ? '+' : ''}{desvioPp}<span className="unit">pp</span></div>
                       <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text" style={{ color: desvioPp < 0 ? 'var(--danger)' : undefined }}>{desvioPp < 0 ? 'obra atrasada' : 'obra no prazo'}</span></div>
-                    </div>
-                    <div className="kpi" style={{ padding: '18px 20px' }}>
-                      <div className="kpi-label">Custo planejado</div>
-                      <div className="kpi-value num" style={{ fontSize: 28, marginTop: 4 }}>{D.brl(totalPlan, { compact: true })}</div>
-                      <div className="kpi-bar"><span className="kpi-bar-fill ok" style={{ width: incorridoPct + '%' }} /></div>
-                      <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">{D.brl(incorridoTot, { compact: true })} incorridos ({incorridoPct}%)</span></div>
                     </div>
                     <div className="kpi" style={{ padding: '18px 20px' }}>
                       <div className="kpi-label">Término projetado</div>
@@ -2798,6 +2804,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   reprogramacoes={reprogramacoes}
                   repVisivelId={repVisivelId}
                   onSelectReprogramacao={setRepVisivelId}
+                  selMonKey={selMonKey}
+                  setSelMonKey={setSelMonKey}
                   valorVinculadoMap={valorVinculadoMapFull}
                   onCommit={commit}
                 />

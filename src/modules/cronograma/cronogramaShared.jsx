@@ -196,7 +196,6 @@ export const LISTA_COL_DEFS = {
   peso:           { label: 'Peso %',          defWidth: 70,  align: 'right', band: 'fin', type: 'number' },
   fatorPeso:      { label: 'Fator Peso',      defWidth: 90,  align: 'right', band: 'fin', type: 'number' },
   valorVinculado: { label: 'Valor Vinculado', defWidth: 120, align: 'right', band: 'fin', type: 'number' },
-  custo:     { label: 'Custo Prev.',   defWidth: 112, align: 'right', band: 'fin', type: 'number' },
   custoReal: { label: 'Custo Real',    defWidth: 112, align: 'right', band: 'fin', type: 'number' },
   dep:       { label: 'Predecessora',  defWidth: 150, band: 'seq', type: 'text' },
   succ:      { label: 'Sucessora',     defWidth: 150, band: 'seq', type: 'text' },
