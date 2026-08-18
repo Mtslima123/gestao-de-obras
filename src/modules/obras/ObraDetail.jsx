@@ -51,10 +51,36 @@ function computeJanela(etapasAll) {
   return { meses, mesesDias, inicioDias, spanDias: fimDias - inicioDias, totalMeses };
 }
 
-const Gantt = ({ etapas, resumoOnly = false }) => {
+const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
   const rows = resumoOnly && etapas.some(e => e.isGroup)
     ? etapas.filter(e => e.isGroup)
     : etapas; // sem grupos definidos: mostra tudo, evita card vazio
+
+  // Recolher grupos (só faz sentido na visão completa — resumoOnly já mostra só os grupos).
+  const [collapsed, setCollapsed] = React.useState(() => new Set());
+  const maxGroupNivel = React.useMemo(
+    () => rows.filter(e => e.isGroup).reduce((m, e) => Math.max(m, e.nivel || 0), 0),
+    [rows]
+  );
+  const collapseToLevel = (maxNivel) => {
+    if (maxNivel < 0) { setCollapsed(new Set()); return; }
+    setCollapsed(new Set(rows.filter(e => e.isGroup && (e.nivel || 0) === maxNivel).map(e => e.id)));
+  };
+  const visibleRows = React.useMemo(() => {
+    if (resumoOnly || !collapsed.size) return rows;
+    const out = [];
+    let hideUntil = null;
+    rows.forEach(e => {
+      const niv = e.nivel || 0;
+      if (hideUntil !== null) {
+        if (niv > hideUntil) return; // ainda dentro do grupo recolhido
+        hideUntil = null;
+      }
+      if (e.isGroup && collapsed.has(e.id)) hideUntil = niv;
+      out.push(e);
+    });
+    return out;
+  }, [rows, collapsed, resumoOnly]);
 
   // Valores de grupo por rollup (mesmo cálculo do Gantt real): início/fim/avanço agregados.
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
@@ -80,19 +106,44 @@ const Gantt = ({ etapas, resumoOnly = false }) => {
   const mostrarHoje = hojePct >= 0 && hojePct <= 100;
 
   return (
-    <div className="gantt" style={{ overflowX: 'auto' }}>
+    <div className="gantt" style={{ overflowX: 'auto', ...(maxHeight ? { maxHeight, overflowY: 'auto' } : null) }}>
       <div style={{ minWidth: 220 + totalMonths * 70, position: 'relative', paddingTop: 12 }}>
         <div className="gantt-head">
-          <div style={{ padding: '8px 14px', fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>ETAPA</div>
+          <div style={{ padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>ETAPA</span>
+            {!resumoOnly && rows.some(e => e.isGroup) && (
+              <span style={{ display: 'flex', gap: 2 }}>
+                {Array.from({ length: maxGroupNivel + 1 }, (_, nivel) => (
+                  <button key={nivel} className="orca-row-btn" title={`Mostrar até nível ${nivel + 1}`}
+                    style={{ width: 22, height: 20, fontSize: 10, fontWeight: 600 }}
+                    onClick={() => collapseToLevel(nivel)}>
+                    N{nivel + 1}
+                  </button>
+                ))}
+                <button className="orca-row-btn" title="Expandir tudo"
+                  style={{ width: 22, height: 20, fontSize: 10, fontWeight: 600 }}
+                  onClick={() => collapseToLevel(-1)}>≡</button>
+              </span>
+            )}
+          </div>
           <div className="gantt-month-row" style={{ gridTemplateColumns: janelaMesesDias.map(d => `${d}fr`).join(' ') }}>
             {janelaMeses.map((m, i) => <div key={i} className="gantt-month">{m}</div>)}
           </div>
         </div>
-        {rows.map((e, i) => {
+        {visibleRows.map((e, i) => {
           const v = effVals(e);
           return (
             <div className="gantt-row" key={i}>
-              <div className="gantt-label" style={{ paddingLeft: 14 + (e.nivel || 0) * 14, fontWeight: e.isGroup ? 700 : 400 }}>{e.etapa}</div>
+              <div className="gantt-label" style={{ paddingLeft: 14 + (e.nivel || 0) * 14, fontWeight: e.isGroup ? 700 : 400 }}>
+                {e.isGroup && !resumoOnly && (
+                  <span onClick={() => setCollapsed(prev => { const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; })}
+                    title={collapsed.has(e.id) ? 'Expandir' : 'Recolher'}
+                    style={{ color: 'var(--text-muted)', marginRight: 5, fontSize: 10, cursor: 'pointer', userSelect: 'none' }}>
+                    {collapsed.has(e.id) ? '▸' : '▾'}
+                  </span>
+                )}
+                {e.etapa}
+              </div>
               <div className="gantt-track">
                 <div
                   className={'gantt-bar ' + (e.isGroup ? 'is-group ' : '') + effStatus(e)}
@@ -917,6 +968,22 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
 
   // Busca as etapas do cronograma da obra — não depende de o usuário já ter aberto o módulo Cronograma
   const [etapasObra, setEtapasObra] = React.useState(() => AppData.cronograma[o.id] || []);
+
+  // Card "Cronograma físico" gruda sob a topbar ao rolar (mesmo padrão de Orcamentos.jsx:
+  // STICKY_TOP = topbar 60px + 32px de respiro); o corpo (Gantt/Lista) ganha scroll próprio
+  // limitado ao espaço restante da viewport, para o cabeçalho do card ficar sempre visível.
+  const CRONO_STICKY_TOP = 92;
+  const cronoHeaderRef = React.useRef(null);
+  const [cronoBodyMaxH, setCronoBodyMaxH] = React.useState(null);
+  React.useLayoutEffect(() => {
+    const recompute = () => {
+      const H = cronoHeaderRef.current?.offsetHeight || 0;
+      setCronoBodyMaxH(Math.max(200, window.innerHeight - CRONO_STICKY_TOP - H - 24));
+    };
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, [etapasObra.length, cronoView]);
   const [etapasLoaded, setEtapasLoaded] = React.useState(!!AppData.cronograma[o.id]?.length);
   // Linhas de base do cronograma — usadas na Curva S da Visão Geral como "Previsto".
   const [baselinesObra, setBaselinesObra] = React.useState([]);
@@ -1079,8 +1146,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
 
       {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} baselines={baselinesObra} obraId={o.id} />}
       {tab === 'cronograma' && (
-        <div className="card">
-          <div className="card-header">
+        <div className="card" style={{ position: 'sticky', top: CRONO_STICKY_TOP, zIndex: 2 }}>
+          <div className="card-header" ref={cronoHeaderRef}>
             <div>
               <div className="card-title">Cronograma físico</div>
               <div className="card-subtitle">
@@ -1098,14 +1165,15 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
             </div>
           </div>
           <div className="card-body" style={{ padding: '4px 0 0' }}>
-            {cronoView === 'gantt' && <Gantt etapas={etapasObra} />}
+            {cronoView === 'gantt' && <Gantt etapas={etapasObra} maxHeight={cronoBodyMaxH} />}
             {cronoView === 'lista' && (() => {
               const statusLabel = { done: 'Concluído', late: 'Atrasado', upcoming: 'Planejado' };
               const thS = { padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600,
-                            color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' };
+                            color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em',
+                            position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)' };
               const tdS = { padding: '10px 12px', fontSize: 13, borderBottom: '1px solid var(--border-subtle)' };
               return (
-                <div style={{ overflowX: 'auto' }}>
+                <div style={{ overflowX: 'auto', maxHeight: cronoBodyMaxH || undefined, overflowY: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border)' }}>

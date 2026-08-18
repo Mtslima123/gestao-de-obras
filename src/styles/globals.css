@@ -989,6 +989,10 @@ a:hover { color: var(--brand-600); }
   display: grid;
   grid-template-columns: 220px 1fr;
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
 }
 .gantt-month-row {
   display: grid;
