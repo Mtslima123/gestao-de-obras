@@ -2712,6 +2712,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 duracao: <td key="duracao" className="mono num" style={{ textAlign: 'center' }}><span className="mono" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{projDur}d</span></td>,
                 avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 50 }}><div className="progress groupbar"><span style={{ width: projAvanco + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{projAvanco.toFixed(2)}%</span></div></td>,
                 peso:   <td key="peso" className="num mono" style={num}>100%</td>,
+                valorVinculado: <td key="valorVinculado" className="num mono" style={num}>{totalValorVinculado ? fmtBRL(totalValorVinculado) : '—'}</td>,
                 custo:  <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
                 custoReal: <td key="custoReal" className="num mono" style={num}>{fmtBRL(totalReal)}</td>,
                 saldo:  <td key="saldo" className="num mono" style={{ ...num, color: totalSaldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalCustoEf - totalReal)}</td>,

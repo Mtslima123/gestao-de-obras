@@ -2615,7 +2615,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })}
                           filtroStatus={filtroStatus} filtroResp={filtroResp} filtroPreset={filtroPreset}
                           filtroPresetRange={filtroPresetRange} filtroTaskIds={filtroTaskIds}
-                          filtroTexto={filtroTexto} filtroVinculo={filtroVinculo} vinculadoIds={vinculadoIds} />
+                          filtroTexto={filtroTexto} filtroVinculo={filtroVinculo} vinculadoIds={vinculadoIds}
+                          valorVinculadoMap={valorVinculadoMapFull} hasVinculos={vinculos.length > 0} />
                       </div>
                     </div>
 

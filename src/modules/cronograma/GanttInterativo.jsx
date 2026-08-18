@@ -71,7 +71,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   filtroStatus = '', filtroResp = '', filtroPreset = '', filtroPresetRange = { de: '', ate: '' }, filtroTaskIds = [],
-  filtroTexto = '', filtroVinculo = '', vinculadoIds }) => {
+  filtroTexto = '', filtroVinculo = '', vinculadoIds, valorVinculadoMap = {}, hasVinculos = false }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
@@ -1312,7 +1312,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
             if (!leaves.length) return null;
             const pInicio = Math.min(...leaves.map(x => x.inicio));
             const pFim    = Math.max(...leaves.map(x => workEnd(x.inicio, x.dur)));
-            const wt = (x) => x.custo || 0;
+            const wt = (x) => hasVinculos ? (valorVinculadoMap[x.id] || 0) : (x.custo || 0);
             const tp = leaves.reduce((s, x) => s + wt(x), 0);
             const pAvanco = !tp
               ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length)
