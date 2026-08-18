@@ -685,6 +685,10 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
     return () => { cancelled = true; };
   }, [orcamento.obra_id, orcamento.id]);
 
+  // Busca/filtro da tabela de composição (código, nome ou tarefa vinculada + vínculo)
+  const [buscaComposicao, setBuscaComposicao] = React.useState('');
+  const [filtroVinculoComposicao, setFiltroVinculoComposicao] = React.useState(''); // '' | 'vinculado' | 'nao_vinculado'
+
   // Códigos protegidos contra exclusão: item vinculado + todos os seus ancestrais
   // (excluir um ancestral apagaria o item vinculado junto).
   const protegidoSet = React.useMemo(() => {
@@ -735,6 +739,17 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
 
   const withTotals = React.useMemo(() => calcTotals(items), [items, parentSet]);
 
+  // Itens folha (sem filhos) vinculados/não vinculados — mesma base do card "Itens
+  // cadastrados", para os totais baterem entre os cards.
+  const itensVinculados = React.useMemo(
+    () => withTotals.filter(it => !parentSet.has(it.codigo) && vinculadoSet.has(it.id)),
+    [withTotals, parentSet, vinculadoSet]
+  );
+  const itensNaoVinculados = React.useMemo(
+    () => withTotals.filter(it => !parentSet.has(it.codigo) && !vinculadoSet.has(it.id)),
+    [withTotals, parentSet, vinculadoSet]
+  );
+
   // Próximo código de mesmo nível (irmão seguinte)
   const nextCode = (refCodigo, list) => {
     const parts  = refCodigo.split('.');
@@ -765,9 +780,38 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
 
   // Pré-computa itens visíveis para evitar re-cálculo por linha no render
   const visibleItems = React.useMemo(() => {
+    const busca = buscaComposicao.trim().toLowerCase();
+    if (busca || filtroVinculoComposicao) {
+      const matchedCodes = new Set();
+      withTotals.forEach(it => {
+        if (parentSet.has(it.codigo)) return; // só folha pode estar vinculada
+        if (filtroVinculoComposicao === 'vinculado' && !vinculadoSet.has(it.id)) return;
+        if (filtroVinculoComposicao === 'nao_vinculado' && vinculadoSet.has(it.id)) return;
+        if (busca) {
+          const tarefa = (vinculoTarefaMap[it.id] || '').toLowerCase();
+          const alvo = `${it.codigo} ${it.nome || ''}`.toLowerCase();
+          if (!alvo.includes(busca) && !tarefa.includes(busca)) return;
+        }
+        matchedCodes.add(it.codigo);
+      });
+      // Busca por código/nome de grupo só se aplica sem filtro de vínculo (grupo não vincula)
+      if (busca && !filtroVinculoComposicao) {
+        withTotals.forEach(it => {
+          if (!parentSet.has(it.codigo)) return;
+          const alvo = `${it.codigo} ${it.nome || ''}`.toLowerCase();
+          if (alvo.includes(busca)) matchedCodes.add(it.codigo);
+        });
+      }
+      const withAncestors = new Set();
+      matchedCodes.forEach(codigo => {
+        const parts = codigo.split('.');
+        for (let i = 1; i <= parts.length; i++) withAncestors.add(parts.slice(0, i).join('.'));
+      });
+      return withTotals.filter(it => withAncestors.has(it.codigo));
+    }
     if (!collapsed.size) return withTotals;
     return withTotals.filter(it => isVisible(it.codigo));
-  }, [withTotals, collapsed]);
+  }, [withTotals, collapsed, buscaComposicao, filtroVinculoComposicao, parentSet, vinculadoSet, vinculoTarefaMap]);
 
   // Colapsa todos os grupos no nível maxNivel; -1 = expandir tudo
   const collapseToLevel = (maxNivel) => {
@@ -1268,7 +1312,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       </div>
 
       {/* KPIs */}
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div className="kpi" style={{ padding: '14px 18px' }}>
           <div className="kpi-label">Valor total</div>
           <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6, color: 'var(--brand)' }}>{brlFull(grandTotal)}</div>
@@ -1278,6 +1322,20 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
           <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{items.filter(it => !parentSet.has(it.codigo)).length}</div>
           <div className="kpi-foot" style={{ marginTop: 4 }}>
             <span className="kpi-foot-text">{items.length} total (incluindo grupos)</span>
+          </div>
+        </div>
+        <div className="kpi" style={{ padding: '14px 18px' }}>
+          <div className="kpi-label">Itens vinculados</div>
+          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{itensVinculados.length}</div>
+          <div className="kpi-foot" style={{ marginTop: 4 }}>
+            <span className="kpi-foot-text">{brlFull(itensVinculados.reduce((s, it) => s + (it.valor_total || 0), 0))}</span>
+          </div>
+        </div>
+        <div className="kpi" style={{ padding: '14px 18px' }}>
+          <div className="kpi-label">Itens não vinculados</div>
+          <div className="kpi-value num" style={{ fontSize: 20, marginTop: 6 }}>{itensNaoVinculados.length}</div>
+          <div className="kpi-foot" style={{ marginTop: 4 }}>
+            <span className="kpi-foot-text">{brlFull(itensNaoVinculados.reduce((s, it) => s + (it.valor_total || 0), 0))}</span>
           </div>
         </div>
       </div>
@@ -1291,10 +1349,21 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
               <div className="card-subtitle">
                 {items.length === 0
                   ? 'Nenhum item. Use + abaixo para adicionar.'
-                  : `${items.length} itens · clique para editar`}
+                  : (buscaComposicao.trim() || filtroVinculoComposicao)
+                    ? `${visibleItems.filter(it => !parentSet.has(it.codigo)).length} de ${items.filter(it => !parentSet.has(it.codigo)).length} itens · clique para editar`
+                    : `${items.length} itens · clique para editar`}
               </div>
             </div>
             <div className="card-actions">
+              <input className="input input-search" style={{ height: 28, fontSize: 12, width: 220, marginRight: 6 }}
+                placeholder="Buscar por código, item ou tarefa..."
+                value={buscaComposicao} onChange={e => setBuscaComposicao(e.target.value)} />
+              <select className="input" style={{ height: 28, fontSize: 12, marginRight: 6 }}
+                value={filtroVinculoComposicao} onChange={e => setFiltroVinculoComposicao(e.target.value)}>
+                <option value="">Todos (vínculo)</option>
+                <option value="vinculado">Vinculados</option>
+                <option value="nao_vinculado">Não vinculados</option>
+              </select>
               <div style={{ display: 'flex', gap: 2, marginRight: 4 }}>
                 {[
                   { label: 'N1', title: 'Mostrar só grupos raiz (001…)',    nivel: 0  },

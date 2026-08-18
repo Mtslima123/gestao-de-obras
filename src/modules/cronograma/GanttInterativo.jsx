@@ -70,7 +70,8 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
-  filtroStatus = '', filtroResp = '', filtroPreset = '', filtroPresetRange = { de: '', ate: '' }, filtroTaskIds = [] }) => {
+  filtroStatus = '', filtroResp = '', filtroPreset = '', filtroPresetRange = { de: '', ate: '' }, filtroTaskIds = [],
+  filtroTexto = '', filtroVinculo = '', vinculadoIds }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
@@ -568,9 +569,9 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
   const visible = React.useMemo(() => {
     const v = getVisibleEtapas(etapas);
     const base = showSummaryTasks ? v : v.filter(e => !e.isGroup);
-    const passesGlobal = buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, etapas });
+    const passesGlobal = buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas });
     return base.filter(passesGlobal);
-  }, [etapas, showSummaryTasks, filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds]);
+  }, [etapas, showSummaryTasks, filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds]);
   // Índice por id no conjunto VISÍVEL (para as setas de dependência casarem com as barras
   // mesmo com grupos recolhidos — antes usava o índice em `etapas`, um bug latente).
   const visIdx = React.useMemo(() => new Map(visible.map((e, i) => [e.id, i])), [visible]);

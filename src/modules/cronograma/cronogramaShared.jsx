@@ -238,7 +238,7 @@ export const FILTRO_PRESETS = [
 // Predicado único de filtro de tarefas, compartilhado pela Lista e pelo Gantt (para os dois
 // verem exatamente o mesmo conjunto filtrado). Tarefa Pai inclui toda a descendência (grupos
 // e folhas), preservando a hierarquia EAP; os demais critérios testam cada tarefa individualmente.
-export function buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, etapas }) {
+export function buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas }) {
   const allowedIds = (filtroTaskIds && filtroTaskIds.length)
     ? filtroTaskIds.reduce((set, id) => {
         const t = etapas.find(x => x.id === id);
@@ -252,6 +252,9 @@ export function buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPrese
     if (allowedIds && !allowedIds.has(e.id)) return false;
     if (filtroStatus && effStatus(e) !== filtroStatus) return false;
     if (filtroResp && !(e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase())) return false;
+    if (filtroTexto && !(e.etapa || '').toLowerCase().includes(filtroTexto.toLowerCase())) return false;
+    if (filtroVinculo === 'vinculado' && !vinculadoIds?.has(e.id)) return false;
+    if (filtroVinculo === 'nao_vinculado' && vinculadoIds?.has(e.id)) return false;
     if (filtroPreset === 'ativas' && !e.isGroup && !(e.avanco > 0 && e.avanco < 100)) return false;
     if (filtroPreset === 'atrasadas' && effStatus(e) !== 'late') return false;
     if (filtroPreset === 'concluidas' && effStatus(e) !== 'done') return false;

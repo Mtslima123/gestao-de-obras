@@ -1854,6 +1854,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const [filtroPreset, setFiltroPreset] = React.useState('');
   const [filtroPresetRange, setFiltroPresetRange] = React.useState({ de: '', ate: '' });
   const [filtroTaskIds, setFiltroTaskIds] = React.useState([]);
+  const [filtroTexto, setFiltroTexto] = React.useState('');
+  const [filtroVinculo, setFiltroVinculo] = React.useState('');
   // Salva explicitamente (evita corromper ao trocar de obra com um efeito keyed em obraSel).
   const saveFeriados = (next) => {
     setFeriadosCfg(next);
@@ -2220,6 +2222,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     [etapas, vinculos, orcamentoItensMap]
   );
   const weightOverride = vinculos.length > 0 ? valorVinculadoMapFull : null;
+
+  // Ids de tarefa com vínculo direto a algum item de orçamento (para o filtro vinculado/não vinculado).
+  const vinculadoIds = React.useMemo(() => new Set(vinculos.map(v => v.etapa_id)), [vinculos]);
 
   // Avanço ponderado pelo custo de cada etapa (folhas). Com vínculos, usa o valor vinculado.
   const avancoTotal = React.useMemo(() => {
@@ -2609,7 +2614,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
                           onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })}
                           filtroStatus={filtroStatus} filtroResp={filtroResp} filtroPreset={filtroPreset}
-                          filtroPresetRange={filtroPresetRange} filtroTaskIds={filtroTaskIds} />
+                          filtroPresetRange={filtroPresetRange} filtroTaskIds={filtroTaskIds}
+                          filtroTexto={filtroTexto} filtroVinculo={filtroVinculo} vinculadoIds={vinculadoIds} />
                       </div>
                     </div>
 
@@ -2846,6 +2852,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   filtroPreset={filtroPreset} setFiltroPreset={setFiltroPreset}
                   filtroPresetRange={filtroPresetRange} setFiltroPresetRange={setFiltroPresetRange}
                   filtroTaskIds={filtroTaskIds} setFiltroTaskIds={setFiltroTaskIds}
+                  filtroTexto={filtroTexto} setFiltroTexto={setFiltroTexto}
+                  filtroVinculo={filtroVinculo} setFiltroVinculo={setFiltroVinculo}
+                  vinculadoIds={vinculadoIds}
                 />
               )}
 
