@@ -1,5 +1,16 @@
 import React from 'react';
 
+// A origem do host embutidor é desconhecida em build time (varia por preview),
+// então derivamos de document.referrer em vez de usar '*' — evita vazar o
+// estado de edição para qualquer origem e permite validar quem manda mensagens.
+function getHostOrigin() {
+  try {
+    return document.referrer ? new URL(document.referrer).origin : window.location.origin;
+  } catch {
+    return window.location.origin;
+  }
+}
+
 // tweaks-panel.jsx
 // Reusable Tweaks shell + form-control helpers.
 //
@@ -131,7 +142,7 @@ function useTweaks(defaults) {
     const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
       ? keyOrEdits : { [keyOrEdits]: val };
     setValues((prev) => ({ ...prev, ...edits }));
-    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, getHostOrigin());
     // Same-window signal so in-page listeners (deck-stage rail thumbnails)
     // can react — the parent message only reaches the host, not peers.
     window.dispatchEvent(new CustomEvent('tweakchange', { detail: edits }));
@@ -179,19 +190,21 @@ function TweaksPanel({ title = 'Tweaks', children }) {
   }, [open, clampToViewport]);
 
   React.useEffect(() => {
+    const hostOrigin = getHostOrigin();
     const onMsg = (e) => {
+      if (e.origin !== hostOrigin) return;
       const t = e?.data?.type;
       if (t === '__activate_edit_mode') setOpen(true);
       else if (t === '__deactivate_edit_mode') setOpen(false);
     };
     window.addEventListener('message', onMsg);
-    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    window.parent.postMessage({ type: '__edit_mode_available' }, hostOrigin);
     return () => window.removeEventListener('message', onMsg);
   }, []);
 
   const dismiss = () => {
     setOpen(false);
-    window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+    window.parent.postMessage({ type: '__edit_mode_dismissed' }, getHostOrigin());
   };
 
   const onDragStart = (e) => {
