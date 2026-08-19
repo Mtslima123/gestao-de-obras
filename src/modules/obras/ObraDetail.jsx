@@ -177,7 +177,7 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
 };
 
 // ----- Visão Geral tab -----
-const VisaoGeral = ({ etapas, etapasLoaded, baselines = [], obraId }) => {
+const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
   // "Previsto" = a linha de base mais antiga da obra (plano original aprovado), a mesma
   // fonte usada como "Linha de Base" no Cronograma → Curva Física.
   const baseline = React.useMemo(() => (
@@ -185,17 +185,6 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [], obraId }) => {
       ? [...baselines].sort((a, b) => (a.criadaEm || '').localeCompare(b.criadaEm || ''))[0]
       : null
   ), [baselines]);
-
-  // Mês de referência (corte Executado/Replanejado) — mesmo controle da Curva Física do
-  // Cronograma. null = usa o mês atual automaticamente. Persistido por obra: a aba Visão
-  // Geral é desmontada ao trocar de aba/página, então o estado local sozinho se perderia.
-  const [selMonKey, setSelMonKey] = React.useState(() => {
-    try { return localStorage.getItem(`vg_refmes_${obraId}`) || null; } catch { return null; }
-  });
-  React.useEffect(() => {
-    if (!obraId || !selMonKey) return;
-    try { localStorage.setItem(`vg_refmes_${obraId}`, selMonKey); } catch { /* ignore */ }
-  }, [selMonKey, obraId]);
 
   // Curva S faseada (mesma lógica do Cronograma → Curva Física, "Real + Reprogramado"):
   // uma única distribuição acumulada do cronograma AO VIVO (peso = duração de cada folha),
@@ -240,16 +229,6 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [], obraId }) => {
     return { months, acumulado, previsto, todayIdx };
   }, [etapas, baseline]);
 
-  // Índice de corte usado no gráfico: mês de referência escolhido, senão o mês atual.
-  const refIdx = React.useMemo(() => {
-    if (!curva.months.length) return -1;
-    if (selMonKey) {
-      const i = curva.months.findIndex(m => m.key === selMonKey);
-      if (i >= 0) return i;
-    }
-    return curva.todayIdx;
-  }, [curva.months, curva.todayIdx, selMonKey]);
-
   return (
     <div className="stack">
         <div className="card">
@@ -258,16 +237,6 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [], obraId }) => {
               <div className="card-title">Curva S — Real x Replanejado</div>
             </div>
             <div className="card-actions" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-              {curva.months.length > 0 && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-soft)' }}>Mês de referência:</span>
-                  <select className="input" style={{ minWidth: 130 }} value={selMonKey ?? curva.months[refIdx]?.key ?? ''}
-                    onChange={e => setSelMonKey(e.target.value)}
-                    title="Mês que separa o Executado (verde) do Replanejado (azul)">
-                    {curva.months.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-                  </select>
-                </span>
-              )}
               <div className="legend">
                 <span className="legend-item"><span className="legend-swatch" style={{ background: '#16a34a' }}></span>Executado</span>
                 <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Replanejado</span>
@@ -281,7 +250,7 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [], obraId }) => {
             {!etapasLoaded ? (
               <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Carregando cronograma…</div>
             ) : curva.months.length ? (
-              <SCurveChart2 months={curva.months} selIdx={refIdx}
+              <SCurveChart2 months={curva.months} selIdx={curva.todayIdx}
                 execA={curva.acumulado} replanA={curva.acumulado} baselineA={curva.previsto}
                 show={{ bl: !!curva.previsto, rep: true, real: true }} showBarras={false} />
             ) : (
@@ -1056,6 +1025,16 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   // Valores agregados dos grupos (avanço/início/dur a partir dos filhos) — para a mini-Lista.
   const groupValsObra = React.useMemo(() => computeGroupValues(etapasObra), [etapasObra]);
 
+  // Nível máximo de grupo (para os botões N1/N2/... de recolher por nível na mini-Lista).
+  const maxGroupNivelObra = React.useMemo(
+    () => etapasObra.filter(e => e.isGroup).reduce((m, e) => Math.max(m, e.nivel || 0), 0),
+    [etapasObra]
+  );
+  const collapseToLevelObra = (maxNivel) => {
+    if (maxNivel < 0) { setCronoCollapsed(new Set()); return; }
+    setCronoCollapsed(new Set(etapasObra.filter(e => e.isGroup && (e.nivel || 0) === maxNivel).map(e => e.id)));
+  };
+
   const tabs = [
     { id: 'visao',      label: 'Visão geral' },
     { id: 'cronograma', label: 'Cronograma'  },
@@ -1144,7 +1123,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
         })}
       </div>
 
-      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} baselines={baselinesObra} obraId={o.id} />}
+      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} baselines={baselinesObra} />}
       {tab === 'cronograma' && (
         <div className="card" style={{ position: 'sticky', top: CRONO_STICKY_TOP, zIndex: 2 }}>
           <div className="card-header" ref={cronoHeaderRef}>
@@ -1174,6 +1153,23 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
               const tdS = { padding: '10px 12px', fontSize: 13, borderBottom: '1px solid var(--border-subtle)' };
               return (
                 <div style={{ overflowX: 'auto', maxHeight: cronoBodyMaxH || undefined, overflowY: 'auto' }}>
+                  {etapasObra.some(e => e.isGroup) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nível:</span>
+                      <span style={{ display: 'flex', gap: 2 }}>
+                        {Array.from({ length: maxGroupNivelObra + 1 }, (_, nivel) => (
+                          <button key={nivel} className="orca-row-btn" title={`Mostrar até nível ${nivel + 1}`}
+                            style={{ width: 22, height: 20, fontSize: 10, fontWeight: 600 }}
+                            onClick={() => collapseToLevelObra(nivel)}>
+                            N{nivel + 1}
+                          </button>
+                        ))}
+                        <button className="orca-row-btn" title="Expandir tudo"
+                          style={{ width: 22, height: 20, fontSize: 10, fontWeight: 600 }}
+                          onClick={() => collapseToLevelObra(-1)}>≡</button>
+                      </span>
+                    </div>
+                  )}
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border)' }}>

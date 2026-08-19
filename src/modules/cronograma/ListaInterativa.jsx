@@ -451,6 +451,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   };
+  // Arraste da borda inferior da calha (estilo Excel): redimensiona a altura só desta linha.
+  const startRowResize = (ev, taskId) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const startY = ev.clientY;
+    const startH = rowHeights[taskId] ?? rowH;
+    const onMove = (e2) => setRowHeights(prev => ({ ...prev, [taskId]: Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, startH + e2.clientY - startY)) }));
+    const onUp   = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
   // Duplo clique na borda da coluna (estilo Excel): ajusta a largura ao maior conteúdo
   // visível, medindo o texto num <canvas> fora da tela — colFilterValue já resolve o
   // rótulo de exibição de QUALQUER coluna (padrão ou personalizada).
@@ -1846,9 +1856,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     toast(`Coluna "${col.label}" excluída`, { tone: 'neutral', icon: 'check' });
   };
 
-  const statusBadgeClass = s => s === 'done' ? 'success' : s === 'late' ? 'danger' : 'info';
-  const statusLabel      = s => s === 'done' ? 'Concluída' : s === 'late' ? 'Atrasada' : 'Futura';
-
   const exportExcelLista = () => {
     import('xlsx').then(XLSX => {
       const wb      = XLSX.utils.book_new();
@@ -3010,13 +3017,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     })()}
                   </td>
                 ),
-                status: (
-                  <td key="status">
-                    {!e.isGroup && (
-                      <span className={'badge ' + statusBadgeClass(effStatus(e))}>{statusLabel(effStatus(e))}</span>
-                    )}
-                  </td>
-                ),
                 modo: (
                   <td key="modo" onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center', position: 'relative', overflow: 'visible' }}>
                     {!e.isGroup && (() => {
@@ -3214,6 +3214,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     }}
                   >
                     {rowIdx + 1}
+                    {/* Borda inferior da calha: arraste para redimensionar só esta linha (estilo Excel) */}
+                    <div title="Arraste para ajustar a altura da linha"
+                      style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 5, cursor: 'row-resize', zIndex: 3 }}
+                      onMouseDown={(ev) => startRowResize(ev, e.id)} />
                   </td>
                   {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeEdges.get(e.id + '|' + colId), rowIdx, rowIdx === filtrada.length - 1))}
 

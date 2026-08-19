@@ -173,7 +173,7 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
         e.stopPropagation();
       }}
       style={{
-        width: '100%', border: 'none', outline: '2px solid var(--brand)',
+        width: '100%', height: '100%', border: 'none', outline: '2px solid var(--brand)',
         borderRadius: 4, padding: '2px 6px', fontSize: 'inherit',
         background: 'var(--surface)', fontFamily: 'inherit',
         boxSizing: 'border-box',
@@ -192,7 +192,6 @@ export const LISTA_COL_DEFS = {
   fim:       { label: 'Término',       defWidth: 96,  band: 'prazo', type: 'date' },
   duracao:   { label: 'Duração',       defWidth: 78,  band: 'prazo', type: 'number' },
   avanco:    { label: '% Concluída',   defWidth: 150, band: 'avanco', type: 'number' },
-  status:    { label: 'Status',        defWidth: 110, band: 'avanco', type: 'enum' },
   peso:           { label: 'Peso %',          defWidth: 70,  align: 'right', band: 'fin', type: 'number' },
   fatorPeso:      { label: 'Fator Peso',      defWidth: 90,  align: 'right', band: 'fin', type: 'number' },
   valorVinculado: { label: 'Valor Vinculado', defWidth: 120, align: 'right', band: 'fin', type: 'number' },
