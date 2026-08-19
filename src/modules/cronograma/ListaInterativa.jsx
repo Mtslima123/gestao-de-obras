@@ -1453,19 +1453,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
   // Borda externa do intervalo (só nas arestas do retângulo, estilo Excel) via box-shadow —
   // sem preencher o fundo das células (senão cada linha vira uma "caixa" contra a borda
-  // padrão da tabela, em vez de um único retângulo de seleção).
-  const rangeSelStyle = (edges, hasOwnBg, frozen) => {
+  // padrão da tabela, em vez de um único retângulo de seleção). Colunas congeladas mantêm
+  // o próprio fundo opaco de sempre (definido em stickyStyle/frozenBg) — não ganham tom
+  // extra, senão a seleção de intervalo fica com preenchimento em vez de só a borda.
+  const rangeSelStyle = (edges) => {
     if (!edges) return null;
     const sh = [];
     if (edges.t) sh.push('inset 0 1px 0 0 var(--brand)');
     if (edges.b) sh.push('inset 0 -1px 0 0 var(--brand)');
     if (edges.l) sh.push('inset 1px 0 0 0 var(--brand)');
     if (edges.r) sh.push('inset -1px 0 0 0 var(--brand)');
-    const s = { boxShadow: sh.join(', ') };
-    // Colunas congeladas precisam de fundo OPACO (senão vazam o conteúdo rolado por baixo);
-    // as demais ficam transparentes — só a borda externa marca a seleção.
-    if (!hasOwnBg && frozen) s.background = 'color-mix(in srgb, var(--brand) 10%, var(--surface))';
-    return s;
+    return { boxShadow: sh.join(', ') };
   };
   const decorateCell = (cell, colId, taskId, fmt, edges, rowIdx = 0, isLastRow = true) => {
     if (!cell) return null;
@@ -1473,7 +1471,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const dragCls = dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : '';
     const { style: fmtStyle, classes: fmtClasses } = fmtToCss(eff);
     const cls     = [cell.props.className, dragCls, ...fmtClasses].filter(Boolean).join(' ');
-    const selStyle = rangeSelStyle(edges, !!eff.bg, LISTA_FROZEN.includes(colId));
+    const selStyle = rangeSelStyle(edges);
     // Coluna inteira marcada via Ctrl+clique no cabeçalho: só a borda externa do retângulo
     // (topo da 1ª linha, base da última, laterais em toda a coluna) — sem preencher o fundo
     // das células, estilo Excel — recua se a célula já tem cor própria.
@@ -2756,11 +2754,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 ? 'color-mix(in srgb, var(--brand) 8%, var(--surface))'
                 : e.isGroup ? 'var(--brand-50)' : 'var(--surface)';
               // A calha (número da linha) não passa por decorateCell/rangeSelStyle como as
-              // demais colunas — sem isto, ela perdia a marcação quando a linha fazia parte
-              // de um intervalo de células selecionadas (rangeRowIds desliga isSelected/frozenBg).
-              const gutterBg = rangeRowIds.has(e.id)
-                ? 'color-mix(in srgb, var(--brand) 10%, var(--surface))'
-                : frozenBg;
+              // demais colunas, mas segue a mesma regra: seleção de intervalo não pinta o
+              // fundo, só a borda (feita pela célula da 1ª coluna do intervalo).
+              const gutterBg = frozenBg;
               const stickyStyle = (colId) => ({
                 position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: frozenBg,
               });
