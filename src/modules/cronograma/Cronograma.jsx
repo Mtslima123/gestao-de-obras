@@ -1849,7 +1849,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   });
   // Filtro global (aba "Filtro" da Lista) — compartilhado entre Lista e Gantt, para o filtro
   // valer nas duas views. KPIs do topo continuam sobre `etapas` completo, sem filtro.
-  const [filtroStatus, setFiltroStatus] = React.useState('');
   const [filtroResp, setFiltroResp] = React.useState('');
   const [filtroPreset, setFiltroPreset] = React.useState('');
   const [filtroPresetRange, setFiltroPresetRange] = React.useState({ de: '', ate: '' });
@@ -2613,7 +2612,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           showProjSummary={viewCfg.projSummary} showSummaryTasks={viewCfg.summaryTasks}
                           onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
                           onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })}
-                          filtroStatus={filtroStatus} filtroResp={filtroResp} filtroPreset={filtroPreset}
+                          filtroResp={filtroResp} filtroPreset={filtroPreset}
                           filtroPresetRange={filtroPresetRange} filtroTaskIds={filtroTaskIds}
                           filtroTexto={filtroTexto} filtroVinculo={filtroVinculo} vinculadoIds={vinculadoIds}
                           valorVinculadoMap={valorVinculadoMapFull} hasVinculos={vinculos.length > 0} />
@@ -2848,7 +2847,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   showSummaryTasks={viewCfg.summaryTasks}
                   onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
                   onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })}
-                  filtroStatus={filtroStatus} setFiltroStatus={setFiltroStatus}
                   filtroResp={filtroResp} setFiltroResp={setFiltroResp}
                   filtroPreset={filtroPreset} setFiltroPreset={setFiltroPreset}
                   filtroPresetRange={filtroPresetRange} setFiltroPresetRange={setFiltroPresetRange}

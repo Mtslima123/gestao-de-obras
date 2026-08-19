@@ -149,12 +149,15 @@ const TarefaCronogramaSelect = React.memo(({ etapas, value, onChange, disabled }
                 style={{
                   padding: '7px 12px', cursor: 'pointer',
                   borderBottom: '1px solid var(--border-subtle)',
-                  background: sel ? 'var(--brand-tint)' : i === highlight ? 'var(--surface-muted)' : 'transparent',
+                  // Grupo entra depois de selecionado/destacado para não roubar esses estados; a barra
+                  // à esquerda é o sinal que sobrevive aos três casos (transparente nas folhas, para alinhar).
+                  background: sel ? 'var(--brand-tint)' : i === highlight ? 'var(--surface-muted)' : et.isGroup ? 'var(--brand-50)' : 'transparent',
+                  borderLeft: et.isGroup ? '3px solid var(--brand)' : '3px solid transparent',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 34 }}>{et.displayId ?? et.id}</span>
-                  <span style={{ paddingLeft: (et.nivel || 0) * 12, fontWeight: et.isGroup ? 700 : 400 }}>{et.etapa}</span>
+                  <span style={{ paddingLeft: (et.nivel || 0) * 12, fontWeight: et.isGroup ? 700 : 400, color: et.isGroup ? 'var(--brand)' : undefined }}>{et.etapa}</span>
                   {et.isGroup && <span style={{ fontSize: 10, color: 'var(--brand)', background: 'var(--brand-tint)', borderRadius: 4, padding: '0 5px' }}>grupo</span>}
                 </div>
                 {pai && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 1, paddingLeft: 40 }}>em {pai}</div>}
@@ -416,6 +419,11 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
   const [editandoEtapaId,  setEditandoEtapaId]  = React.useState(null);
   const [buscaModalItem,   setBuscaModalItem]    = React.useState('');
 
+  // Confirmação antes de remover vínculo. Na tabela é um modal; dentro do modal de edição
+  // é inline na própria linha (modal sobre modal quebra o Escape e o scroll do fundo).
+  const [pendingRemove,   setPendingRemove]   = React.useState(null);
+  const [confirmRemoveId, setConfirmRemoveId] = React.useState(null);
+
   // Estado do modal de distribuição de pesos (fator_peso das subtarefas de um grupo)
   const [distribuirEtapaId, setDistribuirEtapaId] = React.useState(null);
   const [salvandoPeso,      setSalvandoPeso]      = React.useState(false);
@@ -608,7 +616,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
     return it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q);
   });
 
-  const fecharModal = () => { setEditandoEtapaId(null); setBuscaModalItem(''); };
+  const fecharModal = () => { setEditandoEtapaId(null); setBuscaModalItem(''); setConfirmRemoveId(null); };
 
   // ── Dados do modal de distribuição de pesos ────────────────────────────────
   const distribuirEtapa    = etapas.find(e => e.id === distribuirEtapaId) || null;
@@ -721,7 +729,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                     }, 0);
                     return (
                       <div style={{ marginTop: 10, padding: '10px 14px', background: 'var(--brand-tint)', borderRadius: 8, fontSize: 13, color: 'var(--brand)' }}>
-                        <strong>{selItens.length} item{selItens.length > 1 ? 's' : ''}</strong>
+                        <strong>{selItens.length} {selItens.length > 1 ? 'itens' : 'item'}</strong>
                         <span style={{ margin: '0 8px', opacity: 0.6 }}>→</span>
                         <strong>{etapa?.etapa}</strong>
                         <div style={{ marginTop: 4, opacity: 0.8 }}>
@@ -741,7 +749,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                       {saving
                         ? 'Salvando…'
                         : selItens.length > 0
-                          ? `Adicionar (${selItens.length} item${selItens.length > 1 ? 's' : ''})`
+                          ? `Adicionar (${selItens.length} ${selItens.length > 1 ? 'itens' : 'item'})`
                           : 'Adicionar'}
                     </button>
                   </div>
@@ -850,7 +858,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                             <button
                               className="icon-btn"
                               title="Remover vínculo"
-                              onClick={() => handleRemove(v.id)}
+                              onClick={() => setPendingRemove(v)}
                               style={{ color: 'var(--danger)' }}
                             >
                               <Icon name="trash" size={14} />
@@ -899,6 +907,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
         <Modal
           title={`Editar Itens Associados — ${editandoEtapa.etapa}`}
           onClose={fecharModal}
+          draggable
           footer={
             <button className="btn btn-ghost" onClick={fecharModal}>Fechar</button>
           }
@@ -913,7 +922,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                 Nenhum item associado a esta tarefa.
               </div>
             ) : (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 260, overflowY: 'auto' }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 160, overflowY: 'auto' }}>
                 {vinculosEtapa.map(v => (
                   <div key={v.id} style={{
                     display: 'flex', alignItems: 'center', gap: 10,
@@ -928,14 +937,34 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                     <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
                       {formatBRL(itemValor(v.orcamento_itens))}
                     </span>
-                    <button
-                      className="icon-btn"
-                      title="Remover vínculo"
-                      onClick={() => handleRemove(v.id)}
-                      style={{ color: 'var(--danger)', flexShrink: 0 }}
-                    >
-                      <Icon name="trash" size={13} />
-                    </button>
+                    {confirmRemoveId === v.id ? (
+                      <>
+                        <button
+                          className="btn btn-danger"
+                          style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0 }}
+                          onClick={() => { setConfirmRemoveId(null); handleRemove(v.id); }}
+                        >
+                          Confirmar
+                        </button>
+                        <button
+                          className="btn btn-ghost"
+                          title="Cancelar"
+                          style={{ fontSize: 14, padding: 0, width: 26, height: 26, flexShrink: 0, lineHeight: 1 }}
+                          onClick={() => setConfirmRemoveId(null)}
+                        >
+                          ×
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="icon-btn"
+                        title="Remover vínculo"
+                        onClick={() => setConfirmRemoveId(v.id)}
+                        style={{ color: 'var(--danger)', flexShrink: 0 }}
+                      >
+                        <Icon name="trash" size={13} />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -954,7 +983,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
               onChange={e => setBuscaModalItem(e.target.value)}
               style={{ width: '100%', marginBottom: 8 }}
             />
-            <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 260, overflowY: 'auto' }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 160, overflowY: 'auto' }}>
               {itensNaoVinculados.length === 0 ? (
                 <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>
                   {buscaModalItem ? 'Nenhum item encontrado para essa busca.' : 'Todos os itens já foram vinculados.'}
@@ -993,6 +1022,35 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
               )}
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* ── Confirmação: remover vínculo (lixeira da tabela) ────────────────── */}
+      {pendingRemove && (
+        <Modal
+          title="Remover vínculo"
+          size="sm"
+          onClose={() => setPendingRemove(null)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setPendingRemove(null)}>Cancelar</button>
+              <button
+                className="btn btn-danger"
+                onClick={() => { const alvo = pendingRemove; setPendingRemove(null); handleRemove(alvo.id); }}
+              >
+                Remover
+              </button>
+            </>
+          }
+        >
+          <p style={{ fontSize: 14, marginBottom: 4 }}>
+            Remover o vínculo do item{' '}
+            <strong>{pendingRemove.orcamento_itens?.codigo || '—'} {pendingRemove.orcamento_itens?.nome || ''}</strong>?
+          </p>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 8 }}>
+            O item do orçamento e a tarefa não são apagados — só a associação entre eles, e os pesos físicos
+            passam a ser recalculados sem esse valor.
+          </p>
         </Modal>
       )}
 

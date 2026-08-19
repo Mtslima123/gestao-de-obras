@@ -237,7 +237,7 @@ export const FILTRO_PRESETS = [
 // Predicado único de filtro de tarefas, compartilhado pela Lista e pelo Gantt (para os dois
 // verem exatamente o mesmo conjunto filtrado). Tarefa Pai inclui toda a descendência (grupos
 // e folhas), preservando a hierarquia EAP; os demais critérios testam cada tarefa individualmente.
-export function buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas }) {
+export function buildTaskFilterPredicate({ filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas }) {
   const allowedIds = (filtroTaskIds && filtroTaskIds.length)
     ? filtroTaskIds.reduce((set, id) => {
         const t = etapas.find(x => x.id === id);
@@ -249,7 +249,6 @@ export function buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPrese
   const succMap = filtroPreset === 'semSucessoras' ? computeSuccessors(etapas) : null;
   return (e) => {
     if (allowedIds && !allowedIds.has(e.id)) return false;
-    if (filtroStatus && effStatus(e) !== filtroStatus) return false;
     if (filtroResp && !(e.responsavel || '').toLowerCase().includes(filtroResp.toLowerCase())) return false;
     if (filtroTexto && !(e.etapa || '').toLowerCase().includes(filtroTexto.toLowerCase())) return false;
     if (filtroVinculo === 'vinculado' && !vinculadoIds?.has(e.id)) return false;

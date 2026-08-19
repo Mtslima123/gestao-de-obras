@@ -30,7 +30,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
-  filtroStatus = '', setFiltroStatus, filtroResp = '', setFiltroResp,
+  filtroResp = '', setFiltroResp,
   filtroPreset = '', setFiltroPreset, filtroPresetRange = { de: '', ate: '' }, setFiltroPresetRange,
   filtroTaskIds = [], setFiltroTaskIds,
   filtroTexto = '', setFiltroTexto, filtroVinculo = '', setFiltroVinculo, vinculadoIds,
@@ -390,14 +390,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // ativos (cross-filter, estilo Excel) — assim a lista não mostra opção que já daria zero linhas.
   const buildDomainEntries = React.useCallback((colId) => {
     const rest = Object.fromEntries(Object.entries(columnFilters).filter(([cid]) => cid !== colId));
-    const passesGlobal = buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas });
+    const passesGlobal = buildTaskFilterPredicate({ filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas });
     const rows = visible.filter(e =>
       (showSummaryTasks || !e.isGroup) &&
       passesGlobal(e) &&
       Object.entries(rest).every(([cid, f]) => !f?.excluded?.length || !f.excluded.includes(filterKeyOf(cid, e)))
     );
     return rows.map(e => colFilterValue(e, colId));
-  }, [columnFilters, visible, showSummaryTasks, filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, filterKeyOf, colFilterValue]);
+  }, [columnFilters, visible, showSummaryTasks, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, filterKeyOf, colFilterValue]);
 
   const dragColRef = React.useRef(null);
   const [dragOverCol, setDragOverCol] = React.useState(null); // { id, side: 'before' | 'after' }
@@ -574,14 +574,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   // Aplica filtros sobre as linhas visíveis
   const filtrada = React.useMemo(() => {
-    const passesGlobal = buildTaskFilterPredicate({ filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas });
+    const passesGlobal = buildTaskFilterPredicate({ filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas });
     const base = visible.filter(e =>
       (showSummaryTasks || !e.isGroup) &&
       passesGlobal(e) &&
       passesColumnFilters(e)
     );
     return applySiblingSort(base, sortSpec);
-  }, [visible, filtroStatus, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Virtualização (windowing) da Lista — ativa só acima de VIRT_MIN. Abaixo, renderiza
   // todas as linhas (comportamento atual). Altura variável (rowH + overrides por linha)
@@ -2057,9 +2057,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       {/* ── Menu em abas (ribbon estilo MS Project): Tarefa | Inserir | Exibir ─── */}
       {(() => {
         const hasTarget = !!(selectedCell || selectedId);
-        const temFiltro = !!(filtroStatus || filtroResp || filtroPreset || filtroTaskIds.length || filtroTexto || filtroVinculo || Object.keys(columnFilters).length || sortSpec);
+        const temFiltro = !!(filtroResp || filtroPreset || filtroTaskIds.length || filtroTexto || filtroVinculo || Object.keys(columnFilters).length || sortSpec);
         const limparFiltros = () => {
-          setFiltroStatus(''); setFiltroResp('');
+          setFiltroResp('');
           setFiltroPreset?.(''); setFiltroPresetRange?.({ de: '', ate: '' }); setFiltroTaskIds?.([]);
           setFiltroTexto?.(''); setFiltroVinculo?.('');
           setColumnFilters({}); setSortSpec(null);
@@ -2442,17 +2442,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 {/* ══ Aba FILTRO ══ */}
                 {curTab === 'filtro' && (
                   <>
-                    {/* Filtros rápidos: status, responsável, tarefa pai (mostra pai + toda a descendência) */}
+                    {/* Filtros rápidos: responsável, tarefa pai (mostra pai + toda a descendência) */}
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={rowStyle}>
-                          <select className="input" style={{ height: 26, fontSize: 12 }}
-                            value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
-                            <option value="">Todos os status</option>
-                            <option value="done">Concluída</option>
-                            <option value="late">Atrasada</option>
-                            <option value="upcoming">Futura</option>
-                          </select>
                           <input className="input" style={{ height: 26, fontSize: 12, minWidth: 130 }}
                             placeholder="Responsável..." value={filtroResp} onChange={e => setFiltroResp(e.target.value)} />
                         </div>
@@ -3296,7 +3289,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             {/* Linhas em branco (estilo Project/Excel): digitar o nome cria a tarefa.
                Só quando editável e sem filtro; caso contrário mostra a mensagem de estado vazio. */}
             {(() => {
-              const semFiltro = !filtroStatus && !filtroResp && !filtroPreset && !filtroTaskIds.length && !filtroTexto && !filtroVinculo && !Object.keys(columnFilters).length;
+              const semFiltro = !filtroResp && !filtroPreset && !filtroTaskIds.length && !filtroTexto && !filtroVinculo && !Object.keys(columnFilters).length;
               const visCols = colOrder.filter(c => !hiddenCols.has(c));
               const visCustom = customCols.filter(col => !hiddenCols.has(col.id));
               const blankFrozen = (colId) => ({ position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: 'var(--surface)' });
