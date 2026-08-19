@@ -274,9 +274,11 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
   };
 
   // Apenas registra os pavimentos na obra (disponíveis para reutilizar em inserções/fotos),
-  // sem criar subtarefas agora.
+  // sem criar subtarefas agora. A lista da tela é a verdade: o que o usuário tirou daqui
+  // sai também do cadastro da obra — senão o pavimento excluído voltava na próxima abertura.
   const handleSalvarPreCadastro = () => {
     if (!validFloors.length) return;
+    pavimentosSalvos.filter(n => !validFloors.includes(n)).forEach(n => onPavimentoExcluir?.(n));
     onPavimentosCriados?.(validFloors);
     onClose();
   };
@@ -286,6 +288,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
       title="Inserção automática de pavimentos"
       subtitle={step === 1 ? 'Passo 1 de 2 — Definir pavimentos' : 'Passo 2 de 2 — Selecionar tarefas'}
       onClose={onClose}
+      draggable
       footer={
         <>
           <button className="btn btn-ghost" onClick={step === 1 ? onClose : () => setStep(1)}>
@@ -294,7 +297,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
           {step === 1 ? (
             <>
               <button className="btn btn-ghost" disabled={!validFloors.length} onClick={handleSalvarPreCadastro}
-                title="Salva os pavimentos na obra para reutilizar depois, sem criar subtarefas agora">
+                title="Sincroniza o cadastro da obra com esta lista (adiciona os novos e exclui os removidos), sem criar subtarefas agora">
                 Salvar pré-cadastro
               </button>
               <button className="btn btn-primary" disabled={!validFloors.length} onClick={() => setStep(2)}>
@@ -314,7 +317,8 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
           <p style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
             Informe os nomes dos pavimentos. Use "Salvar pré-cadastro" para deixá-los disponíveis na obra (para reutilizar em inserções e fotos), ou "Próximo" para já criá-los como subtarefas das tarefas que você selecionar.
           </p>
-          <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 4 }}>
+          {/* Altura fixa: a caixa não cresce ao adicionar pavimentos, o rodapé não pula de lugar. */}
+          <div style={{ height: 220, overflowY: 'auto', paddingRight: 4 }}>
             {floors.map((f, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                 <span style={{ width: 20, textAlign: 'right', fontSize: 12, color: 'var(--text-faint)', flexShrink: 0 }}>{i + 1}.</span>
