@@ -20,6 +20,22 @@ export const medicaoMensalService = {
     return data || null;
   },
 
+  // Histórico: medições já fechadas da obra, mais recente primeiro.
+  async listarFechadas(obraId) {
+    if (!obraId) return [];
+    const { data, error } = await supabase
+      .from('medicoes_mensais')
+      .select('*')
+      .eq('obra_id', obraId)
+      .eq('status', 'fechada')
+      .order('mes_referencia', { ascending: false });
+    if (error) {
+      logger.error('falha ao listar medições fechadas', { module: 'medicaoMensal', action: 'listarFechadas', obraId, err: error });
+      return [];
+    }
+    return data || [];
+  },
+
   async salvarRascunho(obraId, mesReferencia, itens) {
     const payload = {
       obra_id: obraId,
@@ -40,12 +56,17 @@ export const medicaoMensalService = {
     return { data, error: null };
   },
 
-  async fechar(obraId, mesReferencia, itens, fechadaPor) {
+  // `snapshot` (buildSnapshotFechamento) congela os valores medidos: sem isso os R$ de
+  // uma medição fechada seriam recalculados se o cronograma mudasse depois.
+  async fechar(obraId, mesReferencia, snapshot, fechadaPor) {
     const payload = {
       obra_id: obraId,
       mes_referencia: mesReferencia,
       status: 'fechada',
-      itens: itens.map(i => ({ id: i.id, percMedido: i.percMedido })),
+      itens: snapshot.itens,
+      valor_total_medido: snapshot.valorTotalMedido,
+      perc_medido: snapshot.percMedido,
+      perc_previsto: snapshot.percPrevisto,
       fechada_em: new Date().toISOString(),
       fechada_por: fechadaPor || null,
       updated_at: new Date().toISOString(),

@@ -20,8 +20,8 @@ export const MODULOS = [
       { id: 'lista', label: 'Lista' },
       { id: 'uso',   label: 'Uso da Tarefa' },
       { id: 'curva', label: 'Curva Física' },
-      { id: 'fluxo', label: 'Fluxo Executivo' },
       { id: 'medicao', label: 'Medição Mensal' },
+      { id: 'fluxo', label: 'Fluxo Executivo' },
   ] },
   { id: 'orc-x-cron',  label: 'Orç. × Cronograma', icon: 'link', subDe: 'cronograma' },
 ];

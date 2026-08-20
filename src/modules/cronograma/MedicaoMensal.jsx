@@ -3,17 +3,22 @@ import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
 import { formatBRL, formatNum } from '../../utils/formatters';
 import { computeAllWBS, computeRealizedDistAte } from './scheduleEngine';
+import { offsetToDate, dateToOffset } from './cronogramaDateUtils';
 import { medicaoMensalService } from './medicaoMensal.service';
 import {
   fmtPct100, PREVISTO_MES_PCT, computeDisciplinaInfo, buildItensMedicao,
-  parsePercInput, derivarStatus, computeGruposMedicao, computeTotaisMedicao,
-  computeResumo, validarFechamento, mergePercMedido,
+  parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
+  computeResumo, validarFechamento, mergePercMedido, buildSnapshotFechamento,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
 // mês a partir dos itens do cronograma agendados no mês de referência (mesma
 // distribuição mensal usada em Uso da Tarefa/Curva Física), permite ajustar o
 // % medido de cada item e consolidar (fechar) a medição do mês.
+//
+// A tabela renderiza a hierarquia REAL do cronograma (N1/N2/N3): grupos indentados e
+// recolhíveis, folhas medíveis. O colapso é estado LOCAL desta tela — diferente da
+// Lista, que grava `e.collapsed` no cronograma; aqui a Medição só lê o cronograma.
 
 const STATUS_META = {
   pendente:  { label: 'Pendente',     badge: 'danger' },
@@ -38,6 +43,17 @@ function carregarMesRefMedicao(obraId) {
 function salvarMesRefMedicao(obraId, key) {
   try { localStorage.setItem('crono_medicao_mesref_' + obraId, key); } catch { /* ignore */ }
 }
+
+// Primeiro e último dia do mês de referência, em ISO — default dos campos De/Até.
+function limitesDoMes(mesRefKey) {
+  const [y, m] = (mesRefKey || '').split('-').map(Number);
+  if (!y || !m) return { de: '', ate: '' };
+  const ultimo = new Date(y, m, 0).getDate();
+  const mm = String(m).padStart(2, '0');
+  return { de: `${y}-${mm}-01`, ate: `${y}-${mm}-${String(ultimo).padStart(2, '0')}` };
+}
+
+const PDF_FORMATOS = ['a4', 'a3', 'a2', 'a1'];
 
 function KpiCard({ label, value, barColor, foot, footColor }) {
   return (
@@ -132,22 +148,53 @@ export default function MedicaoMensal({
   const [pavimento, setPavimento] = React.useState('Todos');
   const [mostrarConfirmFechar, setMostrarConfirmFechar] = React.useState(false);
 
+  // Recorte do período: começa no mês de referência e pode ser ampliado à mão.
+  const [incluirNaoProgramados, setIncluirNaoProgramados] = React.useState(false);
+  const [periodoDe, setPeriodoDe] = React.useState(() => limitesDoMes(mesRefKey).de);
+  const [periodoAte, setPeriodoAte] = React.useState(() => limitesDoMes(mesRefKey).ate);
+  React.useEffect(() => {
+    const lim = limitesDoMes(mesRefKey);
+    setPeriodoDe(lim.de);
+    setPeriodoAte(lim.ate);
+  }, [mesRefKey]);
+
+  // Grupos recolhidos (ids). Local: recolher aqui não mexe no cronograma.
+  const [collapsed, setCollapsed] = React.useState(() => new Set());
+
+  const [fechadas, setFechadas] = React.useState([]);
+  const [pdfFormat, setPdfFormat] = React.useState('a3');
+  const [exportando, setExportando] = React.useState(false);
+
   const wbsMap = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   const disciplinaInfo = React.useMemo(() => computeDisciplinaInfo(etapas, wbsMap), [etapas, wbsMap]);
+
+  const periodo = React.useMemo(() => {
+    if (!periodoDe || !periodoAte) return null;
+    return { de: dateToOffset(periodoDe), ate: dateToOffset(periodoAte) };
+  }, [periodoDe, periodoAte]);
 
   const gerarMedicao = React.useCallback(async () => {
     if (!obraId || !mesRefKey) { setItensTrabalho([]); setRegistro(null); return; }
     setCarregando(true);
-    const base = buildItensMedicao(etapas, mesRefKey, { monthlyDist, wbsMap, disciplinaInfo });
+    const base = buildItensMedicao(etapas, mesRefKey, {
+      monthlyDist, wbsMap, disciplinaInfo,
+      incluirNaoProgramados, periodo, valorVinculadoMap: weightOverride,
+    });
     const reg = await medicaoMensalService.buscarPorMes(obraId, mesRefKey);
     setRegistro(reg);
     setItensTrabalho(mergePercMedido(base, reg?.itens));
     setCarregando(false);
-  }, [etapas, mesRefKey, monthlyDist, wbsMap, disciplinaInfo, obraId]);
+  }, [etapas, mesRefKey, monthlyDist, wbsMap, disciplinaInfo, obraId, incluirNaoProgramados, periodo, weightOverride]);
 
-  // Carrega ao montar e sempre que trocar de mês/obra — edições em andamento do
-  // usuário não são perdidas por mudanças não relacionadas (ex.: outra aba salvando).
-  React.useEffect(() => { gerarMedicao(); }, [obraId, mesRefKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Carrega ao montar e sempre que trocar de mês/obra ou de recorte do período —
+  // edições em andamento do usuário não são perdidas por mudanças não relacionadas.
+  React.useEffect(() => { gerarMedicao(); }, [obraId, mesRefKey, incluirNaoProgramados, periodoDe, periodoAte]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    let vivo = true;
+    medicaoMensalService.listarFechadas(obraId).then(r => { if (vivo) setFechadas(r); });
+    return () => { vivo = false; };
+  }, [obraId, registro]);
 
   const fechada = registro?.status === 'fechada';
   const bloqueado = readOnly || fechada;
@@ -157,7 +204,7 @@ export default function MedicaoMensal({
     [itensTrabalho]
   );
   const pavimentos = React.useMemo(
-    () => ['Todos', ...Array.from(new Set(itensTrabalho.map(i => i.pavimento)))],
+    () => ['Todos', ...Array.from(new Set(itensTrabalho.map(i => i.pavimento))).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }))],
     [itensTrabalho]
   );
 
@@ -169,9 +216,18 @@ export default function MedicaoMensal({
       i.wbs.includes(busca.trim()))
   )), [itensTrabalho, disciplina, pavimento, busca]);
 
-  const valorTotalBase = React.useMemo(() => itensTrabalho.reduce((s, i) => s + i.valor, 0), [itensTrabalho]);
-  const grupos = React.useMemo(() => computeGruposMedicao(filtradas, valorTotalBase), [filtradas, valorTotalBase]);
+  // Denominador = só o previsto do mês. Itens fora do mês somam ao realizado
+  // (numerador) mas não ao previsto, então % executado pode passar de 100%.
+  const valorTotalBase = React.useMemo(
+    () => itensTrabalho.reduce((s, i) => s + (i.foraDoMes ? 0 : i.valor), 0),
+    [itensTrabalho]
+  );
+  const linhas = React.useMemo(
+    () => computeArvoreMedicao(filtradas, etapas, valorTotalBase, collapsed),
+    [filtradas, etapas, valorTotalBase, collapsed]
+  );
   const totais = React.useMemo(() => computeTotaisMedicao(filtradas, valorTotalBase), [filtradas, valorTotalBase]);
+  const qtdForaDoMes = React.useMemo(() => filtradas.filter(i => i.foraDoMes).length, [filtradas]);
 
   const resumo = React.useMemo(() => {
     if (!mesRefKey) return { valorObra: 0, metaProgramada: 0, previstoAcumulado: 0, executadoAcumulado: 0 };
@@ -190,6 +246,21 @@ export default function MedicaoMensal({
     setItensTrabalho(prev => prev.map(l => (l.id === id ? { ...l, percMedido: valor } : l)));
   };
 
+  const alternarGrupo = (id) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // Mesma semântica de applyOutlineLevel do Cronograma (0 = expandir tudo), mas o
+  // resultado é o Set local desta tela, sem gravar no cronograma.
+  const aplicarNivel = (nivel) => {
+    const todas = computeArvoreMedicao(filtradas, etapas, valorTotalBase, new Set());
+    setCollapsed(gruposParaNivel(todas, nivel));
+  };
+
   const salvarRascunho = async () => {
     setSalvando(true);
     const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itensTrabalho);
@@ -201,7 +272,8 @@ export default function MedicaoMensal({
 
   const confirmarFechamento = async () => {
     setSalvando(true);
-    const { data, error } = await medicaoMensalService.fechar(obraId, mesRefKey, itensTrabalho, currentUser?.nome || currentUser?.email);
+    const snapshot = buildSnapshotFechamento(itensTrabalho, totais);
+    const { data, error } = await medicaoMensalService.fechar(obraId, mesRefKey, snapshot, currentUser?.nome || currentUser?.email);
     setSalvando(false);
     if (error) { toast('Não foi possível fechar a medição (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
     setRegistro(data);
@@ -209,39 +281,161 @@ export default function MedicaoMensal({
     toast('Medição fechada', { tone: 'success', icon: 'check' });
   };
 
-  const exportar = async () => {
-    const XLSX = await import('xlsx');
-    const linhas = [
-      ['SERVIÇO', 'DESCRIÇÃO', 'DISCIPLINA', 'PAVIMENTO', 'INÍCIO', 'TÉRMINO', 'DUR.', 'PESO %', '% EXECUTADO', '% MEDIDO', 'VALOR A MEDIR'],
-      ...filtradas.map(i => [
-        i.wbs, i.descricao, i.disciplina, i.pavimento, i.dataInicio, i.dataTermino, i.duracaoDias,
-        valorTotalBase ? (i.valor / valorTotalBase) * 100 : 0, i.percExecutado, i.percMedido, (i.valor * i.percMedido) / 100,
-      ]),
-      [],
-      ['TOTAL GERAL', '', '', '', '', '', '', totais.peso, totais.exec, totais.med, totais.valorAMedir],
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(linhas);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Medição');
-    XLSX.writeFile(wb, `medicao-mensal-${mesRefKey || 'mes'}.xlsx`);
+  // ── Exportação ────────────────────────────────────────────────────────────
+  // Linhas da árvore no formato de planilha/PDF: mesma ordem e hierarquia da tela,
+  // com a indentação por nível que o projeto já usa nos outros exports.
+  const linhasExport = () => linhas.map(l => {
+    const grupo = l.tipo === 'grupo';
+    const status = grupo ? '' : (STATUS_META[derivarStatus(l)]?.label || '');
+    return {
+      grupo,
+      cells: [
+        l.wbs || '',
+        '  '.repeat(l.nivel || 0) + l.descricao + (l.foraDoMes ? ' (fora do mês)' : ''),
+        grupo ? '' : l.pavimento,
+        grupo ? null : offsetToDate(l.inicioOff),
+        grupo ? null : offsetToDate(l.terminoOff),
+        grupo ? '' : l.duracaoDias,
+        (l.peso ?? (valorTotalBase ? (l.valor / valorTotalBase) * 100 : 0)) / 100,
+        (grupo ? l.exec : l.percExecutado) / 100,
+        (grupo ? l.med : l.percMedido) / 100,
+        grupo ? l.valor : (l.valor * l.percMedido) / 100,
+        status,
+      ],
+    };
+  });
+
+  const CABECALHOS = ['SERVIÇO', 'DESCRIÇÃO', 'PAVIMENTO', 'INÍCIO', 'TÉRMINO', 'DUR.', 'PESO %', '% EXECUTADO', '% MEDIDO', 'VALOR A MEDIR', 'STATUS'];
+
+  const exportarExcel = async () => {
+    setExportando(true);
+    try {
+      const XLSX = await import('xlsx');
+      const corpo = linhasExport().map(l => l.cells);
+      const rows = [
+        CABECALHOS,
+        ...corpo,
+        [],
+        [`TOTAL GERAL · ${totais.qtd} atividades`, '', '', null, null, '',
+          totais.peso / 100, totais.exec / 100, totais.med / 100, totais.valorAMedir, ''],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
+      const rng = XLSX.utils.decode_range(ws['!ref']);
+      // Números crus na célula + formato via .z (nunca string de moeda), padrão do projeto.
+      for (let R = 1; R <= rng.e.r; R++) {
+        [[3, 'DD/MM/YYYY'], [4, 'DD/MM/YYYY'], [6, '0.00%'], [7, '0.00%'], [8, '0.00%'], [9, '#,##0.00']].forEach(([C, z]) => {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (ws[addr]) ws[addr].z = z;
+        });
+      }
+      ws['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 7 }, { wch: 10 }, { wch: 13 }, { wch: 11 }, { wch: 16 }, { wch: 14 }];
+      ws['!freeze'] = { xSplit: 2, ySplit: 1 };
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Medição');
+      XLSX.writeFile(wb, `medicao-mensal-${mesRefKey || 'mes'}.xlsx`);
+    } catch {
+      toast('Erro ao exportar para Excel', { tone: 'danger' });
+    } finally {
+      setExportando(false);
+    }
   };
+
+  const exportarPDF = async () => {
+    setExportando(true);
+    try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: pdfFormat });
+      const BRAND = [28, 69, 132]; // #1C4584 (identidade Soter)
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      doc.setFontSize(13); doc.text(`Medição Mensal · ${mesLabel(mesRefKey)}`, 14, 14);
+      doc.setFontSize(8); doc.setTextColor(130);
+      doc.text(`Período ${periodoDe ? periodoDe.split('-').reverse().join('/') : '—'} a ${periodoAte ? periodoAte.split('-').reverse().join('/') : '—'} · Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
+      doc.setTextColor(0);
+
+      const dados = linhasExport();
+      const fmtD = (d) => (d ? d.toLocaleDateString('pt-BR') : '');
+      const fmtP = (v) => `${formatNum(v * 100, 1)}%`;
+      autoTable(doc, {
+        startY: 25,
+        head: [CABECALHOS],
+        body: dados.map(l => [
+          l.cells[0], l.cells[1], l.cells[2], fmtD(l.cells[3]), fmtD(l.cells[4]), l.cells[5],
+          fmtP(l.cells[6]), fmtP(l.cells[7]), fmtP(l.cells[8]), formatBRL(l.cells[9]), l.cells[10],
+        ]),
+        foot: [[
+          { content: `TOTAL GERAL · ${totais.qtd} atividades`, colSpan: 6, styles: { halign: 'left' } },
+          fmtPct100(totais.peso), fmtPct100(totais.exec), fmtPct100(totais.med), formatBRL(totais.valorAMedir), '',
+        ]],
+        theme: 'grid',
+        headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
+        bodyStyles: { fontSize: 7, textColor: 40 },
+        footStyles: { fillColor: [225, 232, 242], textColor: 20, fontStyle: 'bold', fontSize: 7, halign: 'right' },
+        alternateRowStyles: { fillColor: [248, 249, 250] },
+        columnStyles: {
+          5: { halign: 'center' }, 6: { halign: 'center' }, 7: { halign: 'center' },
+          8: { halign: 'center' }, 9: { halign: 'right' }, 10: { halign: 'center' },
+        },
+        margin: { top: 25, right: 14, bottom: 14, left: 14 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && dados[data.row.index]?.grupo) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [232, 240, 252];
+            data.cell.styles.textColor = 20;
+          }
+          if (data.section === 'foot' && data.column.index === 0) data.cell.styles.halign = 'left';
+        },
+        didDrawPage: ({ pageNumber }) => {
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text(`Página ${pageNumber}`, W - 20, H - 6);
+          doc.setTextColor(0);
+        },
+      });
+      doc.save(`medicao-mensal-${mesRefKey || 'mes'}.pdf`);
+    } catch {
+      toast('Erro ao exportar para PDF', { tone: 'danger' });
+    } finally {
+      setExportando(false);
+    }
+  };
+
+  // Banda e nomes de coluna são os dois sticky; sem deslocar o segundo pelo altura do
+  // primeiro, as duas faixas colidem no topo ao rolar (mesma correção da Lista).
+  const bandRowRef = React.useRef(null);
+  const [bandH, setBandH] = React.useState(26);
+  React.useEffect(() => {
+    if (bandRowRef.current) {
+      const h = Math.ceil(bandRowRef.current.getBoundingClientRect().height);
+      if (h && h !== bandH) setBandH(h);
+    }
+  });
+  const bandTop = Math.max(0, bandH - 1);
+  const thSticky = { position: 'sticky', top: bandTop, zIndex: 3 };
+  const footCell = { padding: '0 10px', height: 30 };
 
   return (
     <>
       <div className="page-header">
         <div>
           <h1 className="page-title">Medição Mensal</h1>
-          <div className="page-subtitle">Medição física-financeira da obra · itens do cronograma agendados para o mês</div>
+          <div className="page-subtitle">Medição física da obra · itens do cronograma agendados para o mês</div>
         </div>
         <div className="page-actions">
           <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)} style={{ minWidth: 150 }}>
-            {months.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            {months.map(m => <option key={m.key} value={m.key}>{mesLabel(m.key)}</option>)}
           </select>
           <button type="button" className="btn btn-ghost" onClick={onAtualizarDados} disabled={carregando}>
             <Icon name="refresh-cw" size={15} />Atualizar dados
           </button>
-          <button type="button" className="btn btn-ghost" onClick={exportar}>
-            <Icon name="download" size={15} />Exportar
+          <button type="button" className="btn btn-ghost" onClick={exportarExcel} disabled={exportando}>
+            <Icon name="download" size={15} />Excel
+          </button>
+          <select className="input" value={pdfFormat} onChange={e => setPdfFormat(e.target.value)}
+            title="Tamanho do papel do PDF" style={{ minWidth: 74 }}>
+            {PDF_FORMATOS.map(f => <option key={f} value={f}>{f.toUpperCase()}</option>)}
+          </select>
+          <button type="button" className="btn btn-ghost" onClick={exportarPDF} disabled={exportando}>
+            <Icon name="download" size={15} />{exportando ? 'Gerando…' : 'PDF'}
           </button>
           <button type="button" className="btn btn-dark" onClick={gerarMedicao} disabled={carregando || bloqueado}>
             <Icon name="plus" size={15} />{carregando ? 'Gerando…' : 'Gerar medição'}
@@ -283,16 +477,26 @@ export default function MedicaoMensal({
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
           <input
             className="input input-search"
-            style={{ flex: 1, minWidth: 220 }}
+            style={{ flex: 1, minWidth: 200 }}
             placeholder="Buscar atividade..."
             value={busca}
             onChange={e => setBusca(e.target.value)}
           />
-          <select className="input" value={disciplina} onChange={e => setDisciplina(e.target.value)} style={{ minWidth: 170 }}>
+          <select className="input" value={disciplina} onChange={e => setDisciplina(e.target.value)} style={{ minWidth: 150 }}>
             {disciplinas.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
-          <select className="input" value={pavimento} onChange={e => setPavimento(e.target.value)} style={{ minWidth: 170 }}>
+          <select className="input" value={pavimento} onChange={e => setPavimento(e.target.value)} style={{ minWidth: 150 }}>
             {pavimentos.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select
+            className="input" defaultValue="" style={{ minWidth: 130 }}
+            title="Expandir/recolher a estrutura por nível"
+            onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') aplicarNivel(Number(v)); }}
+          >
+            <option value="" disabled>Estrutura…</option>
+            <option value="0">Expandir tudo</option>
+            <option value="1">Recolher tudo</option>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <option key={n} value={n}>Nível {n}</option>)}
           </select>
           {!bloqueado && (
             <>
@@ -312,103 +516,144 @@ export default function MedicaoMensal({
           {fechada && <span className="badge success" style={{ marginLeft: 'auto' }}><span className="dot" />Medição fechada</span>}
         </div>
 
+        {/* Recorte do período: começa no mês de referência; itens fora do mês somam ao
+            realizado, não ao previsto (foram produzidos além do programado). */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-muted)' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Período</span>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-soft)' }}>
+            De
+            <input type="date" className="input" style={{ height: 28, fontSize: 12.5 }}
+              value={periodoDe} onChange={e => setPeriodoDe(e.target.value)} />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-soft)' }}>
+            Até
+            <input type="date" className="input" style={{ height: 28, fontSize: 12.5 }}
+              value={periodoAte} onChange={e => setPeriodoAte(e.target.value)} />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-soft)', cursor: 'pointer' }}
+            title="Traz tarefas sem fatia programada neste mês, para medir o que foi feito adiantado">
+            <input type="checkbox" checked={incluirNaoProgramados} onChange={e => setIncluirNaoProgramados(e.target.checked)} />
+            Incluir itens não programados
+          </label>
+          {qtdForaDoMes > 0 && (
+            <span className="badge warning" style={{ marginLeft: 'auto' }}>
+              {qtdForaDoMes} {qtdForaDoMes === 1 ? 'item fora do mês' : 'itens fora do mês'} · somam ao realizado, não ao previsto
+            </span>
+          )}
+        </div>
+
         <div style={{ overflowX: 'auto' }}>
-          <table className="tbl" style={{ minWidth: 1240 }}>
+          {/* tbl-lista: cabeçalho azul e altura de linha fina, os mesmos da Lista. */}
+          <table className="tbl tbl-lista" style={{ minWidth: 1240, '--lista-row-h': '24px' }}>
             <thead>
-              <tr className="band-row">
-                <th />
+              <tr className="band-row" ref={bandRowRef}>
                 <th colSpan={3}>ETAPA / TAREFA</th>
                 <th colSpan={3}>PRAZO</th>
                 <th colSpan={3}>AVANÇO</th>
                 <th colSpan={2}>FINANCEIRO</th>
               </tr>
               <tr>
-                <th style={{ width: 36 }} />
-                <th>SERVIÇO</th>
-                <th>DESCRIÇÃO</th>
-                <th>PAVIMENTO</th>
-                <th className="center">INÍCIO</th>
-                <th className="center">TÉRMINO</th>
-                <th className="center">DUR.</th>
-                <th className="center">PESO %</th>
-                <th style={{ minWidth: 160 }}>% EXECUTADO</th>
-                <th className="center">% MEDIDO</th>
-                <th className="right">VALOR A MEDIR</th>
-                <th className="center">STATUS</th>
+                <th style={{ ...thSticky, width: 110 }}>SERVIÇO</th>
+                <th style={thSticky}>DESCRIÇÃO</th>
+                <th style={thSticky}>PAVIMENTO</th>
+                <th className="center" style={thSticky}>INÍCIO</th>
+                <th className="center" style={thSticky}>TÉRMINO</th>
+                <th className="center" style={thSticky}>DUR.</th>
+                <th className="center" style={thSticky}>PESO %</th>
+                <th style={{ ...thSticky, minWidth: 160 }}>% EXECUTADO</th>
+                <th className="center" style={thSticky}>% MEDIDO</th>
+                <th className="right" style={thSticky}>VALOR A MEDIR</th>
+                <th className="center" style={thSticky}>STATUS</th>
               </tr>
             </thead>
             <tbody>
-              {grupos.length === 0 && (
+              {linhas.length === 0 && (
                 <tr>
-                  <td colSpan={12} style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
+                  <td colSpan={11} style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
                     Nenhum item do cronograma agendado para o período com os filtros aplicados.
                   </td>
                 </tr>
               )}
-              {grupos.map(g => (
-                <React.Fragment key={g.codigo + '|' + g.nome}>
-                  <tr style={{ background: 'var(--brand-50)' }}>
-                    <td />
-                    <td className="strong num">{g.codigo}</td>
-                    <td colSpan={5} className="strong">{g.nome}</td>
-                    <td className="center strong num">{fmtPct100(g.peso)}</td>
-                    <td className="strong num">{fmtPct100(g.exec)}</td>
-                    <td className="center strong num">{fmtPct100(g.med)}</td>
-                    <td className="right strong num">{formatBRL(g.valor, 2)}</td>
-                    <td />
+              {linhas.map(l => {
+                const indent = (l.nivel || 0) * 20;
+                if (l.tipo === 'grupo') {
+                  return (
+                    <tr key={'g' + l.id} className="lista-row-group" style={{ fontWeight: 600 }}>
+                      <td className="num">{l.wbs}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', paddingLeft: indent }}>
+                          <button className="lista-toggle" onClick={() => alternarGrupo(l.id)}
+                            title={l.colapsado ? 'Expandir' : 'Recolher'}>
+                            {l.colapsado ? '▶' : '▼'}
+                          </button>
+                          <span style={{ fontWeight: 700 }}>{l.descricao}</span>
+                        </div>
+                      </td>
+                      <td /><td /><td /><td />
+                      <td className="center num">{fmtPct100(l.peso)}</td>
+                      <td className="num">{fmtPct100(l.exec)}</td>
+                      <td className="center num">{fmtPct100(l.med)}</td>
+                      <td className="right num">{formatBRL(l.valor, 2)}</td>
+                      <td />
+                    </tr>
+                  );
+                }
+                const status = derivarStatus(l);
+                const peso = valorTotalBase ? (l.valor / valorTotalBase) * 100 : 0;
+                return (
+                  <tr key={l.id}>
+                    <td className="num">{l.wbs}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: indent }}>
+                        {/* Espaçador da largura da seta: alinha a folha com o nome do grupo do mesmo nível. */}
+                        <span style={{ width: 20, flexShrink: 0, display: 'inline-block' }} />
+                        <span>{l.descricao}</span>
+                        {l.foraDoMes && (
+                          <span className="badge warning" style={{ fontSize: 9.5, padding: '0 5px' }}>fora do mês</span>
+                        )}
+                      </div>
+                    </td>
+                    <td>{l.pavimento}</td>
+                    <td className="center num">{l.dataInicio}</td>
+                    <td className="center num">{l.dataTermino}</td>
+                    <td className="center num">{l.duracaoDias}</td>
+                    <td className="center num">{fmtPct100(peso)}</td>
+                    <td>
+                      <div className="progress-row">
+                        <div className={'progress' + (status === 'concluida' ? ' success' : status === 'pendente' ? ' danger' : '')}>
+                          <span style={{ width: `${Math.min(100, l.percExecutado)}%` }} />
+                        </div>
+                        <span className="pct">{fmtPct100(l.percExecutado)}</span>
+                      </div>
+                    </td>
+                    <td className="center">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                        <input
+                          className="input"
+                          style={{ width: 56, height: 24, padding: '0 6px', textAlign: 'right' }}
+                          inputMode="decimal"
+                          value={l.percMedido}
+                          disabled={bloqueado}
+                          aria-label={`Percentual medido de ${l.descricao}`}
+                          onChange={e => alterarMedido(l.id, e.target.value)}
+                        />
+                        <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>%</span>
+                      </span>
+                    </td>
+                    <td className="right num" style={{ fontWeight: 600 }}>{formatBRL((l.valor * l.percMedido) / 100, 2)}</td>
+                    <td className="center"><StatusPill status={status} /></td>
                   </tr>
-                  {g.rows.map(item => {
-                    const status = derivarStatus(item);
-                    const peso = valorTotalBase ? (item.valor / valorTotalBase) * 100 : 0;
-                    return (
-                      <tr key={item.id}>
-                        <td />
-                        <td className="num">{item.wbs}</td>
-                        <td className="strong">{item.descricao}</td>
-                        <td>{item.pavimento}</td>
-                        <td className="center num">{item.dataInicio}</td>
-                        <td className="center num">{item.dataTermino}</td>
-                        <td className="center num">{item.duracaoDias}</td>
-                        <td className="center num">{fmtPct100(peso)}</td>
-                        <td>
-                          <div className="progress-row">
-                            <div className={'progress' + (status === 'concluida' ? ' success' : status === 'pendente' ? ' danger' : '')}>
-                              <span style={{ width: `${item.percExecutado}%` }} />
-                            </div>
-                            <span className="pct">{fmtPct100(item.percExecutado)}</span>
-                          </div>
-                        </td>
-                        <td className="center">
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                            <input
-                              className="input"
-                              style={{ width: 56, height: 28, padding: '0 6px', textAlign: 'right' }}
-                              inputMode="decimal"
-                              value={item.percMedido}
-                              disabled={bloqueado}
-                              aria-label={`Percentual medido de ${item.descricao}`}
-                              onChange={e => alterarMedido(item.id, e.target.value)}
-                            />
-                            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>%</span>
-                          </span>
-                        </td>
-                        <td className="right strong num">{formatBRL((item.valor * item.percMedido) / 100, 2)}</td>
-                        <td className="center"><StatusPill status={status} /></td>
-                      </tr>
-                    );
-                  })}
-                </React.Fragment>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot>
-              <tr style={{ background: 'var(--brand-700)', color: '#fff' }}>
-                <td />
-                <td colSpan={6}>TOTAL GERAL · {totais.qtd} atividades</td>
-                <td className="center num">{fmtPct100(totais.peso)}</td>
-                <td className="num">{fmtPct100(totais.exec)}</td>
-                <td className="center num">{fmtPct100(totais.med)}</td>
-                <td className="right num">{formatBRL(totais.valorAMedir, 2)}</td>
-                <td />
+              <tr style={{ background: 'var(--brand-700)', color: '#fff', fontWeight: 600 }}>
+                <td colSpan={6} style={footCell}>TOTAL GERAL · {totais.qtd} atividades</td>
+                <td className="center num" style={footCell}>{fmtPct100(totais.peso)}</td>
+                <td className="num" style={footCell}>{fmtPct100(totais.exec)}</td>
+                <td className="center num" style={footCell}>{fmtPct100(totais.med)}</td>
+                <td className="right num" style={footCell}>{formatBRL(totais.valorAMedir, 2)}</td>
+                <td style={footCell} />
               </tr>
             </tfoot>
           </table>
@@ -426,6 +671,42 @@ export default function MedicaoMensal({
           ))}
         </div>
       </div>
+
+      {/* Histórico: medições já fechadas, com os valores congelados no fechamento. */}
+      {fechadas.length > 0 && (
+        <div className="card" style={{ marginTop: 'var(--gap)' }}>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>Medições fechadas</div>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>valores congelados no fechamento</span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl tbl-lista" style={{ '--lista-row-h': '26px' }}>
+              <thead>
+                <tr>
+                  <th>MÊS</th>
+                  <th className="center">FECHADA EM</th>
+                  <th>FECHADA POR</th>
+                  <th className="center">ITENS</th>
+                  <th className="center">% MEDIDO</th>
+                  <th className="right">VALOR MEDIDO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fechadas.map(f => (
+                  <tr key={f.id}>
+                    <td style={{ fontWeight: 600 }}>{mesLabel(f.mes_referencia)}</td>
+                    <td className="center num">{f.fechada_em ? new Date(f.fechada_em).toLocaleDateString('pt-BR') : '—'}</td>
+                    <td>{f.fechada_por || '—'}</td>
+                    <td className="center num">{Array.isArray(f.itens) ? f.itens.length : 0}</td>
+                    <td className="center num">{f.perc_medido == null ? '—' : fmtPct100(f.perc_medido)}</td>
+                    <td className="right num">{f.valor_total_medido == null ? '—' : formatBRL(f.valor_total_medido, 2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {mostrarConfirmFechar && (
         <ModalFecharMedicao

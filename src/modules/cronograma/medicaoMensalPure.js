@@ -9,34 +9,51 @@
 // do item para o mês é, por definição, o que estava programado para ser produzido
 // naquele mês — a meta é entregar 100% dele até o fim do mês.
 //
+// Itens FORA DO MÊS (incluirNaoProgramados): tarefas sem fatia no mês de referência,
+// trazidas para medir trabalho feito adiantado. A regra é "soma ao realizado, não soma
+// ao previsto" — por isso carregam o valor CHEIO da tarefa (não têm fatia deste mês) e
+// ficam fora do denominador `valorTotalBase`, que continua sendo só o previsto do mês.
+// Consequência esperada: com elas na tela, "% executado" passa de 100%, que é exatamente
+// a leitura desejada (produziu-se além do programado).
+//
 // ATENÇÃO: não usar formatPct de utils/formatters.js aqui — ela espera fração 0-1
 // e todos os percentuais desta tela já estão na escala 0-100. Usar fmtPct100.
 
 import { formatNum } from '../../utils/formatters';
-import { offsetToDate, taskEnd } from './cronogramaDateUtils';
+import { offsetToISO, isoToBR, taskEnd } from './cronogramaDateUtils';
 
 export const PREVISTO_MES_PCT = 100;
 
-const formatDDMM = (date) => `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+// dd/mm/aaaa — isoToBR já é o formato de exibição padrão do projeto.
+const fmtData = (off) => isoToBR(offsetToISO(off));
 
 export const fmtPct100 = (v) => `${formatNum(v, 1)}%`;
+
+// Sobe por parentId até a raiz, devolvendo a cadeia de ancestrais do mais alto para o
+// mais próximo. O `visited` protege contra ciclo de parentId (dado corrompido).
+function cadeiaAncestrais(id, mapaEtapas) {
+  const cadeia = [];
+  let cur = mapaEtapas.get(id);
+  const visited = new Set();
+  while (cur?.parentId && !visited.has(cur.id)) {
+    visited.add(cur.id);
+    const pai = mapaEtapas.get(cur.parentId);
+    if (!pai) break;
+    cadeia.unshift(pai);
+    cur = pai;
+  }
+  return cadeia;
+}
 
 // Para cada etapa, sobe por parentId até o ancestral raiz (nível 0) e usa esse grupo
 // como "disciplina" — reaproveita a hierarquia N1/N2/N3 já existente no cronograma
 // em vez de exigir um campo novo.
 export function computeDisciplinaInfo(etapas, wbsMap) {
-  const map = new Map(etapas.map(e => [e.id, e]));
+  const mapaEtapas = new Map(etapas.map(e => [e.id, e]));
   const result = {};
   etapas.forEach(e => {
-    let cur = e;
-    const visited = new Set();
-    while (cur.parentId && !visited.has(cur.id)) {
-      visited.add(cur.id);
-      const parent = map.get(cur.parentId);
-      if (!parent) break;
-      cur = parent;
-    }
-    result[e.id] = { disciplina: cur.etapa || '—', disciplinaCodigo: wbsMap[cur.id] || '0' };
+    const raiz = cadeiaAncestrais(e.id, mapaEtapas)[0] || e;
+    result[e.id] = { disciplina: raiz.etapa || '—', disciplinaCodigo: wbsMap[raiz.id] || '0' };
   });
   return result;
 }
@@ -44,23 +61,51 @@ export function computeDisciplinaInfo(etapas, wbsMap) {
 // Itens do cronograma agendados no mês de referência: folhas cujo monthlyDist tem
 // fatia naquele mês (mesma janela de dias já usada por computeMonthlyDist — garante
 // que "quais itens aparecem" e "qual valor cada um carrega" vêm da mesma fonte).
-export function buildItensMedicao(etapas, mesRefKey, { monthlyDist, wbsMap, disciplinaInfo }) {
+//
+// Opções:
+//   incluirNaoProgramados — traz também folhas sem fatia no mês (ver nota no topo).
+//   periodo { de, ate }   — recorte por offsets; entra quem intersecta a janela. Com o
+//                           período igual ao mês de referência o resultado é o mesmo de
+//                           antes desta opção existir.
+//   valorVinculadoMap     — peso do orçamento; vira o valor cheio dos itens fora do mês.
+export function buildItensMedicao(etapas, mesRefKey, {
+  monthlyDist, wbsMap, disciplinaInfo,
+  incluirNaoProgramados = false, periodo = null, valorVinculadoMap = null,
+}) {
+  const noMes      = (e) => !!(monthlyDist[e.id] && mesRefKey in monthlyDist[e.id]);
+  const valorCheio = (e) => (valorVinculadoMap?.[e.id] ?? e.custo) || 0;
+
   return etapas
-    .filter(e => !e.isGroup && monthlyDist[e.id] && mesRefKey in monthlyDist[e.id])
+    .filter(e => {
+      if (e.isGroup) return false;
+      if (!noMes(e) && !(incluirNaoProgramados && valorCheio(e) > 0)) return false;
+      if (!periodo) return true;
+      // Intersecção de janelas: começa antes do fim do período e termina depois do início.
+      return e.inicio <= periodo.ate && taskEnd(e) >= periodo.de;
+    })
     .map(e => {
       const info = disciplinaInfo[e.id] || { disciplina: '—', disciplinaCodigo: '0' };
       const percExecutado = e.avanco || 0;
+      const foraDoMes = !noMes(e);
+      const terminoOff = taskEnd(e);
       return {
         id: e.id,
+        parentId: e.parentId ?? null,
+        nivel: e.nivel || 0,
         wbs: wbsMap[e.id] || '',
         descricao: e.etapa || '',
         pavimento: e.pavimento || '—',
         disciplina: info.disciplina,
         disciplinaCodigo: info.disciplinaCodigo,
-        dataInicio: formatDDMM(offsetToDate(e.inicio)),
-        dataTermino: formatDDMM(offsetToDate(taskEnd(e))),
+        // Offsets crus: o filtro por intervalo e a ordenação precisam deles — as strings
+        // dataInicio/dataTermino são só exibição.
+        inicioOff: e.inicio,
+        terminoOff,
+        dataInicio: fmtData(e.inicio),
+        dataTermino: fmtData(terminoOff),
         duracaoDias: e.dur,
-        valor: monthlyDist[e.id][mesRefKey] || 0,
+        valor: foraDoMes ? valorCheio(e) : (monthlyDist[e.id][mesRefKey] || 0),
+        foraDoMes,
         percExecutado,
         percMedido: percExecutado, // default; mergePercMedido sobrepõe com o que estiver salvo
         status: undefined,
@@ -83,27 +128,76 @@ export function derivarStatus(item) {
   return 'andamento';
 }
 
-// Agrupa por disciplina; %executado/%medido do grupo = média ponderada por valor.
-export function computeGruposMedicao(itens, valorTotalBase) {
-  const mapa = new Map();
+// Média ponderada por valor — como grupo e total agregam %executado/%medido.
+function agregar(rows, valorTotalBase) {
+  const valor = rows.reduce((s, r) => s + r.valor, 0);
+  return {
+    valor,
+    exec: valor ? rows.reduce((s, r) => s + r.valor * r.percExecutado, 0) / valor : 0,
+    med:  valor ? rows.reduce((s, r) => s + r.valor * r.percMedido, 0) / valor : 0,
+    peso: valorTotalBase ? (valor / valorTotalBase) * 100 : 0,
+  };
+}
+
+// Árvore real do cronograma (N1/N2/N3), em vez de faixas por disciplina: percorre as
+// etapas na ordem do cronograma e devolve uma lista PLANA de linhas
+// { tipo: 'grupo' | 'item' }, mantendo só os grupos que têm alguma folha medível dentro.
+// É isso que permite indentar por nível e recolher grupo, como na Lista.
+//
+// `collapsed` é um Set de ids de grupo. Diferente da Lista, que grava `e.collapsed` no
+// cronograma, aqui o estado é local da tela — a Medição é leitura sobre o cronograma.
+export function computeArvoreMedicao(itens, etapas, valorTotalBase, collapsed = new Set()) {
+  const porId = new Map(itens.map(i => [i.id, i]));
+  if (!porId.size) return [];
+
+  const mapaEtapas = new Map(etapas.map(e => [e.id, e]));
+
+  // Folhas de cada grupo (para agregar) e o conjunto de grupos que devem aparecer.
+  const folhasDoGrupo = new Map();
   itens.forEach(i => {
-    const k = `${i.disciplinaCodigo}|${i.disciplina}`;
-    if (!mapa.has(k)) mapa.set(k, []);
-    mapa.get(k).push(i);
-  });
-  return Array.from(mapa.entries())
-    .sort(([a], [b]) => a.localeCompare(b, 'pt-BR', { numeric: true }))
-    .map(([k, rows]) => {
-      const [codigo, nome] = k.split('|');
-      const valor = rows.reduce((s, r) => s + r.valor, 0);
-      const exec = valor ? rows.reduce((s, r) => s + r.valor * r.percExecutado, 0) / valor : 0;
-      const med = valor ? rows.reduce((s, r) => s + r.valor * r.percMedido, 0) / valor : 0;
-      return { codigo, nome, rows, valor, exec, med, peso: valorTotalBase ? (valor / valorTotalBase) * 100 : 0 };
+    cadeiaAncestrais(i.id, mapaEtapas).forEach(g => {
+      if (!folhasDoGrupo.has(g.id)) folhasDoGrupo.set(g.id, []);
+      folhasDoGrupo.get(g.id).push(i);
     });
+  });
+
+  // Um grupo recolhido esconde toda a sua descendência, em qualquer profundidade.
+  const escondido = (id) => cadeiaAncestrais(id, mapaEtapas).some(a => collapsed.has(a.id));
+
+  const linhas = [];
+  etapas.forEach(e => {
+    if (escondido(e.id)) return;
+    if (folhasDoGrupo.has(e.id)) {
+      linhas.push({
+        tipo: 'grupo',
+        id: e.id,
+        nivel: e.nivel || 0,
+        wbs: '',
+        descricao: e.etapa || '',
+        temFilhos: true,
+        colapsado: collapsed.has(e.id),
+        ...agregar(folhasDoGrupo.get(e.id), valorTotalBase),
+      });
+      return;
+    }
+    const item = porId.get(e.id);
+    if (item) linhas.push({ tipo: 'item', temFilhos: false, ...item });
+  });
+  return linhas;
+}
+
+// Ids de todos os grupos da árvore que estão em nível >= (nivelAlvo - 1). Espelha a
+// semântica de applyOutlineLevel do Cronograma: 0 expande tudo, N recolhe do nível N-1
+// para baixo — só que aqui o resultado é um Set local, sem gravar no cronograma.
+export function gruposParaNivel(linhas, nivelAlvo) {
+  if (!nivelAlvo || nivelAlvo <= 0) return new Set();
+  return new Set(linhas.filter(l => l.tipo === 'grupo' && l.nivel >= nivelAlvo - 1).map(l => l.id));
 }
 
 // Totais gerais: numerador sobre os itens filtrados, denominador (valorTotalBase)
 // sobre a base NÃO filtrada — para o total não se distorcer quando um filtro é aplicado.
+// Itens fora do mês entram no numerador (realizado) mas não no denominador (previsto),
+// então `exec` e `med` podem passar de 100% quando se produziu além do programado.
 export function computeTotaisMedicao(itensFiltrados, valorTotalBase) {
   const valor = itensFiltrados.reduce((s, i) => s + i.valor, 0);
   const exec = valorTotalBase ? itensFiltrados.reduce((s, i) => s + i.valor * i.percExecutado, 0) / valorTotalBase : 0;
@@ -139,4 +233,25 @@ export function mergePercMedido(itensBase, registroItens) {
   if (!registroItens?.length) return itensBase;
   const salvos = new Map(registroItens.map(r => [r.id, r.percMedido]));
   return itensBase.map(i => (salvos.has(i.id) ? { ...i, percMedido: salvos.get(i.id) } : i));
+}
+
+// Snapshot gravado no fechamento: congela o que foi medido para que o histórico não
+// mude quando o cronograma mudar depois (custo, datas, vínculo de orçamento). Sem isso
+// os R$ de uma medição "fechada" seriam recalculados na releitura.
+export function buildSnapshotFechamento(itens, totais) {
+  return {
+    valorTotalMedido: totais.valorAMedir,
+    percMedido: totais.med,
+    percPrevisto: PREVISTO_MES_PCT,
+    itens: itens.map(i => ({
+      id: i.id,
+      wbs: i.wbs,
+      descricao: i.descricao,
+      pavimento: i.pavimento,
+      valor: i.valor,
+      foraDoMes: !!i.foraDoMes,
+      percExecutado: i.percExecutado,
+      percMedido: i.percMedido,
+    })),
+  };
 }

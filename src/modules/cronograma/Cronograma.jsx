@@ -1740,8 +1740,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     { id: 'lista', label: 'Lista' },
     { id: 'uso',   label: 'Uso da Tarefa' },
     { id: 'curva', label: 'Curva Física' },
-    { id: 'fluxo', label: 'Fluxo Executivo' },
     { id: 'medicao', label: 'Medição Mensal' },
+    { id: 'fluxo', label: 'Fluxo Executivo' },
   ].filter(a => podeVerAba(userProfile, 'cronograma', a.id));
 
   // Se a sub-aba salva não estiver liberada para este usuário, cai na primeira permitida
