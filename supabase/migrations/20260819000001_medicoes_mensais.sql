@@ -5,7 +5,8 @@
 -- Data: 2026-08-19
 --
 -- Aplicar manualmente no SQL Editor do Supabase (projeto gestao-de-obras).
--- Idempotente.
+-- Idempotente: CREATE POLICY não aceita IF NOT EXISTS, então cada policy é
+-- derrubada antes de ser recriada (mesma transação — não há janela sem RLS).
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.medicoes_mensais (
@@ -29,6 +30,14 @@ ALTER TABLE public.medicoes_mensais ENABLE ROW LEVEL SECURITY;
 -- usuário com acesso liberado (can_access_obra), leitura para quem foi
 -- atribuído à obra (user_has_obra), e bloqueio de escrita se o módulo
 -- "cronograma" estiver em modo somente-leitura para o usuário.
+
+DROP POLICY IF EXISTS "medicoes_mensais_own"             ON public.medicoes_mensais;
+DROP POLICY IF EXISTS "medicoes_mensais_write_access"    ON public.medicoes_mensais;
+DROP POLICY IF EXISTS "medicoes_mensais_assigned_select" ON public.medicoes_mensais;
+DROP POLICY IF EXISTS "medicoes_mensais_ro_ins"          ON public.medicoes_mensais;
+DROP POLICY IF EXISTS "medicoes_mensais_ro_upd"          ON public.medicoes_mensais;
+DROP POLICY IF EXISTS "medicoes_mensais_ro_del"          ON public.medicoes_mensais;
+DROP POLICY IF EXISTS "medicoes_mensais_no_edit_fechada" ON public.medicoes_mensais;
 
 CREATE POLICY "medicoes_mensais_own" ON public.medicoes_mensais
   FOR ALL
