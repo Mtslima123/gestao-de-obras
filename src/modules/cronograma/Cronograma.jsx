@@ -17,6 +17,7 @@ import {
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
   computeGroupValues, computeSuccessors,
 } from './scheduleEngine';
+import MedicaoMensal from './MedicaoMensal';
 import {
   CriarLinhaModal, GerenciarLinhasModal, FeriadosModal,
   CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal,
@@ -1740,6 +1741,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     { id: 'uso',   label: 'Uso da Tarefa' },
     { id: 'curva', label: 'Curva Física' },
     { id: 'fluxo', label: 'Fluxo Executivo' },
+    { id: 'medicao', label: 'Medição Mensal' },
   ].filter(a => podeVerAba(userProfile, 'cronograma', a.id));
 
   // Se a sub-aba salva não estiver liberada para este usuário, cai na primeira permitida
@@ -2519,7 +2521,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                       <div className="kpi-foot" style={{ marginTop: 6 }}><span style={{ color: '#d97706', fontWeight: 600 }}>+{terminoDeltaDias} dias</span><span className="kpi-foot-text"> vs planejado</span></div>
                     </div>
                   </div>
-                  ) : (
+                  ) : view === 'medicao' ? null : (
                 <div className="kpi-grid cols-5">
                   <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Avanço físico</div>
@@ -2859,6 +2861,14 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
 
               {view === 'uso' && (
                 <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} valorVinculadoMap={valorVinculadoMapFull} />
+              )}
+
+              {view === 'medicao' && (
+                <MedicaoMensal
+                  etapas={etapas} months={months} monthlyDist={monthlyDist} monthlyTotals={monthlyTotals}
+                  valorVinculadoMap={valorVinculadoMapFull} obraId={obraSel} readOnly={readOnly}
+                  currentUser={currentUser} onAtualizarDados={recarregarCronograma}
+                />
               )}
 
               {view === 'fluxo' && (

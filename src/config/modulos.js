@@ -21,6 +21,7 @@ export const MODULOS = [
       { id: 'uso',   label: 'Uso da Tarefa' },
       { id: 'curva', label: 'Curva Física' },
       { id: 'fluxo', label: 'Fluxo Executivo' },
+      { id: 'medicao', label: 'Medição Mensal' },
   ] },
   { id: 'orc-x-cron',  label: 'Orç. × Cronograma', icon: 'link', subDe: 'cronograma' },
 ];

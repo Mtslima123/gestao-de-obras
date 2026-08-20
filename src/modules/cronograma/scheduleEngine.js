@@ -525,10 +525,9 @@ export function computeMonthlyDist(etapas, weightOverride = null) {
   return result;
 }
 
-// Distribui o custo realizado (avanco × custo) de cada tarefa pelos meses passados até hoje.
+// Distribui o custo realizado (avanco × custo) de cada tarefa pelos meses passados até `ateDate`.
 // weightOverride: usa o valor vinculado como peso quando há vínculos (consistente com o planejado).
-export function computeRealizedDist(etapas, weightOverride = null) {
-  const todayDate = new Date();
+export function computeRealizedDistAte(etapas, ateDate, weightOverride = null) {
   const result = {};
   etapas.forEach(e => {
     if (e.isGroup) return;
@@ -538,7 +537,7 @@ export function computeRealizedDist(etapas, weightOverride = null) {
     const realized = (avanco / 100) * custo;
     const s = offsetToDate(e.inicio);
     const taskEndDate = offsetToDate(e.inicio + Math.max(e.dur, 1));
-    const f = new Date(Math.min(taskEndDate.getTime(), todayDate.getTime()));
+    const f = new Date(Math.min(taskEndDate.getTime(), ateDate.getTime()));
     if (f <= s) return;
     const totalDays = Math.max(1, (f - s) / 86400000);
     let cur = new Date(s.getFullYear(), s.getMonth(), 1);
@@ -554,6 +553,11 @@ export function computeRealizedDist(etapas, weightOverride = null) {
     }
   });
   return result;
+}
+
+// Mesmo cálculo, travado em "hoje" — usado pela Curva Física (mês corrente fixo).
+export function computeRealizedDist(etapas, weightOverride = null) {
+  return computeRealizedDistAte(etapas, new Date(), weightOverride);
 }
 
 // Agrega distribuição mensal de todos os descendentes folha de um grupo
