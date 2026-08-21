@@ -419,6 +419,19 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
 
   const norm = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
+  // Separa um codigo de EAP colado no inicio do nome ("1.2.1 Fundacao" ou "1.2.1 - Fundacao").
+  // O codigo da planilha serve SO para descobrir a hierarquia: o WBS exibido e sempre
+  // gerado pelo sistema (computeAllWBS, a partir do parentId). Sem isso, uma planilha de
+  // coluna unica trazia o codigo dentro do nome da tarefa e a hierarquia vinha plana.
+  const separarCodigoNome = (texto) => {
+    const t = String(texto ?? '').trim();
+    // O separador é obrigatório: sem ele, "1.2.1" era quebrado em código "1.2" + nome "1",
+    // e uma linha que só tem o código viraria uma tarefa chamada "1".
+    const m = t.match(/^(\d+(?:\.\d+)*)(?:\s*[-–—:]\s*|[).]?\s+)(.+)$/);
+    if (!m) return { code: '', name: t };
+    return { code: m[1], name: m[2].trim() };
+  };
+
   // Converte a matriz (linhas x colunas) da planilha em nós de EAP com parentId.
   const parseRows = (matrix) => {
     const rows = (matrix || []).filter(r => Array.isArray(r) && r.some(c => String(c ?? '').trim() !== ''));
@@ -446,9 +459,14 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
     const warnings = [];
     const items = [];
     dataRows.forEach(r => {
-      const name = String(r[nameIdx] ?? '').trim();
+      const bruto = String(r[nameIdx] ?? '').trim();
+      if (!bruto) return;
+      const codigoNaColuna = codeIdx >= 0 ? String(r[codeIdx] ?? '').trim() : '';
+      // Sem coluna de código própria, tenta extrair do começo do nome.
+      const sep  = codigoNaColuna ? { code: codigoNaColuna, name: bruto } : separarCodigoNome(bruto);
+      const name = sep.name;
       if (!name) return;
-      const code   = codeIdx  >= 0 ? String(r[codeIdx] ?? '').trim() : '';
+      const code   = sep.code;
       const level  = levelIdx >= 0 ? parseInt(r[levelIdx], 10) : null;
       const durRaw = durIdx   >= 0 ? parseFloat(String(r[durIdx] ?? '').replace(',', '.')) : NaN;
       const dur    = Number.isFinite(durRaw) && durRaw > 0 ? Math.round(durRaw) : null;

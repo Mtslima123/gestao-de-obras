@@ -1321,7 +1321,35 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       return;
     }
     if (editingNow) return;
-    // Ctrl+B / Ctrl+I / Ctrl+U : negrito / itálico / sublinhado na seleção (estilo editor).
+    // Ctrl/Cmd + Shift + baixo/cima (estilo Excel): estende a selecao ate a ultima (ou
+    // primeira) celula COM informacao na coluna atual. Antes a seta com Ctrl caia na
+    // navegacao comum e andava so uma linha. Percorre da ponta para tras, entao um
+    // buraco no meio da coluna nao interrompe a selecao.
+    if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) {
+      if (!selectedCell) return;
+      ev.preventDefault();
+      const rows = filtrada.map(x => x.id);
+      const rAtual = rows.indexOf(selectedCell.taskId);
+      if (rAtual < 0) return;
+      const temInfo = (id) => {
+        const e = etapas.find(x => x.id === id);
+        if (!e) return false;
+        const v = colFilterValue(e, selectedCell.colId);
+        return v != null && v.label !== '' && v.label != null;
+      };
+      let alvo = rAtual;
+      if (ev.key === 'ArrowDown') {
+        for (let r = rows.length - 1; r > rAtual; r--) if (temInfo(rows[r])) { alvo = r; break; }
+      } else {
+        for (let r = 0; r < rAtual; r++) if (temInfo(rows[r])) { alvo = r; break; }
+      }
+      if (alvo === rAtual) return;
+      setSelAnchor(selAnchor || selectedCell);   // a ancora fica onde estava
+      setSelectedCell({ taskId: rows[alvo], colId: selectedCell.colId });
+      scrollRowIntoView(rows[alvo]);
+      return;
+    }
+    // Ctrl+B / Ctrl+I / Ctrl+U : negrito / italico / sublinhado na selecao (estilo editor).
     if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ['b', 'i', 'u'].includes(ev.key.toLowerCase())) {
       if (readOnly) return;
       ev.preventDefault();
