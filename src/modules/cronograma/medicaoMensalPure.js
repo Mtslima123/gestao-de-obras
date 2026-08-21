@@ -28,7 +28,9 @@ export const PREVISTO_MES_PCT = 100;
 // dd/mm/aaaa — isoToBR já é o formato de exibição padrão do projeto.
 const fmtData = (off) => isoToBR(offsetToISO(off));
 
-export const fmtPct100 = (v) => `${formatNum(v, 1)}%`;
+// Duas casas decimais: medição é documento financeiro, e 0,1pp em obra de milhões
+// já é dinheiro suficiente para não arredondar. O Excel exportado já usava '0.00%'.
+export const fmtPct100 = (v) => `${formatNum(v, 2)}%`;
 
 // Sobe por parentId até a raiz, devolvendo a cadeia de ancestrais do mais alto para o
 // mais próximo. O `visited` protege contra ciclo de parentId (dado corrompido).
@@ -276,6 +278,47 @@ export function buildSnapshotFechamento(itens, totais) {
       foraDoMes: !!i.foraDoMes,
       percExecutado: i.percExecutado,
       percMedido: i.percMedido,
+      // Campos de exibição também congelam: sem eles a tela de uma medição fechada
+      // teria que voltar ao cronograma para montar a árvore e as datas, e mudaria
+      // junto com ele.
+      nivel: i.nivel ?? 0,
+      parentId: i.parentId ?? null,
+      dataInicio: i.dataInicio,
+      dataTermino: i.dataTermino,
+      duracaoDias: i.duracaoDias,
     })),
   };
+}
+
+// Reconstrói as linhas de uma medição FECHADA a partir do snapshot gravado, sem
+// consultar o cronograma. Snapshots antigos não têm os campos de exibição (nivel,
+// parentId, datas, duração): só nesses casos cai no cronograma, e apenas para eles —
+// os valores financeiros vêm sempre do snapshot.
+export function hidratarSnapshot(registroItens, etapas, { wbsMap = {}, disciplinaInfo = {} } = {}) {
+  if (!registroItens?.length) return [];
+  const porId = new Map(etapas.map(e => [e.id, e]));
+  return registroItens.map(i => {
+    const e = porId.get(i.id);
+    const info = disciplinaInfo[i.id] || {};
+    return {
+      id: i.id,
+      parentId: i.parentId ?? e?.parentId ?? null,
+      nivel: i.nivel ?? e?.nivel ?? 0,
+      wbs: i.wbs || wbsMap[i.id] || '',
+      descricao: i.descricao || e?.etapa || '',
+      pavimento: i.pavimento || e?.pavimento || '—',
+      disciplina: info.disciplina || '—',
+      disciplinaCodigo: info.disciplinaCodigo || '0',
+      inicioOff: e?.inicio,
+      terminoOff: e ? taskEnd(e) : undefined,
+      dataInicio: i.dataInicio || (e ? fmtData(e.inicio) : ''),
+      dataTermino: i.dataTermino || (e ? fmtData(taskEnd(e)) : ''),
+      duracaoDias: i.duracaoDias ?? e?.dur,
+      valor: i.valor || 0,
+      foraDoMes: !!i.foraDoMes,
+      percExecutado: i.percExecutado || 0,
+      percMedido: i.percMedido || 0,
+      status: undefined,
+    };
+  });
 }

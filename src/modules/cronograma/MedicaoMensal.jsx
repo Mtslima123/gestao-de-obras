@@ -8,7 +8,7 @@ import { medicaoMensalService } from './medicaoMensal.service';
 import {
   fmtPct100, PREVISTO_MES_PCT, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
-  computeResumo, validarFechamento, mergePercMedido, buildSnapshotFechamento,
+  computeResumo, validarFechamento, mergePercMedido, buildSnapshotFechamento, hidratarSnapshot,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -43,7 +43,7 @@ function KpiCard({ label, value, barColor, foot, footColor }) {
     <div className="kpi" style={{ padding: '18px 20px' }}>
       <div className="kpi-label">{label}</div>
       <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>
-        {formatNum(value, 1)}<span className="unit">%</span>
+        {formatNum(value, 2)}<span className="unit">%</span>
       </div>
       <div className="kpi-bar">
         <span className="kpi-bar-fill" style={{ width: `${Math.max(0, Math.min(100, value))}%`, background: barColor }} />
@@ -206,7 +206,7 @@ export default function MedicaoMensal({
   // Grupos recolhidos (ids). Local: recolher aqui não mexe no cronograma.
   const [collapsed, setCollapsed] = React.useState(() => new Set());
 
-  const [fechadas, setFechadas] = React.useState([]);
+  const [mesesComMedicao, setMesesComMedicao] = React.useState([]);
   const [pdfFormat, setPdfFormat] = React.useState('a3');
   const [exportando, setExportando] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
@@ -214,6 +214,12 @@ export default function MedicaoMensal({
 
   const wbsMap = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   const disciplinaInfo = React.useMemo(() => computeDisciplinaInfo(etapas, wbsMap), [etapas, wbsMap]);
+
+  // Monta as linhas do mês a partir do cronograma vivo. Usado enquanto a medição está
+  // aberta (rascunho) — medição fechada NÃO passa por aqui, ver abaixo.
+  const montarDoCronograma = React.useCallback((idsExtras) => buildItensMedicao(etapas, mesRefKey, {
+    monthlyDist, wbsMap, disciplinaInfo, idsExtras, valorVinculadoMap: weightOverride,
+  }), [etapas, mesRefKey, monthlyDist, wbsMap, disciplinaInfo, weightOverride]);
 
   const gerarMedicao = React.useCallback(async () => {
     if (!obraId || !mesRefKey) { setItensTrabalho([]); setRegistro(null); setIdsManuais(new Set()); return; }
@@ -223,14 +229,21 @@ export default function MedicaoMensal({
     // `foraDoMes`. Lendo só uma delas, uma medição fechada voltava sem os itens extras e
     // os totais da tela divergiam do valor congelado que o histórico mostra.
     const idsSalvos = new Set((reg?.itens || []).filter(i => i.manual || i.foraDoMes).map(i => i.id));
-    const base = buildItensMedicao(etapas, mesRefKey, {
-      monthlyDist, wbsMap, disciplinaInfo, idsExtras: idsSalvos, valorVinculadoMap: weightOverride,
-    });
     setIdsManuais(idsSalvos);
     setRegistro(reg);
-    setItensTrabalho(mergePercMedido(base, reg?.itens));
+    // Medição FECHADA é documento: renderiza do snapshot congelado, não do cronograma.
+    // Antes ela era recalculada a cada abertura, então mudar custo ou datas depois do
+    // fechamento alterava os valores exibidos e eles divergiam do histórico.
+    if (reg?.status === 'fechada') {
+      setItensTrabalho(hidratarSnapshot(reg.itens, etapas, { wbsMap, disciplinaInfo }));
+    } else if (reg) {
+      setItensTrabalho(mergePercMedido(montarDoCronograma(idsSalvos), reg.itens));
+    } else {
+      // Sem registro: nada de itens. O mês só passa a existir depois de "Abrir medição".
+      setItensTrabalho([]);
+    }
     setCarregando(false);
-  }, [etapas, mesRefKey, monthlyDist, wbsMap, disciplinaInfo, obraId, weightOverride]);
+  }, [obraId, mesRefKey, etapas, wbsMap, disciplinaInfo, montarDoCronograma]);
 
   // Carrega ao montar e sempre que trocar de mês/obra — edições em andamento do
   // usuário não são perdidas por mudanças não relacionadas.
@@ -246,12 +259,22 @@ export default function MedicaoMensal({
 
   React.useEffect(() => {
     let vivo = true;
-    medicaoMensalService.listarFechadas(obraId).then(r => { if (vivo) setFechadas(r); });
+    medicaoMensalService.listarMeses(obraId).then(r => { if (vivo) setMesesComMedicao(r); });
     return () => { vivo = false; };
   }, [obraId, registro]);
 
+  // Estado por mês, para marcar o seletor: 'fechada' | 'rascunho' | undefined.
+  const statusPorMes = React.useMemo(
+    () => Object.fromEntries(mesesComMedicao.map(m => [m.mes_referencia, m.status])),
+    [mesesComMedicao]
+  );
+  const fechadas = React.useMemo(() => mesesComMedicao.filter(m => m.status === 'fechada'), [mesesComMedicao]);
+
   const fechada = registro?.status === 'fechada';
-  const bloqueado = readOnly || fechada;
+  const aberta = !!registro && !fechada;
+  // Sem registro no banco a medição não existe: nada editável até "Abrir medição".
+  // Antes a ausência de registro deixava a tela livre, indistinguível de um rascunho.
+  const bloqueado = readOnly || fechada || !registro;
 
   const disciplinas = React.useMemo(
     () => ['Todas', ...Array.from(new Set(itensTrabalho.map(i => i.disciplina))).sort((a, b) => a.localeCompare(b, 'pt-BR'))],
@@ -334,11 +357,28 @@ export default function MedicaoMensal({
     if (!silencioso) toast('Rascunho salvo', { tone: 'success', icon: 'check' });
   }, [obraId, mesRefKey, bloqueado, toast]);
 
+  // Abre a medição do mês: cria o registro no banco com os itens do cronograma. É o
+  // "eu abro a medição para ela ser criada" — antes a linha nascia por efeito colateral
+  // do primeiro salvamento, e um mês sem registro já vinha editável.
+  const abrirMedicao = async () => {
+    if (readOnly || registro) return;
+    setSalvando(true);
+    const itens = montarDoCronograma(new Set());
+    const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens);
+    setSalvando(false);
+    if (error) { toast('Não foi possível abrir a medição (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
+    setRegistro(data);
+    setItensTrabalho(itens);
+    setIdsManuais(new Set());
+    toast(`Medição de ${mesLabel(mesRefKey)} aberta`, { tone: 'success', icon: 'check' });
+  };
+
   // Traz as tarefas escolhidas no ModalIncluirTarefa para a lista de trabalho, sem
   // perder o %medido já editado nas linhas que já estavam na tela. Salva na hora: a
   // seleção é a única coisa da tela que não pode ser reconstruída do cronograma, e sem
   // isso um F5 (ou trocar de aba, que desmonta o componente) perdia tudo.
   const adicionarTarefasManuais = (ids) => {
+    if (bloqueado) return;
     const nextIds = new Set(idsManuais);
     ids.forEach(id => nextIds.add(id));
     const base = buildItensMedicao(etapas, mesRefKey, {
@@ -354,6 +394,7 @@ export default function MedicaoMensal({
 
   // Desfaz a inclusão manual de uma tarefa fora do mês.
   const removerTarefaManual = (id) => {
+    if (bloqueado) return;
     const nextIds = new Set(idsManuais);
     nextIds.delete(id);
     const proximos = itensTrabalho.filter(i => i.id !== id);
@@ -452,7 +493,7 @@ export default function MedicaoMensal({
 
       const dados = linhasExport();
       const fmtD = (d) => (d ? d.toLocaleDateString('pt-BR') : '');
-      const fmtP = (v) => (v == null ? '' : `${formatNum(v * 100, 1)}%`);
+      const fmtP = (v) => (v == null ? '' : `${formatNum(v * 100, 2)}%`);
       autoTable(doc, {
         startY: 25,
         head: [CABECALHOS],
@@ -572,8 +613,15 @@ export default function MedicaoMensal({
           <div className="page-subtitle">Medição física da obra · itens do cronograma agendados para o mês</div>
         </div>
         <div className="page-actions">
-          <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)} style={{ minWidth: 150 }}>
-            {months.map(m => <option key={m.key} value={m.key}>{mesLabel(m.key)}</option>)}
+          {/* O estado de cada mês no próprio seletor: antes ele listava os meses do
+              cronograma sem nenhuma relação com as medições, então não havia como saber
+              quais meses já tinham sido abertos ou fechados. */}
+          <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)} style={{ minWidth: 190 }}>
+            {months.map(m => {
+              const st = statusPorMes[m.key];
+              const sufixo = st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
+              return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;
+            })}
           </select>
           <button type="button" className="btn btn-ghost" onClick={onAtualizarDados} disabled={carregando}>
             <Icon name="refresh-cw" size={15} />Atualizar dados
@@ -605,9 +653,19 @@ export default function MedicaoMensal({
               </div>
             )}
           </div>
-          <button type="button" className="btn btn-dark" onClick={gerarMedicao} disabled={carregando || bloqueado}>
-            <Icon name="plus" size={15} />{carregando ? 'Gerando…' : 'Gerar medição'}
-          </button>
+          {/* Este botão nunca criou nada: é o mesmo carregamento, relendo o cronograma.
+              O nome agora diz isso, e ele só aparece com a medição aberta. */}
+          {aberta && !readOnly && (
+            <button type="button" className="btn btn-ghost" onClick={gerarMedicao} disabled={carregando}
+              title="Relê o cronograma e recalcula as linhas, mantendo os % já medidos">
+              <Icon name="refresh-cw" size={15} />{carregando ? 'Recalculando…' : 'Recalcular do cronograma'}
+            </button>
+          )}
+          {!registro && !readOnly && (
+            <button type="button" className="btn btn-dark" onClick={abrirMedicao} disabled={carregando || salvando}>
+              <Icon name="plus" size={15} />{salvando ? 'Abrindo…' : 'Abrir medição'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -615,7 +673,7 @@ export default function MedicaoMensal({
         <KpiCard label="Previsto do mês" value={PREVISTO_MES_PCT} barColor="var(--brand)" foot="meta física do mês" />
         <KpiCard
           label="Executado do mês" value={totais.exec} barColor="var(--warning)"
-          foot={`${gapExecutado >= 0 ? '▼' : '▲'} ${formatNum(Math.abs(gapExecutado), 1)} pp vs previsto`}
+          foot={`${gapExecutado >= 0 ? '▼' : '▲'} ${formatNum(Math.abs(gapExecutado), 2)} pp vs previsto`}
           footColor={gapExecutado >= 0 ? 'var(--danger)' : 'var(--success)'}
         />
         <KpiCard label="Medido do mês" value={totais.med} barColor="var(--success)" foot="aprovado para medição" />
@@ -735,7 +793,24 @@ export default function MedicaoMensal({
               {linhas.length === 0 && (
                 <tr>
                   <td colSpan={11} style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
-                    Nenhum item do cronograma agendado para o período com os filtros aplicados.
+                    {!registro ? (
+                      // Mês sem medição: o ciclo começa aqui. Nada de itens e nada editável
+                      // até abrir — antes a tela já vinha preenchida e livre, sem registro.
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                        <div style={{ fontSize: 13.5 }}>
+                          Nenhuma medição aberta para <strong>{mesLabel(mesRefKey)}</strong>.
+                        </div>
+                        {readOnly ? (
+                          <div style={{ fontSize: 12.5 }}>Você não tem permissão para abrir medições.</div>
+                        ) : (
+                          <button type="button" className="btn btn-dark" onClick={abrirMedicao} disabled={salvando}>
+                            <Icon name="plus" size={15} />{salvando ? 'Abrindo…' : 'Abrir medição'}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      'Nenhum item do cronograma agendado para o período com os filtros aplicados.'
+                    )}
                   </td>
                 </tr>
               )}
@@ -860,18 +935,16 @@ export default function MedicaoMensal({
                       <th>MÊS</th>
                       <th className="center">FECHADA EM</th>
                       <th>FECHADA POR</th>
-                      <th className="center">ITENS</th>
                       <th className="center">% MEDIDO</th>
                       <th className="right">VALOR MEDIDO</th>
                     </tr>
                   </thead>
                   <tbody>
                     {fechadas.map(f => (
-                      <tr key={f.id}>
+                      <tr key={f.mes_referencia}>
                         <td style={{ fontWeight: 600 }}>{mesLabel(f.mes_referencia)}</td>
                         <td className="center num">{f.fechada_em ? new Date(f.fechada_em).toLocaleDateString('pt-BR') : '—'}</td>
                         <td>{f.fechada_por || '—'}</td>
-                        <td className="center num">{Array.isArray(f.itens) ? f.itens.length : 0}</td>
                         <td className="center num">{f.perc_medido == null ? '—' : fmtPct100(f.perc_medido)}</td>
                         <td className="right num">{f.valor_total_medido == null ? '—' : formatBRL(f.valor_total_medido, 2)}</td>
                       </tr>

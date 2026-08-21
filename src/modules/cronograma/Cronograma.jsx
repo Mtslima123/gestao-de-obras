@@ -161,8 +161,43 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
 
-  // UsoTarefaView mostra todas as tarefas independente de collapsed na Lista
-  const visible = etapas;
+  // Colapso LOCAL desta aba: nao mexe no campo collapsed das tarefas, entao recolher
+  // aqui nao altera a Lista, o Gantt, o banco nem o undo/redo. E por isso que nao uso
+  // getVisibleEtapas (ela deriva o conjunto de e.collapsed e nao aceita um Set).
+  const [collapsedUso, setCollapsedUso] = React.useState(() => new Set());
+  const paiPorId = React.useMemo(() => new Map(etapas.map(e => [e.id, e.parentId ?? null])), [etapas]);
+
+  // 'visible' e o UNICO ponto de entrada das linhas dos dois paineis (hierarquia e
+  // meses), entao filtrar aqui mantem os dois lados alinhados automaticamente.
+  const visible = React.useMemo(() => {
+    if (!collapsedUso.size) return etapas;
+    const escondido = (id) => {
+      let p = paiPorId.get(id);
+      const visto = new Set();
+      while (p && !visto.has(p)) { if (collapsedUso.has(p)) return true; visto.add(p); p = paiPorId.get(p); }
+      return false;
+    };
+    return etapas.filter(e => !escondido(e.id));
+  }, [etapas, collapsedUso, paiPorId]);
+
+  const temFilhosUso = React.useMemo(() => {
+    const set = new Set();
+    etapas.forEach(e => { if (e.parentId) set.add(e.parentId); });
+    return set;
+  }, [etapas]);
+
+  const alternarGrupoUso = (id) => setCollapsedUso(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  // Mesma semantica de applyOutlineLevel (0 = expandir tudo, N recolhe de nivel >= N-1),
+  // mas preenchendo o Set local em vez de dar commit no cronograma.
+  const aplicarNivelUso = (nivel) => setCollapsedUso(
+    nivel > 0 ? new Set(etapas.filter(e => e.isGroup && (e.nivel || 0) >= nivel - 1).map(e => e.id)) : new Set()
+  );
+
   const wbsMap  = React.useMemo(() => computeAllWBS(etapas), [etapas]);
 
   // Distribuição sempre por custo previsto (valor vinculado ao orçamento quando houver).
@@ -395,7 +430,17 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', marginBottom: 4 }}>
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Custo (R$) previsto por mês</span>
-        <div style={{ flex: 1 }} />
+        {/* Recolher/expandir por nivel — mesmo select da Lista e do Gantt, mas local. */}
+        <select defaultValue="" title="Expandir/recolher a estrutura por nivel"
+          onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') aplicarNivelUso(Number(v)); }}
+          style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
+          <option value="" disabled>Estrutura…</option>
+          <option value="0">Expandir tudo</option>
+          <option value="1">Recolher tudo</option>
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <option key={n} value={n}>Nível {n}</option>)}
+        </select>
+        {/* Sem espaçador flex: o container é mais largo que a tabela, então empurrar o
+            Exportar para a extremidade o deixava solto no branco à direita do grid. */}
         <div ref={exportUsoRef} style={{ position: 'relative' }}>
           <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5 }}
             onClick={() => setExportUsoOpen(v => !v)} title="Exportar">
@@ -403,7 +448,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
           </button>
           {exportUsoOpen && (
-            <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 12, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 12, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
                 <span style={{ color: 'var(--text-soft)' }}>Formato PDF:</span>
                 <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
@@ -482,7 +527,12 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                   wbs:    <td key="wbs" style={{ ...tdSt, color: 'var(--text-faint)', fontSize: 12 }} title={wbsText}>{wbsText}</td>,
                   nome:   (
                     <td key="nome" style={{ ...tdSt, paddingLeft: (e.nivel * 14 + 10) + 'px', fontWeight: e.isGroup ? 600 : 400 }} title={nomeText}>
-                      {e.isGroup && <span style={{ marginRight: 5, color: 'var(--text-faint)', fontSize: 10 }}>▸</span>}
+                      {(e.isGroup || temFilhosUso.has(e.id)) ? (
+                        <button className="lista-toggle" title={collapsedUso.has(e.id) ? 'Expandir' : 'Recolher'}
+                          onClick={ev => { ev.stopPropagation(); alternarGrupoUso(e.id); }}>
+                          {collapsedUso.has(e.id) ? '▶' : '▼'}
+                        </button>
+                      ) : null}
                       {nomeText}
                     </td>
                   ),

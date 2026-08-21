@@ -479,12 +479,24 @@ export const formatBRL2 = v =>
 
 // ─── Uso da Tarefa — funções de distribuição mensal ──────────────────────────
 
+// Fim (EXCLUSIVO) da janela de rateio mensal: o término REAL da tarefa, em dias úteis.
+//
+// Antes as três funções abaixo usavam `inicio + max(dur, 1)`, tratando `dur` como dias
+// corridos — mas `dur` é dias ÚTEIS (workEnd). A janela fechava antes do término exibido,
+// então as fatias dos últimos meses da tarefa não existiam e ela desaparecia da Medição
+// desses meses (uma tarefa 27/10 → 13/01 não aparecia em Janeiro). O custo total sempre
+// foi preservado; o que estava errado era a distribuição no tempo.
+//
+// workEnd é exclusivo, igual a inicio+dur, então a troca preserva a convenção. O mínimo
+// de 1 dia mantém os marcos (dur = 0) com fatia, como o max(dur, 1) fazia.
+const distEndOffset = (e) => Math.max(taskEnd(e), e.inicio + 1);
+
 // Retorna array de meses cobertos por qualquer tarefa: [{ key:"YYYY-MM", label:"Abr/26" }, ...]
 export function getMonthRange(etapas) {
   const set = new Set();
   etapas.forEach(e => {
     const s = offsetToDate(e.inicio);
-    const f = offsetToDate(e.inicio + Math.max(e.dur, 1));
+    const f = offsetToDate(distEndOffset(e));
     let cur = new Date(s.getFullYear(), s.getMonth(), 1);
     while (cur <= f) {
       set.add(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`);
@@ -506,7 +518,7 @@ export function computeMonthlyDist(etapas, weightOverride = null) {
     if (e.isGroup) return;
     const custo = weightOverride ? (weightOverride[e.id] ?? 0) : (e.custo || 0);
     const s = offsetToDate(e.inicio);
-    const f = offsetToDate(e.inicio + Math.max(e.dur, 1));
+    const f = offsetToDate(distEndOffset(e));
     const totalDays = Math.max(1, (f - s) / 86400000);
     const dist = {};
     let cur = new Date(s.getFullYear(), s.getMonth(), 1);
@@ -536,7 +548,7 @@ export function computeRealizedDistAte(etapas, ateDate, weightOverride = null) {
     if (custo === 0 || avanco === 0) return;
     const realized = (avanco / 100) * custo;
     const s = offsetToDate(e.inicio);
-    const taskEndDate = offsetToDate(e.inicio + Math.max(e.dur, 1));
+    const taskEndDate = offsetToDate(distEndOffset(e));
     const f = new Date(Math.min(taskEndDate.getTime(), ateDate.getTime()));
     if (f <= s) return;
     const totalDays = Math.max(1, (f - s) / 86400000);

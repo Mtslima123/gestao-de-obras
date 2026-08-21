@@ -3,11 +3,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
-  gruposParaNivel, buildSnapshotFechamento, computeDisciplinaInfo,
+  gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
 } from '../modules/cronograma/medicaoMensalPure';
 
 // Hierarquia: 1 ESTRUTURA > 1.1 TERREO > (folhas Forma, Concreto); 2 ESTACAS > folha pav1.
 // A folha "FUTURA" não tem fatia no mês de referência — é o caso "fora do mês".
+// dd/mm/aaaa
+const DATA_BR = /^\d{2}\/\d{2}\/\d{4}$/;
+
 const MES = '2026-07';
 const etapas = [
   { id: 'G1', etapa: 'ESTRUTURA', isGroup: true,  nivel: 0, parentId: null, inicio: 850, dur: 30, avanco: 50 },
@@ -211,8 +214,45 @@ describe('buildSnapshotFechamento', () => {
     expect(snap.percMedido).toBe(totais.med);
     expect(snap.percPrevisto).toBe(100);
     expect(snap.itens).toHaveLength(3);
-    expect(Object.keys(snap.itens[0]).sort()).toEqual(
-      ['descricao', 'foraDoMes', 'id', 'pavimento', 'percExecutado', 'percMedido', 'valor', 'wbs']
-    );
+    // Congela também os campos de exibição, senão a tela de uma medição fechada
+    // precisaria voltar ao cronograma para montar a árvore e as datas.
+    expect(Object.keys(snap.itens[0]).sort()).toEqual([
+      'dataInicio', 'dataTermino', 'descricao', 'duracaoDias', 'foraDoMes', 'id',
+      'nivel', 'parentId', 'pavimento', 'percExecutado', 'percMedido', 'valor', 'wbs',
+    ]);
+  });
+});
+
+describe('hidratarSnapshot', () => {
+  const itens = buildItensMedicao(etapas, MES, opts);
+  const totais = computeTotaisMedicao(itens, 2500);
+  const snap = buildSnapshotFechamento(itens, totais);
+
+  it('reconstrói as linhas sem depender do cronograma', () => {
+    const linhas = hidratarSnapshot(snap.itens, [], { wbsMap, disciplinaInfo });
+    expect(linhas.map(l => l.id)).toEqual(['A', 'B', 'C']);
+    expect(linhas[0].descricao).toBe('Forma');
+    expect(linhas[0].dataInicio).toMatch(DATA_BR);
+  });
+
+  it('mantém os valores congelados mesmo se o cronograma mudar', () => {
+    const etapasMudadas = etapas.map(e => (e.id === 'A' ? { ...e, custo: 999999, avanco: 0 } : e));
+    const linhas = hidratarSnapshot(snap.itens, etapasMudadas, { wbsMap, disciplinaInfo });
+    const a = linhas.find(l => l.id === 'A');
+    expect(a.valor).toBe(1000);        // fatia congelada, não o custo novo
+    expect(a.percExecutado).toBe(100); // avanço congelado, não o zerado
+  });
+
+  it('cai no cronograma só para os campos de exibição de snapshots antigos', () => {
+    const antigo = [{ id: 'A', wbs: '1.1.1', descricao: 'Forma', pavimento: '—', valor: 1000, foraDoMes: false, percExecutado: 100, percMedido: 100 }];
+    const [linha] = hidratarSnapshot(antigo, etapas, { wbsMap, disciplinaInfo });
+    expect(linha.nivel).toBe(2);                                  // veio do cronograma
+    expect(linha.dataInicio).toMatch(DATA_BR); // idem
+    expect(linha.valor).toBe(1000);                               // financeiro segue do snapshot
+  });
+
+  it('devolve vazio sem itens', () => {
+    expect(hidratarSnapshot([], etapas)).toEqual([]);
+    expect(hidratarSnapshot(null, etapas)).toEqual([]);
   });
 });

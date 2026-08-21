@@ -20,17 +20,19 @@ export const medicaoMensalService = {
     return data || null;
   },
 
-  // Histórico: medições já fechadas da obra, mais recente primeiro.
-  async listarFechadas(obraId) {
+  // Todos os meses da obra que já têm medição, aberta (rascunho) ou fechada, mais
+  // recente primeiro. Serve para duas coisas: marcar o estado de cada mês no seletor e
+  // alimentar o histórico (as fechadas são um filtro em memória). Sem `itens` no select:
+  // o JSONB é grande e aqui só interessa o cabeçalho de cada medição.
+  async listarMeses(obraId) {
     if (!obraId) return [];
     const { data, error } = await supabase
       .from('medicoes_mensais')
-      .select('*')
+      .select('mes_referencia, status, updated_at, fechada_em, fechada_por, perc_medido, valor_total_medido')
       .eq('obra_id', obraId)
-      .eq('status', 'fechada')
       .order('mes_referencia', { ascending: false });
     if (error) {
-      logger.error('falha ao listar medições fechadas', { module: 'medicaoMensal', action: 'listarFechadas', obraId, err: error });
+      logger.error('falha ao listar medições da obra', { module: 'medicaoMensal', action: 'listarMeses', obraId, err: error });
       return [];
     }
     return data || [];
