@@ -41,7 +41,7 @@ export const medicaoMensalService = {
       obra_id: obraId,
       mes_referencia: mesReferencia,
       status: 'rascunho',
-      itens: itens.map(i => ({ id: i.id, percMedido: i.percMedido })),
+      itens: itens.map(i => ({ id: i.id, percMedido: i.percMedido, ...(i.foraDoMes ? { manual: true } : {}) })),
       updated_at: new Date().toISOString(),
     };
     const { data, error } = await supabase

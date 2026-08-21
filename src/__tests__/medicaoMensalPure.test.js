@@ -2,10 +2,9 @@
 // Roda em node (sem browser/Supabase). Executar: npm test
 import { describe, it, expect } from 'vitest';
 import {
-  buildItensMedicao, computeArvoreMedicao, computeTotaisMedicao,
+  buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, computeDisciplinaInfo,
 } from '../modules/cronograma/medicaoMensalPure';
-import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
 // Hierarquia: 1 ESTRUTURA > 1.1 TERREO > (folhas Forma, Concreto); 2 ESTACAS > folha pav1.
 // A folha "FUTURA" não tem fatia no mês de referência — é o caso "fora do mês".
@@ -50,23 +49,8 @@ describe('buildItensMedicao', () => {
     expect(itens.find(i => i.id === 'C').valor).toBe(500);
   });
 
-  it('período igual ao mês não muda o resultado (não-regressão)', () => {
-    const semPeriodo = buildItensMedicao(etapas, MES, opts);
-    const comPeriodo = buildItensMedicao(etapas, MES, {
-      ...opts,
-      periodo: { de: dateToOffset('2026-07-01'), ate: dateToOffset('2026-07-31') },
-    });
-    expect(comPeriodo.map(i => i.id)).toEqual(semPeriodo.map(i => i.id));
-  });
-
-  it('período estreito recorta pela janela da tarefa', () => {
-    // Só A (850-860) intersecta uma janela que termina no offset 855.
-    const itens = buildItensMedicao(etapas, MES, { ...opts, periodo: { de: 840, ate: 852 } });
-    expect(itens.map(i => i.id)).toEqual(['A']);
-  });
-
-  it('incluirNaoProgramados traz o item fora do mês com o valor cheio da tarefa', () => {
-    const itens = buildItensMedicao(etapas, MES, { ...opts, incluirNaoProgramados: true });
+  it('idsExtras traz o item fora do mês com o valor cheio da tarefa', () => {
+    const itens = buildItensMedicao(etapas, MES, { ...opts, idsExtras: new Set(['F']) });
     const f = itens.find(i => i.id === 'F');
     expect(f).toBeDefined();
     expect(f.foraDoMes).toBe(true);
@@ -75,9 +59,26 @@ describe('buildItensMedicao', () => {
 
   it('valorVinculadoMap tem precedência sobre custo no item fora do mês', () => {
     const itens = buildItensMedicao(etapas, MES, {
-      ...opts, incluirNaoProgramados: true, valorVinculadoMap: { F: 2500 },
+      ...opts, idsExtras: new Set(['F']), valorVinculadoMap: { F: 2500 },
     });
     expect(itens.find(i => i.id === 'F').valor).toBe(2500);
+  });
+});
+
+describe('listarTarefasForaDoMes', () => {
+  it('traz só as folhas sem fatia no mês, excluindo grupos', () => {
+    const candidatas = listarTarefasForaDoMes(etapas, MES, opts);
+    expect(candidatas.map(c => c.id)).toEqual(['F']);
+  });
+
+  it('traz os campos de exibição da candidata', () => {
+    const [f] = listarTarefasForaDoMes(etapas, MES, opts);
+    expect(f).toMatchObject({ id: 'F', wbs: '2.2', descricao: 'FUTURA', pavimento: '—', valor: 800 });
+  });
+
+  it('valorVinculadoMap tem precedência sobre custo', () => {
+    const [f] = listarTarefasForaDoMes(etapas, MES, { ...opts, valorVinculadoMap: { F: 2500 } });
+    expect(f.valor).toBe(2500);
   });
 });
 
@@ -146,7 +147,7 @@ describe('computeTotaisMedicao', () => {
     expect(semExtra.exec).toBeCloseTo(40, 5); // (1000*100)/2500
 
     // Com o item fora do mês: mesmo denominador, numerador maior.
-    const comExtra = buildItensMedicao(etapas, MES, { ...opts, incluirNaoProgramados: true });
+    const comExtra = buildItensMedicao(etapas, MES, { ...opts, idsExtras: new Set(['F']) });
     const totais = computeTotaisMedicao(comExtra, base);
     expect(totais.exec).toBeCloseTo(40 + (800 * 40) / 2500, 5);
     expect(totais.exec).toBeGreaterThan(semExtra.exec);

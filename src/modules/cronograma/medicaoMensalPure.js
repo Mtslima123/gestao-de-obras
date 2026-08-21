@@ -9,12 +9,13 @@
 // do item para o mês é, por definição, o que estava programado para ser produzido
 // naquele mês — a meta é entregar 100% dele até o fim do mês.
 //
-// Itens FORA DO MÊS (incluirNaoProgramados): tarefas sem fatia no mês de referência,
-// trazidas para medir trabalho feito adiantado. A regra é "soma ao realizado, não soma
-// ao previsto" — por isso carregam o valor CHEIO da tarefa (não têm fatia deste mês) e
-// ficam fora do denominador `valorTotalBase`, que continua sendo só o previsto do mês.
-// Consequência esperada: com elas na tela, "% executado" passa de 100%, que é exatamente
-// a leitura desejada (produziu-se além do programado).
+// Itens FORA DO MÊS (idsExtras em buildItensMedicao): tarefas sem fatia no mês de
+// referência, escolhidas manualmente na tela (ver listarTarefasForaDoMes) para medir
+// trabalho feito adiantado. A regra é "soma ao realizado, não soma ao previsto" — por
+// isso carregam o valor CHEIO da tarefa (não têm fatia deste mês) e ficam fora do
+// denominador `valorTotalBase`, que continua sendo só o previsto do mês. Consequência
+// esperada: com elas na tela, "% executado" passa de 100%, que é exatamente a leitura
+// desejada (produziu-se além do programado).
 //
 // ATENÇÃO: não usar formatPct de utils/formatters.js aqui — ela espera fração 0-1
 // e todos os percentuais desta tela já estão na escala 0-100. Usar fmtPct100.
@@ -58,35 +59,28 @@ export function computeDisciplinaInfo(etapas, wbsMap) {
   return result;
 }
 
-// Itens do cronograma agendados no mês de referência: folhas cujo monthlyDist tem
-// fatia naquele mês (mesma janela de dias já usada por computeMonthlyDist — garante
-// que "quais itens aparecem" e "qual valor cada um carrega" vêm da mesma fonte).
-//
-// Opções:
-//   incluirNaoProgramados — traz também folhas sem fatia no mês (ver nota no topo).
-//   periodo { de, ate }   — recorte por offsets; entra quem intersecta a janela. Com o
-//                           período igual ao mês de referência o resultado é o mesmo de
-//                           antes desta opção existir.
-//   valorVinculadoMap     — peso do orçamento; vira o valor cheio dos itens fora do mês.
+// Folha tem fatia no mês de referência? Mesma janela de dias já usada por
+// computeMonthlyDist — garante que "quais itens aparecem" e "qual valor cada um
+// carrega" vêm da mesma fonte.
+const noMes = (e, monthlyDist, mesRefKey) => !!(monthlyDist[e.id] && mesRefKey in monthlyDist[e.id]);
+
+// Valor cheio da tarefa (fora da fatia do mês): vínculo do orçamento tem precedência
+// sobre o custo bruto da tarefa.
+const valorCheio = (e, valorVinculadoMap) => (valorVinculadoMap?.[e.id] ?? e.custo) || 0;
+
+// Itens do cronograma agendados no mês de referência, mais as folhas escolhidas
+// manualmente em `idsExtras` (tarefas sem fatia no mês, trazidas para medir trabalho
+// feito adiantado — ver nota no topo do arquivo).
 export function buildItensMedicao(etapas, mesRefKey, {
   monthlyDist, wbsMap, disciplinaInfo,
-  incluirNaoProgramados = false, periodo = null, valorVinculadoMap = null,
+  idsExtras = new Set(), valorVinculadoMap = null,
 }) {
-  const noMes      = (e) => !!(monthlyDist[e.id] && mesRefKey in monthlyDist[e.id]);
-  const valorCheio = (e) => (valorVinculadoMap?.[e.id] ?? e.custo) || 0;
-
   return etapas
-    .filter(e => {
-      if (e.isGroup) return false;
-      if (!noMes(e) && !(incluirNaoProgramados && valorCheio(e) > 0)) return false;
-      if (!periodo) return true;
-      // Intersecção de janelas: começa antes do fim do período e termina depois do início.
-      return e.inicio <= periodo.ate && taskEnd(e) >= periodo.de;
-    })
+    .filter(e => !e.isGroup && (noMes(e, monthlyDist, mesRefKey) || idsExtras.has(e.id)))
     .map(e => {
       const info = disciplinaInfo[e.id] || { disciplina: '—', disciplinaCodigo: '0' };
       const percExecutado = e.avanco || 0;
-      const foraDoMes = !noMes(e);
+      const foraDoMes = !noMes(e, monthlyDist, mesRefKey);
       const terminoOff = taskEnd(e);
       return {
         id: e.id,
@@ -104,13 +98,33 @@ export function buildItensMedicao(etapas, mesRefKey, {
         dataInicio: fmtData(e.inicio),
         dataTermino: fmtData(terminoOff),
         duracaoDias: e.dur,
-        valor: foraDoMes ? valorCheio(e) : (monthlyDist[e.id][mesRefKey] || 0),
+        valor: foraDoMes ? valorCheio(e, valorVinculadoMap) : (monthlyDist[e.id][mesRefKey] || 0),
         foraDoMes,
         percExecutado,
         percMedido: percExecutado, // default; mergePercMedido sobrepõe com o que estiver salvo
         status: undefined,
       };
     });
+}
+
+// Candidatas para a tela de "incluir tarefa fora do mês": folhas do cronograma sem
+// fatia no mês de referência — a lista que o usuário escolhe manualmente para trazer
+// para a medição (ver buildItensMedicao/idsExtras).
+export function listarTarefasForaDoMes(etapas, mesRefKey, { monthlyDist, wbsMap, disciplinaInfo, valorVinculadoMap = null }) {
+  return etapas
+    .filter(e => !e.isGroup && !noMes(e, monthlyDist, mesRefKey))
+    .map(e => {
+      const info = disciplinaInfo[e.id] || { disciplina: '—', disciplinaCodigo: '0' };
+      return {
+        id: e.id,
+        wbs: wbsMap[e.id] || '',
+        descricao: e.etapa || '',
+        disciplina: info.disciplina,
+        pavimento: e.pavimento || '—',
+        valor: valorCheio(e, valorVinculadoMap),
+      };
+    })
+    .sort((a, b) => a.wbs.localeCompare(b.wbs, 'pt-BR', { numeric: true }));
 }
 
 // Parse do input "% medido": aceita vírgula ou ponto, remove lixo, clamp 0-100.
