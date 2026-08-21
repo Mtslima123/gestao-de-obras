@@ -238,8 +238,7 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
             </div>
             <div className="card-actions" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <div className="legend">
-                <span className="legend-item"><span className="legend-swatch" style={{ background: '#16a34a' }}></span>Executado</span>
-                <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Replanejado</span>
+                <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Real</span>
                 {curva.previsto && (
                   <span className="legend-item"><span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '2px dashed #94a3b8', marginRight: 4, verticalAlign: 'middle' }}></span>Previsto</span>
                 )}
@@ -252,7 +251,8 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
             ) : curva.months.length ? (
               <SCurveChart2 months={curva.months} selIdx={curva.todayIdx}
                 execA={curva.acumulado} replanA={curva.acumulado} baselineA={curva.previsto}
-                show={{ bl: !!curva.previsto, rep: true, real: true }} showBarras={false} />
+                show={{ bl: !!curva.previsto, rep: true, real: true }} showBarras={false}
+                execColor="var(--brand)" />
             ) : (
               <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Sem cronograma com datas para exibir a curva.</div>
             )}
@@ -1146,10 +1146,9 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
           <div className="card-body" style={{ padding: '4px 0 0' }}>
             {cronoView === 'gantt' && <Gantt etapas={etapasObra} maxHeight={cronoBodyMaxH} />}
             {cronoView === 'lista' && (() => {
-              const statusLabel = { done: 'Concluído', late: 'Atrasado', upcoming: 'Planejado' };
               const thS = { padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600,
-                            color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em',
-                            position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)' };
+                            color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em',
+                            position: 'sticky', top: 0, zIndex: 1, background: 'var(--brand)' };
               const tdS = { padding: '10px 12px', fontSize: 13, borderBottom: '1px solid var(--border-subtle)' };
               return (
                 <div style={{ overflowX: 'auto', maxHeight: cronoBodyMaxH || undefined, overflowY: 'auto' }}>
@@ -1178,8 +1177,6 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                         <th style={thS}>Término</th>
                         <th style={thS}>Duração</th>
                         <th style={thS}>Avanço</th>
-                        <th style={thS}>Status</th>
-                        <th style={thS}>Responsável</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1190,7 +1187,6 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                           const ini = Math.min(...etapasObra.map(e => e.inicio || 0));
                           const fim = Math.max(...etapasObra.map(e => (e.inicio || 0) + (e.dur || 0)));
                           const av = Math.round(computeAvancoFisico(etapasObra));
-                          const st = av >= 100 ? 'done' : 'upcoming';
                           rows.push(
                             <tr key="resumo-projeto" style={{ background: 'var(--brand-50)' }}>
                               <td style={{ ...tdS, fontWeight: 800, color: 'var(--brand)' }}>Resumo do projeto</td>
@@ -1205,8 +1201,6 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                                   <span style={{ minWidth: 32, textAlign: 'right', fontWeight: 800 }}>{av}%</span>
                                 </div>
                               </td>
-                              <td style={tdS}><span className={'badge badge-' + st}>{statusLabel[st] || st}</span></td>
-                              <td style={tdS}>—</td>
                             </tr>
                           );
                         }
@@ -1223,11 +1217,11 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                           if (isPai && colapsado) hideUntil = niv;
                           const gv = isPai ? groupValsObra[e.id] : null;
                           const av = Math.round(gv ? gv.avanco : (e.avanco || 0)); // pai = rollup dos filhos
-                          const st = isPai ? (av >= 100 ? 'done' : e.status) : e.status;
-                          const rowBg = isPai ? 'var(--surface-muted)' : undefined;
+                          const rowBg = isPai ? 'var(--brand-50)' : undefined;
+                          const tdPai = isPai ? { ...tdS, fontWeight: 700 } : tdS;
                           rows.push(
                             <tr key={i} style={{ background: rowBg }}>
-                              <td style={{ ...tdS, fontWeight: isPai ? 700 : 400, paddingLeft: 12 + niv * 14, color: isPai ? 'var(--brand)' : undefined }}>
+                              <td style={{ ...tdPai, paddingLeft: 12 + niv * 14, color: isPai ? 'var(--brand)' : undefined }}>
                                 {isPai
                                   ? <span onClick={() => setCronoCollapsed(prev => { const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; })}
                                       title={colapsado ? 'Expandir' : 'Recolher'}
@@ -1235,19 +1229,17 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                                   : null}
                                 {e.etapa}
                               </td>
-                              <td style={tdS}>{isoToBR(offsetToISO(e.inicio))}</td>
-                              <td style={tdS}>{isoToBR(offsetToISO((e.inicio || 0) + (e.dur || 0)))}</td>
-                              <td style={tdS}>{e.dur}d</td>
-                              <td style={tdS}>
+                              <td style={tdPai}>{isoToBR(offsetToISO(e.inicio))}</td>
+                              <td style={tdPai}>{isoToBR(offsetToISO((e.inicio || 0) + (e.dur || 0)))}</td>
+                              <td style={tdPai}>{e.dur}d</td>
+                              <td style={tdPai}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
                                   <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2 }}>
                                     <div style={{ width: av + '%', height: '100%', background: 'var(--brand)', borderRadius: 2 }} />
                                   </div>
-                                  <span style={{ minWidth: 32, textAlign: 'right', fontWeight: isPai ? 700 : 400 }}>{av}%</span>
+                                  <span style={{ minWidth: 32, textAlign: 'right' }}>{av}%</span>
                                 </div>
                               </td>
-                              <td style={tdS}><span className={'badge badge-' + st}>{statusLabel[st] || st}</span></td>
-                              <td style={tdS}>{isPai ? '—' : (e.responsavel || '—')}</td>
                             </tr>
                           );
                         });

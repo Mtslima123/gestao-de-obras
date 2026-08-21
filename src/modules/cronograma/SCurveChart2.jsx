@@ -7,7 +7,8 @@ import React from 'react';
 export const SCurveChart2 = ({ months = [], selIdx = 0,
   previstoM = [], execM = [], replanM = [],
   baselineA = null, execA = [], replanA = [],
-  show = { bl: true, rep: true, real: true }, showBarras = true, showLines = true, height = 300 }) => {
+  show = { bl: true, rep: true, real: true }, showBarras = true, showLines = true, height = 300,
+  execColor = '#16a34a' }) => {
   const [hover, setHover] = React.useState(null);
   const N = months.length || 1;
   const cut = Math.max(0, Math.min(selIdx, N - 1));
@@ -99,13 +100,13 @@ export const SCurveChart2 = ({ months = [], selIdx = 0,
             onMouseLeave={() => setHover(null)} />
         </g>
       ))}
-      {/* Executado acumulado — verde (até o corte) */}
-      {execPts && <polyline points={execPts} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" pointerEvents="none" />}
+      {/* Executado acumulado — até o corte */}
+      {execPts && <polyline points={execPts} fill="none" stroke={execColor} strokeWidth="2.5" strokeLinejoin="round" pointerEvents="none" />}
       {showLines && show.real && execA.map((v, i) => (i > cut || v == null) ? null : (
         <g key={'ex' + i}>
-          <circle cx={xC(i)} cy={yS(v)} r="3.5" fill="#16a34a" />
+          <circle cx={xC(i)} cy={yS(v)} r="3.5" fill={execColor} />
           <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'pointer' }}
-            onMouseEnter={() => setHover({ cx: xC(i), cy: yS(v), text: 'Executado · ' + (months[i]?.label ? months[i].label + ': ' : '') + fmtPct(v), color: '#16a34a', kind: 'dot' })}
+            onMouseEnter={() => setHover({ cx: xC(i), cy: yS(v), text: 'Executado · ' + (months[i]?.label ? months[i].label + ': ' : '') + fmtPct(v), color: execColor, kind: 'dot' })}
             onMouseLeave={() => setHover(null)} />
         </g>
       ))}
