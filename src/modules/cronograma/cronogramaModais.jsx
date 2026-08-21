@@ -186,7 +186,6 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
   // Pré-preenche com os pavimentos já cadastrados nesta obra (não precisa redigitar a cada vez).
   const [floors,        setFloors]        = React.useState(pavimentosSalvos.length ? [...pavimentosSalvos] : ['']);
   const [selectedTasks, setSelectedTasks] = React.useState([]);
-  const [preencherPavimento, setPreencherPavimento] = React.useState(true);
   const floorInputRefs = React.useRef([]);
   const prevFloorsLenRef = React.useRef(floors.length);
 
@@ -239,7 +238,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
         const allSoFar = [...novas, ...validFloors.slice(0, fi).map((_, j) => ({ id: `_tmp${j}` }))];
         return {
           id:         nextEtapaId([...novas, ...validFloors.slice(0, fi).map((_, j) => ({ id: `E${9000 + j}` }))]),
-          etapa:      nome,
+          etapa:      `${task.etapa} - ${nome}`,
           nivel:      (task.nivel || 0) + 1,
           parentId:   taskId,
           isGroup:    false, collapsed: false,
@@ -247,7 +246,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
           dur:        subDur,
           avanco:     0, status: 'upcoming',
           dep:        [], milestone: false, responsavel: '',
-          pavimento:  preencherPavimento ? nome : '',
+          pavimento:  nome,
           modo:       'auto',
           customCols: emptyCustomCols(customCols),
           custo:      0,
@@ -380,10 +379,6 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
             Selecione as tarefas que receberão os pavimentos como subtarefas.
             Serão criados: <strong>{validFloors.join(', ')}</strong>.
           </p>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={preencherPavimento} onChange={ev => setPreencherPavimento(ev.target.checked)} />
-            Preencher a coluna Pavimento automaticamente
-          </label>
           <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             {etapas.map(e => (
               <label key={e.id} style={{

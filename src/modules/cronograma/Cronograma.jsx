@@ -92,6 +92,14 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   const usoRef  = React.useRef(null);
   const [exportingPDF, setExportingPDF] = React.useState(false);
   const [pdfFormat, setPdfFormat] = React.useState('a3');
+  const [exportUsoOpen, setExportUsoOpen] = React.useState(false);
+  const exportUsoRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!exportUsoOpen) return;
+    const h = (e) => { if (exportUsoRef.current && !exportUsoRef.current.contains(e.target)) setExportUsoOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [exportUsoOpen]);
 
   // Ordem das colunas do painel esquerdo (arrastar cabeçalhos), persistida por obra
   const [usoColOrder, setUsoColOrder] = React.useState(() => {
@@ -388,21 +396,37 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', marginBottom: 4 }}>
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Custo (R$) previsto por mês</span>
         <div style={{ flex: 1 }} />
-        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5 }}
-          onClick={exportExcelUso} title="Exportar para Excel (.xlsx)">
-          <Icon name="download" size={13} /> Excel
-        </button>
-        <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
-          style={{ fontSize: 12, height: 28, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
-          <option value="a4">A4</option>
-          <option value="a3">A3</option>
-          <option value="a2">A2</option>
-          <option value="a1">A1</option>
-        </select>
-        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5, minWidth: 72 }}
-          onClick={exportPDFUso} disabled={exportingPDF} title="Exportar para PDF">
-          <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
-        </button>
+        <div ref={exportUsoRef} style={{ position: 'relative' }}>
+          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5 }}
+            onClick={() => setExportUsoOpen(v => !v)} title="Exportar">
+            <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'Exportar'}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
+          {exportUsoOpen && (
+            <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 12, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <span style={{ color: 'var(--text-soft)' }}>Formato PDF:</span>
+                <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
+                  style={{ fontSize: 12, height: 26, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                  <option value="a4">A4</option>
+                  <option value="a3">A3</option>
+                  <option value="a2">A2</option>
+                  <option value="a1">A1</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28, flex: 1 }}
+                  onClick={() => { setExportUsoOpen(false); exportExcelUso(); }} title="Exportar para Excel (.xlsx)">
+                  <Icon name="download" size={13} />Excel
+                </button>
+                <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28, flex: 1 }}
+                  onClick={() => { setExportUsoOpen(false); exportPDFUso(); }} disabled={exportingPDF} title="Exportar para PDF">
+                  <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'PDF'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Painel dividido */}
