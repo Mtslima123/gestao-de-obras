@@ -219,7 +219,10 @@ export default function MedicaoMensal({
     if (!obraId || !mesRefKey) { setItensTrabalho([]); setRegistro(null); setIdsManuais(new Set()); return; }
     setCarregando(true);
     const reg = await medicaoMensalService.buscarPorMes(obraId, mesRefKey);
-    const idsSalvos = new Set((reg?.itens || []).filter(i => i.manual).map(i => i.id));
+    // Aceita as duas chaves: o rascunho grava `manual`, o snapshot de fechamento grava
+    // `foraDoMes`. Lendo só uma delas, uma medição fechada voltava sem os itens extras e
+    // os totais da tela divergiam do valor congelado que o histórico mostra.
+    const idsSalvos = new Set((reg?.itens || []).filter(i => i.manual || i.foraDoMes).map(i => i.id));
     const base = buildItensMedicao(etapas, mesRefKey, {
       monthlyDist, wbsMap, disciplinaInfo, idsExtras: idsSalvos, valorVinculadoMap: weightOverride,
     });
@@ -318,37 +321,51 @@ export default function MedicaoMensal({
     setCollapsed(gruposParaNivel(todas, nivel));
   };
 
+  // Grava a lista no rascunho. `itens` explícito porque a inclusão/remoção manual precisa
+  // salvar a lista nova no mesmo tick, antes do state ter sido aplicado.
+  const persistirRascunho = React.useCallback(async (itens, { silencioso = false } = {}) => {
+    if (bloqueado) return;
+    const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens);
+    if (error) {
+      if (!silencioso) toast('Não foi possível salvar o rascunho (tabela de medição ainda não disponível).', { tone: 'danger' });
+      return;
+    }
+    setRegistro(data);
+    if (!silencioso) toast('Rascunho salvo', { tone: 'success', icon: 'check' });
+  }, [obraId, mesRefKey, bloqueado, toast]);
+
   // Traz as tarefas escolhidas no ModalIncluirTarefa para a lista de trabalho, sem
-  // perder o %medido já editado nas linhas que já estavam na tela.
+  // perder o %medido já editado nas linhas que já estavam na tela. Salva na hora: a
+  // seleção é a única coisa da tela que não pode ser reconstruída do cronograma, e sem
+  // isso um F5 (ou trocar de aba, que desmonta o componente) perdia tudo.
   const adicionarTarefasManuais = (ids) => {
-    setIdsManuais(prevIds => {
-      const nextIds = new Set(prevIds);
-      ids.forEach(id => nextIds.add(id));
-      const base = buildItensMedicao(etapas, mesRefKey, {
-        monthlyDist, wbsMap, disciplinaInfo, idsExtras: nextIds, valorVinculadoMap: weightOverride,
-      });
-      setItensTrabalho(prevItens => {
-        const percById = new Map(prevItens.map(i => [i.id, i.percMedido]));
-        return base.map(i => (percById.has(i.id) ? { ...i, percMedido: percById.get(i.id) } : i));
-      });
-      return nextIds;
+    const nextIds = new Set(idsManuais);
+    ids.forEach(id => nextIds.add(id));
+    const base = buildItensMedicao(etapas, mesRefKey, {
+      monthlyDist, wbsMap, disciplinaInfo, idsExtras: nextIds, valorVinculadoMap: weightOverride,
     });
+    const percById = new Map(itensTrabalho.map(i => [i.id, i.percMedido]));
+    const proximos = base.map(i => (percById.has(i.id) ? { ...i, percMedido: percById.get(i.id) } : i));
+    setIdsManuais(nextIds);
+    setItensTrabalho(proximos);
     setModalIncluirAberto(false);
+    persistirRascunho(proximos, { silencioso: true });
   };
 
   // Desfaz a inclusão manual de uma tarefa fora do mês.
   const removerTarefaManual = (id) => {
-    setIdsManuais(prev => { const next = new Set(prev); next.delete(id); return next; });
-    setItensTrabalho(prev => prev.filter(i => i.id !== id));
+    const nextIds = new Set(idsManuais);
+    nextIds.delete(id);
+    const proximos = itensTrabalho.filter(i => i.id !== id);
+    setIdsManuais(nextIds);
+    setItensTrabalho(proximos);
+    persistirRascunho(proximos, { silencioso: true });
   };
 
   const salvarRascunho = async () => {
     setSalvando(true);
-    const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itensTrabalho);
+    await persistirRascunho(itensTrabalho);
     setSalvando(false);
-    if (error) { toast('Não foi possível salvar o rascunho (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
-    setRegistro(data);
-    toast('Rascunho salvo', { tone: 'success', icon: 'check' });
   };
 
   const confirmarFechamento = async () => {
@@ -376,15 +393,16 @@ export default function MedicaoMensal({
         grupo ? null : offsetToDate(l.inicioOff),
         grupo ? null : offsetToDate(l.terminoOff),
         grupo ? '' : l.duracaoDias,
-        (l.peso ?? (valorTotalBase ? (l.valor / valorTotalBase) * 100 : 0)) / 100,
+        (l.peso ?? ((l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100)) / 100,
         grupo ? null : l.percExecutado / 100,
         (grupo ? l.med : l.percMedido) / 100,
-        grupo ? l.valor : (l.valor * l.percMedido) / 100,
+        l.valor,
+        grupo ? (l.valor * l.med) / 100 : (l.valor * l.percMedido) / 100,
       ],
     };
   });
 
-  const CABECALHOS = ['SERVIÇO', 'DESCRIÇÃO', 'PAVIMENTO', 'INÍCIO', 'TÉRMINO', 'DUR.', 'PESO %', '% EXECUTADO', '% MEDIDO', 'VALOR A MEDIR'];
+  const CABECALHOS = ['SERVIÇO', 'DESCRIÇÃO', 'PAVIMENTO', 'INÍCIO', 'TÉRMINO', 'DUR.', 'PESO %', '% EXECUTADO', '% MEDIDO', 'VALOR A MEDIR', 'VALOR MEDIDO'];
 
   const exportarExcel = async () => {
     setExportando(true);
@@ -396,18 +414,18 @@ export default function MedicaoMensal({
         ...corpo,
         [],
         [`TOTAL GERAL · ${totais.qtd} atividades`, '', '', null, null, '',
-          totais.peso / 100, totais.exec / 100, totais.med / 100, totais.valorAMedir],
+          totais.peso / 100, totais.exec / 100, totais.med / 100, totais.valor, totais.valorAMedir],
       ];
       const ws = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
       const rng = XLSX.utils.decode_range(ws['!ref']);
       // Números crus na célula + formato via .z (nunca string de moeda), padrão do projeto.
       for (let R = 1; R <= rng.e.r; R++) {
-        [[3, 'DD/MM/YYYY'], [4, 'DD/MM/YYYY'], [6, '0.00%'], [7, '0.00%'], [8, '0.00%'], [9, '#,##0.00']].forEach(([C, z]) => {
+        [[3, 'DD/MM/YYYY'], [4, 'DD/MM/YYYY'], [6, '0.00%'], [7, '0.00%'], [8, '0.00%'], [9, '#,##0.00'], [10, '#,##0.00']].forEach(([C, z]) => {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (ws[addr]) ws[addr].z = z;
         });
       }
-      ws['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 7 }, { wch: 10 }, { wch: 13 }, { wch: 11 }, { wch: 16 }];
+      ws['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 7 }, { wch: 10 }, { wch: 13 }, { wch: 11 }, { wch: 16 }, { wch: 16 }];
       ws['!freeze'] = { xSplit: 2, ySplit: 1 };
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Medição');
@@ -440,11 +458,11 @@ export default function MedicaoMensal({
         head: [CABECALHOS],
         body: dados.map(l => [
           l.cells[0], l.cells[1], l.cells[2], fmtD(l.cells[3]), fmtD(l.cells[4]), l.cells[5],
-          fmtP(l.cells[6]), fmtP(l.cells[7]), fmtP(l.cells[8]), formatBRL(l.cells[9]),
+          fmtP(l.cells[6]), fmtP(l.cells[7]), fmtP(l.cells[8]), formatBRL(l.cells[9]), formatBRL(l.cells[10]),
         ]),
         foot: [[
           { content: `TOTAL GERAL · ${totais.qtd} atividades`, colSpan: 6, styles: { halign: 'left' } },
-          fmtPct100(totais.peso), fmtPct100(totais.exec), fmtPct100(totais.med), formatBRL(totais.valorAMedir),
+          fmtPct100(totais.peso), fmtPct100(totais.exec), fmtPct100(totais.med), formatBRL(totais.valor), formatBRL(totais.valorAMedir),
         ]],
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
@@ -453,7 +471,7 @@ export default function MedicaoMensal({
         alternateRowStyles: { fillColor: [248, 249, 250] },
         columnStyles: {
           5: { halign: 'center' }, 6: { halign: 'center' }, 7: { halign: 'center' },
-          8: { halign: 'center' }, 9: { halign: 'right' },
+          8: { halign: 'center' }, 9: { halign: 'right' }, 10: { halign: 'right' },
         },
         margin: { top: 25, right: 14, bottom: 14, left: 14 },
         didParseCell: (data) => {
@@ -478,6 +496,58 @@ export default function MedicaoMensal({
     }
   };
 
+  // ── Card congelado sob a topbar, com rolagem interna ──────────────────────
+  // Mesmo padrão da Lista (ListaInterativa.jsx): `sticky` não serve porque o card é o
+  // último elemento e preenche a viewport, então usa sentinela + position:fixed via JS.
+  // Altura real da topbar, para congelar exatamente abaixo dela sem corte.
+  const [topbarH, setTopbarH] = React.useState(60);
+  React.useEffect(() => {
+    const measure = () => { const tb = document.querySelector('.topbar'); if (tb) setTopbarH(tb.offsetHeight); };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  const sentinelRef = React.useRef(null);
+  const [pinned, setPinned] = React.useState(null); // null = fluxo normal; { left, width } = fixado
+  React.useEffect(() => {
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      const s = sentinelRef.current;
+      if (!s) return;
+      const r = s.getBoundingClientRect();
+      // Gatilho na mesma altura em que o card prende (topbarH + 10), senão ele salta
+      // 10px para baixo no instante do congelamento.
+      if (r.top <= topbarH + 10) {
+        // Tolerância de 0.5px evita re-render em loop por variação fracionária.
+        setPinned(prev => (prev && Math.abs(prev.left - r.left) < 0.5 && Math.abs(prev.width - r.width) < 0.5) ? prev : { left: r.left, width: r.width });
+      } else {
+        setPinned(prev => (prev ? null : prev));
+      }
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(check); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    // Reajusta left/width quando a largura muda sem scroll (ex.: fixar/soltar a sidebar).
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined' && sentinelRef.current) {
+      ro = new ResizeObserver(onScroll);
+      ro.observe(sentinelRef.current);
+    }
+    const id = setTimeout(check, 0);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      clearTimeout(id);
+      if (raf) cancelAnimationFrame(raf);
+      if (ro) ro.disconnect();
+    };
+  }, [topbarH]);
+  // Altura fixa nos dois estados: sem ela o documento não tem rolagem suficiente para
+  // levar o topo do card até o gatilho de congelamento.
+  const cardH = `calc(100vh - ${topbarH + 10}px)`;
+
   // Banda e nomes de coluna são os dois sticky; sem deslocar o segundo pelo altura do
   // primeiro, as duas faixas colidem no topo ao rolar (mesma correção da Lista).
   const bandRowRef = React.useRef(null);
@@ -489,7 +559,8 @@ export default function MedicaoMensal({
     }
   });
   const bandTop = Math.max(0, bandH - 1);
-  const thSticky = { position: 'sticky', top: bandTop, zIndex: 3 };
+  // boxShadow veda a fresta sub-pixel por onde o corpo aparecia ao rolar (truque da Lista).
+  const thSticky = { position: 'sticky', top: bandTop, zIndex: 3, boxShadow: '0 1px 0 0 var(--brand)' };
   const footCell = { padding: '0 10px', height: 30 };
   const filtroLabelSt = { fontSize: 10.5, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '.04em' };
 
@@ -570,8 +641,17 @@ export default function MedicaoMensal({
         </div>
       </div>
 
-      <div className="card">
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 10, padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+      {/* Sentinela: marca onde o card começa, para detectar quando prender */}
+      <div ref={sentinelRef} aria-hidden="true" style={{ height: 0 }} />
+      {/* Espaçador: preserva a altura do fluxo quando o card sai dele (position:fixed) */}
+      {pinned && <div aria-hidden="true" style={{ marginTop: 8, height: cardH }} />}
+
+      <div className="card"
+        style={pinned
+          ? { position: 'fixed', top: topbarH + 10, left: pinned.left, width: pinned.width, height: cardH, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
+          : { marginTop: 8, height: cardH, display: 'flex', flexDirection: 'column' }
+        }>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 10, padding: '14px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 200 }}>
             <span style={filtroLabelSt}>Busca</span>
             <input
@@ -625,7 +705,9 @@ export default function MedicaoMensal({
           {fechada && <span className="badge success" style={{ marginLeft: qtdForaDoMes > 0 ? 0 : 'auto' }}><span className="dot" />Medição fechada</span>}
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        {/* flex:1 + minHeight:0 dá a rolagem por dentro do card; sem o minHeight o
+            flex item não encolhe e o scroll vaza para a página. */}
+        <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
           {/* tbl-lista: cabeçalho azul e altura de linha fina, os mesmos da Lista. */}
           <table className="tbl tbl-lista" style={{ minWidth: 1240, '--lista-row-h': '24px' }}>
             <thead>
@@ -633,7 +715,7 @@ export default function MedicaoMensal({
                 <th colSpan={3}>ETAPA / TAREFA</th>
                 <th colSpan={3}>PRAZO</th>
                 <th colSpan={3}>AVANÇO</th>
-                <th colSpan={1}>FINANCEIRO</th>
+                <th colSpan={2}>FINANCEIRO</th>
               </tr>
               <tr>
                 <th style={{ ...thSticky, width: 110 }}>SERVIÇO</th>
@@ -646,12 +728,13 @@ export default function MedicaoMensal({
                 <th style={{ ...thSticky, minWidth: 160 }}>% EXECUTADO</th>
                 <th className="center" style={thSticky}>% MEDIDO</th>
                 <th className="right" style={thSticky}>VALOR A MEDIR</th>
+                <th className="right" style={thSticky}>VALOR MEDIDO</th>
               </tr>
             </thead>
             <tbody>
               {linhas.length === 0 && (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
+                  <td colSpan={11} style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
                     Nenhum item do cronograma agendado para o período com os filtros aplicados.
                   </td>
                 </tr>
@@ -676,11 +759,13 @@ export default function MedicaoMensal({
                       <td />
                       <td className="center num">{fmtPct100(l.med)}</td>
                       <td className="right num">{formatBRL(l.valor, 2)}</td>
+                      <td className="right num">{formatBRL((l.valor * l.med) / 100, 2)}</td>
                     </tr>
                   );
                 }
                 const status = derivarStatus(l);
-                const peso = valorTotalBase ? (l.valor / valorTotalBase) * 100 : 0;
+                // Fora do mês não faz parte do previsto: peso zero (soma só ao realizado).
+                const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
                 return (
                   <tr key={l.id} style={l.foraDoMes ? { background: 'var(--warning-bg)' } : undefined}>
                     <td className="num">{l.wbs}</td>
@@ -735,6 +820,7 @@ export default function MedicaoMensal({
                         <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>%</span>
                       </span>
                     </td>
+                    <td className="right num">{formatBRL(l.valor, 2)}</td>
                     <td className="right num" style={{ fontWeight: 600 }}>{formatBRL((l.valor * l.percMedido) / 100, 2)}</td>
                   </tr>
                 );
@@ -746,52 +832,57 @@ export default function MedicaoMensal({
                 <td className="center num" style={footCell}>{fmtPct100(totais.peso)}</td>
                 <td className="num" style={footCell}>{fmtPct100(totais.exec)}</td>
                 <td className="center num" style={footCell}>{fmtPct100(totais.med)}</td>
+                <td className="right num" style={footCell}>{formatBRL(totais.valor, 2)}</td>
                 <td className="right num" style={footCell}>{formatBRL(totais.valorAMedir, 2)}</td>
               </tr>
             </tfoot>
           </table>
+
+          {/* Rodapé e histórico ficam DENTRO do container que rola. Fora dele, com o card
+              em position:fixed ocupando a viewport, os dois ficavam atrás do card e o
+              histórico virava inalcançável. Na Lista isso não acontece porque lá o card é
+              o último elemento da página. */}
+          <div style={{ padding: '10px 16px', fontSize: 12.5, color: 'var(--text-muted)', borderTop: '1px solid var(--border)' }}>
+            Itens do cronograma agendados para {mesLabel(mesRefKey)}{registro?.updated_at ? ` · atualizado em ${new Date(registro.updated_at).toLocaleString('pt-BR')}` : ''}
+          </div>
+
+          {/* Histórico: medições já fechadas, com os valores congelados no fechamento. */}
+          {fechadas.length > 0 && (
+            <div style={{ borderTop: '1px solid var(--border)' }}>
+              <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>Medições fechadas</div>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>valores congelados no fechamento</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="tbl tbl-lista" style={{ '--lista-row-h': '26px' }}>
+                  <thead>
+                    <tr>
+                      <th>MÊS</th>
+                      <th className="center">FECHADA EM</th>
+                      <th>FECHADA POR</th>
+                      <th className="center">ITENS</th>
+                      <th className="center">% MEDIDO</th>
+                      <th className="right">VALOR MEDIDO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fechadas.map(f => (
+                      <tr key={f.id}>
+                        <td style={{ fontWeight: 600 }}>{mesLabel(f.mes_referencia)}</td>
+                        <td className="center num">{f.fechada_em ? new Date(f.fechada_em).toLocaleDateString('pt-BR') : '—'}</td>
+                        <td>{f.fechada_por || '—'}</td>
+                        <td className="center num">{Array.isArray(f.itens) ? f.itens.length : 0}</td>
+                        <td className="center num">{f.perc_medido == null ? '—' : fmtPct100(f.perc_medido)}</td>
+                        <td className="right num">{f.valor_total_medido == null ? '—' : formatBRL(f.valor_total_medido, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-
-      <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--text-muted)' }}>
-        Itens do cronograma agendados para {mesLabel(mesRefKey)}{registro?.updated_at ? ` · atualizado em ${new Date(registro.updated_at).toLocaleString('pt-BR')}` : ''}
-      </div>
-
-      {/* Histórico: medições já fechadas, com os valores congelados no fechamento. */}
-      {fechadas.length > 0 && (
-        <div className="card" style={{ marginTop: 'var(--gap)' }}>
-          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>Medições fechadas</div>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>valores congelados no fechamento</span>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="tbl tbl-lista" style={{ '--lista-row-h': '26px' }}>
-              <thead>
-                <tr>
-                  <th>MÊS</th>
-                  <th className="center">FECHADA EM</th>
-                  <th>FECHADA POR</th>
-                  <th className="center">ITENS</th>
-                  <th className="center">% MEDIDO</th>
-                  <th className="right">VALOR MEDIDO</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fechadas.map(f => (
-                  <tr key={f.id}>
-                    <td style={{ fontWeight: 600 }}>{mesLabel(f.mes_referencia)}</td>
-                    <td className="center num">{f.fechada_em ? new Date(f.fechada_em).toLocaleDateString('pt-BR') : '—'}</td>
-                    <td>{f.fechada_por || '—'}</td>
-                    <td className="center num">{Array.isArray(f.itens) ? f.itens.length : 0}</td>
-                    <td className="center num">{f.perc_medido == null ? '—' : fmtPct100(f.perc_medido)}</td>
-                    <td className="right num">{f.valor_total_medido == null ? '—' : formatBRL(f.valor_total_medido, 2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {mostrarConfirmFechar && (
         <ModalFecharMedicao

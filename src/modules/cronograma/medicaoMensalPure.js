@@ -143,13 +143,20 @@ export function derivarStatus(item) {
 }
 
 // Média ponderada por valor — como grupo e total agregam %executado/%medido.
+//
+// exec/med do grupo continuam sendo taxa PRÓPRIA (média ponderada sobre as suas folhas):
+// é o "quanto deste grupo foi executado", leitura padrão de tarefa-resumo. Já `peso` é
+// participação no previsto do mês, e por isso ignora os itens fora do mês — eles somam ao
+// realizado, não ao previsto. `valorPrevisto` é essa soma sem os extras.
 function agregar(rows, valorTotalBase) {
   const valor = rows.reduce((s, r) => s + r.valor, 0);
+  const valorPrevisto = rows.reduce((s, r) => s + (r.foraDoMes ? 0 : r.valor), 0);
   return {
     valor,
+    valorPrevisto,
     exec: valor ? rows.reduce((s, r) => s + r.valor * r.percExecutado, 0) / valor : 0,
     med:  valor ? rows.reduce((s, r) => s + r.valor * r.percMedido, 0) / valor : 0,
-    peso: valorTotalBase ? (valor / valorTotalBase) * 100 : 0,
+    peso: valorTotalBase ? (valorPrevisto / valorTotalBase) * 100 : 0,
   };
 }
 
@@ -214,11 +221,14 @@ export function gruposParaNivel(linhas, nivelAlvo) {
 // então `exec` e `med` podem passar de 100% quando se produziu além do programado.
 export function computeTotaisMedicao(itensFiltrados, valorTotalBase) {
   const valor = itensFiltrados.reduce((s, i) => s + i.valor, 0);
+  // Previsto: só o que estava programado para o mês. É o numerador do peso — sem isso o
+  // peso do total passava de 100% (os extras entravam no numerador e não no denominador).
+  const valorPrevisto = itensFiltrados.reduce((s, i) => s + (i.foraDoMes ? 0 : i.valor), 0);
   const exec = valorTotalBase ? itensFiltrados.reduce((s, i) => s + i.valor * i.percExecutado, 0) / valorTotalBase : 0;
   const med = valorTotalBase ? itensFiltrados.reduce((s, i) => s + i.valor * i.percMedido, 0) / valorTotalBase : 0;
-  const peso = valorTotalBase ? (valor / valorTotalBase) * 100 : 0;
+  const peso = valorTotalBase ? (valorPrevisto / valorTotalBase) * 100 : 0;
   const valorAMedir = itensFiltrados.reduce((s, i) => s + (i.valor * i.percMedido) / 100, 0);
-  return { valor, exec, med, peso, valorAMedir, qtd: itensFiltrados.length };
+  return { valor, valorPrevisto, exec, med, peso, valorAMedir, qtd: itensFiltrados.length };
 }
 
 // Resumo financeiro/físico do mês: meta programada (% do valor da obra que este mês

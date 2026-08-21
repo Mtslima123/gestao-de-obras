@@ -121,6 +121,24 @@ describe('computeArvoreMedicao', () => {
   it('devolve vazio sem itens', () => {
     expect(computeArvoreMedicao([], etapas, 0)).toEqual([]);
   });
+
+  it('peso do grupo ignora o item fora do mês, mas o valor bruto o inclui', () => {
+    // F (800, fora do mês) fica sob ESTACAS, junto de C (500, previsto).
+    const comExtra = buildItensMedicao(etapas, MES, { ...opts, idsExtras: new Set(['F']) });
+    const linhas = computeArvoreMedicao(comExtra, etapas, base);
+    const estacas = linhas.find(l => l.descricao === 'ESTACAS');
+    expect(estacas.valorPrevisto).toBe(500);                    // só o do mês
+    expect(estacas.valor).toBe(1300);                           // 500 + 800
+    expect(estacas.peso).toBeCloseTo((500 / base) * 100, 5);    // peso sem o extra
+  });
+
+  it('valor medido do grupo é igual à soma do líquido dos filhos', () => {
+    const linhas = computeArvoreMedicao(itens, etapas, base);
+    const terreo = linhas.find(l => l.descricao === 'TERREO');
+    const filhos = itens.filter(i => ['A', 'B'].includes(i.id));
+    const somaFilhos = filhos.reduce((s, i) => s + (i.valor * i.percMedido) / 100, 0);
+    expect((terreo.valor * terreo.med) / 100).toBeCloseTo(somaFilhos, 5);
+  });
 });
 
 describe('gruposParaNivel', () => {
@@ -160,6 +178,27 @@ describe('computeTotaisMedicao', () => {
       { id: 'Y', valor: 500, percExecutado: 100, percMedido: 100, foraDoMes: true },
     ];
     expect(computeTotaisMedicao(itens, 1000).exec).toBeCloseTo(150, 5);
+  });
+
+  // O peso é participação no PREVISTO, então o item fora do mês não pode entrar nele —
+  // era o que fazia o total mostrar 129,6% em vez de 100%.
+  it('peso do total fica em 100% mesmo com itens fora do mês', () => {
+    const itens = [
+      { id: 'X', valor: 1000, percExecutado: 100, percMedido: 100, foraDoMes: false },
+      { id: 'Y', valor: 500, percExecutado: 100, percMedido: 100, foraDoMes: true },
+    ];
+    const t = computeTotaisMedicao(itens, 1000);
+    expect(t.peso).toBeCloseTo(100, 5);
+    expect(t.valorPrevisto).toBe(1000); // sem o extra
+    expect(t.valor).toBe(1500);         // com o extra (base da coluna "a medir")
+  });
+
+  it('valorAMedir soma o líquido de todos, inclusive os extras', () => {
+    const itens = [
+      { id: 'X', valor: 1000, percExecutado: 100, percMedido: 50, foraDoMes: false },
+      { id: 'Y', valor: 500, percExecutado: 100, percMedido: 100, foraDoMes: true },
+    ];
+    expect(computeTotaisMedicao(itens, 1000).valorAMedir).toBeCloseTo(1000, 5);
   });
 });
 

@@ -2868,7 +2868,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   onOutlineLevel={applyOutlineLevel}
                   onProjectInfo={() => setShowProjInfo(true)}
                   obraNome={obra?.nome || 'Projeto'}
-                  pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos}
+                  pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos} onPavimentoExcluir={excluirPavimentoObra}
                   showProjSummary={viewCfg.projSummary}
                   showSummaryTasks={viewCfg.summaryTasks}
                   onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}

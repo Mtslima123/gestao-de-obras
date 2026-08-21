@@ -317,7 +317,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
             Informe os nomes dos pavimentos. Use "Salvar pré-cadastro" para deixá-los disponíveis na obra (para reutilizar em inserções e fotos), ou "Próximo" para já criá-los como subtarefas das tarefas que você selecionar.
           </p>
           {/* Altura fixa: a caixa não cresce ao adicionar pavimentos, o rodapé não pula de lugar. */}
-          <div style={{ height: 220, overflowY: 'auto', paddingRight: 4 }}>
+          <div style={{ height: 132, overflowY: 'auto', paddingRight: 4 }}>
             {floors.map((f, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                 <span style={{ width: 20, textAlign: 'right', fontSize: 12, color: 'var(--text-faint)', flexShrink: 0 }}>{i + 1}.</span>
