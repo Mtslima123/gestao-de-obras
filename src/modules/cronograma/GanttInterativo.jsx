@@ -6,7 +6,7 @@ import { Icon } from '../../components/Icons';
 import { useToast, Modal } from '../../components/Modals';
 import { buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
          buildCalendarWeeks, buildCalendarDays } from './ganttUtils';
-import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, todayOffset } from './cronogramaDateUtils';
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes, computeGroupValues,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
@@ -627,7 +627,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
     const novo = {
       id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Nova Tarefa',
       nivel: ref ? (ref.nivel || 0) : 0, parentId: ref ? (ref.parentId ?? null) : null,
-      isGroup: false, collapsed: false, inicio: ref ? ref.inicio : 0, dur: 1, avanco: 0,
+      isGroup: false, collapsed: false, inicio: todayOffset(), dur: 1, avanco: 0,
       status: 'upcoming', dep: [], milestone: false, responsavel: '',
       customCols: emptyCustomCols(customCols), custo: 0,
       restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,

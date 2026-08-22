@@ -12,6 +12,7 @@ import {
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
   createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
   computeGroupValues, moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange,
+  reprogramarRestante,
 } from './scheduleEngine';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal } from './cronogramaModais';
 import { TaskFormPanel } from './TaskFormPanel';
@@ -1578,7 +1579,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         id:            nextEtapaId(base),
         displayId:     nextDisplayId(base),
         etapa:         'Nova Tarefa',
-        inicio:        ref.inicio,
+        inicio:        todayOffset(),
         dur:           1,
         avanco:        0,
         status:        'upcoming',
@@ -2067,6 +2068,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // docTop, a altura pré-scroll encolheria conforme os cards ficassem mais altos, quase
   // zerando a rolagem disponível).
   const listaCardH = `calc(100vh - ${topbarH + 10}px)`;
+
+  // Linha clicada com botão direito — controla se "Reprogramar restante" aparece no menu
+  // de contexto (só para folha com avanço parcial, 1–99%).
+  const ctxMenuTask     = ctxMenu ? etapas.find(e => e.id === ctxMenu.taskId) : null;
+  const podeReprogramar = !!ctxMenuTask && !ctxMenuTask.isGroup && ctxMenuTask.avanco >= 1 && ctxMenuTask.avanco <= 99;
 
   return (
     <>
@@ -3632,6 +3638,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           }}>
             <Icon name="pin" size={13} style={{ marginRight: 6 }} />Agendar Manual
           </button>
+          {podeReprogramar && (
+            <>
+              <hr />
+              <button onClick={() => { onCommit(reprogramarRestante(ctxMenu.taskId, etapas)); setCtxMenu(null); }}>
+                <Icon name="calendar" size={13} style={{ marginRight: 6 }} />Reprogramar restante
+              </button>
+            </>
+          )}
           <hr />
           <button onClick={() => {
             const ids = selectedRowIds();

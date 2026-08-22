@@ -49,6 +49,14 @@ export function todayOffset() {
   return dateToOffset(iso);
 }
 
+// Offset (em DIAS desde GM_REF) do dia 1 do mês seguinte ao atual (relativo a hoje).
+export function nextMonthStartOffset() {
+  const n = new Date();
+  const d = new Date(n.getFullYear(), n.getMonth() + 1, 1);
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  return dateToOffset(iso);
+}
+
 // ─── Calendário de trabalho (feriados / dias não trabalhados) ────────────────
 // Estado de módulo mutável definido a partir da config de feriados da obra.
 let WORK_CAL = { holidays: new Set(), sabadoUtil: false };

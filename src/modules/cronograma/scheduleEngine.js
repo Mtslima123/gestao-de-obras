@@ -4,7 +4,7 @@
 // têm state, JSX nem efeitos colaterais. Datas/dias úteis vêm de ./cronogramaDateUtils.
 
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
-import { offsetToDate, dateToOffset, taskEnd, workStart, workDur } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, dateToOffset, taskEnd, workStart, workDur, todayOffset, nextMonthStartOffset } from './cronogramaDateUtils';
 
 // ─── Funções puras de dados ──────────────────────────────────────────────────
 
@@ -181,7 +181,7 @@ export function createTask(afterId, etapas, customCols) {
     id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Nova tarefa',
     nivel: after ? after.nivel : 0, parentId: after ? after.parentId : null,
     isGroup: false, collapsed: false,
-    inicio: after ? after.inicio + after.dur : 0,
+    inicio: todayOffset(),
     dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
@@ -207,7 +207,7 @@ export function createSubtask(parentId, etapas, customCols) {
     id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Nova subtarefa',
     nivel: (parent.nivel || 0) + 1, parentId,
     isGroup: false, collapsed: false,
-    inicio: parent.inicio, dur: 30, avanco: 0, status: 'upcoming',
+    inicio: todayOffset(), dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
     restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
@@ -223,7 +223,7 @@ export function createGroup(afterId, etapas, customCols) {
     id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Novo grupo',
     nivel: after ? after.nivel : 0, parentId: after ? after.parentId : null,
     isGroup: true, collapsed: false,
-    inicio: after ? after.inicio : 0,
+    inicio: todayOffset(),
     dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
@@ -399,6 +399,77 @@ export function updateParentBounds(etapas) {
     result = result.map(e => e.id === g.id ? { ...e, inicio, dur: Math.max(1, fim - inicio) } : e);
   }
   return result;
+}
+
+// Reprograma o restante de uma tarefa parcialmente executada: a fatia já feita
+// (avanco%) vira uma tarefa fechada (100%) onde a tarefa já estava; o que falta
+// vira uma tarefa nova começando no dia 1 do mês seguinte a hoje, com data fixa
+// (mso). A tarefa original vira um grupo — sucessoras que já apontavam pro id
+// dela continuam apontando pro grupo (que passa a cobrir até o fim do
+// restante via updateParentBounds); nenhuma outra tarefa da obra é tocada.
+export function reprogramarRestante(etapaId, etapas) {
+  const idx = etapas.findIndex(e => e.id === etapaId);
+  if (idx < 0) return etapas;
+  const target = etapas[idx];
+  if (target.isGroup) return etapas;
+  const perc = Math.round(target.avanco || 0);
+  if (perc < 1 || perc > 99) return etapas;
+
+  const fechadoId   = nextEtapaId(etapas);
+  const fechadoDisp = nextDisplayId(etapas);
+  const base2       = [...etapas, { id: fechadoId, displayId: fechadoDisp }];
+  const restanteId   = nextEtapaId(base2);
+  const restanteDisp = nextDisplayId(base2);
+
+  const dur   = target.dur || 1;
+  const custo = target.custo || 0;
+  const fechadoDur    = Math.max(1, Math.round(dur * perc / 100));
+  const restanteDur   = Math.max(1, dur - fechadoDur);
+  const fechadoCusto  = Math.round(custo * perc / 100);
+  const restanteCusto = Math.max(0, custo - fechadoCusto);
+  const proxMes    = nextMonthStartOffset();
+  const proxMesISO = offsetToISO(proxMes);
+  const cloneDep   = () => (target.dep || []).map(d => ({ ...d }));
+
+  const fechado = {
+    ...target,
+    id: fechadoId, displayId: fechadoDisp,
+    etapa: `${target.etapa} (executado)`,
+    parentId: target.id, nivel: (target.nivel || 0) + 1,
+    isGroup: false,
+    inicio: target.inicio, dur: fechadoDur,
+    avanco: 100, status: 'done',
+    dep: cloneDep(),
+    custo: fechadoCusto, custoRealizado: target.custoRealizado || 0,
+    fator_peso: perc, valorVinculadoFixo: null,
+    modo: target.modo,
+    customCols: { ...(target.customCols || {}) },
+  };
+
+  const restante = {
+    ...target,
+    id: restanteId, displayId: restanteDisp,
+    etapa: `${target.etapa} (restante)`,
+    parentId: target.id, nivel: (target.nivel || 0) + 1,
+    isGroup: false,
+    inicio: proxMes, dur: restanteDur,
+    avanco: 0, status: 'upcoming',
+    dep: cloneDep(),
+    restricaoTipo: 'mso', restricaoData: proxMesISO,
+    custo: restanteCusto, custoRealizado: 0,
+    fator_peso: Math.max(0, 100 - perc), valorVinculadoFixo: null,
+    modo: 'auto',
+    customCols: { ...(target.customCols || {}) },
+  };
+
+  const grupo = { ...target, isGroup: true, collapsed: false };
+  const spliced = [...etapas.slice(0, idx), grupo, fechado, restante, ...etapas.slice(idx + 1)];
+
+  let novas = recomputeHierarchy(spliced);
+  novas = updateParentBounds(novas);
+  novas = autoScheduleFromDeps(novas);
+  novas = updateParentBounds(novas);
+  return novas;
 }
 
 // Converte dep[] para string exibível usando displayId: "1, 2TT+3d"
