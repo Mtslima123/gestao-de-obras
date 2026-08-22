@@ -39,6 +39,8 @@ describe('reprogramarRestante', () => {
     expect(restante.fator_peso).toBe(50);
     expect(fechado.custo).toBe(500);
     expect(restante.custo).toBe(500);
+    expect(fechado.custoRealizado).toBe(150);
+    expect(restante.custoRealizado).toBe(150);
     expect(fechado.dur).toBe(10);
     expect(restante.dur).toBe(10);
     expect(fechado.inicio).toBe(0); // mesma posição da tarefa original

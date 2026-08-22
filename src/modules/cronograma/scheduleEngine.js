@@ -421,12 +421,15 @@ export function reprogramarRestante(etapaId, etapas) {
   const restanteId   = nextEtapaId(base2);
   const restanteDisp = nextDisplayId(base2);
 
-  const dur   = target.dur || 1;
-  const custo = target.custo || 0;
+  const dur            = target.dur || 1;
+  const custo          = target.custo || 0;
+  const custoRealizado = target.custoRealizado || 0;
   const fechadoDur    = Math.max(1, Math.round(dur * perc / 100));
   const restanteDur   = Math.max(1, dur - fechadoDur);
   const fechadoCusto  = Math.round(custo * perc / 100);
   const restanteCusto = Math.max(0, custo - fechadoCusto);
+  const fechadoCustoRealizado  = Math.round(custoRealizado * perc / 100);
+  const restanteCustoRealizado = Math.max(0, custoRealizado - fechadoCustoRealizado);
   const proxMes    = nextMonthStartOffset();
   const proxMesISO = offsetToISO(proxMes);
   const cloneDep   = () => (target.dep || []).map(d => ({ ...d }));
@@ -440,7 +443,7 @@ export function reprogramarRestante(etapaId, etapas) {
     inicio: target.inicio, dur: fechadoDur,
     avanco: 100, status: 'done',
     dep: cloneDep(),
-    custo: fechadoCusto, custoRealizado: target.custoRealizado || 0,
+    custo: fechadoCusto, custoRealizado: fechadoCustoRealizado,
     fator_peso: perc, valorVinculadoFixo: null,
     modo: target.modo,
     customCols: { ...(target.customCols || {}) },
@@ -456,7 +459,7 @@ export function reprogramarRestante(etapaId, etapas) {
     avanco: 0, status: 'upcoming',
     dep: cloneDep(),
     restricaoTipo: 'mso', restricaoData: proxMesISO,
-    custo: restanteCusto, custoRealizado: 0,
+    custo: restanteCusto, custoRealizado: restanteCustoRealizado,
     fator_peso: Math.max(0, 100 - perc), valorVinculadoFixo: null,
     modo: 'auto',
     customCols: { ...(target.customCols || {}) },
