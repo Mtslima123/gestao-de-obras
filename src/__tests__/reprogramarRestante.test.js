@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setWorkCal, dateToOffset, taskEnd } from '../modules/cronograma/cronogramaDateUtils';
 import { reprogramarRestante } from '../modules/cronograma/scheduleEngine';
+import { computeValorVinculadoMap } from '../modules/cronograma/ganttUtils';
 
 beforeEach(() => {
   setWorkCal({ dias: [], sabadoUtil: false });
@@ -95,5 +96,28 @@ describe('reprogramarRestante', () => {
     expect(reprogramarRestante('T1', etapasGrupo)).toBe(etapasGrupo);
 
     expect(reprogramarRestante('NAO_EXISTE', etapas0)).toBe(etapas0);
+  });
+
+  it('divide o valor vinculado de orçamento proporcionalmente ao avanço', () => {
+    const vinculos = [{ etapa_id: 'T1', orcamento_item_id: 'item1' }];
+    const orcamentoItensMap = { item1: 1000 };
+
+    const out = reprogramarRestante('T1', [baseTarefa()]);
+    const fechado  = out.find(e => e.parentId === 'T1' && e.avanco === 100);
+    const restante = out.find(e => e.parentId === 'T1' && e.avanco === 0);
+
+    const map = computeValorVinculadoMap(out, vinculos, orcamentoItensMap);
+    expect(map[fechado.id]).toBeCloseTo(500);
+    expect(map[restante.id]).toBeCloseTo(500);
+    expect(map['T1']).toBeCloseTo(1000); // grupo (bubble-up) preserva o total
+
+    // Simula o que commit() faz ao ver o fragmento fechado em avanco:100: trava
+    // o valor calculado nesta mesma passada. O restante, que segue "aberto",
+    // continua recebendo exatamente sua parcela.
+    const travado = out.map(e => (e.id === fechado.id ? { ...e, valorVinculadoFixo: map[fechado.id] } : e));
+    const map2 = computeValorVinculadoMap(travado, vinculos, orcamentoItensMap);
+    expect(map2[fechado.id]).toBe(map[fechado.id]);
+    expect(map2[restante.id]).toBeCloseTo(500);
+    expect(map2['T1']).toBeCloseTo(1000);
   });
 });
