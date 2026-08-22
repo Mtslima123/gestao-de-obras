@@ -1,17 +1,15 @@
 // Testes de reprogramarRestante — fraciona uma tarefa parcialmente executada em
 // duas: o pedaço já feito (100%, fica onde estava) e o restante (empurrado pro
-// dia 1 do mês seguinte a hoje, com data fixa). Funções puras, rodam em node.
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+// dia 1 do mês seguinte ao término do fragmento já executado, com data fixa).
+// Funções puras, rodam em node.
+import { describe, it, expect, beforeEach } from 'vitest';
 import { setWorkCal, dateToOffset, taskEnd } from '../modules/cronograma/cronogramaDateUtils';
 import { reprogramarRestante } from '../modules/cronograma/scheduleEngine';
 import { computeValorVinculadoMap } from '../modules/cronograma/ganttUtils';
 
 beforeEach(() => {
   setWorkCal({ dias: [], sabadoUtil: false });
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date(2026, 7, 21)); // 21/08/2026
 });
-afterEach(() => vi.useRealTimers());
 
 const baseTarefa = (over = {}) => ({
   id: 'T1', displayId: 1, etapa: 'Alvenaria', nivel: 0, parentId: null,
@@ -51,12 +49,14 @@ describe('reprogramarRestante', () => {
     expect(restante.valorVinculadoFixo).toBeNull();
   });
 
-  it('restante fica com restrição mso pro dia 1 do mês seguinte a hoje', () => {
+  it('restante fica com restrição mso pro dia 1 do mês seguinte ao término do executado', () => {
     const out = reprogramarRestante('T1', [baseTarefa()]);
     const restante = out.find(e => e.parentId === 'T1' && e.avanco === 0);
+    // inicio:0 (01/03/2024) + fechadoDur:10 dias úteis -> workEnd(0,10) = offset 14 = 15/03/2024.
+    // Mês seguinte a março/2024 = abril/2024.
     expect(restante.restricaoTipo).toBe('mso');
-    expect(restante.restricaoData).toBe('2026-09-01');
-    expect(restante.inicio).toBe(dateToOffset('2026-09-01'));
+    expect(restante.restricaoData).toBe('2024-04-01');
+    expect(restante.inicio).toBe(dateToOffset('2024-04-01'));
   });
 
   it('as duas folhas novas herdam as predecessoras da tarefa original', () => {
@@ -79,10 +79,11 @@ describe('reprogramarRestante', () => {
     ];
     const out = reprogramarRestante('T1', etapas);
     const grupo     = out.find(e => e.id === 'T1');
+    const restante  = out.find(e => e.parentId === 'T1' && e.avanco === 0);
     const sucessora = out.find(e => e.id === 'S');
     expect(sucessora.inicio).toBe(taskEnd(grupo));
-    // o grupo se estendeu até bem depois de hoje (restante em setembro/2026)
-    expect(taskEnd(grupo)).toBeGreaterThan(dateToOffset('2026-08-21'));
+    // o grupo se estende pelo menos até o início do restante (empurrado pro mês seguinte)
+    expect(taskEnd(grupo)).toBeGreaterThanOrEqual(restante.inicio);
   });
 
   it('não faz nada quando avanço está fora de [1,99] ou a tarefa já é grupo', () => {

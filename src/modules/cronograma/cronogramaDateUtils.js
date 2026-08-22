@@ -49,10 +49,10 @@ export function todayOffset() {
   return dateToOffset(iso);
 }
 
-// Offset (em DIAS desde GM_REF) do dia 1 do mês seguinte ao atual (relativo a hoje).
-export function nextMonthStartOffset() {
-  const n = new Date();
-  const d = new Date(n.getFullYear(), n.getMonth() + 1, 1);
+// Offset (em DIAS desde GM_REF) do dia 1 do mês seguinte ao mês que contém `fromOffset`.
+export function nextMonthStartOffset(fromOffset) {
+  const d0 = offsetToDate(fromOffset);
+  const d  = new Date(d0.getFullYear(), d0.getMonth() + 1, 1);
   const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   return dateToOffset(iso);
 }

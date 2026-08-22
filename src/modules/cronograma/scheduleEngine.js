@@ -430,7 +430,8 @@ export function reprogramarRestante(etapaId, etapas) {
   const restanteCusto = Math.max(0, custo - fechadoCusto);
   const fechadoCustoRealizado  = Math.round(custoRealizado * perc / 100);
   const restanteCustoRealizado = Math.max(0, custoRealizado - fechadoCustoRealizado);
-  const proxMes    = nextMonthStartOffset();
+  const fechadoFim = taskEnd({ isGroup: false, inicio: target.inicio, dur: fechadoDur });
+  const proxMes    = nextMonthStartOffset(fechadoFim);
   const proxMesISO = offsetToISO(proxMes);
   const cloneDep   = () => (target.dep || []).map(d => ({ ...d }));
 
