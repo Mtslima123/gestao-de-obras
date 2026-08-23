@@ -84,4 +84,23 @@ export const medicaoMensalService = {
     }
     return { data, error: null };
   },
+
+  // Reabre uma medição fechada: volta pra rascunho e libera os % medido pra edição de
+  // novo. Mantém os itens/valores congelados no fechamento como ponto de partida do
+  // rascunho (o usuário ajusta a partir daí) e o histórico de quem/quando fechou por
+  // último (fechada_em/fechada_por só são sobrescritos no próximo fechamento).
+  async reabrir(obraId, mesReferencia) {
+    const { data, error } = await supabase
+      .from('medicoes_mensais')
+      .update({ status: 'rascunho', updated_at: new Date().toISOString() })
+      .eq('obra_id', obraId)
+      .eq('mes_referencia', mesReferencia)
+      .select()
+      .maybeSingle();
+    if (error) {
+      logger.error('falha ao reabrir medição mensal', { module: 'medicaoMensal', action: 'reabrir', obraId, mesReferencia, err: error });
+      return { data: null, error };
+    }
+    return { data, error: null };
+  },
 };

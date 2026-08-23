@@ -38,6 +38,31 @@ function salvarMesRefMedicao(obraId, key) {
 
 const PDF_FORMATOS = ['a4', 'a3', 'a2', 'a1'];
 
+function ModalReabrirMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
+  return (
+    <Modal
+      title="Reabrir medição"
+      subtitle={mesLabel(mesRefKey)}
+      onClose={onClose}
+      footer={
+        <>
+          <div className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" disabled={salvando} onClick={onConfirmar}>
+            <Icon name="refresh-cw" size={14} />{salvando ? 'Reabrindo…' : 'Reabrir medição'}
+          </button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--text-soft)' }}>
+        Isso volta {mesLabel(mesRefKey)} para rascunho e libera o % medido de cada item
+        para edição de novo. Os valores desta medição saem do histórico de "Medições
+        fechadas" até você fechar de novo.
+      </p>
+    </Modal>
+  );
+}
+
 function KpiCard({ label, value, barColor, foot, footColor }) {
   return (
     <div className="kpi" style={{ padding: '18px 20px' }}>
@@ -197,6 +222,7 @@ export default function MedicaoMensal({
   const [disciplina, setDisciplina] = React.useState('Todas');
   const [pavimento, setPavimento] = React.useState('Todos');
   const [mostrarConfirmFechar, setMostrarConfirmFechar] = React.useState(false);
+  const [mostrarConfirmReabrir, setMostrarConfirmReabrir] = React.useState(false);
 
   // Tarefas fora do mês escolhidas manualmente (ver ModalIncluirTarefa) — persistidas
   // no rascunho como `manual: true` e recarregadas com ele (ver gerarMedicao).
@@ -418,6 +444,16 @@ export default function MedicaoMensal({
     setRegistro(data);
     setMostrarConfirmFechar(false);
     toast('Medição fechada', { tone: 'success', icon: 'check' });
+  };
+
+  const reabrirMedicao = async () => {
+    setSalvando(true);
+    const { data, error } = await medicaoMensalService.reabrir(obraId, mesRefKey);
+    setSalvando(false);
+    if (error) { toast('Não foi possível reabrir a medição.', { tone: 'danger' }); return; }
+    setRegistro(data);
+    setMostrarConfirmReabrir(false);
+    toast('Medição reaberta', { tone: 'success', icon: 'check' });
   };
 
   // ── Exportação ────────────────────────────────────────────────────────────
@@ -741,7 +777,16 @@ export default function MedicaoMensal({
               {qtdForaDoMes} {qtdForaDoMes === 1 ? 'item fora do mês' : 'itens fora do mês'} · somam ao realizado, não ao previsto
             </span>
           )}
-          {fechada && <span className="badge success" style={{ marginLeft: qtdForaDoMes > 0 ? 0 : 'auto' }}><span className="dot" />Medição fechada</span>}
+          {fechada && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: qtdForaDoMes > 0 ? 0 : 'auto' }}>
+              <span className="badge success"><span className="dot" />Medição fechada</span>
+              {!readOnly && (
+                <button type="button" className="btn btn-ghost" onClick={() => setMostrarConfirmReabrir(true)}>
+                  <Icon name="refresh-cw" size={15} />Reabrir medição
+                </button>
+              )}
+            </span>
+          )}
         </div>
 
         {/* flex:1 + minHeight:0 dá a rolagem por dentro do card; sem o minHeight o
@@ -945,6 +990,15 @@ export default function MedicaoMensal({
           salvando={salvando}
           onClose={() => setMostrarConfirmFechar(false)}
           onConfirmar={confirmarFechamento}
+        />
+      )}
+
+      {mostrarConfirmReabrir && (
+        <ModalReabrirMedicao
+          mesRefKey={mesRefKey}
+          salvando={salvando}
+          onClose={() => setMostrarConfirmReabrir(false)}
+          onConfirmar={reabrirMedicao}
         />
       )}
 
