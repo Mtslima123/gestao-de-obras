@@ -89,13 +89,17 @@ export const medicaoMensalService = {
   // novo. Mantém os itens/valores congelados no fechamento como ponto de partida do
   // rascunho (o usuário ajusta a partir daí) e o histórico de quem/quando fechou por
   // último (fechada_em/fechada_por só são sobrescritos no próximo fechamento).
+  //
+  // Precisa ser via RPC (não um .update() direto): a policy RESTRICTIVE
+  // "medicoes_mensais_no_edit_fechada" só libera UPDATE quando a linha já está em
+  // rascunho — de propósito, pra proteger o snapshot congelado de uma medição fechada.
+  // Um .update() aqui seria filtrado silenciosamente pelo RLS (0 linhas, sem erro) e
+  // pareceria sucesso sem mudar nada. A função reabrir_medicao_mensal (SECURITY
+  // DEFINER, ver supabase/migrations/20260823000001_reabrir_medicao_mensal.sql) é o
+  // único caminho autorizado pra essa transição específica.
   async reabrir(obraId, mesReferencia) {
     const { data, error } = await supabase
-      .from('medicoes_mensais')
-      .update({ status: 'rascunho', updated_at: new Date().toISOString() })
-      .eq('obra_id', obraId)
-      .eq('mes_referencia', mesReferencia)
-      .select()
+      .rpc('reabrir_medicao_mensal', { p_obra_id: obraId, p_mes_referencia: mesReferencia })
       .maybeSingle();
     if (error) {
       logger.error('falha ao reabrir medição mensal', { module: 'medicaoMensal', action: 'reabrir', obraId, mesReferencia, err: error });

@@ -440,7 +440,9 @@ export default function MedicaoMensal({
     const snapshot = buildSnapshotFechamento(itensTrabalho, totais);
     const { data, error } = await medicaoMensalService.fechar(obraId, mesRefKey, snapshot, currentUser?.nome || currentUser?.email);
     setSalvando(false);
-    if (error) { toast('Não foi possível fechar a medição (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
+    // !data sem error acontece se o RLS filtrar a linha silenciosamente (0 linhas
+    // afetadas) — sem essa checagem o toast de sucesso dispara mesmo sem ter fechado nada.
+    if (error || !data) { toast('Não foi possível fechar a medição (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
     setRegistro(data);
     setMostrarConfirmFechar(false);
     toast('Medição fechada', { tone: 'success', icon: 'check' });
@@ -450,7 +452,10 @@ export default function MedicaoMensal({
     setSalvando(true);
     const { data, error } = await medicaoMensalService.reabrir(obraId, mesRefKey);
     setSalvando(false);
-    if (error) { toast('Não foi possível reabrir a medição.', { tone: 'danger' }); return; }
+    // !data sem error: a função reabrir_medicao_mensal não existe ainda (migration não
+    // aplicada) ou não achou uma linha 'fechada' pra reabrir — nos dois casos não houve
+    // mudança nenhuma, então não pode virar toast de sucesso.
+    if (error || !data) { toast('Não foi possível reabrir a medição.', { tone: 'danger' }); return; }
     setRegistro(data);
     setMostrarConfirmReabrir(false);
     toast('Medição reaberta', { tone: 'success', icon: 'check' });
