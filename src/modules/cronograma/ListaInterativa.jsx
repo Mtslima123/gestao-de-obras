@@ -985,22 +985,47 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       insertBlankRows(id, 'above', n);
     }
   };
-  // Recortar (Ctrl+X): mesmo critério de seleção do Ctrl+C, mas marca a origem para ser
-  // limpa/removida no PRÓXIMO colar bem-sucedido (ver pasteCell/pasteRow). Uma nova
-  // cópia/recorte, ou Escape, cancela o recorte pendente sem apagar nada — igual ao Excel.
+  // Recortar (Ctrl+X): marca a origem para ser limpa/removida no PRÓXIMO colar bem-sucedido
+  // (ver pasteCell/pasteRow). Uma nova cópia/recorte, ou Escape, cancela o recorte pendente
+  // sem apagar nada — igual ao Excel.
   // rowIdOverride: usado pelo menu de contexto para recortar a linha CLICADA quando não há
   // seleção de célula ativa (o botão direito não altera a seleção corrente — mesmo motivo
   // pelo qual "Copiar"/"Colar" do menu de contexto recebem `ctxMenu.taskId`).
+  //
+  // ATENÇÃO: clicar na CALHA (o jeito normal de selecionar uma linha inteira) TAMBÉM seta
+  // `selectedCell` (um intervalo cobrindo da 1ª à última coluna) — não dá pra usar
+  // `!!selectedCell` sozinho pra decidir "célula" vs "linha inteira", senão recortar uma
+  // linha selecionada pela calha cai no ramo de célula e o Ctrl++/Colar duplica a linha em
+  // vez de mover (a limpeza da origem só existe no ramo de linha). Por isso o critério aqui
+  // é `isWholeRowSelection()`, o mesmo já usado pelo Delete/Shift+Espaço.
   const cutSelection = (rowIdOverride) => {
     if (readOnly) return;
-    if (selectedCell) {
+    if (rowIdOverride != null) {
+      copyRow(rowIdOverride);
+      cutPendingRef.current = { type: 'row', ids: [rowIdOverride] };
+    } else if (selectedCell && isWholeRowSelection()) {
+      copyCell(); // já clona a(s) linha(s) inteira(s) do intervalo em rowClipRef
+      cutPendingRef.current = { type: 'row', ids: (rowClipRef.current || []).map(r => r.id) };
+    } else if (selectedCell) {
       copyCell();
       cutPendingRef.current = { type: 'cell', cellList: rangeCellList() };
     } else {
-      copyRow(rowIdOverride);
-      cutPendingRef.current = { type: 'row', ids: rowIdOverride != null ? [rowIdOverride] : [...selectedRowIds()] };
+      copyRow();
+      cutPendingRef.current = { type: 'row', ids: selectedId != null ? [selectedId] : [] };
     }
     showMarquee();
+  };
+  // Decide entre colar célula-a-célula (paste-special) ou inserir/mover a linha inteira,
+  // usado por todo botão/menu "Colar" (ribbon, menu de contexto e seu submenu). Um recorte
+  // de LINHA pendente sempre vai para pasteRow — é o único caminho que sabe limpar a
+  // origem —, mesmo que a seleção atual no momento de colar seja uma célula específica.
+  const pasteSmart = (mode, rowIdOverride) => {
+    const recorteDeLinha = cutPendingRef.current?.type === 'row';
+    if (!recorteDeLinha && selectedCell && !isWholeRowSelection() && cellClipRef.current?.grid) {
+      pasteCell(mode);
+    } else {
+      pasteRow(rowIdOverride);
+    }
   };
 
   // ── Formatação de célula/linha (compartilhada, salva no JSON do cronograma) ──
@@ -1383,7 +1408,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (idxs.length) {
         const pivotId = etapas[idxs[0]].id;
         if (rowClipRef.current && rowClipRef.current.length) {
-          pasteRow(pivotId); // cola a cópia feita com Ctrl+C (uso único)
+          pasteRow(pivotId); // cola a cópia (Ctrl+C) ou move a linha (Ctrl+X) — uso único
         } else {
           insertBlankRows(pivotId, 'above', idxs.length); // nada copiado: linha(s) em branco
         }
@@ -2398,7 +2423,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                             Copiar
                           </button>
-                          <button style={cmdBtn} onClick={() => (selectedCell ? pasteCell() : pasteRow())} title="Colar (Ctrl+V)">
+                          <button style={cmdBtn} onClick={() => pasteSmart('all')} title="Colar (Ctrl+V)">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
                             Colar
                           </button>
@@ -3735,6 +3760,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         <OrtografiaModal
           etapas={etapas}
           filtrada={filtrada}
+          cursorInicial={selectedCell?.taskId ?? selectedId ?? null}
           onAlterarUma={alterarPalavraOrtografia}
           onAlterarTodas={alterarPalavraOrtografiaEmTodas}
           onFocarTarefa={focarTarefaOrtografia}
@@ -3761,25 +3787,19 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           <div className="ctx-submenu-wrap"
             onMouseEnter={() => { clearTimeout(pasteFlyoutCloseTimer.current); setPasteFlyoutOpen(true); }}
             onMouseLeave={() => { pasteFlyoutCloseTimer.current = setTimeout(() => setPasteFlyoutOpen(false), 150); }}>
-            <button onClick={() => {
-              if (selectedCell && cellClipRef.current?.grid) pasteCell('all'); else pasteRow(ctxMenu.taskId);
-              setCtxMenu(null);
-            }}>
+            <button onClick={() => { pasteSmart('all', ctxMenu.taskId); setCtxMenu(null); }}>
               Colar <span aria-hidden="true">›</span>
             </button>
             {pasteFlyoutOpen && (
               <div ref={pasteSubmenuRef} className="ctx-menu ctx-submenu" style={pasteSubmenuFlip ? { right: '100%' } : { left: '100%' }}>
-                <button onClick={() => {
-                  if (selectedCell && cellClipRef.current?.grid) pasteCell('all'); else pasteRow(ctxMenu.taskId);
-                  setCtxMenu(null);
-                }}>
+                <button onClick={() => { pasteSmart('all', ctxMenu.taskId); setCtxMenu(null); }}>
                   Colar
                 </button>
-                <button disabled={!cellClipRef.current?.grid || cutPendingRef.current?.type === 'cell'}
+                <button disabled={!cellClipRef.current?.grid || !!cutPendingRef.current}
                   onClick={() => { pasteCell('values'); setCtxMenu(null); }}>
                   Colar somente valores
                 </button>
-                <button disabled={!cellClipRef.current?.grid || cutPendingRef.current?.type === 'cell'}
+                <button disabled={!cellClipRef.current?.grid || !!cutPendingRef.current}
                   onClick={() => { pasteCell('format'); setCtxMenu(null); }}>
                   Colar formatação
                 </button>

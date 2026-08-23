@@ -1262,6 +1262,7 @@ a:hover { color: var(--brand-600); }
 .modal-footer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 14px 22px;
   border-top: 1px solid var(--border);

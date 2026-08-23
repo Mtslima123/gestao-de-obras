@@ -10,16 +10,14 @@ import { Modal } from '../../components/Modals';
 import { tokenizarEtapa, deveIgnorarToken, gerarSugestoes } from './spellcheckPure';
 import { carregarVerificador, correta, adicionarAoDicionarioPessoal } from './spellcheck';
 
-// Acha a primeira palavra desconhecida a partir de `cursor` (inclusive), percorrendo
-// `etapas` na ordem do array. Pula o que `deveIgnorarToken` e o que foi "ignorado" nesta
-// sessão de revisão. Retorna null quando não sobra nenhuma ocorrência.
-function proximaOcorrencia(etapas, cursor, indice, ignoradasSessao) {
-  if (!indice) return null;
-  const startIdx = cursor.taskId == null ? 0 : Math.max(0, etapas.findIndex(e => e.id === cursor.taskId));
-  for (let i = startIdx; i < etapas.length; i++) {
+// Varre etapas[fromIdx..toIdx) em busca da 1ª palavra desconhecida. `minOffsetPrimeira`
+// só vale pra primeira tarefa do intervalo (retomar de onde parou); as demais são
+// varridas do começo do texto.
+function buscarNoIntervalo(etapas, fromIdx, toIdx, minOffsetPrimeira, indice, ignoradasSessao) {
+  for (let i = fromIdx; i < toIdx; i++) {
     const e = etapas[i];
     const texto = e.etapa || '';
-    const minOffset = e.id === cursor.taskId ? cursor.offset : 0;
+    const minOffset = i === fromIdx ? minOffsetPrimeira : 0;
     for (const t of tokenizarEtapa(texto)) {
       if (t.inicio < minOffset) continue;
       if (deveIgnorarToken(t.palavra)) continue;
@@ -31,9 +29,23 @@ function proximaOcorrencia(etapas, cursor, indice, ignoradasSessao) {
   return null;
 }
 
-export function OrtografiaModal({ etapas, filtrada, onAlterarUma, onAlterarTodas, onFocarTarefa, onClose }) {
+// Acha a próxima palavra desconhecida a partir de `cursor` (inclusive) — mesmo
+// comportamento do F7 do Word: começa de onde o cursor da grade estava (não sempre do
+// início da lista) e, se chegar ao fim sem achar nada, dá a volta e cobre o resto da
+// lista antes de concluir. Pula o que `deveIgnorarToken` e o que foi "ignorado" nesta
+// sessão de revisão. Retorna null quando não sobra nenhuma ocorrência.
+function proximaOcorrencia(etapas, cursor, indice, ignoradasSessao) {
+  if (!indice || !etapas.length) return null;
+  const startIdx = cursor.taskId == null ? 0 : Math.max(0, etapas.findIndex(e => e.id === cursor.taskId));
+  return buscarNoIntervalo(etapas, startIdx, etapas.length, cursor.offset, indice, ignoradasSessao)
+    ?? (startIdx > 0 ? buscarNoIntervalo(etapas, 0, startIdx, 0, indice, ignoradasSessao) : null);
+}
+
+export function OrtografiaModal({ etapas, filtrada, cursorInicial, onAlterarUma, onAlterarTodas, onFocarTarefa, onClose }) {
   const [fase, setFase] = React.useState('carregando'); // carregando | revisando | concluido | erro
-  const [cursor, setCursor] = React.useState({ taskId: null, offset: 0 });
+  // Começa da célula selecionada na grade (estilo Word: o F7 parte de onde o cursor está,
+  // não sempre do topo do documento) — proximaOcorrencia dá a volta no final se precisar.
+  const [cursor, setCursor] = React.useState({ taskId: cursorInicial ?? null, offset: 0 });
   const [substituto, setSubstituto] = React.useState('');
   const indiceRef = React.useRef(null);
   const ignoradasSessaoRef = React.useRef(new Set());
@@ -92,7 +104,7 @@ export function OrtografiaModal({ etapas, filtrada, onAlterarUma, onAlterarTodas
   const podeAgir = fase === 'revisando' && !!ocorrencia;
 
   return (
-    <Modal title="Verificar ortografia" size="sm" draggable overlay={false} onClose={onClose}
+    <Modal title="Verificar ortografia" draggable overlay={false} onClose={onClose}
       footer={
         fase === 'concluido' || fase === 'erro' ? (
           <button className="btn btn-primary" onClick={onClose}>OK</button>
