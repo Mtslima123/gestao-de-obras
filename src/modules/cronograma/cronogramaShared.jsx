@@ -164,6 +164,8 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
       ref={inputRef}
       type={type === 'number' ? 'number' : type === 'date' ? 'date' : 'text'}
       list={listId}
+      spellCheck={type === 'text'}
+      lang={type === 'text' ? 'pt-BR' : undefined}
       value={draft ?? ''}
       onChange={e => setDraft(e.target.value)}
       onBlur={() => save('blur')}

@@ -16,6 +16,8 @@ import {
 } from './scheduleEngine';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal } from './cronogramaModais';
 import { TaskFormPanel } from './TaskFormPanel';
+import { OrtografiaModal } from './OrtografiaModal';
+import { substituirTokens } from './spellcheckPure';
 import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, VIRT_MIN,
@@ -27,7 +29,7 @@ import {
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
 const EMPTY_HIDDEN_COLS = new Set();
 
-export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, vinculos = [], orcamentoItensMap = {}, readOnly = false,
+export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
@@ -65,6 +67,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [editingDep,     setEditingDep]     = React.useState(null); // id da tarefa com predecessora em edição
   const [editingSucc,    setEditingSucc]    = React.useState(null); // id da tarefa com sucessora em edição
   const [showLocalizar,  setShowLocalizar]  = React.useState(false); // modal Localizar (Ctrl+L)
+  const [showOrtografia, setShowOrtografia] = React.useState(false); // modal Ortografia (F7)
   const [localizarTermo, setLocalizarTermo] = React.useState('');
   const localizarIdxRef = React.useRef(-1);
   const [openModoMenu,   setOpenModoMenu]   = React.useState(null); // id da tarefa com o menu de Modo aberto
@@ -90,6 +93,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const top  = Math.max(8, Math.min(ctxMenu.y, window.innerHeight - rect.height - 8));
     setCtxMenuPos({ left, top });
   }, [ctxMenu]);
+  // Submenu-flyout "Colar" (colar especial) do menu de contexto: fecha junto com o menu pai
+  // e recalcula o lado (direita/esquerda) para não estourar a borda da janela.
+  const pasteSubmenuRef = React.useRef(null);
+  const [pasteSubmenuFlip, setPasteSubmenuFlip] = React.useState(false);
+  React.useEffect(() => { if (!ctxMenu) setPasteFlyoutOpen(false); }, [ctxMenu]);
+  React.useLayoutEffect(() => {
+    if (!pasteFlyoutOpen) { setPasteSubmenuFlip(false); return; }
+    const el = pasteSubmenuRef.current;
+    if (!el) return;
+    setPasteSubmenuFlip(el.getBoundingClientRect().right > window.innerWidth - 8);
+  }, [pasteFlyoutOpen]);
   const [dragOverId,     setDragOverId]     = React.useState(null);
   const [showColPanel,   setShowColPanel]   = React.useState(false);
   const [selectedCell,   setSelectedCell]   = React.useState(null); // { taskId, colId } — foco ativo (planilha)
@@ -169,6 +183,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const colPanelRef  = React.useRef(null);
   const cellClipRef  = React.useRef(null); // clipboard interno de célula { value, kind, fmt }
   const rowClipRef   = React.useRef(null); // clipboard interno de LINHA (clone da tarefa copiada)
+  // Recorte pendente (Ctrl+X): { type: 'cell', cellList } ou { type: 'row', ids }. Consumido no
+  // próximo colar bem-sucedido (limpa a origem); zerado por uma nova cópia/recorte ou Escape.
+  const cutPendingRef = React.useRef(null);
+  const [pasteFlyoutOpen, setPasteFlyoutOpen] = React.useState(false); // submenu "Colar" do menu de contexto
+  const pasteFlyoutCloseTimer = React.useRef(null);
   const listaScrollRef = React.useRef(null); // container rolável da lista (foco p/ navegação por setas)
 
   // Altura das linhas da lista (ajustável na UI, estilo MS Project), persistida no navegador.
@@ -649,6 +668,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   const copyCell = () => {
     if (!selectedCell) return;
+    cutPendingRef.current = null; // uma cópia nova cancela um recorte pendente (mesma regra do Excel)
     const rows = filtrada.map(x => x.id);
     const cols = visibleColIds();
     const a = selAnchor || selectedCell;
@@ -676,7 +696,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     try { navigator.clipboard?.writeText(grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n')); } catch { /* best-effort */ }
   };
   // Cola o bloco a partir da célula selecionada (canto superior esquerdo), estilo Excel.
-  const pasteCell = () => {
+  // mode: 'all' (padrão, valores+formatação) | 'values' (só valores) | 'format' (só formatação) —
+  // usado pelo submenu "Colar" (colar especial) do menu de contexto.
+  const pasteCell = (mode = 'all') => {
     if (readOnly || !selectedCell) return;
     const clip = cellClipRef.current;
     if (!clip || !clip.grid) return;
@@ -686,21 +708,35 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const c0 = cols.indexOf(selectedCell.colId);
     if (r0 < 0 || c0 < 0) return;
     const edits = [];
+    const destKeys = new Set();
     clip.grid.forEach((gr, dr) => {
       const taskId = rows[r0 + dr];
       if (!taskId) return;
       gr.forEach((cellData, dc) => {
         const colId = cols[c0 + dc];
         if (!colId) return;
+        destKeys.add(`${taskId}|${colId}`);
         const spec = cellSpec(colId);
         const compat = spec && cellData.value != null && (spec.kind === 'text' || cellData.kind == null || cellData.kind === spec.kind);
         edits.push({
           taskId, colId,
-          ...(compat ? { field: spec.field, rawValue: cellData.value } : {}),
-          fmt: cellData.fmt || null, // cola a formatação da origem (limpa se origem não tinha)
+          ...(mode !== 'format' && compat ? { field: spec.field, rawValue: cellData.value } : {}),
+          ...(mode !== 'values' ? { fmt: cellData.fmt || null } : {}), // cola a formatação da origem (limpa se origem não tinha)
         });
       });
     });
+    // Recorte pendente (Ctrl+X): limpa as células de origem no MESMO commit, exceto as que
+    // coincidem com o destino colado (evita apagar o que acabou de colar quando as duas áreas
+    // se sobrepõem).
+    if (cutPendingRef.current?.type === 'cell') {
+      cutPendingRef.current.cellList.forEach(({ taskId, colId }) => {
+        if (destKeys.has(`${taskId}|${colId}`)) return;
+        const spec = cellSpec(colId);
+        if (!spec) return;
+        edits.push({ taskId, colId, field: spec.field, rawValue: '', fmt: null });
+      });
+      cutPendingRef.current = null;
+    }
     applyBlockEdits(edits);
   };
   // Fábrica de tarefa-folha com valores padrão — usada sempre que colar precisa CRIAR uma
@@ -897,6 +933,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const copyRow = (idOverride) => {
     const id = idOverride ?? selectedId;
     if (!id) return;
+    cutPendingRef.current = null; // uma cópia nova cancela um recorte pendente (mesma regra do Excel)
     const e = etapas.find(x => x.id === id);
     if (!e) return;
     rowClipRef.current = [JSON.parse(JSON.stringify(e))]; // array (uma linha)
@@ -926,8 +963,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         base = [...base, clone]; // garante ids/displayIds únicos incrementais
         return clone;
       });
-      const novas = [...etapas];
+      let novas = [...etapas];
       novas.splice(idx, 0, ...clones);
+      // Recorte pendente (Ctrl+X) de linha: remove as linhas de origem no MESMO commit —
+      // recortar+colar MOVE a linha, não duplica.
+      if (cutPendingRef.current?.type === 'row') {
+        const cutIds = new Set(cutPendingRef.current.ids);
+        novas = novas.filter(t => !cutIds.has(t.id));
+        cutPendingRef.current = null;
+      }
       onCommit(novas, { silent: true });
       setSelectedId(clones[0].id);
       rowClipRef.current = null; // cópia de uso único
@@ -936,6 +980,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       const n = Math.max(1, new Set(rangeCellList().map(x => x.taskId)).size);
       insertBlankRows(id, 'above', n);
     }
+  };
+  // Recortar (Ctrl+X): mesmo critério de seleção do Ctrl+C, mas marca a origem para ser
+  // limpa/removida no PRÓXIMO colar bem-sucedido (ver pasteCell/pasteRow). Uma nova
+  // cópia/recorte, ou Escape, cancela o recorte pendente sem apagar nada — igual ao Excel.
+  // rowIdOverride: usado pelo menu de contexto para recortar a linha CLICADA quando não há
+  // seleção de célula ativa (o botão direito não altera a seleção corrente — mesmo motivo
+  // pelo qual "Copiar"/"Colar" do menu de contexto recebem `ctxMenu.taskId`).
+  const cutSelection = (rowIdOverride) => {
+    if (readOnly) return;
+    if (selectedCell) {
+      copyCell();
+      cutPendingRef.current = { type: 'cell', cellList: rangeCellList() };
+    } else {
+      copyRow(rowIdOverride);
+      cutPendingRef.current = { type: 'row', ids: rowIdOverride != null ? [rowIdOverride] : [...selectedRowIds()] };
+    }
+    showMarquee();
   };
 
   // ── Formatação de célula/linha (compartilhada, salva no JSON do cronograma) ──
@@ -1281,7 +1342,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Teclado da lista: ligado ao container focável (onKeyDown), não ao document,
   // para as setas moverem a seleção de célula em vez de rolar a página.
   const handleListKeyDown = (ev) => {
-    if (ev.key === 'Escape') { setMarquee(null); return; } // limpa marching ants
+    if (ev.key === 'Escape') { setMarquee(null); cutPendingRef.current = null; return; } // limpa marching ants e recorte pendente
     // Ctrl/Cmd + Shift + ←/→ : recuar/avançar a seleção. Vem ANTES da navegação por
     // seta (senão a seta moveria a célula) e ANTES do guard de seleção (funciona também
     // com multiSel puro). handleIndent/handleOutdent já usam selectedRowIds().
@@ -1299,6 +1360,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       // copyCell já grava rowClipRef com as linhas da seleção (≥1), então Ctrl++ insere a cópia.
       if (selectedCell) copyCell(); else copyRow();
       showMarquee(); // borda tracejada animada na seleção copiada
+      return;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'x' || ev.key === 'X')) {
+      if (editingNow || readOnly) return; // deixa o navegador recortar o texto do input em edição
+      cutSelection();
       return;
     }
     // Colar (Ctrl+V) é tratado pelo evento nativo `onPaste` (handlePasteEvent) — cobre
@@ -1631,6 +1697,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
+  // Atalho F7 — abre "Verificar ortografia" (estilo Word/Project). preventDefault:
+  // Chrome/Edge/Firefox usam F7 nativamente para "navegação por cursor" (caret browsing)
+  // e abririam um pop-up do navegador por cima da caixa.
+  React.useEffect(() => {
+    if (readOnly) return;
+    const handler = (e) => {
+      if (e.key === 'F7' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+        e.preventDefault();
+        setShowOrtografia(v => !v);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [readOnly]);
+
   // Navega para a próxima tarefa que casa com o termo (nome, WBS ou ID), em ciclo.
   const norm2 = (s) => String(s ?? '').toLowerCase();
   const localizarProximo = () => {
@@ -1645,6 +1726,33 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const cell = { taskId: alvo.id, colId: 'etapa' };
     setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
     scrollRowIntoView(alvo.id);
+  };
+
+  // ── Verificador ortográfico (F7) ─────────────────────────────────────────────
+  const focarTarefaOrtografia = (taskId) => {
+    const alvo = filtrada.find(e => e.id === taskId);
+    if (!alvo) return;
+    const cell = { taskId: alvo.id, colId: 'etapa' };
+    setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
+    scrollRowIntoView(alvo.id);
+  };
+  // "Alterar" (uma ocorrência): reusa handleCellSave, que já tem o guard de no-op e vira
+  // 1 passo de undo.
+  const alterarPalavraOrtografia = (taskId, inicio, fim, nova) => {
+    const alvo = etapas.find(e => e.id === taskId);
+    if (!alvo) return;
+    const texto = alvo.etapa || '';
+    handleCellSave(taskId, 'etapa', texto.slice(0, inicio) + nova + texto.slice(fim));
+  };
+  // "Alterar todas": troca o token em todos os nomes de tarefa de uma vez, num único
+  // commit (não usa handleCellSave tarefa por tarefa, que geraria N passos de undo).
+  const alterarPalavraOrtografiaEmTodas = (palavra, nova) => {
+    const novas = etapas.map(e => {
+      const t = substituirTokens(e.etapa || '', palavra, nova);
+      return t === e.etapa ? e : { ...e, etapa: t };
+    });
+    if (novas.every((e, i) => e === etapas[i])) return;
+    onCommit(novas, { silent: true });
   };
 
   // Atalho Ctrl+F2 — cria vínculos em cadeia entre tarefas de multiSel (na ordem de clique)
@@ -2263,6 +2371,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             onClick={() => setModoSelecao('auto')} title="Agendamento automático: datas calculadas pelas dependências">
                             <Icon name="clock" size={13} /> Automático
                           </button>
+                        </div>
+                        <div style={rowStyle}>
                           <button style={{ ...cmdBtn, color: modoSelecao === 'manual' ? 'var(--brand)' : undefined, background: modoSelecao === 'manual' ? 'var(--brand-tint)' : undefined }}
                             onClick={() => setModoSelecao('manual')} title="Agendamento manual: datas fixas, não reagenda por dependências nem arraste">
                             <Icon name="pin" size={13} /> Manual
@@ -2270,6 +2380,27 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         </div>
                       </div>
                       <div style={caption}>Modo</div>
+                    </div>
+
+                    {/* Área de transferência (Recortar/Copiar/Colar) */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={cmdBtn} onClick={() => cutSelection()} title="Recortar (Ctrl+X)">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+                            Recortar
+                          </button>
+                          <button style={cmdBtn} onClick={() => (selectedCell ? copyCell() : copyRow())} title="Copiar (Ctrl+C)">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            Copiar
+                          </button>
+                          <button style={cmdBtn} onClick={() => (selectedCell ? pasteCell() : pasteRow())} title="Colar (Ctrl+V)">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                            Colar
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Área de transferência</div>
                     </div>
 
                     {/* Edição (sempre ativa; Excluir depende de seleção) */}
@@ -2281,15 +2412,28 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             Excluir
                           </button>
                           {div()}
-                          <button style={iconBtn} onClick={undo} title="Desfazer (Ctrl+Z)">
+                          <button style={{ ...iconBtn, opacity: canUndo ? 1 : 0.5 }} onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/></svg>
                           </button>
-                          <button style={iconBtn} onClick={redo} title="Refazer (Ctrl+Y)">
+                          <button style={{ ...iconBtn, opacity: canRedo ? 1 : 0.5 }} onClick={redo} disabled={!canRedo} title="Refazer (Ctrl+Y)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/></svg>
                           </button>
                         </div>
                       </div>
                       <div style={caption}>Edição</div>
+                    </div>
+
+                    {/* Revisão (verificador ortográfico, estilo Word/Project) */}
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={rowStyle}>
+                          <button style={cmdBtn} onClick={() => setShowOrtografia(true)} title="Verificar ortografia dos nomes das tarefas (F7)">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20 9 4h2l5 16"/><path d="M6 14h8"/><circle cx="19" cy="18" r="2.5"/><path d="M19 12v3.5"/></svg>
+                            Ortografia
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Revisão</div>
                     </div>
                   </>
                 )}
@@ -2457,18 +2601,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         </label>
                       </div>
                       <div style={caption}>Mostrar/Ocultar</div>
-                    </div>
-
-                    {/* Dados (limpar filtros) */}
-                    <div style={groupBox}>
-                      <div style={{ ...groupContent, justifyContent: 'center' }}>
-                        <div style={rowStyle}>
-                          <button style={{ ...cmdBtn, opacity: temFiltro ? 1 : 0.5 }} disabled={!temFiltro} onClick={limparFiltros} title="Limpar todos os filtros">
-                            <Icon name="filter" size={13} /> Limpar filtros
-                          </button>
-                        </div>
-                      </div>
-                      <div style={caption}>Dados</div>
                     </div>
                   </>
                 )}
@@ -3594,6 +3726,18 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         </Modal>
       )}
 
+      {/* Ortografia (F7) */}
+      {showOrtografia && (
+        <OrtografiaModal
+          etapas={etapas}
+          filtrada={filtrada}
+          onAlterarUma={alterarPalavraOrtografia}
+          onAlterarTodas={alterarPalavraOrtografiaEmTodas}
+          onFocarTarefa={focarTarefaOrtografia}
+          onClose={() => setShowOrtografia(false)}
+        />
+      )}
+
       {/* Menu de contexto — botão direito na linha */}
       {ctxMenu?.kind !== 'col' && ctxMenu && !readOnly && (
         <div ref={ctxMenuRef} className="ctx-menu" style={{ left: ctxMenuPos?.left ?? ctxMenu.x, top: ctxMenuPos?.top ?? ctxMenu.y }}>
@@ -3604,12 +3748,40 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             ↓ Inserir linha abaixo
           </button>
           <hr />
-          <button onClick={() => { copyRow(ctxMenu.taskId); setCtxMenu(null); }}>
+          <button onClick={() => { cutSelection(ctxMenu.taskId); setCtxMenu(null); }}>
+            Recortar
+          </button>
+          <button onClick={() => { if (selectedCell) copyCell(); else copyRow(ctxMenu.taskId); showMarquee(); setCtxMenu(null); }}>
             Copiar
           </button>
-          <button onClick={() => { pasteRow(ctxMenu.taskId); setCtxMenu(null); }}>
-            Colar
-          </button>
+          <div className="ctx-submenu-wrap"
+            onMouseEnter={() => { clearTimeout(pasteFlyoutCloseTimer.current); setPasteFlyoutOpen(true); }}
+            onMouseLeave={() => { pasteFlyoutCloseTimer.current = setTimeout(() => setPasteFlyoutOpen(false), 150); }}>
+            <button onClick={() => {
+              if (selectedCell && cellClipRef.current?.grid) pasteCell('all'); else pasteRow(ctxMenu.taskId);
+              setCtxMenu(null);
+            }}>
+              Colar <span aria-hidden="true">›</span>
+            </button>
+            {pasteFlyoutOpen && (
+              <div ref={pasteSubmenuRef} className="ctx-menu ctx-submenu" style={pasteSubmenuFlip ? { right: '100%' } : { left: '100%' }}>
+                <button onClick={() => {
+                  if (selectedCell && cellClipRef.current?.grid) pasteCell('all'); else pasteRow(ctxMenu.taskId);
+                  setCtxMenu(null);
+                }}>
+                  Colar
+                </button>
+                <button disabled={!cellClipRef.current?.grid || cutPendingRef.current?.type === 'cell'}
+                  onClick={() => { pasteCell('values'); setCtxMenu(null); }}>
+                  Colar somente valores
+                </button>
+                <button disabled={!cellClipRef.current?.grid || cutPendingRef.current?.type === 'cell'}
+                  onClick={() => { pasteCell('format'); setCtxMenu(null); }}>
+                  Colar formatação
+                </button>
+              </div>
+            )}
+          </div>
           <hr />
           <button onClick={() => {
             const ids = selectedRowIds(); ids.add(ctxMenu.taskId);

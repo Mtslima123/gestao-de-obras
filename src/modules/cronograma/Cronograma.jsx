@@ -2676,7 +2676,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                         </div>
                       </div>
                       <div className="card-body" style={{ padding: 0, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} customCols={customCols}
+                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} customCols={customCols}
                           baselines={baselines} reprogramacoes={reprogramacoes}
                           blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
                           onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}
@@ -2904,6 +2904,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   obraId={obraSel}
                   undo={undo}
                   redo={redo}
+                  canUndo={hidxRef.current > 0}
+                  canRedo={hidxRef.current < histRef.current.length - 1}
                   focusTaskId={histFocus}
                   vinculos={vinculos}
                   orcamentoItensMap={orcamentoItensMap}

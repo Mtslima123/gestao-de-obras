@@ -66,7 +66,7 @@ function BaselineSelect({ value, baselines, reprogramacoes, onChange }) {
   );
 }
 
-export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
+export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, canRedo = true, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
   baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
@@ -880,6 +880,8 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                         onClick={() => setModoSelecao('auto')} title="Agendamento automático: datas calculadas pelas dependências">
                         <Icon name="clock" size={13} /> Automático
                       </button>
+                    </div>
+                    <div style={rowStyle}>
                       <button style={{ ...cmdBtn, color: modoSelecao === 'manual' ? 'var(--brand)' : undefined, background: modoSelecao === 'manual' ? 'var(--brand-tint)' : undefined }}
                         onClick={() => setModoSelecao('manual')} title="Agendamento manual: datas fixas, não reagenda por dependências nem arraste">
                         <Icon name="pin" size={13} /> Manual
@@ -898,10 +900,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, baselineEtapas, 
                         Excluir
                       </button>
                       {divg()}
-                      <button style={iconBtn} onClick={undo} title="Desfazer (Ctrl+Z)">
+                      <button style={{ ...iconBtn, opacity: canUndo ? 1 : 0.5 }} onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/></svg>
                       </button>
-                      <button style={iconBtn} onClick={redo} title="Refazer (Ctrl+Y)">
+                      <button style={{ ...iconBtn, opacity: canRedo ? 1 : 0.5 }} onClick={redo} disabled={!canRedo} title="Refazer (Ctrl+Y)">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/></svg>
                       </button>
                     </div>

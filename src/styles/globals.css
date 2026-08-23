@@ -2070,7 +2070,7 @@ tr:hover .obras-row-actions {
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.14);
   padding: 4px 0;
-  min-width: 190px;
+  min-width: 170px;
 }
 .ctx-menu button {
   display: block;
@@ -2078,15 +2078,27 @@ tr:hover .obras-row-actions {
   background: none;
   border: none;
   text-align: left;
-  padding: 8px 16px;
-  font-size: 13px;
+  padding: 6px 12px;
+  font-size: 12px;
   cursor: pointer;
   color: var(--text);
   white-space: nowrap;
 }
 .ctx-menu button:hover { background: var(--surface-hover, rgba(0,0,0,0.05)); }
 .ctx-menu button.danger { color: var(--danger, #e53e3e); }
+.ctx-menu button:disabled { color: var(--text-faint, #999); cursor: default; opacity: 0.5; }
+.ctx-menu button:disabled:hover { background: none; }
 .ctx-menu hr { margin: 4px 0; border: none; border-top: 1px solid var(--border-subtle, rgba(0,0,0,0.08)); }
+
+/* ── Item de menu com submenu-flyout (ex.: "Colar" → colar especial) ─────── */
+.ctx-submenu-wrap { position: relative; }
+.ctx-submenu-wrap > button {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.ctx-submenu {
+  position: absolute;
+  top: -5px;
+}
 
 /* ── Menu de cabeçalho de coluna (Ordenar/Filtrar, estilo MS Project) ────── */
 .col-filter-opt:hover { background: var(--surface-hover, rgba(0,0,0,0.05)); }
