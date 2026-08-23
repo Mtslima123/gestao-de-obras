@@ -745,21 +745,13 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
             {obrasDisponiveis.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
           </select>
         </div>
-        <div className="field">
+        <div className="field full">
           <label>Versão</label>
           <input
             placeholder="v1"
             value={form.versao}
             onChange={e => setForm(f => ({ ...f, versao: e.target.value }))}
           />
-        </div>
-        <div className="field">
-          <label>Status inicial</label>
-          <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-            <option value="rascunho">Rascunho</option>
-            <option value="pendente">Pendente</option>
-            <option value="aprovado">Aprovado</option>
-          </select>
         </div>
       </div>
     </Modal>

@@ -88,7 +88,11 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
   const filtered = React.useMemo(() =>
     obras
       .filter(o => filter === 'todos' ? true : filter === 'em_andamento' ? o.status === 'em_andamento' : o.status === filter)
-      .filter(o => !search || (o.nome + o.cliente + o.id).toLowerCase().includes(search.toLowerCase())),
+      .filter(o => !search || (o.nome + o.cliente + o.id).toLowerCase().includes(search.toLowerCase()))
+      // Mais recente primeiro — independe da ordem do array recebido (obra criada na
+      // sessão atual é anexada no fim pelo App.jsx, então não dá pra confiar só na ordem
+      // de chegada da carga inicial).
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
     [obras, filter, search]
   );
 

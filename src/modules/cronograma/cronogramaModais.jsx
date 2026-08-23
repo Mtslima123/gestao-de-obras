@@ -4,7 +4,7 @@
 import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
-import { isoToBR } from "./cronogramaDateUtils";
+import { isoToBR, todayOffset } from "./cronogramaDateUtils";
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds } from "./scheduleEngine";
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
@@ -416,6 +416,10 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
   const [parsed,   setParsed]   = React.useState(null); // { nodes, warnings }
   const [busy,     setBusy]     = React.useState(false);
   const fileRef = React.useRef(null);
+  // Descarta resultado obsoleto: se o usuário clicar de novo antes do parse anterior
+  // terminar (o import('xlsx') dinâmico é lento na 1ª vez da sessão), a Promise mais
+  // ANTIGA pode resolver DEPOIS da mais nova e sobrescrever a prévia com o arquivo errado.
+  const requestIdRef = React.useRef(0);
 
   const norm = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -504,7 +508,7 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
     // Distribui datas em cascata só nas folhas (grupos têm datas calculadas depois)
     const childCount = {};
     items.forEach(it => { if (it.parentId) childCount[it.parentId] = (childCount[it.parentId] || 0) + 1; });
-    let cursor = 0;
+    let cursor = todayOffset();
     const nodes = items.map(it => {
       const isLeaf = !childCount[it.id];
       const dur    = isLeaf ? (it.dur || 1) : 1;
@@ -518,6 +522,7 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
 
   const handleFile = async (file) => {
     if (!file) return;
+    const myId = ++requestIdRef.current;
     setBusy(true);
     setFileName(file.name);
     try {
@@ -526,12 +531,14 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
       const wb  = XLSX.read(buf, { type: 'array' });
       const ws  = wb.Sheets[wb.SheetNames[0]];
       const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
+      if (myId !== requestIdRef.current) return; // uma seleção mais nova já está em voo — descarta esta
       setParsed(parseRows(matrix));
       setStep(2);
     } catch {
+      if (myId !== requestIdRef.current) return;
       toast('Não foi possível ler o arquivo. Verifique se é um Excel/CSV válido.', { tone: 'danger', icon: 'alert' });
     } finally {
-      setBusy(false);
+      if (myId === requestIdRef.current) setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
     }
   };
@@ -586,10 +593,11 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
             Colunas reconhecidas: <strong>EAP</strong>, <strong>Nome</strong>, <strong>Duração</strong> (opcional).
           </p>
           <div
-            onClick={() => fileRef.current?.click()}
+            onClick={busy ? undefined : () => fileRef.current?.click()}
             style={{
               border: '2px dashed var(--border)', borderRadius: 10, padding: '32px 16px',
-              textAlign: 'center', cursor: 'pointer', background: 'var(--surface-muted)',
+              textAlign: 'center', cursor: busy ? 'default' : 'pointer', background: 'var(--surface-muted)',
+              opacity: busy ? 0.6 : 1, pointerEvents: busy ? 'none' : 'auto',
             }}
           >
             <Icon name="upload" size={26} />
@@ -602,6 +610,7 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
             ref={fileRef}
             type="file"
             accept=".xlsx,.xls,.csv"
+            disabled={busy}
             style={{ display: 'none' }}
             onChange={e => handleFile(e.target.files?.[0])}
           />

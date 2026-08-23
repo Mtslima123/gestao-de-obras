@@ -669,34 +669,15 @@ export default function MedicaoMensal({
         </div>
       </div>
 
-      <div className="kpi-grid cols-5">
+      <div className="kpi-grid">
         <KpiCard label="Previsto do mês" value={PREVISTO_MES_PCT} barColor="var(--brand)" foot="meta física do mês" />
         <KpiCard
           label="Executado do mês" value={totais.exec} barColor="var(--warning)"
           foot={`${gapExecutado >= 0 ? '▼' : '▲'} ${formatNum(Math.abs(gapExecutado), 2)} pp vs previsto`}
           footColor={gapExecutado >= 0 ? 'var(--danger)' : 'var(--success)'}
         />
-        <KpiCard label="Medido do mês" value={totais.med} barColor="var(--success)" foot="aprovado para medição" />
         <KpiCard label="Previsto acumulado" value={resumo.previstoAcumulado} barColor="var(--brand)" foot="linha de base" />
         <KpiCard label="Executado acumulado" value={resumo.executadoAcumulado} barColor="var(--success)" foot="real + reprogramado" />
-      </div>
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--gap)', marginBottom: 'var(--gap)' }}>
-        <div className="card" style={{ flex: 1, minWidth: 220, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>Meta programada · {mesLabel(mesRefKey)}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }} className="num">{fmtPct100(resumo.metaProgramada)}</div>
-        </div>
-        <div style={{ flex: 1, minWidth: 220, borderRadius: 'var(--r-lg)', background: 'var(--brand-700)', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#c7d4ea' }}>Medição a realizar</div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#fff' }} className="num">{fmtPct100(totais.med)}</div>
-            <div style={{ fontSize: 13, color: '#a9bfe0' }} className="num">{formatBRL(totais.valorAMedir)}</div>
-          </div>
-        </div>
-        <div className="card" style={{ flex: 1, minWidth: 220, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>Valor da obra</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }} className="num">{formatBRL(resumo.valorObra)}</div>
-        </div>
       </div>
 
       {/* Sentinela: marca onde o card começa, para detectar quando prender */}
