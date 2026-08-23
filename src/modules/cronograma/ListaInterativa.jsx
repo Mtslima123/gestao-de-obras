@@ -94,16 +94,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     setCtxMenuPos({ left, top });
   }, [ctxMenu]);
   // Submenu-flyout "Colar" (colar especial) do menu de contexto: fecha junto com o menu pai
-  // e recalcula o lado (direita/esquerda) para não estourar a borda da janela.
+  // e recalcula o lado (direita/esquerda) para não estourar a borda da janela. Estado
+  // pasteFlyoutOpen/pasteFlyoutCloseTimer só é declarado mais abaixo (perto do clipboard
+  // interno) — os efeitos que os usam ficam depois dessa declaração, ver mais abaixo.
   const pasteSubmenuRef = React.useRef(null);
   const [pasteSubmenuFlip, setPasteSubmenuFlip] = React.useState(false);
-  React.useEffect(() => { if (!ctxMenu) setPasteFlyoutOpen(false); }, [ctxMenu]);
-  React.useLayoutEffect(() => {
-    if (!pasteFlyoutOpen) { setPasteSubmenuFlip(false); return; }
-    const el = pasteSubmenuRef.current;
-    if (!el) return;
-    setPasteSubmenuFlip(el.getBoundingClientRect().right > window.innerWidth - 8);
-  }, [pasteFlyoutOpen]);
   const [dragOverId,     setDragOverId]     = React.useState(null);
   const [showColPanel,   setShowColPanel]   = React.useState(false);
   const [selectedCell,   setSelectedCell]   = React.useState(null); // { taskId, colId } — foco ativo (planilha)
@@ -188,6 +183,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const cutPendingRef = React.useRef(null);
   const [pasteFlyoutOpen, setPasteFlyoutOpen] = React.useState(false); // submenu "Colar" do menu de contexto
   const pasteFlyoutCloseTimer = React.useRef(null);
+  // Fecha o submenu junto com o menu de contexto pai e recalcula o lado (direita/esquerda,
+  // via pasteSubmenuFlip lá em cima) para não estourar a borda da janela.
+  React.useEffect(() => { if (!ctxMenu) setPasteFlyoutOpen(false); }, [ctxMenu]);
+  React.useLayoutEffect(() => {
+    if (!pasteFlyoutOpen) { setPasteSubmenuFlip(false); return; }
+    const el = pasteSubmenuRef.current;
+    if (!el) return;
+    setPasteSubmenuFlip(el.getBoundingClientRect().right > window.innerWidth - 8);
+  }, [pasteFlyoutOpen]);
   const listaScrollRef = React.useRef(null); // container rolável da lista (foco p/ navegação por setas)
 
   // Altura das linhas da lista (ajustável na UI, estilo MS Project), persistida no navegador.
