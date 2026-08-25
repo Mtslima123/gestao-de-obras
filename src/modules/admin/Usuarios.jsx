@@ -16,7 +16,7 @@ const MOCK_USUARIOS = [
 // TODOS_MODULOS, TODOS_MODULOS_IDS e MODULO_ABAS vêm da fonte única em
 // config/modulos.js — assim menu e cadastro nunca ficam dessincronizados.
 
-const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [], modulosReadonlyIds: [] };
+const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [], modulosReadonlyIds: [], abasReadonlyIds: [] };
 const PER_PAGE = 10;
 
 const BadgePerfil = ({ perfil }) => (
@@ -46,6 +46,7 @@ const transformar = (u) => ({
   modulosIds: u.modulos_ids?.length ? u.modulos_ids : TODOS_MODULOS_IDS,
   abasIds: u.abas_ids || [],
   modulosReadonlyIds: u.modulos_readonly_ids || [],
+  abasReadonlyIds: u.abas_readonly_ids || [],
   dataCadastro: u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '—',
   ultimoAcesso: u.ultimo_acesso ? new Date(u.ultimo_acesso).toLocaleString('pt-BR') : '—',
 });
@@ -108,7 +109,7 @@ const UsuariosScreen = ({ obras = [] }) => {
     if (usuario === 'novo') {
       setForm({ ...FORM_VAZIO });
     } else {
-      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])], modulosReadonlyIds: [...(usuario.modulosReadonlyIds || [])] });
+      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])], modulosReadonlyIds: [...(usuario.modulosReadonlyIds || [])], abasReadonlyIds: [...(usuario.abasReadonlyIds || [])] });
     }
     setEditando(usuario);
     setObraSearch('');
@@ -129,6 +130,7 @@ const UsuariosScreen = ({ obras = [] }) => {
       modulos_ids: form.modulosIds,
       abas_ids: form.abasIds,
       modulos_readonly_ids: form.modulosReadonlyIds,
+      abas_readonly_ids: form.abasReadonlyIds,
     };
     try {
       if (editando === 'novo') {
@@ -163,7 +165,9 @@ const UsuariosScreen = ({ obras = [] }) => {
       ...f,
       modulosIds: f.modulosIds.includes(id) ? f.modulosIds.filter(m => m !== id) : [...f.modulosIds, id],
       // Módulo desmarcado não faz sentido ficar marcado como "somente visualização"
+      // (nem no módulo inteiro, nem em nenhuma aba dele — evita vínculo órfão)
       modulosReadonlyIds: f.modulosIds.includes(id) ? f.modulosReadonlyIds.filter(m => m !== id) : f.modulosReadonlyIds,
+      abasReadonlyIds: f.modulosIds.includes(id) ? f.abasReadonlyIds.filter(a => !a.startsWith(`${id}.`)) : f.abasReadonlyIds,
     }));
   };
 
@@ -191,14 +195,17 @@ const UsuariosScreen = ({ obras = [] }) => {
     const hasAnyForMod = form.abasIds.some(a => a.startsWith(`${modId}.`));
     if (!hasAnyForMod) {
       // Primeira restrição neste módulo: inicializa com todas as abas exceto a desmarcada
+      // Aba desmarcada (escondida) não faz sentido ficar com "somente visualização" pendente.
       const permitidas = abas.filter(a => a.id !== abaId).map(a => `${modId}.${a.id}`);
-      setForm(f => ({ ...f, abasIds: [...f.abasIds, ...permitidas] }));
+      setForm(f => ({ ...f, abasIds: [...f.abasIds, ...permitidas], abasReadonlyIds: f.abasReadonlyIds.filter(a => a !== key) }));
     } else {
+      const ficaVisivel = !form.abasIds.includes(key);
       setForm(f => ({
         ...f,
         abasIds: f.abasIds.includes(key)
           ? f.abasIds.filter(a => a !== key)
           : [...f.abasIds, key],
+        abasReadonlyIds: ficaVisivel ? f.abasReadonlyIds : f.abasReadonlyIds.filter(a => a !== key),
       }));
     }
   };
@@ -206,6 +213,18 @@ const UsuariosScreen = ({ obras = [] }) => {
   // Remove todas as restrições de abas de um módulo (libera tudo)
   const liberarTodasAbas = (modId) =>
     setForm(f => ({ ...f, abasIds: f.abasIds.filter(a => !a.startsWith(`${modId}.`)) }));
+
+  // Define se uma aba específica é "somente visualização" (true) ou "editar" (false)
+  const isAbaReadonly = (modId, abaId) => form.abasReadonlyIds.includes(`${modId}.${abaId}`);
+  const toggleAbaReadonly = (modId, abaId, readonly) => {
+    const key = `${modId}.${abaId}`;
+    setForm(f => ({
+      ...f,
+      abasReadonlyIds: readonly
+        ? [...new Set([...f.abasReadonlyIds, key])]
+        : f.abasReadonlyIds.filter(a => a !== key),
+    }));
+  };
 
   const toggleObra = (obraId) => {
     setForm(f => ({
@@ -615,12 +634,31 @@ const UsuariosScreen = ({ obras = [] }) => {
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                           {abas.map(aba => {
                             const checked = isAbaChecked(modId, aba.id);
+                            const abaReadonly = isAbaReadonly(modId, aba.id);
                             return (
-                              <label key={aba.id}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: `1.5px solid ${checked ? 'var(--brand)' : 'var(--border)'}`, borderRadius: 8, cursor: 'pointer', background: checked ? 'var(--brand-tint)' : 'var(--surface)', fontSize: 12.5, fontWeight: checked ? 500 : 400, color: checked ? 'var(--brand)' : 'var(--text-muted)', transition: 'all 0.12s', userSelect: 'none' }}>
-                                <input type="checkbox" checked={checked} onChange={() => toggleAba(modId, aba.id)} style={{ accentColor: 'var(--brand)', cursor: 'pointer' }} />
-                                {aba.label}
-                              </label>
+                              <div key={aba.id}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px 7px 12px', border: `1.5px solid ${checked ? 'var(--brand)' : 'var(--border)'}`, borderRadius: 8, background: checked ? 'var(--brand-tint)' : 'var(--surface)', fontSize: 12.5, fontWeight: checked ? 500 : 400, color: checked ? 'var(--brand)' : 'var(--text-muted)', transition: 'all 0.12s', userSelect: 'none' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                  <input type="checkbox" checked={checked} onChange={() => toggleAba(modId, aba.id)} style={{ accentColor: 'var(--brand)', cursor: 'pointer' }} />
+                                  {aba.label}
+                                </label>
+                                {checked && form.perfil !== 'admin' && !form.modulosReadonlyIds.includes(modId) && (
+                                  <div style={{ display: 'flex', gap: 2 }}>
+                                    <button
+                                      type="button"
+                                      title="Pode editar esta aba"
+                                      onClick={() => toggleAbaReadonly(modId, aba.id, false)}
+                                      style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 5, border: `1px solid ${!abaReadonly ? 'var(--brand)' : 'var(--border)'}`, background: !abaReadonly ? 'var(--brand)' : 'var(--surface)', color: !abaReadonly ? '#fff' : 'var(--text-muted)', cursor: 'pointer' }}
+                                    >Editar</button>
+                                    <button
+                                      type="button"
+                                      title="Só pode visualizar esta aba"
+                                      onClick={() => toggleAbaReadonly(modId, aba.id, true)}
+                                      style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 5, border: `1px solid ${abaReadonly ? 'var(--brand)' : 'var(--border)'}`, background: abaReadonly ? 'var(--brand)' : 'var(--surface)', color: abaReadonly ? '#fff' : 'var(--text-muted)', cursor: 'pointer' }}
+                                    >Visualizar</button>
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
                         </div>

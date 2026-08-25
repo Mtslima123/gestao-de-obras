@@ -87,6 +87,27 @@ export const moduloSomenteLeitura = (userProfile, modId) => {
 };
 
 /**
+ * Verifica se o usuário só pode visualizar uma aba específica de um módulo
+ * (mais granular que moduloSomenteLeitura, que vale pro módulo inteiro).
+ *
+ * Regras:
+ * - Módulo inteiro já somente leitura: a aba também é (não precisa marcação própria)
+ * - Sem perfil carregado ou admin: nunca é somente leitura
+ * - Caso contrário: somente leitura se "modId.abaId" estiver em abas_readonly_ids
+ *
+ * @param {object|null} userProfile
+ * @param {string}      modId
+ * @param {string}      abaId
+ * @returns {boolean}
+ */
+export const abaSomenteLeitura = (userProfile, modId, abaId) => {
+  if (moduloSomenteLeitura(userProfile, modId)) return true;
+  if (!userProfile || userProfile.perfil === 'admin') return false;
+  const abasReadonly = userProfile.abas_readonly_ids || [];
+  return abasReadonly.includes(`${modId}.${abaId}`);
+};
+
+/**
  * IDs das obras que o usuário pode ver. Admin não tem restrição (retorna null,
  * sinalizando "todas"). Para usuário comum, retorna a lista de user_obras.
  *

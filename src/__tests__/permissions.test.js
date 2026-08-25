@@ -1,7 +1,7 @@
 // Testes unitários das regras de permissão (fail-secure). Roda em node. npm test
 import { describe, it, expect } from 'vitest';
 import {
-  moduloLiberado, moduloSomenteLeitura, obrasPermitidas, obraLiberada, isAdmin,
+  moduloLiberado, moduloSomenteLeitura, abaSomenteLeitura, obrasPermitidas, obraLiberada, isAdmin,
 } from '../utils/permissions';
 
 const admin = { perfil: 'admin' };
@@ -30,6 +30,24 @@ describe('moduloSomenteLeitura', () => {
     expect(moduloSomenteLeitura(u, 'financeiro')).toBe(true);
     expect(moduloSomenteLeitura(u, 'obras')).toBe(false);
   });
+});
+
+describe('abaSomenteLeitura', () => {
+  it('sem perfil ou admin nunca é somente leitura', () => {
+    expect(abaSomenteLeitura(null, 'obras', 'fotos')).toBe(false);
+    expect(abaSomenteLeitura(admin, 'obras', 'fotos')).toBe(false);
+  });
+  it('módulo inteiro readonly implica aba readonly', () => {
+    const u = { perfil: 'usuario', modulos_readonly_ids: ['obras'] };
+    expect(abaSomenteLeitura(u, 'obras', 'fotos')).toBe(true);
+  });
+  it('aba específica na lista = readonly, mesmo com módulo liberado', () => {
+    const u = { perfil: 'usuario', abas_readonly_ids: ['obras.fotos'] };
+    expect(abaSomenteLeitura(u, 'obras', 'fotos')).toBe(true);
+    expect(abaSomenteLeitura(u, 'obras', 'visao')).toBe(false);
+  });
+  it('sem restrição de módulo nem de aba = editável', () =>
+    expect(abaSomenteLeitura({ perfil: 'usuario' }, 'obras', 'fotos')).toBe(false));
 });
 
 describe('obrasPermitidas / obraLiberada', () => {

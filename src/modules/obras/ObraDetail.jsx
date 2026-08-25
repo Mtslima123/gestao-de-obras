@@ -5,7 +5,7 @@ import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
-import { podeVerAba, moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
+import { podeVerAba, moduloSomenteLeitura, isAdmin, abaSomenteLeitura } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
@@ -1260,7 +1260,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
           </div>
         </div>
       )}
-      {tab === 'fotos' && <Fotos obra={o} readOnly={readOnly} isAdmin={isAdmin(userProfile)} />}
+      {tab === 'fotos' && <Fotos obra={o} readOnly={readOnly || abaSomenteLeitura(userProfile, 'obras', 'fotos')} isAdmin={isAdmin(userProfile)} />}
 
       {showEdit && (
         <ObraFormModal
