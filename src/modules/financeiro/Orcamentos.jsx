@@ -330,6 +330,7 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
   return (
     <Modal
       title="Importar Base Orçamentária"
+      overlay={false}
       subtitle={
         step === 1
           ? 'Carregue uma planilha Excel ou CSV'

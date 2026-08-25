@@ -128,6 +128,7 @@ const NovaObraModal = ({ onClose }) => {
       title="Nova obra"
       subtitle={`Etapa ${step} de 2 · Cadastro inicial`}
       onClose={onClose}
+      overlay={false}
       size="lg"
       footer={
         <>
@@ -308,6 +309,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
       title={isEdit ? 'Editar obra' : 'Nova obra'}
       subtitle={isEdit ? `Editando: ${obra.nome}` : 'Cadastro de nova obra'}
       onClose={onClose}
+      overlay={false}
       footer={
         <>
           <div className="spacer"></div>
@@ -389,6 +391,7 @@ const NovaMedicaoModal = ({ onClose }) => {
       title="Novo boletim de medição"
       subtitle="Boletim nº 13 · Obra A"
       onClose={onClose}
+      overlay={false}
       footer={
         <>
           <div className="spacer"></div>
@@ -468,6 +471,7 @@ const SolicitarCompraModal = ({ insumo, onClose }) => {
       title="Solicitação de compra"
       subtitle={insumo ? insumo.item : 'Novo pedido'}
       onClose={onClose}
+      overlay={false}
       footer={
         <>
           <div className="spacer"></div>
@@ -684,6 +688,7 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
         title="Novo orçamento"
         subtitle="Carregando obras…"
         onClose={onClose}
+        overlay={false}
         footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
       >
         <div className="text-muted" style={{ textAlign: 'center', padding: '32px 0', fontSize: 13 }}>
@@ -701,6 +706,7 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
         title="Novo orçamento"
         subtitle={semObras ? 'Nenhuma obra disponível' : 'Todas as obras já têm orçamento'}
         onClose={onClose}
+        overlay={false}
         footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
       >
         <div style={{ textAlign: 'center', padding: '32px 0' }}>
@@ -724,6 +730,7 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
       subtitle="Preencha os dados iniciais do orçamento"
       onClose={onClose}
       draggable
+      overlay={false}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>

@@ -227,6 +227,7 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
       title={`Distribuir pesos — ${etapa.etapa}`}
       subtitle={`Valor do grupo: ${formatBRL(valorGrupo)} · ajuste o fator peso de cada subtarefa`}
       onClose={onClose}
+      overlay={false}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
@@ -918,6 +919,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
           title={`Editar Itens Associados — ${editandoEtapa.etapa}`}
           onClose={fecharModal}
           draggable
+          overlay={false}
           footer={
             <button className="btn btn-ghost" onClick={fecharModal}>Fechar</button>
           }

@@ -25,6 +25,7 @@ export const AddColModal = ({ onClose, onAdd }) => {
     <Modal
       title="Nova coluna personalizada"
       draggable
+      overlay={false}
       onClose={onClose}
       footer={
         <>
@@ -104,6 +105,7 @@ export const InformacoesProjetoModal = ({ info, onClose }) => {
       subtitle="Resumo do cronograma (somente leitura)"
       size="md"
       draggable
+      overlay={false}
       onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Fechar</button>}
     >
@@ -155,6 +157,7 @@ export const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 })
       onClose={onClose}
       size="sm"
       draggable
+      overlay={false}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
@@ -288,6 +291,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
       subtitle={step === 1 ? 'Passo 1 de 2 — Definir pavimentos' : 'Passo 2 de 2 — Selecionar tarefas'}
       onClose={onClose}
       draggable
+      overlay={false}
       footer={
         <>
           <button className="btn btn-ghost" onClick={step === 1 ? onClose : () => setStep(1)}>
@@ -572,6 +576,7 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
       subtitle={step === 1 ? 'Passo 1 de 2 — Escolher arquivo' : 'Passo 2 de 2 — Conferir e importar'}
       size="lg"
       onClose={onClose}
+      overlay={false}
       footer={
         <>
           <button className="btn btn-ghost" onClick={step === 1 ? onClose : () => { setStep(1); setParsed(null); }}>
@@ -685,7 +690,7 @@ export const CriarLinhaModal = ({ baselines, totalEtapas, nomesUsados = [], onCl
     border: '1px solid var(--border)', marginBottom: 6 };
 
   return (
-    <Modal title="Salvar Linha de Base" size="sm" draggable onClose={onClose}
+    <Modal title="Salvar Linha de Base" size="sm" draggable overlay={false} onClose={onClose}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
@@ -765,7 +770,7 @@ export const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDupli
   const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
 
   return (
-    <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="md" draggable onClose={onClose}
+    <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="md" draggable overlay={false} onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
     >
       {baselines.length === 0
@@ -865,7 +870,7 @@ export const FeriadosModal = ({ cfg, onChange, onClose }) => {
     <Modal
       title="Feriados / dias não trabalhados"
       subtitle="Domingos e feriados não são trabalhados; o sábado é configurável."
-      onClose={onClose} size="md" draggable
+      onClose={onClose} size="md" draggable overlay={false}
       footer={<button className="btn btn-primary" onClick={onClose}>Concluir</button>}
     >
       <div className="stack" style={{ gap: 14 }}>
@@ -946,7 +951,7 @@ export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], onClose
   };
 
   return (
-    <Modal title="Salvar Reprogramação" size="sm" draggable onClose={onClose}
+    <Modal title="Salvar Reprogramação" size="sm" draggable overlay={false} onClose={onClose}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
@@ -986,7 +991,7 @@ export const GerenciarReprogramacoesModal = ({ reprogramacoes, repVisivelId, onS
   const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
 
   return (
-    <Modal title="Gerenciar Reprogramações" subtitle={`${reprogramacoes.length} reprogramação${reprogramacoes.length !== 1 ? 'ões' : ''} salva${reprogramacoes.length !== 1 ? 's' : ''}`} size="md" draggable onClose={onClose}
+    <Modal title="Gerenciar Reprogramações" subtitle={`${reprogramacoes.length} reprogramação${reprogramacoes.length !== 1 ? 'ões' : ''} salva${reprogramacoes.length !== 1 ? 's' : ''}`} size="md" draggable overlay={false} onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
     >
       {reprogramacoes.length === 0

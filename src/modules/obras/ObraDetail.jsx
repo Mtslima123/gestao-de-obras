@@ -762,7 +762,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
   };
 
   return (
-    <Modal title="Upload de Foto" onClose={onClose}
+    <Modal title="Upload de Foto" onClose={onClose} draggable overlay={false}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
         <button className="btn btn-primary" onClick={handleSave} disabled={!file || saving}>
@@ -809,7 +809,7 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
   const [form, setForm] = React.useState({ data: foto.data || '', pavimento: foto.pavimento || '', descricao: foto.descricao || '' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   return (
-    <Modal title="Editar informações da foto" onClose={onClose}
+    <Modal title="Editar informações da foto" onClose={onClose} draggable overlay={false}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
         <button className="btn btn-primary" onClick={() => { onSave(form); onClose(); }}>

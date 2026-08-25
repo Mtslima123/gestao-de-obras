@@ -44,6 +44,7 @@ function ModalReabrirMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
       title="Reabrir medição"
       subtitle={mesLabel(mesRefKey)}
       onClose={onClose}
+      overlay={false}
       footer={
         <>
           <div className="spacer" />
@@ -87,6 +88,7 @@ function ModalFecharMedicao({ mesRefKey, violacoes, salvando, onClose, onConfirm
       title="Fechar medição"
       subtitle={mesLabel(mesRefKey)}
       onClose={onClose}
+      overlay={false}
       footer={
         <>
           <div className="spacer" />
@@ -148,6 +150,7 @@ function ModalIncluirTarefa({ candidatas, onClose, onConfirmar }) {
       title="Incluir tarefa fora do mês"
       subtitle="Tarefas sem fatia programada no mês de referência"
       onClose={onClose}
+      overlay={false}
       size="lg"
       footer={
         <>
