@@ -8,7 +8,7 @@ import { vinculoService } from './vinculoService';
 import { supabase } from '../../services/supabase';
 import { migrateEtapas } from '../cronograma/ganttUtils';
 import { formatBRL } from '../../utils/formatters';
-import { moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
+import { moduloSomenteLeitura, isAdmin, obrasPermitidas } from '../../utils/permissions';
 
 // Orçamentos — lista + detalhe com composição
 const { brl: brlOR } = AppData;
@@ -1693,10 +1693,19 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
   const [busca, setBusca]           = React.useState('');
   const [todos, setTodos]           = React.useState([]); // lista completa p/ busca (a paginação é no servidor)
 
+  // Mesma fonte de verdade de acesso usada em App.jsx para obrasVisiveis — null
+  // pra admin (sem restrição), array de obra_id pro usuário comum. Filtrar aqui
+  // (e não só confiar na prop `obras`, já filtrada) porque é o que a query de
+  // orçamentos usa de fato, independente da obra já ter carregado ou não.
+  // useMemo porque obrasPermitidas() sempre retorna um array NOVO — sem isso,
+  // refetch/refetchTodos mudariam de identidade a cada render e o useEffect
+  // abaixo entraria em loop.
+  const obraIds = React.useMemo(() => obrasPermitidas(userProfile), [userProfile]);
+
   // Paginação no servidor: busca só a página atual (não a tabela inteira).
   const refetch = React.useCallback(() => {
     setLoading(true);
-    orcamentosService.listarPaginado({ page: pagina, perPage: PER_PAGE_ORC }).then(({ data, count, error }) => {
+    orcamentosService.listarPaginado({ page: pagina, perPage: PER_PAGE_ORC, obraIds }).then(({ data, count, error }) => {
       if (!error && data) {
         setOrcamentos(data.map(o => ({ ...o, obra: obras.find(ob => ob.id === o.obra_id)?.nome || '—' })));
         setTotal(count ?? 0);
@@ -1705,18 +1714,18 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
       }
       setLoading(false);
     });
-  }, [obras, pagina]);
+  }, [obras, pagina, obraIds]);
 
   React.useEffect(() => { refetch(); }, [refetch, refreshKey]);
 
   // Lista completa (todas as páginas) só para a busca — a paginação do servidor
   // traz apenas a página atual, então filtrar por código/obra precisa do conjunto todo.
   const refetchTodos = React.useCallback(() => {
-    orcamentosService.listar().then(({ data, error }) => {
+    orcamentosService.listar(obraIds).then(({ data, error }) => {
       if (!error && data) setTodos(data.map(o => ({ ...o, obra: obras.find(ob => ob.id === o.obra_id)?.nome || '—' })));
       else setTodos([]);
     });
-  }, [obras]);
+  }, [obras, obraIds]);
   React.useEffect(() => { refetchTodos(); }, [refetchTodos, refreshKey]);
 
   // Após criar um orçamento, volta para a 1ª página (onde ele aparece)

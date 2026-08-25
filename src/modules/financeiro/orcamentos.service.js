@@ -14,16 +14,24 @@ export const orcamentosService = {
   // diferentes (data do orçamento vs. quando a linha foi criada) e podiam divergir,
   // fazendo a lista parecer fora de ordem mesmo "ordenada". created_at como critério de
   // desempate quando duas linhas têm a mesma data.
-  listar: () =>
-    supabase.from('orcamentos').select('*')
+  // obraIds: null (admin, sem restrição) ou array de obra_id liberadas pro usuário
+  // (obrasPermitidas() do userProfile) — evita depender só do RLS pra não vazar
+  // orçamento de obra não liberada (a policy orcamentos_own, por autoria, não
+  // reflete a obra atual do usuário; ver migration 20260825000002).
+  listar: (obraIds = null) => {
+    let q = supabase.from('orcamentos').select('*')
       .order('data', { ascending: false })
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false });
+    if (obraIds) q = q.in('obra_id', obraIds);
+    return q;
+  },
 
   // Paginado no servidor (tela de listagem). Teto de 100 por página.
-  listarPaginado: ({ page = 1, perPage = 12 } = {}) => {
+  listarPaginado: ({ page = 1, perPage = 12, obraIds = null } = {}) => {
     const pp = Math.min(Math.max(1, Number(perPage) || 12), 100);
-    return supabase.from('orcamentos')
-      .select('*', { count: 'exact' })
+    let q = supabase.from('orcamentos').select('*', { count: 'exact' });
+    if (obraIds) q = q.in('obra_id', obraIds);
+    return q
       .order('data', { ascending: false })
       .order('created_at', { ascending: false })
       .range((page - 1) * pp, page * pp - 1);
