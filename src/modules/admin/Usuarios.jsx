@@ -224,7 +224,10 @@ const UsuariosScreen = ({ obras = [] }) => {
 
   const obrasLabel = (u) => {
     if (u.perfil === 'admin') return 'Todas as obras';
-    const n = (u.obrasIds || []).length;
+    // Conta só vínculos que ainda apontam pra uma obra existente — user_obras
+    // acumula linhas órfãs quando uma obra é excluída (sem FK/cascade hoje).
+    const idsValidos = new Set(listaObras.map(o => o.id));
+    const n = (u.obrasIds || []).filter(id => idsValidos.has(id)).length;
     return n === 0 ? 'Nenhuma' : n === 1 ? '1 obra' : `${n} obras`;
   };
 
