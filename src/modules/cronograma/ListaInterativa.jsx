@@ -5,7 +5,7 @@ import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
-import { computeValorVinculadoMap } from './ganttUtils';
+import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
 import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, dateToOffset } from './cronogramaDateUtils';
 import {
   fmtBRL, computeAllWBS, indentTasks, outdentTasks, computeSuccessors,
@@ -236,7 +236,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     () => [...new Set([...pavimentosSalvos, ...etapas.map(e => e.pavimento).filter(Boolean)])],
     [pavimentosSalvos, etapas]
   );
-  const groupVals   = React.useMemo(() => computeGroupValues(etapas), [etapas]);
   const totalCusto  = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custo || 0), 0), [etapas]);
   const totalReal   = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custoRealizado || 0), 0), [etapas]);
   const totalSaldo  = totalCusto - totalReal;
@@ -252,6 +251,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     () => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (valorVinculadoMap[e.id] || 0), 0),
     [etapas, valorVinculadoMap]
   );
+  // Custo Orçado (novo peso do Avanço Físico): Valor Vinculado + Custo Real de cada
+  // etapa, somados sempre. Cobre folhas e grupos via bubble-up.
+  const custoOrcadoMap = React.useMemo(
+    () => computeCustoOrcadoMap(etapas, valorVinculadoMap),
+    [etapas, valorVinculadoMap]
+  );
+  const totalCustoOrcado = totalValorVinculado + totalReal;
+  const groupVals   = React.useMemo(() => computeGroupValues(etapas, custoOrcadoMap), [etapas, custoOrcadoMap]);
 
   // Custo efetivo: quando há vínculos, o custo de cada etapa é o valor vinculado distribuído
   // (valorVinculadoMap já cobre folhas e grupos via bubble-up). Nunca grava no dado — só exibe.
@@ -327,15 +334,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'status':  { const v = e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura'); return { raw: v, label: v }; }
       case 'peso': {
         if (e.isGroup) return { raw: null, label: '' };
-        const pct = (hasVinculos && totalValorVinculado > 0)
-          ? (valorVinculadoMap[e.id] || 0) / totalValorVinculado
-          : (e.custo || 0) / (totalCusto || 1);
+        const pct = totalCustoOrcado > 0 ? (custoOrcadoMap[e.id] || 0) / totalCustoOrcado : 0;
         return { raw: pct * 100, label: (pct * 100).toFixed(1) + '%' };
       }
       case 'fatorPeso': { const v = e.isGroup ? null : (e.fator_peso ?? 1); return { raw: v, label: v == null ? '' : v.toLocaleString('pt-BR') }; }
       case 'valorVinculado': { const v = valorVinculadoMap[e.id]; return { raw: v || null, label: v ? fmtBRL(v) : '' }; }
       case 'custo':     { const v = custoEf(e, gv); return { raw: v, label: fmtBRL(v) }; }
       case 'custoReal': return { raw: realCst, label: fmtBRL(realCst) };
+      case 'custoOrcado': { const v = custoOrcadoMap[e.id] || 0; return { raw: v, label: fmtBRL(v) }; }
       case 'saldo':     { const v = custoEf(e, gv) - realCst; return { raw: v, label: fmtBRL(v) }; }
       case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas); return { raw: v, label: v === '—' ? '' : v }; }
       case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; '); return { raw: v, label: v }; }
@@ -354,7 +360,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         return { raw, label: String(raw) };
       }
     }
-  }, [groupVals, etapas, wbsMap, hasVinculos, totalValorVinculado, totalCusto, valorVinculadoMap, succMap, idToDisplayId, customCols]);
+  }, [groupVals, etapas, wbsMap, hasVinculos, totalValorVinculado, totalCusto, valorVinculadoMap, custoOrcadoMap, totalCustoOrcado, succMap, idToDisplayId, customCols]);
 
   const filterKeyOf = React.useCallback((colId, e) => {
     const type = resolveColType(colId, customCols);
@@ -854,9 +860,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     ev.preventDefault();
     const clip = cellClipRef.current;
     const internalText = clip?.grid ? clip.grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n') : null;
-    if (selectedCell && internalText === text) { pasteCell(); return; } // veio de um Ctrl+C interno recente
-    if (!selectedCell) { pasteRow(); return; }
+    // Limpa a moldura tracejada (marching ants) do recorte/cópia ao colar — senão ela
+    // fica "presa" na posição antiga na tela mesmo depois do colar concluído, porque só
+    // o atalho Ctrl++ limpava (ver handleListKeyDown).
+    if (selectedCell && internalText === text) { pasteCell(); setMarquee(null); return; } // veio de um Ctrl+C interno recente
+    if (!selectedCell) { pasteRow(); setMarquee(null); return; }
     pasteExternalText(text);
+    setMarquee(null);
   };
   // Rola a linha em foco para dentro da área visível, respeitando o cabeçalho fixo.
   const scrollRowIntoView = (taskId) => {
@@ -950,7 +960,32 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const ref = etapas[idx];
     const clips = rowClipRef.current;
     if (clips && clips.length) {
-      // Insere N CÓPIAS (uma por linha copiada) ACIMA da linha selecionada, estilo Excel
+      if (cutPendingRef.current?.type === 'row') {
+        // Recortar+colar MOVE a(s) linha(s) original(is) pra nova posição — mantém id,
+        // displayId, dep (predecessora), pavimento, formatação, tudo. Clonar com id novo
+        // (como no copiar/colar) quebraria a própria predecessora da linha movida E a
+        // de qualquer outra tarefa que apontava pro id antigo dela como predecessora
+        // (a sucessora ficaria "órfã", apontando pra um id que não existe mais).
+        const cutIds = new Set(cutPendingRef.current.ids);
+        if (cutIds.has(id)) { // colou em cima de uma das linhas recortadas: no-op
+          cutPendingRef.current = null;
+          rowClipRef.current = null;
+          return;
+        }
+        const moving = etapas.filter(e => cutIds.has(e.id))
+          .map(e => ({ ...e, nivel: ref.nivel, parentId: ref.parentId }));
+        const rest = etapas.filter(e => !cutIds.has(e.id));
+        const restIdx = rest.findIndex(e => e.id === id);
+        const novas = [...rest.slice(0, restIdx), ...moving, ...rest.slice(restIdx)];
+        onCommit(novas, { silent: true });
+        setSelectedId(moving[0]?.id ?? id);
+        rowClipRef.current = null;
+        cutPendingRef.current = null;
+        return;
+      }
+      // Copiar+colar: insere N CÓPIAS (uma por linha copiada) ACIMA da linha selecionada,
+      // estilo Excel — id/displayId novos e dep zerado (a cópia não deve arrastar sozinha
+      // a mesma predecessora do original sem o usuário decidir isso).
       let base = [...etapas];
       const clones = clips.map(src => {
         const clone = {
@@ -969,13 +1004,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       });
       let novas = [...etapas];
       novas.splice(idx, 0, ...clones);
-      // Recorte pendente (Ctrl+X) de linha: remove as linhas de origem no MESMO commit —
-      // recortar+colar MOVE a linha, não duplica.
-      if (cutPendingRef.current?.type === 'row') {
-        const cutIds = new Set(cutPendingRef.current.ids);
-        novas = novas.filter(t => !cutIds.has(t.id));
-        cutPendingRef.current = null;
-      }
       onCommit(novas, { silent: true });
       setSelectedId(clones[0].id);
       rowClipRef.current = null; // cópia de uso único
@@ -1026,6 +1054,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     } else {
       pasteRow(rowIdOverride);
     }
+    // Limpa a moldura tracejada do recorte/cópia — botão/menu "Colar" é outro caminho
+    // que não passava por aqui (só o atalho Ctrl++ limpava, ver handleListKeyDown).
+    setMarquee(null);
   };
 
   // ── Formatação de célula/linha (compartilhada, salva no JSON do cronograma) ──
@@ -1219,6 +1250,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     duracao: 'number', fatorPeso: 'number',
     avanco: 'percent', peso: 'percent',
     custo: 'currency', custoReal: 'currency', saldo: 'currency', valorVinculado: 'currency',
+    custoOrcado: 'currency',
   };
   const colNumericKind = (colId) => {
     if (NUM_COL_KIND[colId]) return NUM_COL_KIND[colId];
@@ -1242,10 +1274,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'custo':    return custoEf(e, gv);
       case 'custoReal': return realCst();
       case 'saldo':    return custoEf(e, gv) - realCst();
+      case 'custoOrcado': return custoOrcadoMap[e.id] || 0;
       case 'peso':
         if (e.isGroup) return null;
-        if (hasVinculos && totalValorVinculado > 0) return (valorVinculadoMap[e.id] || 0) / totalValorVinculado;
-        return (e.custo || 0) / (totalCusto || 1);
+        return totalCustoOrcado > 0 ? (custoOrcadoMap[e.id] || 0) / totalCustoOrcado : 0;
       case 'fatorPeso':      return e.isGroup ? null : (e.fator_peso ?? 1);
       case 'valorVinculado': { const v = valorVinculadoMap[e.id]; return Number.isFinite(v) ? v : null; }
       default: {
@@ -2033,7 +2065,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       // Formatos por índice de coluna
       const colFmts = {};
       visCols.forEach((cid, i) => {
-        if (['custo', 'custoReal', 'saldo'].includes(cid)) { colFmts[i] = '#,##0.00'; return; }
+        if (['custo', 'custoReal', 'saldo', 'custoOrcado'].includes(cid)) { colFmts[i] = '#,##0.00'; return; }
         if (cid === 'avanco' || cid === 'peso') { colFmts[i] = '0.00%'; return; }
         if (cid === 'inicio' || cid === 'fim')  { colFmts[i] = 'DD/MM/YYYY'; return; }
         const cc = customCols.find(c => c.id === cid);
@@ -2062,12 +2094,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custo')    return cst;
         if (cid === 'peso') {
           if (e.isGroup) return '';
-          if (hasVinculos && totalValorVinculado > 0) return (valorVinculadoMap[e.id] || 0) / totalValorVinculado;
-          return (e.custo || 0) / (totalCusto || 1);
+          return totalCustoOrcado > 0 ? (custoOrcadoMap[e.id] || 0) / totalCustoOrcado : 0;
         }
         if (cid === 'fatorPeso')      return e.isGroup ? '' : (e.fator_peso ?? 1);
         if (cid === 'valorVinculado') return valorVinculadoMap[e.id] || '';
         if (cid === 'custoReal') return realCst;
+        if (cid === 'custoOrcado') return custoOrcadoMap[e.id] || 0;
         if (cid === 'saldo')    return cst - realCst;
         if (cid === 'resp')     return e.responsavel || '';
         if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas);
@@ -2085,6 +2117,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           if (cid === 'etapa')    return 'Total';
           if (cid === 'custo')    return totalCustoEf;
           if (cid === 'custoReal') return totalReal;
+          if (cid === 'custoOrcado') return totalCustoOrcado;
           if (cid === 'saldo')    return totalCustoEf - totalReal;
           return '';
         }),
@@ -2118,7 +2151,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       doc.setTextColor(0);
       const visCols    = colOrder.filter(c => !hiddenCols.has(c));
       const getLabel   = (cid) => LISTA_COL_DEFS[cid]?.label ?? (customCols.find(c => c.id === cid)?.label ?? cid);
-      const RIGHT_C    = new Set(['custo', 'custoReal', 'saldo', 'peso', 'avanco', 'duracao', 'id', 'fatorPeso', 'valorVinculado']);
+      const RIGHT_C    = new Set(['custo', 'custoReal', 'saldo', 'peso', 'avanco', 'duracao', 'id', 'fatorPeso', 'valorVinculado', 'custoOrcado']);
       const CENTER_C   = new Set(['status', 'inicio', 'fim', 'participa']);
       const getPDFVal  = (e, cid) => {
         const gv      = e.isGroup ? groupVals[e.id] : null;
@@ -2139,12 +2172,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custo')     return fmtBRL(cst);
         if (cid === 'peso') {
           if (e.isGroup) return '—';
-          if (hasVinculos && totalValorVinculado > 0) return ((valorVinculadoMap[e.id] || 0) / totalValorVinculado * 100).toFixed(1) + '%';
-          return (((e.custo || 0) / (totalCusto || 1)) * 100).toFixed(1) + '%';
+          return totalCustoOrcado > 0 ? ((custoOrcadoMap[e.id] || 0) / totalCustoOrcado * 100).toFixed(1) + '%' : '0.0%';
         }
         if (cid === 'fatorPeso')      return e.isGroup ? '—' : (e.fator_peso ?? 1).toLocaleString('pt-BR');
         if (cid === 'valorVinculado') return valorVinculadoMap[e.id] ? fmtBRL(valorVinculadoMap[e.id]) : '—';
         if (cid === 'custoReal') return fmtBRL(realCst);
+        if (cid === 'custoOrcado') return fmtBRL(custoOrcadoMap[e.id] || 0);
         if (cid === 'saldo')     return fmtBRL(cst - realCst);
         if (cid === 'resp')      return e.responsavel || '';
         if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas);
@@ -2162,6 +2195,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'etapa')     return 'Total';
         if (cid === 'custo')     return fmtBRL(totalCustoEf);
         if (cid === 'custoReal') return fmtBRL(totalReal);
+        if (cid === 'custoOrcado') return fmtBRL(totalCustoOrcado);
         if (cid === 'saldo')     return fmtBRL(totalCustoEf - totalReal);
         return '';
       });
@@ -2396,13 +2430,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     <div style={{ ...groupBox, opacity: hasTarget ? 1 : 0.5, pointerEvents: hasTarget ? 'auto' : 'none' }}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={rowStyle}>
-                          <button style={{ ...cmdBtn, color: modoSelecao === 'auto' ? 'var(--brand)' : undefined, background: modoSelecao === 'auto' ? 'var(--brand-tint)' : undefined }}
+                          <button style={{ ...cmdBtn, width: '100%', color: modoSelecao === 'auto' ? 'var(--brand)' : undefined, background: modoSelecao === 'auto' ? 'var(--brand-tint)' : undefined }}
                             onClick={() => setModoSelecao('auto')} title="Agendamento automático: datas calculadas pelas dependências">
                             <Icon name="clock" size={13} /> Automático
                           </button>
                         </div>
                         <div style={rowStyle}>
-                          <button style={{ ...cmdBtn, color: modoSelecao === 'manual' ? 'var(--brand)' : undefined, background: modoSelecao === 'manual' ? 'var(--brand-tint)' : undefined }}
+                          <button style={{ ...cmdBtn, width: '100%', color: modoSelecao === 'manual' ? 'var(--brand)' : undefined, background: modoSelecao === 'manual' ? 'var(--brand-tint)' : undefined }}
                             onClick={() => setModoSelecao('manual')} title="Agendamento manual: datas fixas, não reagenda por dependências nem arraste">
                             <Icon name="pin" size={13} /> Manual
                           </button>
@@ -2435,17 +2469,18 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     {/* Edição (sempre ativa; Excluir depende de seleção) */}
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
-                        <div style={rowStyle}>
-                          <button style={{ ...cmdBtn, color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.5 }} onClick={handleDelete} disabled={!selectedId} title="Excluir a tarefa selecionada (Delete)">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                            Excluir
-                          </button>
-                          {div()}
+                        <div style={{ ...rowStyle, justifyContent: 'space-between' }}>
                           <button style={{ ...iconBtn, opacity: canUndo ? 1 : 0.5 }} onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/></svg>
                           </button>
                           <button style={{ ...iconBtn, opacity: canRedo ? 1 : 0.5 }} onClick={redo} disabled={!canRedo} title="Refazer (Ctrl+Y)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/></svg>
+                          </button>
+                        </div>
+                        <div style={rowStyle}>
+                          <button style={{ ...cmdBtn, width: '100%', color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.5 }} onClick={handleDelete} disabled={!selectedId} title="Excluir a tarefa selecionada (Delete)">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                            Excluir
                           </button>
                         </div>
                       </div>
@@ -2643,11 +2678,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         <div style={rowStyle}>
                           <input className="input" style={{ height: 26, fontSize: 12, minWidth: 130 }}
                             placeholder="Responsável..." value={filtroResp} onChange={e => setFiltroResp(e.target.value)} />
-                        </div>
-                        <div style={rowStyle}>
-                          <input className="input" style={{ height: 26, fontSize: 12, minWidth: 150 }}
-                            placeholder="Buscar tarefa..." value={filtroTexto} onChange={e => setFiltroTexto?.(e.target.value)} />
-                          <select className="input" style={{ height: 26, fontSize: 12 }}
+                          <select className="input" style={{ height: 26, fontSize: 12, width: 140 }}
                             value={filtroVinculo} onChange={e => setFiltroVinculo?.(e.target.value)}>
                             <option value="">Todas (vínculo)</option>
                             <option value="vinculado">Vinculadas</option>
@@ -2655,9 +2686,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           </select>
                         </div>
                         <div style={rowStyle}>
+                          <input className="input" style={{ height: 26, fontSize: 12, minWidth: 150 }}
+                            placeholder="Buscar tarefa..." value={filtroTexto} onChange={e => setFiltroTexto?.(e.target.value)} />
                           <TaskMultiSelectFilter
                             etapas={etapas} wbsMap={wbsMap}
                             selectedIds={filtroTaskIds} onApply={ids => setFiltroTaskIds?.(ids)}
+                            buttonStyle={{ width: 140 }}
                           />
                         </div>
                         {temFiltro && (
@@ -2887,14 +2921,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               const projInicio = leaves.length ? Math.min(...leaves.map(x => x.inicio)) : 0;
               const projFim    = leaves.length ? Math.max(...leaves.map(x => taskEnd(x))) : 0;
               const projDur    = Math.max(0, projFim - projInicio);
-              const w  = (x) => hasVinculos ? (valorVinculadoMap[x.id] || 0) : (x.custo || 0);
+              const w  = (x) => custoOrcadoMap[x.id] || 0;
               const tp = leaves.reduce((s, x) => s + w(x), 0);
               const projAvanco = !tp
                 ? (leaves.length ? leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length : 0)
                 : leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp;
               const bg   = 'color-mix(in srgb, var(--brand) 14%, var(--surface))';
               const num  = { textAlign: 'right', fontWeight: 700, fontSize: 12 };
-              const stick = (cid, extra) => ({ position: 'sticky', left: frozenLeft[cid], background: bg, zIndex: 1, ...extra });
+              const stick = (cid, extra) => ({ position: 'sticky', left: frozenLeft[cid], background: bg, zIndex: 1, isolation: 'isolate', ...extra });
               const fmtDt = (o) => offsetToDate(o).toLocaleDateString('pt-BR');
               const cellFor = {
                 wbs:   <td key="wbs" style={stick('wbs')} />,
@@ -2908,11 +2942,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 valorVinculado: <td key="valorVinculado" className="num mono" style={num}>{totalValorVinculado ? fmtBRL(totalValorVinculado) : '—'}</td>,
                 custo:  <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
                 custoReal: <td key="custoReal" className="num mono" style={num}>{fmtBRL(totalReal)}</td>,
+                custoOrcado: <td key="custoOrcado" className="num mono" style={num}>{fmtBRL(totalCustoOrcado)}</td>,
                 saldo:  <td key="saldo" className="num mono" style={{ ...num, color: totalSaldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalCustoEf - totalReal)}</td>,
               };
               return (
                 <tr style={{ fontWeight: 600, borderBottom: '2px solid var(--border)', background: bg, height: 40 }}>
-                  <td style={{ position: 'sticky', left: 0, zIndex: 2, background: bg, width: GUTTER_W, minWidth: GUTTER_W, borderLeft: '3px solid var(--brand)' }} />
+                  <td style={{ position: 'sticky', left: 0, zIndex: 2, background: bg, isolation: 'isolate', width: GUTTER_W, minWidth: GUTTER_W, borderLeft: '3px solid var(--brand)' }} />
                   {colOrder.filter(c => !hiddenCols.has(c)).map(c => cellFor[c] || <td key={c} />)}
                   {customCols.filter(col => !hiddenCols.has(col.id)).map(col => <td key={col.id} />)}
                   <td />
@@ -2937,16 +2972,31 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               const eDur        = gv ? gv.dur    : e.dur;
               const eAvanco     = gv ? gv.avanco : e.avanco;
 
-              // Background explícito para células sticky (colunas congeladas)
+              // Background explícito para células sticky (colunas congeladas).
+              // var(--brand-tint) em vez de color-mix(): color-mix é calculado em tempo de
+              // pintura e, numa célula sticky recém-reordenada no DOM (recortar/colar), o
+              // navegador podia deixar de repintar o fundo corretamente até a linha ser
+              // deselecionada — variável simples não tem esse problema.
+              // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto (raiz
+              // da EAP), enfraquecendo a cada nível mais fundo — mesma escala usada no Gantt e na
+              // Curva Física, pra não cair todo grupo no mesmo azul plano.
+              const groupLvl = e.nivel || 0;
+              const groupTint = groupLvl <= 0 ? 'var(--brand-100)' : groupLvl === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
+              const groupLevelClass = e.isGroup ? (groupLvl <= 0 ? 'lista-row-group-l0' : groupLvl === 1 ? 'lista-row-group-l1' : 'lista-row-group-l2') : '';
               const frozenBg = (isSelected || isMultiSel)
-                ? 'color-mix(in srgb, var(--brand) 8%, var(--surface))'
-                : e.isGroup ? 'var(--brand-50)' : 'var(--surface)';
+                ? 'var(--brand-tint)'
+                : e.isGroup ? groupTint : 'var(--surface)';
               // A calha (número da linha) não passa por decorateCell/rangeSelStyle como as
               // demais colunas, mas segue a mesma regra: seleção de intervalo não pinta o
               // fundo, só a borda (feita pela célula da 1ª coluna do intervalo).
               const gutterBg = frozenBg;
+              // isolation: a coluna congelada ganha seu próprio contexto de empilhamento, então
+              // seu z-index só compete com o que está DENTRO dela — sem isso, o navegador pode
+              // ocasionalmente deixar o conteúdo das colunas normais (datas, duração, valores)
+              // vazar por cima da coluna congelada em vez de rolar escondido por baixo dela.
               const stickyStyle = (colId) => ({
                 position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: frozenBg,
+                isolation: 'isolate',
               });
 
               // Mapa de células por colId — renderizadas na ordem de colOrder
@@ -3063,9 +3113,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 peso: (
                   <td key="peso" className="num mono" style={{ textAlign: 'right', fontSize: 12, fontWeight: e.isGroup ? 700 : 400, color: e.isGroup ? 'var(--text)' : 'var(--text-muted)' }}>
                     {(() => {
-                      const base = hasVinculos && totalValorVinculado > 0 ? totalValorVinculado : totalCusto;
-                      const val = hasVinculos ? (valorVinculadoMap[e.id] || 0) : (e.isGroup ? (gv?.custo || 0) : (e.custo || 0));
-                      return base > 0 ? (val / base * 100).toFixed(1) + '%' : '—';
+                      const val = custoOrcadoMap[e.id] || 0;
+                      return totalCustoOrcado > 0 ? (val / totalCustoOrcado * 100).toFixed(1) + '%' : '—';
                     })()}
                   </td>
                 ),
@@ -3128,6 +3177,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <span className="mono" style={{ fontSize: 12, cursor: 'text', display: 'block', textAlign: 'right' }}
                         onDoubleClick={() => setEditingCusto(e.id + '_real')}>{fmtBRL(e.custoRealizado || 0)}</span>
                     )}
+                  </td>
+                ),
+                custoOrcado: (
+                  <td key="custoOrcado" className="num mono" style={{ textAlign: 'right', fontSize: 12 }}>
+                    {fmtBRL(custoOrcadoMap[e.id] || 0)}
                   </td>
                 ),
                 saldo: (
@@ -3269,7 +3323,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   data-index={rowIdx}
                   ref={virtualize ? rowVirt.measureElement : undefined}
                   className={[
-                    (isSelected || isMultiSel) ? 'lista-row-selected' : e.isGroup ? 'lista-row-group' : '',
+                    (isSelected || isMultiSel) ? 'lista-row-selected' : e.isGroup ? `lista-row-group ${groupLevelClass}` : '',
                     rowIdx % 2 === 1 ? 'lista-row-alt' : '',
                     dragOverId === e.id ? 'drag-over-row' : '',
                   ].filter(Boolean).join(' ')}
@@ -3391,7 +3445,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     }}
                     title="Clique e arraste para selecionar linhas"
                     style={{
-                      position: 'sticky', left: 0, zIndex: 2, background: gutterBg,
+                      position: 'sticky', left: 0, zIndex: 2, background: gutterBg, isolation: 'isolate',
                       width: GUTTER_W, minWidth: GUTTER_W, textAlign: 'center',
                       cursor: 'pointer', userSelect: 'none', color: 'var(--text-faint)',
                       fontSize: 11, fontFamily: 'var(--font-mono, monospace)',
@@ -3487,12 +3541,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               const semFiltro = !filtroResp && !filtroPreset && !filtroTaskIds.length && !filtroTexto && !filtroVinculo && !Object.keys(columnFilters).length;
               const visCols = colOrder.filter(c => !hiddenCols.has(c));
               const visCustom = customCols.filter(col => !hiddenCols.has(col.id));
-              const blankFrozen = (colId) => ({ position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: 'var(--surface)' });
+              const blankFrozen = (colId) => ({ position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: 'var(--surface)', isolation: 'isolate' });
               if (!readOnly && semFiltro) {
                 const nBlanks = Math.max(4, 25 - filtrada.length);
                 return Array.from({ length: nBlanks }).map((_, k) => (
                   <tr key={'blank-' + k} className="lista-row-blank" style={{ '--lista-row-h': rowH + 'px' }}>
-                    <td style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)', width: GUTTER_W, minWidth: GUTTER_W, textAlign: 'center', color: 'var(--text-faint)', fontSize: 11, fontFamily: 'var(--font-mono, monospace)' }}>
+                    <td style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)', isolation: 'isolate', width: GUTTER_W, minWidth: GUTTER_W, textAlign: 'center', color: 'var(--text-faint)', fontSize: 11, fontFamily: 'var(--font-mono, monospace)' }}>
                       {filtrada.length + k + 1}
                     </td>
                     {visCols.map(colId => {
@@ -3574,14 +3628,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             {(() => {
               // Rodapé alinhado célula-a-célula à ordem/visibilidade atual das colunas.
               const leaves = etapas.filter(x => !x.isGroup);
-              const w = (x) => hasVinculos ? (valorVinculadoMap[x.id] || 0) : (x.custo || 0);
+              const w = (x) => custoOrcadoMap[x.id] || 0;
               const tp = leaves.reduce((s, x) => s + w(x), 0);
               const totalPct = !tp
                 ? (leaves.length ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length) : 0)
                 : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp);
               const footSaldo = totalCustoEf - totalReal; // usa o mesmo custo efetivo do total (consistente com vínculos)
               const footBg = 'var(--surface-muted)';
-              const stick = (cid, extra) => ({ position: 'sticky', left: frozenLeft[cid], background: footBg, zIndex: 1, ...extra });
+              const stick = (cid, extra) => ({ position: 'sticky', left: frozenLeft[cid], background: footBg, zIndex: 1, isolation: 'isolate', ...extra });
               const num = { textAlign: 'right', fontWeight: 700, fontSize: 12 };
               const foot = {
                 wbs: <td key="wbs" style={stick('wbs')} />,
@@ -3591,11 +3645,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 peso: <td key="peso" className="num mono" style={num}>100%</td>,
                 custo: <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
                 custoReal: <td key="custoReal" className="num mono" style={num}>{fmtBRL(totalReal)}</td>,
+                custoOrcado: <td key="custoOrcado" className="num mono" style={num}>{fmtBRL(totalCustoOrcado)}</td>,
                 saldo: <td key="saldo" className="num mono" style={{ ...num, color: totalSaldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(totalSaldo)}</td>,
               };
               return (
                 <tr style={{ fontWeight: 600, borderTop: '2px solid var(--border)', background: footBg, height: 48 }}>
-                  <td style={{ position: 'sticky', left: 0, zIndex: 2, background: footBg, width: GUTTER_W, minWidth: GUTTER_W }} />
+                  <td style={{ position: 'sticky', left: 0, zIndex: 2, background: footBg, isolation: 'isolate', width: GUTTER_W, minWidth: GUTTER_W }} />
                   {colOrder.filter(c => !hiddenCols.has(c)).map(c => {
                     const cell = foot[c] || <td key={c} />;
                     if (dragOverCol?.id !== c) return cell;

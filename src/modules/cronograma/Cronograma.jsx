@@ -9,13 +9,13 @@ import { SCurveChart2 } from './SCurveChart2';
 import { FluxoExecutivo } from './FluxoExecutivo';
 import { useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
-import { computeValorVinculadoMap } from './ganttUtils';
+import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
 import { podeVerAba, moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
 import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd } from './cronogramaDateUtils';
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
-  computeGroupValues, computeSuccessors,
+  computeGroupValues, computeSuccessors, computeAvancoFisico,
 } from './scheduleEngine';
 import MedicaoMensal from './MedicaoMensal';
 import {
@@ -200,17 +200,20 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
 
   const wbsMap  = React.useMemo(() => computeAllWBS(etapas), [etapas]);
 
-  // Distribuição sempre por custo previsto (valor vinculado ao orçamento quando houver).
-  const hasVinculos = Object.keys(valorVinculadoMap).length > 0;
+  // Distribuição sempre pelo Custo Orçado (valor vinculado + custo real de cada tarefa).
+  const custoOrcadoMap = React.useMemo(
+    () => computeCustoOrcadoMap(etapas, valorVinculadoMap),
+    [etapas, valorVinculadoMap]
+  );
   const cfg = {
-    val: (e) => hasVinculos ? (valorVinculadoMap[e.id] || 0) : (e.custo || 0),
+    val: (e) => custoOrcadoMap[e.id] || 0,
     cell: (v) => v < 1 ? '—' : fmtBRL(v),
     tot: (v) => fmtBRL(v),
   };
   const metricOverride = React.useMemo(() => {
     const o = {}; etapas.forEach(e => { if (!e.isGroup) o[e.id] = cfg.val(e); }); return o;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etapas, valorVinculadoMap]);
+  }, [etapas, custoOrcadoMap]);
   const dist2 = React.useMemo(() => computeMonthlyDist(etapas, metricOverride), [etapas, metricOverride]);
   const cellMax = React.useMemo(() => {
     let mx = 0;
@@ -232,10 +235,13 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   }, [dist2, months]);
   const grandTotal = React.useMemo(() => months.reduce((s, m) => s + (monthTotals[m.key] || 0), 0), [monthTotals, months]);
 
+  // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto (raiz da EAP),
+  // enfraquecendo a cada nível mais fundo — mesma escala usada no Gantt, na Lista e na Curva
+  // Física, pra não cair todo grupo no mesmo azul plano.
   const rowBg = (e) =>
     selectedId === e.id
       ? 'color-mix(in srgb, var(--brand) 8%, transparent)'
-      : e.isGroup ? 'var(--brand-50)' : undefined;
+      : e.isGroup ? ((e.nivel || 0) <= 0 ? 'var(--brand-100)' : (e.nivel || 0) === 1 ? 'var(--brand-50)' : 'var(--brand-tint)') : undefined;
 
   const thSt = {
     position: 'sticky', top: 0, zIndex: 2,
@@ -305,7 +311,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
           offsetToDate(e.inicio + e.dur),
           e.dur,
           e.avanco / 100,
-          e.isGroup ? '' : (e.custo || 0),
+          e.isGroup ? '' : cfg.val(e),
           ...months.map(m => dist[m.key] || 0),
           total,
         ];
@@ -362,7 +368,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
             isoToBR(offsetToISO(taskEnd(e))),
             e.dur + 'd',
             e.avanco + '%',
-            e.isGroup ? '—' : fmtBRL(e.custo || 0),
+            e.isGroup ? '—' : fmtBRL(cfg.val(e)),
             ...months.map(m => dist[m.key] > 0 ? fmtBRL(dist[m.key]) : '—'),
             total > 0 ? fmtBRL(total) : '—',
           ],
@@ -427,55 +433,59 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
 
   return (
     <div ref={usoRef} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 280px)', marginTop: 'var(--gap)' }}>
-      {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', marginBottom: 4 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Custo (R$) previsto por mês</span>
-        {/* Recolher/expandir por nivel — mesmo select da Lista e do Gantt, mas local. */}
-        <select defaultValue="" title="Expandir/recolher a estrutura por nivel"
-          onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') aplicarNivelUso(Number(v)); }}
-          style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
-          <option value="" disabled>Estrutura…</option>
-          <option value="0">Expandir tudo</option>
-          <option value="1">Recolher tudo</option>
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <option key={n} value={n}>Nível {n}</option>)}
-        </select>
-        {/* Sem espaçador flex: o container é mais largo que a tabela, então empurrar o
-            Exportar para a extremidade o deixava solto no branco à direita do grid. */}
-        <div ref={exportUsoRef} style={{ position: 'relative' }}>
-          <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5 }}
-            onClick={() => setExportUsoOpen(v => !v)} title="Exportar">
-            <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'Exportar'}
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
-          </button>
-          {exportUsoOpen && (
-            <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 12, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                <span style={{ color: 'var(--text-soft)' }}>Formato PDF:</span>
-                <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
-                  style={{ fontSize: 12, height: 26, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
-                  <option value="a4">A4</option>
-                  <option value="a3">A3</option>
-                  <option value="a2">A2</option>
-                  <option value="a1">A1</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28, flex: 1 }}
-                  onClick={() => { setExportUsoOpen(false); exportExcelUso(); }} title="Exportar para Excel (.xlsx)">
-                  <Icon name="download" size={13} />Excel
-                </button>
-                <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28, flex: 1 }}
-                  onClick={() => { setExportUsoOpen(false); exportPDFUso(); }} disabled={exportingPDF} title="Exportar para PDF">
-                  <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'PDF'}
-                </button>
-              </div>
+      {/* Um único card (mesmo padrão .card/.card-header/.card-actions das outras abas)
+          envolvendo toolbar + tabela — igual à Lista, sem caixa separada com respiro
+          entre o título e o cabeçalho azul da tabela. */}
+      <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div className="card-header">
+          <div className="card-title" style={{ fontWeight: 400 }}>Custo (R$) previsto por mês</div>
+          <div className="card-actions">
+            {/* Recolher/expandir por nivel — mesmo select da Lista e do Gantt, mas local. */}
+            <select defaultValue="" title="Expandir/recolher a estrutura por nivel"
+              onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') aplicarNivelUso(Number(v)); }}
+              style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
+              <option value="" disabled>Estrutura…</option>
+              <option value="0">Expandir tudo</option>
+              <option value="1">Recolher tudo</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <option key={n} value={n}>Nível {n}</option>)}
+            </select>
+            <div ref={exportUsoRef} style={{ position: 'relative' }}>
+              <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5 }}
+                onClick={() => setExportUsoOpen(v => !v)} title="Exportar">
+                <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'Exportar'}
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+              </button>
+              {exportUsoOpen && (
+                <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 12, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                    <span style={{ color: 'var(--text-soft)' }}>Formato PDF:</span>
+                    <select value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} title="Tamanho da folha do PDF"
+                      style={{ fontSize: 12, height: 26, padding: '0 4px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                      <option value="a4">A4</option>
+                      <option value="a3">A3</option>
+                      <option value="a2">A2</option>
+                      <option value="a1">A1</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28, flex: 1 }}
+                      onClick={() => { setExportUsoOpen(false); exportExcelUso(); }} title="Exportar para Excel (.xlsx)">
+                      <Icon name="download" size={13} />Excel
+                    </button>
+                    <button className="btn btn-ghost" style={{ gap: 5, fontSize: 12, padding: '4px 10px', height: 28, flex: 1 }}
+                      onClick={() => { setExportUsoOpen(false); exportPDFUso(); }} disabled={exportingPDF} title="Exportar para PDF">
+                      <Icon name="download" size={13} />{exportingPDF ? 'Gerando…' : 'PDF'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
 
-      {/* Painel dividido */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)' }}>
+        {/* Painel dividido — dentro do mesmo .card do toolbar acima (card-body flush,
+            sem borda/fundo próprios: quem desenha isso agora é o .card em volta). */}
+        <div className="card-body" style={{ padding: 0, flex: 1, display: 'flex', overflow: 'hidden' }}>
 
         {/* Lado esquerdo — hierarquia com colunas redimensionáveis e reordenáveis.
             overflowX: hidden — sem barra interna; o painel dimensiona ao conteúdo (item 10). */}
@@ -627,16 +637,47 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
             </tbody>
           </table>
         </div>
+        </div>
       </div>
     </div>
   );
 };
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
-const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, selMonKey, setSelMonKey, valorVinculadoMap = {}, onCommit }) => {
+const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, selMonKey, setSelMonKey, valorVinculadoMap = {}, onCommit, topbarH }) => {
   const toast = useToast();
   // Colapso LOCAL da tabela "Distribuição por tarefa" — não mexe no `collapsed` da Lista.
   const [collapsedCurva, setCollapsedCurva] = React.useState(() => new Set());
+  // Congela o card "Distribuição por tarefa" sob a topbar ao rolar a página — mesmo mecanismo
+  // de `ganttPinned`/`listaPinned` (sentinela + position:fixed via JS, não CSS sticky: a topbar
+  // não é fixa por CSS, então só um valor de `top` calculado a partir da altura REAL medida dela
+  // (`topbarH`, prop vinda de CronogramaFull) reproduz o mesmo respiro usado nas outras abas).
+  const distSentinelRef = React.useRef(null);
+  const [distPinned, setDistPinned] = React.useState(null);
+  React.useEffect(() => {
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      const s = distSentinelRef.current;
+      if (!s) return;
+      const r = s.getBoundingClientRect();
+      if (r.top <= topbarH) {
+        setDistPinned(prev => (prev && Math.abs(prev.left - r.left) < 0.5 && Math.abs(prev.width - r.width) < 0.5) ? prev : { left: r.left, width: r.width });
+      } else {
+        setDistPinned(prev => (prev ? null : prev));
+      }
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(check); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined' && distSentinelRef.current) {
+      ro = new ResizeObserver(onScroll);
+      ro.observe(distSentinelRef.current);
+    }
+    const id = setTimeout(check, 0);
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); clearTimeout(id); if (raf) cancelAnimationFrame(raf); if (ro) ro.disconnect(); };
+  }, [topbarH]);
   // Duas curvas selecionáveis (Curva 1 / Curva 2). Cada uma guarda suas próprias opções.
   const [curvaSel, setCurvaSel] = React.useState('c1'); // 'c1' | 'c2'
   const [serieMap,  setSerieMap]  = React.useState({ c1: { bl: true, rep: true, real: true }, c2: { bl: true, rep: true, real: true } });
@@ -649,11 +690,13 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   const toggleSerie   = (k)  => setSerieMap(m => ({ ...m, [curvaSel]: { ...m[curvaSel], [k]: !m[curvaSel][k] } }));
   const setShowBarras = (fn) => setBarrasMap(m => ({ ...m, [curvaSel]: typeof fn === 'function' ? fn(m[curvaSel]) : fn }));
   const setShowLinhas = (fn) => setLinhasMap(m => ({ ...m, [curvaSel]: typeof fn === 'function' ? fn(m[curvaSel]) : fn }));
-  // Custo efetivo: com vínculos, usa o valor vinculado distribuído (cobre folhas e grupos)
-  const hasVinc  = Object.keys(valorVinculadoMap).length > 0;
-  const custoEf  = (e, gv) => hasVinc
-    ? (valorVinculadoMap[e.id] || 0)
-    : (e.isGroup ? (gv?.custo || 0) : (e.custo || 0));
+  // Custo Orçado (Valor Vinculado + Custo Real) — peso usado pela distribuição/Curva Física
+  // (cobre folhas e grupos via bubble-up, então custoEf ignora gv/isGroup).
+  const custoOrcadoMap = React.useMemo(
+    () => computeCustoOrcadoMap(etapas, valorVinculadoMap),
+    [etapas, valorVinculadoMap]
+  );
+  const custoEf = (e) => custoOrcadoMap[e.id] || 0;
   // Totais planejados — soma de todas as tarefas (sem filtro de grupo)
   const filteredPlanned = React.useMemo(() => {
     const agg = {};
@@ -672,7 +715,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
   const baselineDist = React.useMemo(() => {
     if (!blEtapas) return null;
-    const dist = computeMonthlyDist(blEtapas, hasVinc ? valorVinculadoMap : null);
+    const dist = computeMonthlyDist(blEtapas, computeCustoOrcadoMap(blEtapas, valorVinculadoMap));
     const agg = {};
     Object.values(dist).forEach(d =>
       Object.entries(d).forEach(([k, v]) => { agg[k] = (agg[k] || 0) + v; })
@@ -697,7 +740,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   // por tarefa" quando uma reprogramação está selecionada, em vez da distribuição ao vivo.
   const repMonthlyDistByTask = React.useMemo(() => {
     if (!repEtapas) return null;
-    return computeMonthlyDist(repEtapas, hasVinc ? valorVinculadoMap : null);
+    return computeMonthlyDist(repEtapas, computeCustoOrcadoMap(repEtapas, valorVinculadoMap));
   }, [repEtapas]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const repDist = React.useMemo(() => {
@@ -829,7 +872,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
       // Sheet 2 — Distribuição por Tarefa
       if (expSel.dist) {
-      const groupValsExp = computeGroupValues(etapas);
+      const groupValsExp = computeGroupValues(etapas, custoOrcadoMap);
       const distRows = etapas.filter(e => e.isGroup || e.showInDist === true);
       const folhas = etapas.filter(e => !e.isGroup);
       const totalCusto = folhas.reduce((s, e) => s + custoEf(e), 0);
@@ -956,7 +999,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
       // ── Tabela 2: Distribuição por Tarefa ──────────────────────────────
       if (expSel.dist) {
-      const groupValsExp = computeGroupValues(etapas);
+      const groupValsExp = computeGroupValues(etapas, custoOrcadoMap);
       const distRows     = etapas.filter(e => e.isGroup || e.showInDist === true);
       const folhas       = etapas.filter(e => !e.isGroup);
       const totCusto     = folhas.reduce((s, e) => s + custoEf(e), 0);
@@ -1280,7 +1323,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             const fmt1 = v => v != null ? (v === 0 ? '—' : v.toFixed(2) + '%') : '—';
             const fmtD = v => v != null ? (v > 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
 
-            const ACT_W = 130, MON_W = 38, PROD_W = MON_W;
+            // MON_W/PROD_W confirmados por medição isolada (fonte/conteúdo reais): "100.00%"
+            // e "+100.00%" (linhas de Diferenças) exigem >=56px; o <select> de mês + rótulo
+            // "PRODUÇÃO" da coluna Produção exige >=65px. 38px nunca foi suficiente — só não
+            // dava pra notar antes porque a tabela sem colgroup/width deixava o navegador
+            // "esticar" as colunas por conta própria (mascarando o problema).
+            const ACT_W = 130, MON_W = 58, PROD_W = 68;
 
             const thBase = {
               padding: '6px 4px', fontSize: 10, fontWeight: 700,
@@ -1288,9 +1336,19 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
               color: 'var(--text-soft)', borderBottom: '2px solid var(--border)',
               whiteSpace: 'nowrap', background: 'var(--surface-muted)',
             };
-            const thAct  = { ...thBase, textAlign: 'left', minWidth: ACT_W,
-              padding: '6px 10px', position: 'sticky', left: 0, zIndex: 2 };
-            const thMon  = { ...thBase, textAlign: 'right', minWidth: MON_W };
+            // boxShadow "sangra" 2px da própria cor de fundo pra dentro do território da
+            // próxima coluna sticky (Produção) — cobre qualquer fresta de arredondamento de
+            // sub-pixel entre duas colunas sticky adjacentes ao rolar (visível só ao vivo,
+            // nunca em getBoundingClientRect/scrollWidth, por isso não aparecia nas
+            // verificações isoladas anteriores). Onde não há fresta, fica escondido atrás da
+            // Produção real (que pinta depois, por ordem do DOM); onde há, preenche o vão.
+            const thAct  = { ...thBase, textAlign: 'left', minWidth: ACT_W, maxWidth: ACT_W,
+              padding: '6px 10px', position: 'sticky', left: 0, zIndex: 2, isolation: 'isolate',
+              boxShadow: '2px 0 0 0 var(--surface-muted)' };
+            const thMon  = { ...thBase, textAlign: 'right', minWidth: MON_W, maxWidth: MON_W, overflow: 'hidden' };
+            // "Produção" fica congelada logo depois da coluna de rótulo (Mensal/Acumulado).
+            const thProdSticky = { position: 'sticky', left: ACT_W, zIndex: 2, isolation: 'isolate',
+              maxWidth: PROD_W, overflow: 'hidden' };
 
             const grpHdrBlue = {
               background: 'var(--brand)', color: '#fff',
@@ -1300,30 +1358,99 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             const grpHdrGray  = { ...grpHdrBlue, background: '#475569' };
             const grpHdrGreen = { ...grpHdrBlue, background: '#15803d' };
             const grpHdrBase  = { ...grpHdrBlue, background: 'var(--brand-700)' };
+            // Rótulo das faixas coloridas: antes era um <span position:sticky> dentro de um
+            // único <td colSpan> cobrindo a linha toda — funcionava na posição de repouso, mas
+            // sticky num elemento inline-block dentro de uma célula não-sticky não usa o mesmo
+            // caminho otimizado (compositor) que um <td>/<th> sticky de verdade, e "arrastava"
+            // visivelmente atrás da rolagem. Trocado por duas células: a primeira, sticky de
+            // verdade (mesma técnica já usada e comprovada em tdAct/thAct), carrega o rótulo;
+            // a segunda, colSpan cobrindo o resto da linha, só estende a cor de fundo.
+            // O rótulo precisa de mais que ACT_W (130px) — "Reprogramação Mês Anterior" só
+            // cabe sem cortar a partir de ~256px (medido isoladamente) — por isso a primeira
+            // célula abrange algumas colunas (ACT_W+PROD_W+MON_W*2 ≈ 314px, com margem).
+            const bandLabelRow = (label, style) => {
+              const labelCols = Math.min(4, totalCols);
+              const restCols = totalCols - labelCols;
+              return (
+                <tr>
+                  <td colSpan={labelCols} style={{ ...style, position: 'sticky', left: 0, zIndex: 1,
+                    isolation: 'isolate',
+                    // Sangra a própria cor pra dentro da célula seguinte (mesma técnica já
+                    // validada em tdAct/tdProd) — mesmo com as duas células declarando a MESMA
+                    // cor de fundo, uma sendo sticky (camada composta) e a outra não pode deixar
+                    // uma costura visível na fronteira entre elas ao rolar.
+                    boxShadow: `6px 0 0 0 ${style.background}`,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {label}
+                  </td>
+                  {restCols > 0 && <td colSpan={restCols} style={style} />}
+                </tr>
+              );
+            };
 
             const bdr = '1px solid var(--border-subtle, rgba(0,0,0,0.06))';
             const tdAct = (accum) => ({
               padding: '5px 8px 5px 14px', fontSize: 11,
               borderBottom: bdr, whiteSpace: 'nowrap',
-              position: 'sticky', left: 0, zIndex: 1,
+              // maxWidth (sozinho, sem overflow:hidden) já é suficiente pra travar a largura
+              // real da coluna, mesmo com table-layout:fixed sem colgroup — confirmado por
+              // medição isolada. NÃO colocar overflow:hidden aqui: um elemento com
+              // overflow:hidden recorta o PRÓPRIO boxShadow (abaixo) antes dele sair da caixa,
+              // o que anulava silenciosamente a sangria pra dentro da Produção. O recorte com
+              // "…" dos rótulos longos de "Diferenças" fica por conta do <span> interno
+              // (ellipsisSpan, ver usos abaixo), não desta célula.
+              maxWidth: ACT_W,
+              position: 'sticky', left: 0, zIndex: 1, isolation: 'isolate',
               background: accum ? 'var(--surface-muted, #f9fafb)' : 'var(--surface)',
+              // Sangra 6px pra dentro do território da Produção — mais generoso que o valor
+              // original (2px) pra não depender de acertar o tamanho exato de uma eventual
+              // fresta de arredondamento; onde não há fresta, a Produção real (pintada por
+              // cima, depois, na ordem do DOM) esconde a sangria inteira, sem efeito colateral.
+              // Cor: a cor BASE da PRÓPRIA Produção (tdProd usa sempre
+              // backgroundColor:'var(--surface)', nunca surface-muted, independente de accum),
+              // não a cor desta célula — usar a cor errada criava uma listra visível
+              // justamente nas linhas "Acumulado" (onde tdAct vira surface-muted mas o
+              // vizinho continua surface).
+              boxShadow: '6px 0 0 0 var(--surface)',
               fontWeight: accum ? 600 : 400, color: 'var(--text-soft)',
             });
+            // Recorte de texto longo (ellipsis) num <span> interno, não na própria <td> — ver
+            // comentário em tdAct sobre por que overflow:hidden não pode ficar na <td>.
+            const ellipsisSpan = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
             const tdBase = {
               padding: '5px 4px', fontSize: 10.5, textAlign: 'right',
               borderBottom: bdr, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
             };
             const tdMon  = (accum) => ({
               ...tdBase,
+              // maxWidth + overflow:hidden como rede de segurança: mesmo com colgroup+width
+              // fixando a largura real da coluna, um valor 1px mais largo que o previsto
+              // (ex.: negrito, fonte diferente) vazaria visualmente por cima da coluna
+              // Produção sticky vizinha em vez de simplesmente cortar — mesma técnica já
+              // aplicada em tdAct.
+              maxWidth: MON_W, overflow: 'hidden',
               background: accum ? 'rgba(0,0,0,0.015)' : undefined,
               fontWeight: accum ? 600 : 400,
             });
             const tdProd = (accum) => ({
               ...tdBase,
-              minWidth: PROD_W,
+              maxWidth: PROD_W, overflow: 'hidden',
               fontWeight: accum ? 700 : 600,
-              borderLeft: '2px solid var(--border)',
-              background: accum ? 'rgba(1,67,134,0.06)' : 'rgba(1,67,134,0.03)',
+              // NÃO usar borderLeft aqui: numa tabela border-collapse:collapse, a borda
+              // pertence à GRADE da tabela, não à célula — ela não acompanha o translate do
+              // position:sticky ao rolar (bug documentado, cross-browser: Chromium #332350945,
+              // CSSWG #3136, Mozilla #1727594/#1658119). O divisor visual "sumia" durante a
+              // rolagem sticky, exatamente a fresta relatada — nenhuma das tentativas
+              // anteriores (todas em tdAct) tocava essa linha. boxShadow inset é pintado
+              // dentro da própria caixa da célula, então acompanha o sticky normalmente.
+              boxShadow: 'inset 2px 0 0 0 var(--border)',
+              position: 'sticky', left: ACT_W, zIndex: 1, isolation: 'isolate',
+              // backgroundImage pinta o tom azul POR CIMA de um backgroundColor opaco — uma
+              // célula sticky sem fundo opaco próprio deixaria os meses vazarem por baixo dela
+              // ao rolar (mesmo problema já corrigido nas outras tabelas fixas desta tela).
+              backgroundColor: 'var(--surface)',
+              backgroundImage: accum ? 'linear-gradient(rgba(1,67,134,0.06), rgba(1,67,134,0.06))'
+                                      : 'linear-gradient(rgba(1,67,134,0.03), rgba(1,67,134,0.03))',
             });
 
             // Retorna células dos meses (sem coluna Produção)
@@ -1361,16 +1488,31 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
 
             const totalCols = 2 + months.length; // Atividades + Produção + meses
 
+            // width (não só minWidth) é obrigatório aqui: com table-layout:fixed, o
+            // navegador só respeita as larguras do colgroup à risca quando a <table> tem
+            // uma largura DEFINIDA — com apenas minWidth ele recai num cálculo "auto"
+            // baseado no conteúdo (foi isso que fez o <select> da Produção e o texto
+            // longo de "Diferenças" bagunçarem a largura real das colunas, mesmo com
+            // maxWidth nas células). Confirmado via reprodução isolada antes de aplicar.
+            const totalTableW = ACT_W + PROD_W + months.length * MON_W;
             return (
               <table style={{ borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed',
-                minWidth: ACT_W + PROD_W + months.length * MON_W }}>
+                width: totalTableW, minWidth: totalTableW }}>
+                <colgroup>
+                  <col style={{ width: ACT_W }} />
+                  <col style={{ width: PROD_W }} />
+                  {months.map(m => <col key={m.key} style={{ width: MON_W }} />)}
+                </colgroup>
                 <thead>
                   <tr>
                     <th style={thAct}></th>
                     <th style={{
-                      ...thBase, textAlign: 'center', minWidth: PROD_W,
-                      borderLeft: '2px solid var(--border)',
-                      background: 'rgba(1,67,134,0.07)',
+                      ...thBase, ...thProdSticky, textAlign: 'center', minWidth: PROD_W,
+                      // Ver nota em tdProd: borderLeft não acompanha o sticky em tabela
+                      // border-collapse — boxShadow inset sim.
+                      boxShadow: 'inset 2px 0 0 0 var(--border)',
+                      backgroundColor: 'var(--surface-muted)',
+                      backgroundImage: 'linear-gradient(rgba(1,67,134,0.07), rgba(1,67,134,0.07))',
                       padding: '4px 2px',
                     }}>
                       <select
@@ -1399,71 +1541,58 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                 </thead>
                 <tbody>
                   {/* ── Linha de Base ── */}
+                  {bandLabelRow(hasBL ? blNome : 'Linha de Base', grpHdrBase)}
                   <tr>
-                    <td colSpan={totalCols} style={grpHdrBase}>
-                      {hasBL ? blNome : 'Linha de Base'}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={tdAct(false)}>Mensal</td>
+                    <td style={tdAct(false)}><span style={ellipsisSpan}>Mensal</span></td>
                     {prodCell(hasBL ? blM : months.map(() => null), fmt1, 'var(--brand)', false)}
                     {monCells(hasBL ? blM : months.map(() => null), fmt1, 'var(--brand)', false)}
                   </tr>
                   <tr>
-                    <td style={tdAct(true)}>Acumulado</td>
+                    <td style={tdAct(true)}><span style={ellipsisSpan}>Acumulado</span></td>
                     {prodCell(hasBL ? blA : months.map(() => null), fmt1, 'var(--brand)', true)}
                     {monCells(hasBL ? blA : months.map(() => null), fmt1, 'var(--brand)', true)}
                   </tr>
 
                   {/* ── Reprogramação ── */}
+                  {bandLabelRow(hasRep ? repNome : 'Reprogramação Mês Anterior',
+                    { ...grpHdrBlue, borderTop: '2px solid rgba(255,255,255,0.2)' })}
                   <tr>
-                    <td colSpan={totalCols} style={{ ...grpHdrBlue, borderTop: '2px solid rgba(255,255,255,0.2)' }}>
-                      {hasRep ? repNome : 'Reprogramação Mês Anterior'}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={tdAct(false)}>Mensal</td>
+                    <td style={tdAct(false)}><span style={ellipsisSpan}>Mensal</span></td>
                     {prodCell(repM, fmt1, 'var(--text)', false)}
                     {monCells(repM, fmt1, 'var(--text)', false)}
                   </tr>
                   <tr>
-                    <td style={tdAct(true)}>Acumulado</td>
+                    <td style={tdAct(true)}><span style={ellipsisSpan}>Acumulado</span></td>
                     {prodCell(repA, fmt1, 'var(--text)', true)}
                     {monCells(repA, fmt1, 'var(--text)', true)}
                   </tr>
 
                   {/* ── Real ── */}
+                  {bandLabelRow('Real + Reprogramado',
+                    { ...grpHdrGreen, borderTop: '2px solid rgba(255,255,255,0.2)' })}
                   <tr>
-                    <td colSpan={totalCols} style={{ ...grpHdrGreen, borderTop: '2px solid rgba(255,255,255,0.2)' }}>
-                      Real + Reprogramado
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={tdAct(false)}>Mensal</td>
+                    <td style={tdAct(false)}><span style={ellipsisSpan}>Mensal</span></td>
                     {prodCell(rrM, fmt1, '#16a34a', false)}
                     {monCells(rrM, fmt1, '#16a34a', false)}
                   </tr>
                   <tr>
-                    <td style={tdAct(true)}>Acumulado</td>
+                    <td style={tdAct(true)}><span style={ellipsisSpan}>Acumulado</span></td>
                     {prodCell(rrA, fmt1, '#16a34a', true)}
                     {monCells(rrA, fmt1, '#16a34a', true)}
                   </tr>
 
                   {/* ── Diferenças ── */}
-                  <tr>
-                    <td colSpan={totalCols} style={{ ...grpHdrGray, borderTop: '2px solid rgba(255,255,255,0.15)' }}>
-                      Diferenças
-                    </td>
-                  </tr>
+                  {bandLabelRow('Diferenças',
+                    { ...grpHdrGray, borderTop: '2px solid rgba(255,255,255,0.15)' })}
                   {hasBL && (
                     <tr>
-                      <td style={tdAct(false)}>Dif. em relação à Linha de Base — Acumulado</td>
+                      <td style={tdAct(false)}><span style={ellipsisSpan}>Dif. em relação à Linha de Base — Acumulado</span></td>
                       {prodCell(difBL, fmtD, 'desvio', false)}
                       {monCells(difBL, fmtD, 'desvio', false)}
                     </tr>
                   )}
                   <tr>
-                    <td style={tdAct(false)}>Dif. em relação ao Reprogramado — Acumulado</td>
+                    <td style={tdAct(false)}><span style={ellipsisSpan}>Dif. em relação ao Reprogramado — Acumulado</span></td>
                     {prodCell(difRep, fmtD, 'desvio', false)}
                     {monCells(difRep, fmtD, 'desvio', false)}
                   </tr>
@@ -1480,7 +1609,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         const visibleRows = etapas;
         const taskDistSource = monthlyDist;
         const distTotal   = total;
-        const groupVals2  = computeGroupValues(visibleRows);
+        const groupVals2  = computeGroupValues(visibleRows, custoOrcadoMap);
         // CurvaFisicaView mostra todas as tarefas independente de collapsed na Lista.
         // A coluna "Curva" (showInDist) é preferência de exibição AO VIVO: mesmo mostrando
         // uma reprogramação (retrato congelado), respeita as marcas atuais do cronograma —
@@ -1494,6 +1623,12 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         };
         const distRows    = visibleRows.filter(e => (e.isGroup || liveShown.has(e.id) || e.showInDist === true) && !isHiddenCurva(e));
         const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
+        // Colunas congeladas: Atividade, Valor, Peso e Conc. ficam fixas à esquerda ao
+        // rolar horizontal (mesma técnica das colunas congeladas da Lista) — só os meses
+        // e o Total rolam por baixo delas.
+        const COL2_LEFT = ACT_W;
+        const COL3_LEFT = ACT_W + VAL_W;
+        const COL4_LEFT = ACT_W + VAL_W + PESO_W;
         const thBase = {
           fontSize: 10.5, fontWeight: 600, letterSpacing: '0.07em',
           textTransform: 'uppercase', color: '#fff',
@@ -1513,8 +1648,24 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
           ? months.reduce((s, m, i) => i <= selIdx ? s + (filteredPlanned[m.key] || 0) : s, 0) / distTotal * 100
           : 0;
 
+        // calc(100vh - (topbarH+10)) sempre — pinned ou não — mesma técnica do Gantt/Lista:
+        // a altura do card nunca muda entre os dois estados, só a posição muda (fixed vs. fluxo
+        // normal), então não há "pulo" de layout ao pinar/despinar.
+        const distCardH = `calc(100vh - ${topbarH + 10}px)`;
         return (
-          <div className="card">
+          // curvaRef é flex-column com gap: 'var(--gap)' entre TODOS os filhos diretos — diferente
+          // do Gantt/Lista (soltos num Fragment sem gap ambiente, por isso eles usam marginTop
+          // explícito). Se a sentinela e o card fossem filhos diretos separados aqui, cada um
+          // consumiria seu próprio gap (2x 'var(--gap)' = respiro dobrado). Por isso os dois vivem
+          // dentro de UM wrapper só (sem gap próprio, fluxo normal) — o wrapper inteiro conta como
+          // um único filho de curvaRef, recebendo exatamente um 'var(--gap)' do pai.
+          <div>
+          <div ref={distSentinelRef} aria-hidden="true" style={{ height: 0 }} />
+          {distPinned && <div aria-hidden="true" style={{ height: distCardH }} />}
+          <div className="card" style={distPinned
+            ? { position: 'fixed', top: topbarH + 10, left: distPinned.left, width: distPinned.width, height: distCardH, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
+            : { height: distCardH, display: 'flex', flexDirection: 'column' }
+          }>
             <div className="card-header">
               <div>
                 <div className="card-title">Distribuição por tarefa</div>
@@ -1523,8 +1674,16 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                 </div>
               </div>
             </div>
-            <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
+            {/* flex:1 + minHeight:0 (não maxHeight) — o card agora tem altura própria (distCardH,
+                acima); o card-body só precisa preencher o espaço restante e rolar dentro dele,
+                mesmo padrão flexbox usado no card do Gantt. */}
+            <div className="card-body" style={{ padding: 0, overflowX: 'auto', overflowY: 'auto',
+              flex: 1, minHeight: 0 }}>
               <table style={{ borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed',
+                // width explícito (não só minWidth) é necessário para o colgroup abaixo
+                // ser respeitado à risca com table-layout:fixed — ver nota na tabela
+                // "Resumo Mensal" acima.
+                width: ACT_W + VAL_W + PESO_W + CONC_W + months.length * MON_W + TOT_W,
                 minWidth: ACT_W + VAL_W + PESO_W + CONC_W + months.length * MON_W + TOT_W }}>
                 <colgroup>
                   <col style={{ width: ACT_W }} />
@@ -1536,20 +1695,35 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                 </colgroup>
                 <thead>
                   <tr>
-                    <th style={{ ...thBase, textAlign: 'left', position: 'sticky', left: 0, zIndex: 3, padding: '8px 14px' }}>
+                    {/* As 4 primeiras células ficam sticky nas DUAS direções (top+left) — viram
+                        "cantos" fixos tanto rolando pra baixo quanto pro lado. As de mês/Total só
+                        precisam de top (rolam normalmente na horizontal, escondidas atrás dos
+                        cantos quando a coluna correspondente passa por baixo deles). zIndex 3 nos
+                        cantos fica acima do zIndex 2 das colunas de mês/Total, que por sua vez
+                        fica acima do zIndex 1 das células sticky-left do CORPO da tabela — assim
+                        o cabeçalho inteiro sempre pinta por cima das linhas ao rolar verticalmente. */}
+                    <th style={{ ...thBase, textAlign: 'left', position: 'sticky', left: 0, top: 0, zIndex: 3, isolation: 'isolate', padding: '8px 14px',
+                      boxShadow: '2px 0 0 0 var(--brand)' }}>
                       Atividade
                     </th>
-                    <th style={{ ...thBase, textAlign: 'right' }}>Valor (R$)</th>
-                    <th style={{ ...thBase, textAlign: 'right' }}>Peso %</th>
-                    <th style={{ ...thBase, textAlign: 'right', background: 'var(--brand-700)' }}>Conc. %</th>
+                    <th style={{ ...thBase, textAlign: 'right', position: 'sticky', left: COL2_LEFT, top: 0, zIndex: 3, isolation: 'isolate',
+                      boxShadow: '2px 0 0 0 var(--brand)' }}>Valor (R$)</th>
+                    <th style={{ ...thBase, textAlign: 'right', position: 'sticky', left: COL3_LEFT, top: 0, zIndex: 3, isolation: 'isolate',
+                      boxShadow: '2px 0 0 0 var(--brand)' }}>Peso %</th>
+                    <th style={{ ...thBase, textAlign: 'right', background: 'var(--brand-700)', position: 'sticky', left: COL4_LEFT, top: 0, zIndex: 3, isolation: 'isolate' }}>Conc. %</th>
                     {months.map(m => (
                       <th key={m.key} style={{
                         ...thBase, textAlign: 'right', color: '#fff',
                         fontWeight: m.key === selMonKey ? 700 : 600,
                         background: m.key === selMonKey ? 'var(--brand-700)' : 'var(--brand)',
+                        position: 'sticky', top: 0, zIndex: 2, isolation: 'isolate',
                       }}>{m.label}</th>
                     ))}
-                    <th style={{ ...thBase, textAlign: 'right', borderLeft: '2px solid var(--border)' }}>Total</th>
+                    {/* borderLeft trocado por boxShadow: numa tabela border-collapse, uma borda
+                        crua não acompanha o translate de um elemento sticky ao rolar (mesmo bug
+                        já confirmado e corrigido em tdProd/thProdSticky no "Resumo Mensal"). */}
+                    <th style={{ ...thBase, textAlign: 'right', position: 'sticky', top: 0, zIndex: 2, isolation: 'isolate',
+                      boxShadow: 'inset 2px 0 0 0 var(--border)' }}>Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1573,35 +1747,65 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                     const concAteRef = taskCusto > 0
                       ? months.reduce((s, m, i) => i <= selIdx ? s + (taskDist[m.key] || 0) : s, 0) / taskCusto * 100
                       : 0;
-                    const rowBg = e.isGroup ? 'var(--brand-50)' : (ri % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)');
+                    // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto
+                    // (raiz da EAP), enfraquecendo a cada nível mais fundo — assim dá pra
+                    // distinguir visualmente quem está aninhado dentro de quem, em vez de todo
+                    // grupo cair no mesmo azul plano.
+                    const groupBg = e.nivel <= 0 ? 'var(--brand-100)' : e.nivel === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
+                    const rowBg = e.isGroup ? groupBg : (ri % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)');
+                    // Fundo sticky sempre opaco (backgroundColor); o tom zebra (rowBg,
+                    // quase transparente) entra por cima via backgroundImage — nunca como
+                    // `background` sozinho, senão as colunas de mês vazam por baixo ao rolar.
+                    const stickyBg = {
+                      backgroundColor: e.isGroup ? groupBg : 'var(--surface)',
+                      backgroundImage: (!e.isGroup && rowBg) ? `linear-gradient(${rowBg}, ${rowBg})` : undefined,
+                    };
                     return (
                       <tr key={e.id} style={{ background: rowBg }}>
                         {/* Atividade (sticky) */}
                         <td style={{
-                          ...tdBase, position: 'sticky', left: 0, zIndex: 1,
-                          background: rowBg || 'var(--surface)',
+                          ...tdBase, position: 'sticky', left: 0, zIndex: 1, isolation: 'isolate',
+                          ...stickyBg,
+                          // Sangra 2px da própria cor pra dentro da coluna Valor — cobre qualquer
+                          // fresta de sub-pixel entre duas colunas sticky adjacentes ao rolar
+                          // (mesma técnica aplicada em "Resumo Mensal"). NÃO colocar
+                          // overflow:hidden nesta <td>: ele recortaria o próprio boxShadow antes
+                          // dele sair da caixa, anulando a sangria. O recorte do texto longo já é
+                          // feito pelo <span> interno abaixo (que tem seu próprio overflow:hidden).
+                          boxShadow: `2px 0 0 0 ${stickyBg.backgroundColor}`,
                           fontWeight: e.isGroup ? 600 : 400,
                           paddingLeft: e.nivel * 14 + 10,
-                          overflow: 'hidden', textOverflow: 'ellipsis',
                         }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                             {e.isGroup && <span style={{ color: 'var(--text-muted)', fontSize: 10, flexShrink: 0 }}>▸</span>}
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.etapa}</span>
+                            <span style={{ display: 'block', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.etapa}</span>
                           </div>
                         </td>
-                        {/* Valor */}
+                        {/* Valor (sticky) */}
                         <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                           fontWeight: e.isGroup ? 700 : 400,
-                          color: taskCusto > 0 ? 'var(--text)' : 'var(--text-faint)', fontSize: 10.5 }}>
+                          color: taskCusto > 0 ? 'var(--text)' : 'var(--text-faint)', fontSize: 10.5,
+                          position: 'sticky', left: COL2_LEFT, zIndex: 1, isolation: 'isolate',
+                          ...stickyBg, boxShadow: `2px 0 0 0 ${stickyBg.backgroundColor}` }}>
                           {taskCusto > 0 ? fmtBRL(taskCusto) : '—'}
                         </td>
-                        {/* Peso */}
+                        {/* Peso (sticky) */}
                         <td style={{ ...tdBase, textAlign: 'right', fontWeight: e.isGroup ? 700 : 400,
-                          color: e.isGroup ? 'var(--text)' : 'var(--text-soft)', fontSize: 10.5 }}>
+                          color: e.isGroup ? 'var(--text)' : 'var(--text-soft)', fontSize: 10.5,
+                          position: 'sticky', left: COL3_LEFT, zIndex: 1, isolation: 'isolate',
+                          ...stickyBg, boxShadow: `2px 0 0 0 ${stickyBg.backgroundColor}` }}>
                           {distTotal > 0 && taskCusto > 0 ? (taskCusto / distTotal * 100).toFixed(2) + '%' : '—'}
                         </td>
-                        {/* Conc. — coluna destacada com fundo sutil */}
-                        <td style={{ ...tdBase, textAlign: 'right', background: 'rgba(1,67,134,0.05)',
+                        {/* Conc. (sticky) — coluna destacada com fundo sutil. backgroundImage pinta os tons
+                            (zebra + azul) POR CIMA de um backgroundColor opaco (senão a célula sticky, sem
+                            fundo opaco próprio, deixaria os meses vazarem por baixo ao rolar). */}
+                        <td style={{ ...tdBase, textAlign: 'right',
+                          ...stickyBg,
+                          backgroundImage: [
+                            stickyBg.backgroundImage,
+                            'linear-gradient(rgba(1,67,134,0.05), rgba(1,67,134,0.05))',
+                          ].filter(Boolean).join(', '),
+                          position: 'sticky', left: COL4_LEFT, zIndex: 1, isolation: 'isolate',
                           color: Math.round(concAteRef) >= 100 ? '#16a34a' : concAteRef > 0 ? 'var(--brand)' : 'var(--text-faint)',
                           fontWeight: 600, fontSize: 10.5 }}>
                           {concAteRef > 0.005 ? concAteRef.toFixed(2) + '%' : '—'}
@@ -1642,16 +1846,24 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                 <tfoot>
                   <tr style={{ background: 'var(--surface-muted)', fontWeight: 600 }}>
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', position: 'sticky', left: 0,
-                      zIndex: 1, background: 'var(--surface-muted)', paddingLeft: 14, fontSize: 11 }}>
+                      zIndex: 1, isolation: 'isolate', background: 'var(--surface-muted)', paddingLeft: 14, fontSize: 11,
+                      boxShadow: '2px 0 0 0 var(--surface-muted)' }}>
                       Total geral
                     </td>
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
-                      fontVariantNumeric: 'tabular-nums', fontSize: 10.5 }}>
+                      fontVariantNumeric: 'tabular-nums', fontSize: 10.5,
+                      position: 'sticky', left: COL2_LEFT, zIndex: 1, isolation: 'isolate', background: 'var(--surface-muted)',
+                      boxShadow: '2px 0 0 0 var(--surface-muted)' }}>
                       {fmtBRL(distTotal)}
                     </td>
-                    <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right', fontSize: 10.5 }}>100%</td>
+                    <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right', fontSize: 10.5,
+                      position: 'sticky', left: COL3_LEFT, zIndex: 1, isolation: 'isolate', background: 'var(--surface-muted)',
+                      boxShadow: '2px 0 0 0 var(--surface-muted)' }}>100%</td>
                     <td style={{ ...tdBase, borderTop: '2px solid var(--border)', textAlign: 'right',
-                      background: 'rgba(1,67,134,0.05)', color: '#16a34a', fontSize: 10.5 }}>
+                      backgroundColor: 'var(--surface-muted)',
+                      backgroundImage: 'linear-gradient(rgba(1,67,134,0.05), rgba(1,67,134,0.05))',
+                      position: 'sticky', left: COL4_LEFT, zIndex: 1, isolation: 'isolate',
+                      color: '#16a34a', fontSize: 10.5 }}>
                       {concGeralAteRef > 0.005 ? concGeralAteRef.toFixed(2) + '%' : '—'}
                     </td>
                     {months.map(m => {
@@ -1675,6 +1887,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                 </tfoot>
               </table>
             </div>
+          </div>
           </div>
         );
       })()}
@@ -2296,20 +2509,22 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     () => computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap),
     [etapas, vinculos, orcamentoItensMap]
   );
-  const weightOverride = vinculos.length > 0 ? valorVinculadoMapFull : null;
+  // Custo Orçado (novo peso do avanço físico): Valor Vinculado + Custo Real de cada
+  // etapa, somados sempre — substitui o antigo weightOverride (valor vinculado OU custo).
+  const custoOrcadoMap = React.useMemo(
+    () => computeCustoOrcadoMap(etapas, valorVinculadoMapFull),
+    [etapas, valorVinculadoMapFull]
+  );
+  const weightOverride = custoOrcadoMap;
 
   // Ids de tarefa com vínculo direto a algum item de orçamento (para o filtro vinculado/não vinculado).
   const vinculadoIds = React.useMemo(() => new Set(vinculos.map(v => v.etapa_id)), [vinculos]);
 
-  // Avanço ponderado pelo custo de cada etapa (folhas). Com vínculos, usa o valor vinculado.
-  const avancoTotal = React.useMemo(() => {
-    const folhas    = etapas.filter(e => !e.isGroup);
-    if (!folhas.length) return 0;
-    const peso = (e) => vinculos.length ? (valorVinculadoMapFull[e.id] || 0) : (e.custo || 0);
-    const totalPeso = folhas.reduce((s, e) => s + peso(e), 0);
-    if (!totalPeso) return folhas.reduce((s, e) => s + e.avanco, 0) / folhas.length;
-    return folhas.reduce((s, e) => s + e.avanco * peso(e), 0) / totalPeso;
-  }, [etapas, vinculos, valorVinculadoMapFull]);
+  // Avanço ponderado pelo Custo Orçado (valor vinculado + custo real) de cada etapa (folhas).
+  const avancoTotal = React.useMemo(
+    () => computeAvancoFisico(etapas, custoOrcadoMap),
+    [etapas, custoOrcadoMap]
+  );
 
   // Distribuição mensal de custos — alimenta Uso da Tarefa e Curva S
   const months      = React.useMemo(() => getMonthRange(etapas),                           [etapas]);
@@ -2536,7 +2751,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               {/* KPIs — faixa de 5 (redesenho handoff). Dados reais onde há; mock sinalizado. */}
               {(() => {
                 const leaves = etapas.filter(e => !e.isGroup);
-                const pesoDe = (e) => weightOverride ? (weightOverride[e.id] || 0) : (e.custo || 0);
+                const pesoDe = (e) => custoOrcadoMap[e.id] || 0;
                 const custoPrev = leaves.reduce((s, e) => s + pesoDe(e), 0);
                 // Custo incorrido = valor agregado (avanço × peso) — proxy de earned value
                 const custoReal = leaves.reduce((s, e) => s + (e.avanco || 0) / 100 * pesoDe(e), 0);
@@ -2890,6 +3105,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   setSelMonKey={setSelMonKey}
                   valorVinculadoMap={valorVinculadoMapFull}
                   onCommit={commit}
+                  topbarH={topbarH}
                 />
               )}
 
@@ -3005,7 +3221,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         const inicioOff = temTarefas ? Math.min(...etapas.map(e => e.inicio)) : 0;
         const fimOff    = temTarefas ? Math.max(...etapas.map(e => taskEnd(e))) : 0;
         const durDias   = Math.max(0, fimOff - inicioOff);
-        const custoPrev = leaves.reduce((s, e) => s + (vinculos.length ? (valorVinculadoMapFull[e.id] || 0) : (e.custo || 0)), 0);
+        const custoPrev = leaves.reduce((s, e) => s + (custoOrcadoMap[e.id] || 0), 0);
         const info = {
           obraNome:      obra?.nome || '—',
           obraCodigo:    obra?.codigo || '',

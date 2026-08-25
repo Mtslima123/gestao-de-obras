@@ -19,7 +19,9 @@ const etapas = [
   { id: 'B',  etapa: 'Concreto',  isGroup: false, nivel: 2, parentId: 'G2', inicio: 860, dur: 10, avanco: 0,   custo: 1000 },
   { id: 'G3', etapa: 'ESTACAS',   isGroup: true,  nivel: 0, parentId: null, inicio: 855, dur: 5,  avanco: 0 },
   { id: 'C',  etapa: 'pav1',      isGroup: false, nivel: 1, parentId: 'G3', inicio: 855, dur: 5,  avanco: 0,   custo: 500 },
-  { id: 'F',  etapa: 'FUTURA',    isGroup: false, nivel: 1, parentId: 'G3', inicio: 1200, dur: 5, avanco: 40,  custo: 800 },
+  // custoRealizado (não custo) é o que alimenta o "valor cheio" fora do mês desde a
+  // mudança do peso do Avanço Físico para Custo Orçado (valor vinculado + custo real).
+  { id: 'F',  etapa: 'FUTURA',    isGroup: false, nivel: 1, parentId: 'G3', inicio: 1200, dur: 5, avanco: 40,  custo: 800, custoRealizado: 800 },
 ];
 const wbsMap = { G1: '1', G2: '1.1', A: '1.1.1', B: '1.1.2', G3: '2', C: '2.1', F: '2.2' };
 // Só A, B e C têm fatia no mês; F fica de fora de propósito.
@@ -60,11 +62,11 @@ describe('buildItensMedicao', () => {
     expect(f.valor).toBe(800); // custo cheio, não fatia
   });
 
-  it('valorVinculadoMap tem precedência sobre custo no item fora do mês', () => {
+  it('valorVinculadoMap soma com o custo real no item fora do mês (Custo Orçado)', () => {
     const itens = buildItensMedicao(etapas, MES, {
       ...opts, idsExtras: new Set(['F']), valorVinculadoMap: { F: 2500 },
     });
-    expect(itens.find(i => i.id === 'F').valor).toBe(2500);
+    expect(itens.find(i => i.id === 'F').valor).toBe(2500 + 800); // valor vinculado + custo real de F
   });
 });
 
@@ -79,9 +81,9 @@ describe('listarTarefasForaDoMes', () => {
     expect(f).toMatchObject({ id: 'F', wbs: '2.2', descricao: 'FUTURA', pavimento: '—', valor: 800 });
   });
 
-  it('valorVinculadoMap tem precedência sobre custo', () => {
+  it('valorVinculadoMap soma com o custo real (Custo Orçado)', () => {
     const [f] = listarTarefasForaDoMes(etapas, MES, { ...opts, valorVinculadoMap: { F: 2500 } });
-    expect(f.valor).toBe(2500);
+    expect(f.valor).toBe(2500 + 800); // valor vinculado + custo real de F
   });
 });
 

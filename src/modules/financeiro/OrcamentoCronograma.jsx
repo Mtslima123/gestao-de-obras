@@ -141,6 +141,11 @@ const TarefaCronogramaSelect = React.memo(({ etapas, value, onChange, disabled }
           {filtradas.map((et, i) => {
             const pai = paiNome(et);
             const sel = et.id === value;
+            // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto (raiz da
+            // EAP), enfraquecendo a cada nível mais fundo — mesma escala usada no Gantt, na Lista,
+            // na Curva Física e na Medição Mensal.
+            const groupLvl = et.nivel || 0;
+            const groupTint = groupLvl <= 0 ? 'var(--brand-100)' : groupLvl === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
             return (
               <div
                 key={et.id}
@@ -151,7 +156,7 @@ const TarefaCronogramaSelect = React.memo(({ etapas, value, onChange, disabled }
                   borderBottom: '1px solid var(--border-subtle)',
                   // Grupo entra depois de selecionado/destacado para não roubar esses estados; a barra
                   // à esquerda é o sinal que sobrevive aos três casos (transparente nas folhas, para alinhar).
-                  background: sel ? 'var(--brand-tint)' : i === highlight ? 'var(--surface-muted)' : et.isGroup ? 'var(--brand-50)' : 'transparent',
+                  background: sel ? 'var(--brand-tint)' : i === highlight ? 'var(--surface-muted)' : et.isGroup ? groupTint : 'transparent',
                   borderLeft: et.isGroup ? '3px solid var(--brand)' : '3px solid transparent',
                 }}
               >
@@ -348,6 +353,12 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
           const sid = String(it.id);
           const checked = selItens.includes(sid);
           const resumo = resumoIds.has(it.id);
+          // Nível de aninhamento do item-resumo pela contagem de pontos no código (mesma lógica
+          // de getNivel em Orcamentos.jsx) — tom mais forte pro nível mais alto (raiz),
+          // enfraquecendo a cada nível mais fundo, mesma escala do Gantt/Lista/Curva Física/
+          // Medição Mensal. Antes os itens-resumo não tinham fundo nenhum (só opacity geral).
+          const nivel = (it.codigo?.match(/\./g) || []).length;
+          const groupTint = nivel <= 0 ? 'var(--brand-100)' : nivel === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
           return (
             <label
               key={it.id}
@@ -359,8 +370,7 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
                 padding: '8px 12px',
                 cursor: resumo ? 'not-allowed' : 'pointer',
                 borderBottom: '1px solid var(--border-subtle)',
-                background: checked ? 'var(--brand-tint)' : 'transparent',
-                opacity: resumo ? 0.45 : 1,
+                background: checked ? 'var(--brand-tint)' : resumo ? groupTint : 'transparent',
                 transition: 'background 0.1s',
               }}
             >
@@ -369,10 +379,10 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
                 checked={checked}
                 disabled={resumo}
                 onChange={() => !resumo && onToggle(it.id)}
-                style={{ marginTop: 2, accentColor: 'var(--brand)', flexShrink: 0 }}
+                style={{ marginTop: 2, accentColor: 'var(--brand)', flexShrink: 0, opacity: resumo ? 0.5 : 1 }}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: checked ? 600 : 400 }}>
+                <div style={{ fontSize: 12.5, fontWeight: checked ? 600 : resumo ? 600 : 400, color: resumo ? 'var(--text-muted)' : undefined }}>
                   <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{it.codigo}</span>
                   {it.nome}
                   {resumo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>resumo</span>}
@@ -888,16 +898,16 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
           </div>{/* fim coluna Vínculos */}
 
           {/* ── Resumo por tarefa ─────────────────────────────────────────────── */}
-          {vinculos.length > 0 && (
-            <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-              <ResumoVinculos
-                vinculos={vinculos}
-                etapas={etapas}
-                onEditarVinculos={setEditandoEtapaId}
-                onDistribuir={setDistribuirEtapaId}
-              />
-            </div>
-          )}
+          {/* Sempre visível (mesmo sem vínculo ainda), igual ao card "Vínculos
+              cadastrados" ao lado — antes só aparecia depois do primeiro vínculo. */}
+          <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+            <ResumoVinculos
+              vinculos={vinculos}
+              etapas={etapas}
+              onEditarVinculos={setEditandoEtapaId}
+              onDistribuir={setDistribuirEtapaId}
+            />
+          </div>
           </div>{/* fim container 2 colunas */}
         </>
       )}
@@ -1081,7 +1091,6 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistr
   });
 
   const etapasComVinculo = etapas.filter(e => porEtapa[e.id]);
-  if (etapasComVinculo.length === 0) return null;
   const q = filtroResumo.trim().toLowerCase();
   const etapasFiltradas = q ? etapasComVinculo.filter(e => (e.etapa || '').toLowerCase().includes(q)) : etapasComVinculo;
 
@@ -1115,7 +1124,9 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistr
           </thead>
           <tbody>
             {etapasFiltradas.length === 0 && (
-              <tr><td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-faint)' }}>Nenhuma tarefa para o filtro.</td></tr>
+              <tr><td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-faint)' }}>
+                {etapasComVinculo.length === 0 ? 'Nenhum vínculo cadastrado ainda.' : 'Nenhuma tarefa para o filtro.'}
+              </td></tr>
             )}
             {etapasFiltradas.map(e => (
               <tr key={e.id}>

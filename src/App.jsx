@@ -8,7 +8,7 @@ import { AcessoNaoAutorizado } from './modules/auth/AcessoNaoAutorizado';
 import { authService } from './modules/auth/auth.service';
 import { supabase } from './services/supabase';
 import { moduloLiberado, obraLiberada, obrasPermitidas } from './utils/permissions';
-import { obrasService } from './modules/obras/obras.service';
+import { obrasService, obraDeleteErrorMessage } from './modules/obras/obras.service';
 import { logger, setContext, clearContext } from './services/logger';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
 // Renderizadas dentro de <Suspense> no corpo do App.
@@ -128,7 +128,7 @@ const AppInner = () => {
   const handleObraDelete = async (id) => {
     const { error } = await obrasService.excluir(id);
     if (error) {
-      toast('Erro ao excluir obra: ' + error.message, { tone: 'danger' });
+      toast(obraDeleteErrorMessage(error), { tone: 'danger', icon: 'alert' });
       return;
     }
     const novas = obras.filter(o => o.id !== id);

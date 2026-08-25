@@ -34,6 +34,19 @@ export const vinculoService = {
       .delete()
       .eq('id', id),
 
+  // Existe algum vínculo orçamento×cronograma pra QUALQUER item deste orçamento?
+  // Usado para bloquear a exclusão de um orçamento vinculado — apagar a linha
+  // deixaria o cronograma referenciando um orçamento_item_id que não existe mais,
+  // além de perder o rastro de qual valor cobria qual etapa.
+  existeVinculoParaOrcamento: async (orcamentoId) => {
+    const { data, error } = await supabase
+      .from('orcamento_cronograma_vinculos')
+      .select('id, orcamento_itens!inner(orcamento_id)')
+      .eq('orcamento_itens.orcamento_id', orcamentoId)
+      .limit(1);
+    return { existe: !!data?.length, error };
+  },
+
   // Busca todos os itens de orçamento de uma obra (dois passos para compatibilidade)
   itensPorObra: async (obraId) => {
     const { data: orcamentos, error } = await supabase

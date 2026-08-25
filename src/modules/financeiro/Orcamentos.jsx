@@ -1723,9 +1723,28 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
   }, [refreshKey]);
 
   const handleDelete = async (id) => {
-    const { error } = await orcamentosService.excluir(id);
+    // Bloqueia a exclusão se algum item deste orçamento já estiver vinculado ao
+    // cronograma — apagar o orçamento deixaria o vínculo apontando pra um item que
+    // não existe mais, e perderia o rastro de qual valor cobria qual etapa.
+    const { existe: temVinculo, error: vincError } = await vinculoService.existeVinculoParaOrcamento(id);
+    if (vincError) {
+      toast('Não foi possível verificar vínculos com o cronograma. Tente novamente.', { tone: 'danger', icon: 'alert' });
+      return;
+    }
+    if (temVinculo) {
+      toast('Não é possível excluir: este orçamento tem itens vinculados ao cronograma. Remova os vínculos na aba de vínculos antes de excluir.', { tone: 'danger', icon: 'alert' });
+      return;
+    }
+    const { data, error } = await orcamentosService.excluir(id);
     if (error) {
-      toast('Erro ao excluir: ' + error.message, { tone: 'error', icon: 'alert' });
+      toast('Erro ao excluir: ' + error.message, { tone: 'danger', icon: 'alert' });
+      return;
+    }
+    // data vazio sem error = RLS filtrou a linha em silêncio (0 linhas afetadas) — hoje
+    // só quem criou o orçamento pode excluí-lo. Sem essa checagem o toast de sucesso
+    // disparava mesmo sem ter excluído nada.
+    if (!data?.length) {
+      toast('Não foi possível excluir: você não tem permissão (só quem criou o orçamento pode excluí-lo).', { tone: 'danger', icon: 'alert' });
       return;
     }
     toast('Orçamento excluído', { tone: 'success', icon: 'check' });

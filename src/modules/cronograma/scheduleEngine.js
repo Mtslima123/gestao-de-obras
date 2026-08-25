@@ -490,18 +490,20 @@ export function formatDepList(dep, etapas) {
   }).join('; ');
 }
 
-// Converte string "1; 2TT+3d" para dep[] resolvendo por displayId ou id interno.
+// Converte string "1; 2TT+3d" para dep[] resolvendo SEMPRE por displayId (o número
+// simples exibido na coluna ID/Predecessora/Sucessora) — nunca pelo id interno
+// (ex.: "TSK-078"), que não aparece em lugar nenhum da tela e só confundiria quem
+// for digitar uma predecessora.
 // Aceita separador ';' ou ',' e lag no formato "+3d" ou "+3 dias" (colado do Project).
 export function parseDep(raw, etapas) {
   return String(raw).split(/[;,]/).map(s => s.trim()).filter(Boolean).map(token => {
     const norm = token.replace(/\s+/g, '').replace(/dias?$/i, 'd');
-    const m = norm.match(/^(\d+|[A-Za-z0-9\-]+)(TI|TT|II|IT)?([+-]\d+d?)?$/);
+    const m = norm.match(/^(\d+)(TI|TT|II|IT)?([+-]\d+d?)?$/);
     if (!m) return null;
     const ref  = m[1];
     const tipo = m[2] || 'TI';
     const lag  = m[3] ? parseInt(m[3]) : 0;
-    const found = etapas.find(x => String(x.displayId) === ref)
-               || etapas.find(x => x.id === ref);
+    const found = etapas.find(x => String(x.displayId) === ref);
     if (!found) return null;
     return { id: found.id, tipo, lag };
   }).filter(Boolean);
@@ -682,7 +684,7 @@ export function verificarRestricoes(etapas) {
 
 // Computa valores consolidados para linhas de grupo processando de baixo para cima,
 // garantindo que sub-grupos já tenham valores corretos antes de computar o pai.
-export function computeGroupValues(etapas) {
+export function computeGroupValues(etapas, weightOverride = null) {
   const result = {};
 
   // Determina a profundidade de cada tarefa para ordenar do mais profundo para o mais raso
@@ -707,11 +709,12 @@ export function computeGroupValues(etapas) {
     if (!children.length) return;
 
     // Para filhos que são grupos, usa os valores já calculados nesta passagem
-    const childVals = children.map(c => result[c.id] || { inicio: c.inicio, dur: c.dur, avanco: c.avanco, custo: c.custo || 0 });
+    const childVals = children.map(c => ({ id: c.id, ...(result[c.id] || { inicio: c.inicio, dur: c.dur, avanco: c.avanco, custo: c.custo || 0 }) }));
 
-    const totalCusto = childVals.reduce((s, c) => s + (c.custo || 0), 0);
+    const w = (c) => weightOverride ? (weightOverride[c.id] || 0) : (c.custo || 0);
+    const totalCusto = childVals.reduce((s, c) => s + w(c), 0);
     const avanco = totalCusto > 0
-      ? childVals.reduce((s, c) => s + (c.avanco || 0) * (c.custo || 0), 0) / totalCusto
+      ? childVals.reduce((s, c) => s + (c.avanco || 0) * w(c), 0) / totalCusto
       : childVals.reduce((s, c) => s + (c.avanco || 0), 0) / childVals.length;
     const inicio = Math.min(...childVals.map(c => c.inicio));
     // Término do filho: grupo → envelope já calculado (result); folha → dias úteis (taskEnd).

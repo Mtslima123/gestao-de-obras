@@ -10,14 +10,21 @@ const registrar = async (campos) => {
 
 export const orcamentosService = {
   // Lista completa (usada pelo modal de novo orçamento p/ saber quais obras já têm orçamento).
+  // Ordena pela coluna "Data" exibida na tela (o.data), não por created_at — são campos
+  // diferentes (data do orçamento vs. quando a linha foi criada) e podiam divergir,
+  // fazendo a lista parecer fora de ordem mesmo "ordenada". created_at como critério de
+  // desempate quando duas linhas têm a mesma data.
   listar: () =>
-    supabase.from('orcamentos').select('*').order('created_at', { ascending: false }),
+    supabase.from('orcamentos').select('*')
+      .order('data', { ascending: false })
+      .order('created_at', { ascending: false }),
 
   // Paginado no servidor (tela de listagem). Teto de 100 por página.
   listarPaginado: ({ page = 1, perPage = 12 } = {}) => {
     const pp = Math.min(Math.max(1, Number(perPage) || 12), 100);
     return supabase.from('orcamentos')
       .select('*', { count: 'exact' })
+      .order('data', { ascending: false })
       .order('created_at', { ascending: false })
       .range((page - 1) * pp, page * pp - 1);
   },
@@ -50,9 +57,15 @@ export const orcamentosService = {
     return res;
   },
 
+  // .select() é necessário pra saber se algo foi de fato apagado: a policy de DELETE
+  // (orcamentos_own) só libera a linha quando auth.uid() = user_id (só quem criou o
+  // orçamento pode excluí-lo) — se não for o dono, o Postgres filtra a linha em
+  // silêncio (0 linhas afetadas) e retorna sucesso sem erro. Sem checar `data`, o app
+  // mostrava "Orçamento excluído" mesmo sem excluir nada (mesma classe de bug já
+  // corrigida em "Reabrir medição", ver commit f743067).
   excluir: async (id) => {
-    const res = await supabase.from('orcamentos').delete().eq('id', id);
-    if (!res.error) registrar({
+    const res = await supabase.from('orcamentos').delete().eq('id', id).select();
+    if (!res.error && res.data?.length) registrar({
       modulo: 'orcamentos', acao: 'excluiu',
       entidadeTipo: 'orcamento', entidadeId: String(id),
       descricao: `Excluiu orçamento ID ${id}`,

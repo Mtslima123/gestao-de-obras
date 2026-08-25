@@ -4,7 +4,7 @@ import { AppData } from '../../utils/data';
 import { Modal, ObraFormModal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
-import { offsetToISO, migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
+import { offsetToISO, migrateEtapas, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { isAdmin } from '../../utils/permissions';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
@@ -28,8 +28,8 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
   const [capaUrls,       setCapaUrls]      = React.useState(_obrasResumoCache.capaUrls);  // { [obraId]: signedUrl } — capa via URL assinada (bucket privado)
 
   // Recalcula a data final e o avanço físico do cronograma de cada obra ao abrir/atualizar a lista.
-  // Avanço físico = mesmo cálculo do Cronograma: ponderado pelo valor vinculado ao orçamento
-  // quando a obra tem vínculos orçamento×cronograma, senão por custo (ver Cronograma.jsx `avancoTotal`).
+  // Avanço físico = mesmo cálculo do Cronograma: ponderado pelo Custo Orçado (valor vinculado
+  // ao orçamento + custo real de cada etapa, somados — ver Cronograma.jsx `avancoTotal`).
   React.useEffect(() => {
     const ids = obras.map(o => o.id);
     if (ids.length === 0) { _obrasResumoCache.cronFinal = {}; _obrasResumoCache.avancoMap = {}; setCronFinal({}); setAvancoMap({}); return; }
@@ -56,10 +56,9 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
           if (!etapas.length) { fimMap[row.obra_id] = null; avMap[row.obra_id] = 0; return; }
           fimMap[row.obra_id] = offsetToISO(Math.max(...etapas.map(e => (e.inicio || 0) + (e.dur || 0))));
           const vinculosObra = vinculosPorObra[row.obra_id] || [];
-          const weightOverride = vinculosObra.length > 0
-            ? computeValorVinculadoMap(etapas, vinculosObra, itensMapPorObra[row.obra_id] || {})
-            : null;
-          avMap[row.obra_id] = computeAvancoFisico(etapas, weightOverride);
+          const valorVinculadoMapObra = computeValorVinculadoMap(etapas, vinculosObra, itensMapPorObra[row.obra_id] || {});
+          const custoOrcadoMapObra = computeCustoOrcadoMap(etapas, valorVinculadoMapObra);
+          avMap[row.obra_id] = computeAvancoFisico(etapas, custoOrcadoMapObra);
         } catch (e) { logger.error('falha ao calcular avanco/termino', { module: 'obras', action: 'resumo', obraId: row.obra_id, err: e }); }
       });
       _obrasResumoCache.cronFinal = fimMap; _obrasResumoCache.avancoMap = avMap;

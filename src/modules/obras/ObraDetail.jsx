@@ -6,7 +6,7 @@ import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
-import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap } from '../cronograma/ganttUtils';
+import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
 import { SCurveChart2 } from '../cronograma/SCurveChart2';
@@ -1002,9 +1002,12 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
 
   // Avanço físico real + planejado acumulado até hoje (para o cabeçalho da obra).
   // Mesmo critério físico da Curva: distribuição por duração das tarefas.
-  const heroStats = React.useMemo(() => {
+  const custoOrcadoMapObra = React.useMemo(() => {
     const valorVinculadoMapObra = computeValorVinculadoMap(etapasObra, vinculosObra, orcamentoItensMapObra);
-    const avancoFisico = computeAvancoFisico(etapasObra, vinculosObra.length > 0 ? valorVinculadoMapObra : null);
+    return computeCustoOrcadoMap(etapasObra, valorVinculadoMapObra);
+  }, [etapasObra, vinculosObra, orcamentoItensMapObra]);
+  const heroStats = React.useMemo(() => {
+    const avancoFisico = computeAvancoFisico(etapasObra, custoOrcadoMapObra);
     const months = getMonthRange(etapasObra);
     let planejadoHoje = 0;
     if (months.length) {
@@ -1020,10 +1023,10 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
       planejadoHoje = acc / grand * 100;
     }
     return { avancoFisico, planejadoHoje };
-  }, [etapasObra, vinculosObra, orcamentoItensMapObra]);
+  }, [etapasObra, custoOrcadoMapObra]);
 
   // Valores agregados dos grupos (avanço/início/dur a partir dos filhos) — para a mini-Lista.
-  const groupValsObra = React.useMemo(() => computeGroupValues(etapasObra), [etapasObra]);
+  const groupValsObra = React.useMemo(() => computeGroupValues(etapasObra, custoOrcadoMapObra), [etapasObra, custoOrcadoMapObra]);
 
   // Nível máximo de grupo (para os botões N1/N2/... de recolher por nível na mini-Lista).
   const maxGroupNivelObra = React.useMemo(
@@ -1186,7 +1189,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                         if (etapasObra.length) {
                           const ini = Math.min(...etapasObra.map(e => e.inicio || 0));
                           const fim = Math.max(...etapasObra.map(e => (e.inicio || 0) + (e.dur || 0)));
-                          const av = Math.round(computeAvancoFisico(etapasObra));
+                          const av = Math.round(computeAvancoFisico(etapasObra, custoOrcadoMapObra));
                           rows.push(
                             <tr key="resumo-projeto" style={{ background: 'var(--brand-50)' }}>
                               <td style={{ ...tdS, fontWeight: 800, color: 'var(--brand)' }}>Resumo do projeto</td>

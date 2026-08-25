@@ -212,3 +212,29 @@ export function computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap) {
 
   return result;
 }
+
+/**
+ * "Custo Orçado" — novo peso do avanço físico: Valor Vinculado + Custo Real de cada
+ * folha, somados sempre (não é OR, ao contrário do peso antigo). Bubble-up para
+ * grupos igual computeValorVinculadoMap, então custoOrcadoMap[id] funciona tanto
+ * para folha quanto para grupo sem tratamento especial de quem consome.
+ *
+ * @param {Array}  etapas            - Lista completa de etapas do cronograma
+ * @param {Object} valorVinculadoMap - { [etapa_id]: valor } de computeValorVinculadoMap
+ * @returns {Object} { [etapa_id]: valor }
+ */
+export function computeCustoOrcadoMap(etapas, valorVinculadoMap) {
+  const leafValues = {};
+  etapas.filter(e => !e.isGroup).forEach(e => {
+    leafValues[e.id] = (valorVinculadoMap?.[e.id] || 0) + (e.custoRealizado || 0);
+  });
+  const result = { ...leafValues };
+  [...etapas]
+    .sort((a, b) => (b.nivel || 0) - (a.nivel || 0))
+    .forEach(e => {
+      if (e.parentId && result[e.id] !== undefined) {
+        result[e.parentId] = (result[e.parentId] || 0) + result[e.id];
+      }
+    });
+  return result;
+}

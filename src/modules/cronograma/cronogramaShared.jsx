@@ -197,7 +197,8 @@ export const LISTA_COL_DEFS = {
   peso:           { label: 'Peso %',          defWidth: 70,  align: 'right', band: 'fin', type: 'number' },
   fatorPeso:      { label: 'Fator Peso',      defWidth: 90,  align: 'right', band: 'fin', type: 'number' },
   valorVinculado: { label: 'Valor Vinculado', defWidth: 120, align: 'right', band: 'fin', type: 'number' },
-  custoReal: { label: 'Custo Real',    defWidth: 112, align: 'right', band: 'fin', type: 'number' },
+  custoReal: { label: 'Valor Real',    defWidth: 112, align: 'right', band: 'fin', type: 'number' },
+  custoOrcado: { label: 'Valor Total', defWidth: 120, align: 'right', band: 'fin', type: 'number' },
   dep:       { label: 'Predecessora',  defWidth: 150, band: 'seq', type: 'text' },
   succ:      { label: 'Sucessora',     defWidth: 150, band: 'seq', type: 'text' },
   resp:      { label: 'Responsável',   defWidth: 152, band: 'seq', type: 'text' },
@@ -556,7 +557,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
 // tarefas (grupos e folhas), indentadas pela hierarquia EAP, com busca e OK/Cancelar — mesmo
 // padrão de interação do ColumnHeaderFilterMenu (popover ancorado, fecha ao clicar fora,
 // rascunho local até confirmar).
-export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onApply }) => {
+export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onApply, buttonStyle }) => {
   const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState(() => new Set(selectedIds));
   const [busca, setBusca] = React.useState('');
@@ -604,7 +605,7 @@ export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onAppl
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
       <button
-        style={{ height: 26, fontSize: 12, padding: '2px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--text)' }}
+        style={{ height: 26, fontSize: 12, padding: '2px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--text)', ...buttonStyle }}
         onClick={() => setOpen(o => !o)}
       >
         {selectedIds.length ? `Tarefa: ${selectedIds.length} selecionada${selectedIds.length > 1 ? 's' : ''}` : 'Tarefa: todas'}

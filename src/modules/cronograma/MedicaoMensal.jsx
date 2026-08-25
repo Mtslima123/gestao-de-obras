@@ -848,8 +848,13 @@ export default function MedicaoMensal({
               {linhas.map(l => {
                 const indent = (l.nivel || 0) * 20;
                 if (l.tipo === 'grupo') {
+                  // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto (raiz
+                  // da EAP), enfraquecendo a cada nível mais fundo — mesma escala usada no Gantt, no
+                  // Cronograma e na Curva Física (classes .lista-row-group-l0/l1/l2, globals.css).
+                  const groupLvl = l.nivel || 0;
+                  const groupLevelClass = groupLvl <= 0 ? 'lista-row-group-l0' : groupLvl === 1 ? 'lista-row-group-l1' : 'lista-row-group-l2';
                   return (
-                    <tr key={'g' + l.id} className="lista-row-group" style={{ fontWeight: 600 }}>
+                    <tr key={'g' + l.id} className={`lista-row-group ${groupLevelClass}`} style={{ fontWeight: 600 }}>
                       <td className="num">{l.wbs}</td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', paddingLeft: indent }}>

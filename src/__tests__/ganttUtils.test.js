@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   getISOWeek, buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
-  buildCalendarWeeks, buildCalendarDays, computeValorVinculadoMap,
+  buildCalendarWeeks, buildCalendarDays, computeValorVinculadoMap, computeCustoOrcadoMap,
 } from '../modules/cronograma/ganttUtils';
 
 describe('getISOWeek', () => {
@@ -128,5 +128,35 @@ describe('computeValorVinculadoMap', () => {
     const map2 = computeValorVinculadoMap(etapasReponderadas, vinculos, orcamentoItensMap);
     expect(map2.a).toBe(200);
     expect(map2.b).toBeCloseTo(800);
+  });
+});
+
+describe('computeCustoOrcadoMap', () => {
+  it('folha soma valor vinculado + custo real (nunca OR)', () => {
+    const etapas = [
+      { id: 'a', parentId: null, isGroup: false, custoRealizado: 300 },
+    ];
+    const map = computeCustoOrcadoMap(etapas, { a: 700 });
+    expect(map.a).toBe(1000);
+  });
+
+  it('folha sem vínculo e sem custo real fica em 0 (não cai no custo orçado antigo)', () => {
+    const etapas = [
+      { id: 'a', parentId: null, isGroup: false, custo: 500, custoRealizado: 0 },
+    ];
+    const map = computeCustoOrcadoMap(etapas, {});
+    expect(map.a).toBe(0);
+  });
+
+  it('propaga (bubble-up) a soma das folhas para o grupo pai', () => {
+    const etapas = [
+      { id: 'grupo', parentId: null, isGroup: true },
+      { id: 'a', parentId: 'grupo', isGroup: false, custoRealizado: 100 },
+      { id: 'b', parentId: 'grupo', isGroup: false, custoRealizado: 50 },
+    ];
+    const map = computeCustoOrcadoMap(etapas, { a: 200, b: 0 });
+    expect(map.a).toBe(300);
+    expect(map.b).toBe(50);
+    expect(map.grupo).toBe(350);
   });
 });

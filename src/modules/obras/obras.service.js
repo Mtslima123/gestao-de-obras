@@ -17,6 +17,24 @@ const registrar = async (campos) => {
   auditoriaService.registrar({ userId: u.id, userNome: u.email, userPerfil: 'usuario', ...campos });
 };
 
+// Traduz o erro de FK do Postgres ao excluir uma obra pra uma mensagem que diz o que
+// fazer, em vez do texto cru ("update or delete on table \"obras\" violates foreign
+// key constraint..."). As únicas tabelas com FK bloqueando a exclusão de `obras` hoje
+// são orcamentos e orcamento_cronograma_vinculos (conferido via information_schema) —
+// cronogramas/medições/fotos não têm FK formal e não bloqueiam.
+export const obraDeleteErrorMessage = (error) => {
+  if (error?.code === '23503') {
+    if (error.message?.includes('orcamentos_obra_id_fkey')) {
+      return 'Não é possível excluir: esta obra tem orçamento(s) cadastrado(s). Exclua os orçamentos da obra antes de excluir a obra.';
+    }
+    if (error.message?.includes('orcamento_cronograma_vinculos_obra_id_fkey')) {
+      return 'Não é possível excluir: esta obra tem vínculos entre orçamento e cronograma. Remova os vínculos antes de excluir a obra.';
+    }
+    return 'Não é possível excluir: esta obra ainda tem dados vinculados em outro cadastro. Remova-os antes de excluir a obra.';
+  }
+  return 'Erro ao excluir obra: ' + (error?.message || 'erro desconhecido');
+};
+
 export const obrasService = {
   listar: () =>
     supabase.from('obras').select('*').order('created_at', { ascending: false }),

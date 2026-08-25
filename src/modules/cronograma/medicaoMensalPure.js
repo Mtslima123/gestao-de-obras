@@ -66,9 +66,9 @@ export function computeDisciplinaInfo(etapas, wbsMap) {
 // carrega" vêm da mesma fonte.
 const noMes = (e, monthlyDist, mesRefKey) => !!(monthlyDist[e.id] && mesRefKey in monthlyDist[e.id]);
 
-// Valor cheio da tarefa (fora da fatia do mês): vínculo do orçamento tem precedência
-// sobre o custo bruto da tarefa.
-const valorCheio = (e, valorVinculadoMap) => (valorVinculadoMap?.[e.id] ?? e.custo) || 0;
+// Valor cheio da tarefa (fora da fatia do mês): Custo Orçado = valor vinculado ao
+// orçamento + custo real, somados sempre (mesmo peso usado pelo Avanço Físico).
+const valorCheio = (e, valorVinculadoMap) => (valorVinculadoMap?.[e.id] || 0) + (e.custoRealizado || 0);
 
 // Itens do cronograma agendados no mês de referência, mais as folhas escolhidas
 // manualmente em `idsExtras` (tarefas sem fatia no mês, trazidas para medir trabalho

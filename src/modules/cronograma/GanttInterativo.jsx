@@ -5,7 +5,7 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { useToast, Modal } from '../../components/Modals';
 import { buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
-         buildCalendarWeeks, buildCalendarDays } from './ganttUtils';
+         buildCalendarWeeks, buildCalendarDays, computeCustoOrcadoMap } from './ganttUtils';
 import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, todayOffset } from './cronogramaDateUtils';
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes, computeGroupValues,
@@ -318,8 +318,14 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
     }
   };
 
+  // Custo Orçado (Valor Vinculado + Custo Real) — peso do avanço físico, igual Cronograma.jsx.
+  const custoOrcadoMap = React.useMemo(
+    () => computeCustoOrcadoMap(etapas, valorVinculadoMap),
+    [etapas, valorVinculadoMap]
+  );
+
   // Valores calculados dos grupos (inicio/dur baseados nos descendentes)
-  const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
+  const groupVals = React.useMemo(() => computeGroupValues(etapas, custoOrcadoMap), [etapas, custoOrcadoMap]);
 
   // Para grupos usa inicio/dur calculados; para tarefas normais usa os valores diretos.
   // O draft (estado de drag) tem prioridade em ambos os casos.
@@ -370,7 +376,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
         const ini = gv ? gv.inicio : e.inicio;
         const dur = gv ? gv.dur    : e.dur;
         const av  = gv ? gv.avanco : e.avanco;
-        const cst = gv ? (gv.custo || 0) : (e.custo || 0);
+        const cst = custoOrcadoMap[e.id] || 0;
         return [
           wbs[e.id] || '',
           e.displayId ?? e.id,
@@ -1314,7 +1320,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
             if (!leaves.length) return null;
             const pInicio = Math.min(...leaves.map(x => x.inicio));
             const pFim    = Math.max(...leaves.map(x => workEnd(x.inicio, x.dur)));
-            const wt = (x) => hasVinculos ? (valorVinculadoMap[x.id] || 0) : (x.custo || 0);
+            const wt = (x) => custoOrcadoMap[x.id] || 0;
             const tp = leaves.reduce((s, x) => s + wt(x), 0);
             const pAvanco = !tp
               ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length)
@@ -1363,10 +1369,14 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
             const rowBg   = isSel ? 'rgba(28,69,132,0.05)' : i % 2 === 0 ? 'transparent' : 'rgba(248,250,253,0.8)';
             // Base sempre sólida (opaca) + tint via backgroundImage para não vazar timeline
             const lblBase = i % 2 === 0 ? 'var(--surface)' : 'var(--surface-muted)';
+            // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto (raiz da
+            // EAP), enfraquecendo a cada nível mais fundo — mesma escala usada em "Distribuição
+            // por tarefa" (Curva Física), pra não cair todo grupo no mesmo azul plano.
+            const groupTint = (e.nivel || 0) <= 0 ? 'var(--brand-100)' : (e.nivel || 0) === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
             const lblTint = isSel
               ? 'linear-gradient(rgba(28,69,132,0.08),rgba(28,69,132,0.08))'
               : e.isGroup
-                ? 'linear-gradient(var(--brand-50),var(--brand-50))'
+                ? `linear-gradient(${groupTint},${groupTint})`
                 : 'none';
             const isSearchMatch = matchesSearch(e);
 
