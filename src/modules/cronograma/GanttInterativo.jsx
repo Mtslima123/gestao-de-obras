@@ -66,7 +66,7 @@ function BaselineSelect({ value, baselines, reprogramacoes, onChange }) {
   );
 }
 
-export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, canRedo = true, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, customCols = [],
+export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, canRedo = true, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, isAdmin = false, customCols = [],
   baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
@@ -646,7 +646,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
 
   const handleDelete = () => {
     const alvo = primaryId();
-    if (!alvo || readOnly) return;
+    if (!alvo || !isAdmin) return;
     if (etapas.some(x => x.parentId === alvo)) { setDeleteConfirm(alvo); return; }
     const novas = deleteTask(alvo, etapas);
     const count = etapas.length - novas.length;
@@ -901,10 +901,12 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
                 <div style={groupBox}>
                   <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
-                      <button style={{ ...cmdBtn, color: hasSel ? 'var(--danger)' : undefined, opacity: hasSel ? 1 : 0.5 }} onClick={handleDelete} disabled={!hasSel} title="Excluir a tarefa selecionada">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                        Excluir
-                      </button>
+                      {isAdmin && (
+                        <button style={{ ...cmdBtn, color: hasSel ? 'var(--danger)' : undefined, opacity: hasSel ? 1 : 0.5 }} onClick={handleDelete} disabled={!hasSel} title="Excluir a tarefa selecionada">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                          Excluir
+                        </button>
+                      )}
                       {divg()}
                       <button style={{ ...iconBtn, opacity: canUndo ? 1 : 0.5 }} onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M3 13C5.5 8 10 5 15 5c4 0 7 2.5 7 6s-3 6-7 6H12"/></svg>
@@ -1793,6 +1795,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
           pavimentosSalvos={pavimentosSalvos}
           onPavimentosCriados={onPavimentosCriados}
           onPavimentoExcluir={onPavimentoExcluir}
+          isAdmin={isAdmin}
           onClose={() => setShowPavimentos(false)}
         />
       )}

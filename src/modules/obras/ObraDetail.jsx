@@ -5,7 +5,7 @@ import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
-import { podeVerAba, moduloSomenteLeitura } from '../../utils/permissions';
+import { podeVerAba, moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
@@ -483,7 +483,7 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose }) => {
 };
 
 // ----- Fotos tab -----
-const Fotos = ({ obra, readOnly = false }) => {
+const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   const toast = useToast();
   const [fotos,        setFotos]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
@@ -629,8 +629,10 @@ const Fotos = ({ obra, readOnly = false }) => {
                       <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
                         <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
                           onClick={e => { e.stopPropagation(); setEditando(f); }}><Icon name="edit" size={13} /></button>
-                        <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
-                          onClick={e => { e.stopPropagation(); excluirFoto(f); }}><Icon name="trash" size={13} /></button>
+                        {isAdmin && (
+                          <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
+                            onClick={e => { e.stopPropagation(); excluirFoto(f); }}><Icon name="trash" size={13} /></button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1068,12 +1070,14 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
               </svg>
               Editar
             </button>
-            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setDeleteStep(1)}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-              </svg>
-              Excluir
-            </button>
+            {isAdmin(userProfile) && (
+              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setDeleteStep(1)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                </svg>
+                Excluir
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1256,7 +1260,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
           </div>
         </div>
       )}
-      {tab === 'fotos' && <Fotos obra={o} readOnly={readOnly} />}
+      {tab === 'fotos' && <Fotos obra={o} readOnly={readOnly} isAdmin={isAdmin(userProfile)} />}
 
       {showEdit && (
         <ObraFormModal

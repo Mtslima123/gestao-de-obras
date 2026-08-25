@@ -91,7 +91,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
                     <td className="strong">{o.obra}</td>
                     <td className="mono text-sm text-muted">{o.data}</td>
                     <td>
-                      {!readOnly && (
+                      {isAdmin(userProfile) && (
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
                         <button
                           className="icon-btn"
@@ -1271,7 +1271,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
           <div className="page-subtitle">{[orcamento.cliente, `atualizado em ${dataAtualizada}`].filter(Boolean).join(' · ')}</div>
         </div>
         <div className="page-actions">
-          {!readOnly && (
+          {isAdmin(userProfile) && (
             <button
               className="btn btn-ghost"
               onClick={() => setShowClearAll(true)}
@@ -1282,7 +1282,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
               {clearing ? 'Limpando…' : 'Limpar itens'}
             </button>
           )}
-          {!readOnly && (
+          {isAdmin(userProfile) && (
             <button className="btn btn-ghost" onClick={() => setShowImport(true)}>
               <Icon name="upload" size={15} />Importar
             </button>
@@ -1567,13 +1567,15 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
                                   onClick={() => addChild(it.codigo)}
                                 >→+</button>
                               )}
-                              <button
-                                className="orca-row-btn danger"
-                                title={protegidoSet.has(it.codigo) ? 'Vinculada ao cronograma: remova o vínculo antes de excluir' : 'Remover linha (e filhos)'}
-                                onClick={() => requestRemove(it.codigo)}
-                                disabled={protegidoSet.has(it.codigo)}
-                                style={protegidoSet.has(it.codigo) ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
-                              >×</button>
+                              {isAdmin(userProfile) && (
+                                <button
+                                  className="orca-row-btn danger"
+                                  title={protegidoSet.has(it.codigo) ? 'Vinculada ao cronograma: remova o vínculo antes de excluir' : 'Remover linha (e filhos)'}
+                                  onClick={() => requestRemove(it.codigo)}
+                                  disabled={protegidoSet.has(it.codigo)}
+                                  style={protegidoSet.has(it.codigo) ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+                                >×</button>
+                              )}
                             </div>
                           )}
                         </td>

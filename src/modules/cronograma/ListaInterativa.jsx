@@ -29,7 +29,7 @@ import {
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
 const EMPTY_HIDDEN_COLS = new Set();
 
-export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false,
+export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, isAdmin = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
@@ -1521,7 +1521,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // (todas as colunas visíveis — mesmo critério do Shift+Espaço/drag na calha, ou
     // multiSel). Uma célula ou um intervalo parcial de colunas não faz nada. Sempre
     // pede confirmação (mesmo sem subtarefas) antes de excluir.
-    if (ev.key === 'Delete' && !readOnly) {
+    if (ev.key === 'Delete' && !readOnly && isAdmin) {
       if (!isWholeRowSelection()) return;
       ev.preventDefault();
       const ids = [...selectedRowIds()];
@@ -2477,12 +2477,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M21 13C18.5 8 14 5 9 5c-4 0-7 2.5-7 6s3 6 7 6H12"/></svg>
                           </button>
                         </div>
-                        <div style={rowStyle}>
-                          <button style={{ ...cmdBtn, width: '100%', color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.5 }} onClick={handleDelete} disabled={!selectedId} title="Excluir a tarefa selecionada (Delete)">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                            Excluir
-                          </button>
-                        </div>
+                        {isAdmin && (
+                          <div style={rowStyle}>
+                            <button style={{ ...cmdBtn, width: '100%', color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.5 }} onClick={handleDelete} disabled={!selectedId} title="Excluir a tarefa selecionada (Delete)">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                              Excluir
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div style={caption}>Edição</div>
                     </div>
@@ -3775,6 +3777,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           pavimentosSalvos={pavimentosSalvos}
           onPavimentosCriados={onPavimentosCriados}
           onPavimentoExcluir={onPavimentoExcluir}
+          isAdmin={isAdmin}
           onClose={() => setShowPavimentos(false)}
         />
       )}
@@ -3948,7 +3951,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           <button onClick={() => { setShowAddCol(true); setCtxMenu(null); }}>
             Inserir coluna
           </button>
-          {!readOnly && customCols.some(c => c.id === ctxMenu.colId) && (
+          {isAdmin && customCols.some(c => c.id === ctxMenu.colId) && (
             <button style={{ color: 'var(--danger)' }}
               onClick={() => { handleDeleteCol(ctxMenu.colId); setCtxMenu(null); }}>
               Excluir coluna

@@ -2891,7 +2891,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                         </div>
                       </div>
                       <div className="card-body" style={{ padding: 0, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} customCols={customCols}
+                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} isAdmin={currentUser.isAdmin} customCols={customCols}
                           baselines={baselines} reprogramacoes={reprogramacoes}
                           blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
                           onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}
@@ -3126,6 +3126,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   vinculos={vinculos}
                   orcamentoItensMap={orcamentoItensMap}
                   readOnly={readOnly}
+                  isAdmin={currentUser.isAdmin}
                   baselines={baselines}
                   reprogramacoes={reprogramacoes}
                   onCriarBaseline={() => setShowCriar(true)}

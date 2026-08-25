@@ -240,7 +240,8 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
                           { ic: 'eye', label: 'Visualizar', fn: () => openFile(a, false) },
                           { ic: 'download', label: 'Baixar', fn: () => openFile(a, true) },
                           { ic: 'edit', label: 'Renomear', fn: () => startRename(a) },
-                          { ic: 'trash', label: 'Excluir', fn: () => { setMenuId(null); setConfirmDel(a); }, danger: true },
+                          // Excluir anexo é admin-only, sem exceção de autor (diferente do comentário).
+                          ...(currentUser?.isAdmin ? [{ ic: 'trash', label: 'Excluir', fn: () => { setMenuId(null); setConfirmDel(a); }, danger: true }] : []),
                         ].map(opt => (
                           <button key={opt.label} role="menuitem" onClick={opt.fn}
                             style={{

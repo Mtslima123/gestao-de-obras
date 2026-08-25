@@ -326,7 +326,7 @@ const AppInner = () => {
           {view === 'cronograma' && (
             <>
               {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} obras={obrasVisiveis} userProfile={userProfile} />}
-              {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} />}
+              {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} userProfile={userProfile} />}
             </>
           )}
           {/* 🔒 SEGURANÇA [VULN-3]: telas admin bloqueadas para não-admin no frontend */}

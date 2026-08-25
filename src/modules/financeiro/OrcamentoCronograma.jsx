@@ -6,6 +6,7 @@ import { vinculoService, itemValor } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
 import { invalidateCronCache, _ocCache } from '../cronograma/cronogramaCache';
+import { isAdmin } from '../../utils/permissions';
 
 // ─── AutocompleteInput ────────────────────────────────────────────────────────
 const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
@@ -410,7 +411,7 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
 });
 
 // ─── OrcamentoCronogramaScreen ────────────────────────────────────────────────
-const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
+const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   const toast = useToast();
 
   const [obraSel,    setObraSel]    = React.useState('');
@@ -866,14 +867,16 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                             {formatBRL(itemValor(v.orcamento_itens))}
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            <button
-                              className="icon-btn"
-                              title="Remover vínculo"
-                              onClick={() => setPendingRemove(v)}
-                              style={{ color: 'var(--danger)' }}
-                            >
-                              <Icon name="trash" size={14} />
-                            </button>
+                            {isAdmin(userProfile) && (
+                              <button
+                                className="icon-btn"
+                                title="Remover vínculo"
+                                onClick={() => setPendingRemove(v)}
+                                style={{ color: 'var(--danger)' }}
+                              >
+                                <Icon name="trash" size={14} />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -967,7 +970,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                           ×
                         </button>
                       </>
-                    ) : (
+                    ) : isAdmin(userProfile) ? (
                       <button
                         className="icon-btn"
                         title="Remover vínculo"
@@ -976,7 +979,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user }) => {
                       >
                         <Icon name="trash" size={13} />
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 ))}
               </div>

@@ -184,7 +184,7 @@ export const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 })
 };
 
 // ─── PavimentosModal ─────────────────────────────────────────────────────────
-export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir }) => {
+export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir, isAdmin = false }) => {
   const [step,          setStep]          = React.useState(1);
   // Pré-preenche com os pavimentos já cadastrados nesta obra (não precisa redigitar a cada vez).
   const [floors,        setFloors]        = React.useState(pavimentosSalvos.length ? [...pavimentosSalvos] : ['']);
@@ -280,7 +280,9 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
   // sai também do cadastro da obra — senão o pavimento excluído voltava na próxima abertura.
   const handleSalvarPreCadastro = () => {
     if (!validFloors.length) return;
-    pavimentosSalvos.filter(n => !validFloors.includes(n)).forEach(n => onPavimentoExcluir?.(n));
+    // Remoção implícita (pavimento tirado da lista) só é aplicada pra admin — pra quem
+    // não é admin, o pavimento "removido" simplesmente reaparece na próxima abertura.
+    if (isAdmin) pavimentosSalvos.filter(n => !validFloors.includes(n)).forEach(n => onPavimentoExcluir?.(n));
     onPavimentosCriados?.(validFloors);
     onClose();
   };
@@ -364,7 +366,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
                   <span key={n} className="btn btn-ghost"
                     style={{ fontSize: 12, padding: '3px 6px 3px 10px', height: 26, borderRadius: 14, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     <span style={{ cursor: 'pointer' }} title="Adicionar aos pavimentos" onClick={() => addOrFillFloor(n)}>{n}</span>
-                    {onPavimentoExcluir && (
+                    {onPavimentoExcluir && isAdmin && (
                       <span role="button" title="Excluir do cadastro da obra"
                         onClick={() => onPavimentoExcluir(n)}
                         style={{ cursor: 'pointer', color: 'var(--text-faint)', fontSize: 13, lineHeight: 1, padding: '0 2px' }}>×</span>
