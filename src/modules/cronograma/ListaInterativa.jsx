@@ -1696,7 +1696,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Insere `count` tarefas em branco acima ou abaixo da tarefa de referência, todas
   // de uma vez (um único onCommit) — necessário para count > 1, já que onCommit
   // sucessivos a partir do mesmo `etapas` (closure) se sobrescreveriam.
-  const insertBlankRows = (referenceId, position, count = 1) => {
+  const insertBlankRows = (referenceId, position, count = 1, milestone = false) => {
     const refIdx = etapas.findIndex(e => e.id === referenceId);
     if (refIdx < 0) return;
     const ref = etapas[refIdx];
@@ -1705,12 +1705,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       const blank = {
         id:            nextEtapaId(base),
         displayId:     nextDisplayId(base),
-        etapa:         'Nova Tarefa',
+        etapa:         milestone ? 'Novo Marco' : 'Nova Tarefa',
         inicio:        todayOffset(),
-        dur:           1,
+        dur:           milestone ? 0 : 1,
         avanco:        0,
         status:        'upcoming',
         dep:           [],
+        milestone,
         nivel:         ref.nivel,
         parentId:      ref.parentId,
         isGroup:       false,
@@ -1732,8 +1733,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     onCommit(novas, { silent: true });
     setSelectedId(blanks[0].id);
   };
-  // Insere uma nova tarefa acima ou abaixo da tarefa de referência
-  const insertTask = (referenceId, position) => insertBlankRows(referenceId, position, 1);
+  // Insere uma nova tarefa (ou marco, se milestone=true) acima ou abaixo da tarefa de referência
+  const insertTask = (referenceId, position, milestone = false) => insertBlankRows(referenceId, position, 1, milestone);
 
   // Fecha menu de contexto ao clicar fora ou pressionar Escape
   React.useEffect(() => {
@@ -2512,6 +2513,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         <div style={rowStyle}>
                           <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'above')} disabled={!selectedId} title="Inserir linha acima da selecionada">↑ Acima</button>
                           <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'below')} disabled={!selectedId} title="Inserir linha abaixo da selecionada">↓ Abaixo</button>
+                          <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'below', true)} disabled={!selectedId} title="Inserir um marco (evento de duração zero) abaixo da tarefa selecionada">◆ Marco</button>
                         </div>
                       </div>
                       <div style={caption}>Tarefas</div>
@@ -3834,6 +3836,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           </button>
           <button onClick={() => { insertTask(ctxMenu.taskId, 'below'); setCtxMenu(null); }}>
             ↓ Inserir linha abaixo
+          </button>
+          <button onClick={() => { insertTask(ctxMenu.taskId, 'below', true); setCtxMenu(null); }}>
+            ◆ Inserir marco
           </button>
           <hr />
           <button onClick={() => { cutSelection(ctxMenu.taskId); setCtxMenu(null); }}>

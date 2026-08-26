@@ -627,14 +627,14 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
   })();
 
   // Insere nova tarefa acima/abaixo da referência (porta o helper da Lista).
-  const insertTask = (referenceId, position) => {
+  const insertTask = (referenceId, position, milestone = false) => {
     const idx = etapas.findIndex(e => e.id === referenceId);
     const ref = idx >= 0 ? etapas[idx] : null;
     const novo = {
-      id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Nova Tarefa',
+      id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: milestone ? 'Novo Marco' : 'Nova Tarefa',
       nivel: ref ? (ref.nivel || 0) : 0, parentId: ref ? (ref.parentId ?? null) : null,
-      isGroup: false, collapsed: false, inicio: todayOffset(), dur: 1, avanco: 0,
-      status: 'upcoming', dep: [], milestone: false, responsavel: '',
+      isGroup: false, collapsed: false, inicio: todayOffset(), dur: milestone ? 0 : 1, avanco: 0,
+      status: 'upcoming', dep: [], milestone, responsavel: '',
       customCols: emptyCustomCols(customCols), custo: 0,
       restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
     };
@@ -944,6 +944,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
                     <div style={rowStyle}>
                       <button style={{ ...cmdBtn, opacity: hasSel ? 1 : 0.5 }} onClick={() => insertTask(primaryId(), 'above')} disabled={!hasSel} title="Inserir linha acima da selecionada">↑ Acima</button>
                       <button style={{ ...cmdBtn, opacity: hasSel ? 1 : 0.5 }} onClick={() => insertTask(primaryId(), 'below')} disabled={!hasSel} title="Inserir linha abaixo da selecionada">↓ Abaixo</button>
+                      <button style={{ ...cmdBtn, opacity: hasSel ? 1 : 0.5 }} onClick={() => insertTask(primaryId(), 'below', true)} disabled={!hasSel} title="Inserir um marco (evento de duração zero) abaixo da tarefa selecionada">◆ Marco</button>
                     </div>
                   </div>
                   <div style={caption}>Tarefas</div>
