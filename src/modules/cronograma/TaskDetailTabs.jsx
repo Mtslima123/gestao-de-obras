@@ -59,6 +59,7 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
   const [dragging, setDragging] = React.useState(false);
   const [upload, setUpload] = React.useState(null); // { name, pct }
   const [menuId, setMenuId] = React.useState(null);
+  const [menuUp, setMenuUp] = React.useState(false);
   const [confirmDel, setConfirmDel] = React.useState(null); // attachment
   const [renameId, setRenameId] = React.useState(null);
   const [renameVal, setRenameVal] = React.useState('');
@@ -146,6 +147,16 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
 
   const pick = () => fileRef.current?.click();
 
+  // Abre pra cima quando não sobra espaço embaixo (ex: último anexo da lista),
+  // senão o menu fica cortado pelo painel de detalhe da tarefa.
+  const toggleMenu = (id, e) => {
+    if (menuId === id) { setMenuId(null); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const alturaEstimadaMenu = 170;
+    setMenuUp(window.innerHeight - rect.bottom < alturaEstimadaMenu);
+    setMenuId(id);
+  };
+
   return (
     <div>
       {/* Dropzone */}
@@ -224,7 +235,7 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
                 {/* Menu de ações */}
                 <div style={{ position: 'relative', flexShrink: 0 }}>
                   <button className="icon-btn" aria-label="Ações do anexo" aria-haspopup="true"
-                    onClick={() => setMenuId(menuId === a.id ? null : a.id)}
+                    onClick={(e) => toggleMenu(a.id, e)}
                     style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-muted)', borderRadius: 6 }}>
                     <Icon name="dots" size={16} />
                   </button>
@@ -232,9 +243,10 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
                     <>
                       <div onClick={() => setMenuId(null)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
                       <div role="menu" style={{
-                        position: 'absolute', right: 0, top: '100%', zIndex: 41, minWidth: 160,
+                        position: 'absolute', right: 0, zIndex: 41, minWidth: 160,
                         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
-                        boxShadow: 'var(--shadow-md)', padding: 4, marginTop: 2,
+                        boxShadow: 'var(--shadow-md)', padding: 4,
+                        ...(menuUp ? { bottom: '100%', marginBottom: 2 } : { top: '100%', marginTop: 2 }),
                       }}>
                         {[
                           { ic: 'eye', label: 'Visualizar', fn: () => openFile(a, false) },
