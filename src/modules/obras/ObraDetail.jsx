@@ -1311,4 +1311,4 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   );
 };
 
-export { ObraDetail };
+export { ObraDetail, FotoLightbox };

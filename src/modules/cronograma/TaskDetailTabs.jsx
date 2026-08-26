@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
 import { formatBytes, formatDateTime, initials, avatarColor } from '../../utils/formatters';
 import { taskDetailStore } from './taskDetailStore';
+import { FotoLightbox } from '../obras/ObraDetail';
 
 // ── Helpers de arquivo ───────────────────────────────────────────────────────
 const extOf = (name = '') => (name.split('.').pop() || '').toLowerCase();
@@ -63,7 +64,16 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
   const [confirmDel, setConfirmDel] = React.useState(null); // attachment
   const [renameId, setRenameId] = React.useState(null);
   const [renameVal, setRenameVal] = React.useState('');
+  const [lightboxIdx, setLightboxIdx] = React.useState(null);
   const thumbs = React.useRef({}); // id -> objectURL (imagens)
+
+  // Imagens com miniatura já resolvida — mesma lista que abre no visualizador
+  // fullscreen (igual à aba Fotos), navegável entre elas.
+  const imagens = items.filter(a => isImage(a) && thumbs.current[a.id]);
+  const abrirLightbox = (a) => {
+    const idx = imagens.findIndex(im => im.id === a.id);
+    if (idx >= 0) setLightboxIdx(idx);
+  };
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -114,6 +124,7 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
 
   const openFile = async (a, download) => {
     setMenuId(null);
+    if (!download && isImage(a)) { abrirLightbox(a); return; }
     const url = await taskDetailStore.getBlobUrl(a);
     if (!url) { toast('Arquivo indisponível.', { tone: 'danger', icon: 'alert' }); return; }
     if (download) {
@@ -209,7 +220,8 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
               <div key={a.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 0', borderTop: '1px solid var(--border)' }}>
                 {/* Miniatura / ícone */}
                 {thumb ? (
-                  <img src={thumb} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover', flexShrink: 0, border: '1px solid var(--border)' }} />
+                  <img src={thumb} alt="" onClick={() => abrirLightbox(a)}
+                    style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover', flexShrink: 0, border: '1px solid var(--border)', cursor: 'zoom-in' }} />
                 ) : (
                   <span style={{ width: 40, height: 40, borderRadius: 6, flexShrink: 0, display: 'grid', placeItems: 'center', background: 'var(--surface-muted)', color: meta.color }}>
                     <Icon name={meta.icon} size={18} />
@@ -296,6 +308,16 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
             Excluir <strong>{confirmDel.name}</strong>? Esta ação não pode ser desfeita.
           </p>
         </Modal>
+      )}
+
+      {/* Visualizador fullscreen — mesmo componente da aba Fotos */}
+      {lightboxIdx !== null && (
+        <FotoLightbox
+          fotos={imagens.map(a => ({ url: thumbs.current[a.id], descricao: a.name, data: relDateTime(a.uploadedAt) }))}
+          idx={lightboxIdx}
+          onNavigate={setLightboxIdx}
+          onClose={() => setLightboxIdx(null)}
+        />
       )}
     </div>
   );
