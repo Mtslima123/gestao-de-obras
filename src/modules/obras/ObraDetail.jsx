@@ -445,38 +445,39 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose }) => {
         </button>
       )}
 
-      {/* Controles de zoom */}
-      <div style={{ position: 'absolute', bottom: 52, left: '50%', transform: 'translateX(-50%)',
-                    display: 'flex', gap: 6, alignItems: 'center', zIndex: 10 }}>
-        <button className="icon-btn"
-          style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', width: 36, height: 36 }}
-          onClick={e => { e.stopPropagation(); setScale(s => Math.max(0.5, +(s - 0.5).toFixed(2))); }}>
-          <Icon name="zoom-out" size={16} />
-        </button>
-        <span style={{ color: '#fff', fontSize: 12, minWidth: 40, textAlign: 'center', opacity: 0.85 }}>
-          {Math.round(scale * 100)}%
-        </span>
-        <button className="icon-btn"
-          style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', width: 36, height: 36 }}
-          onClick={e => { e.stopPropagation(); setScale(s => Math.min(4, +(s + 0.5).toFixed(2))); }}>
-          <Icon name="zoom-in" size={16} />
-        </button>
-        {scale !== 1 && (
+      {/* Controles de zoom + metadados da foto — empilhados num único bloco pra nunca colidir,
+          em vez de dois blocos com bottom fixo (o de metadados varia de 1 a 4 linhas). */}
+      <div style={{ position: 'absolute', bottom: 14, left: '50%', transform: 'translateX(-50%)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, zIndex: 10 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button className="icon-btn"
             style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', width: 36, height: 36 }}
-            onClick={e => { e.stopPropagation(); setScale(1); setTranslate({ x: 0, y: 0 }); }}>
-            <Icon name="maximize" size={16} />
+            onClick={e => { e.stopPropagation(); setScale(s => Math.max(0.5, +(s - 0.5).toFixed(2))); }}>
+            <Icon name="zoom-out" size={16} />
           </button>
-        )}
-      </div>
+          <span style={{ color: '#fff', fontSize: 12, minWidth: 40, textAlign: 'center', opacity: 0.85 }}>
+            {Math.round(scale * 100)}%
+          </span>
+          <button className="icon-btn"
+            style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', width: 36, height: 36 }}
+            onClick={e => { e.stopPropagation(); setScale(s => Math.min(4, +(s + 0.5).toFixed(2))); }}>
+            <Icon name="zoom-in" size={16} />
+          </button>
+          {scale !== 1 && (
+            <button className="icon-btn"
+              style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', width: 36, height: 36 }}
+              onClick={e => { e.stopPropagation(); setScale(1); setTranslate({ x: 0, y: 0 }); }}>
+              <Icon name="maximize" size={16} />
+            </button>
+          )}
+        </div>
 
-      {/* Metadados da foto */}
-      <div style={{ position: 'absolute', bottom: 14, left: '50%', transform: 'translateX(-50%)',
-                    color: '#fff', textAlign: 'center', fontSize: 13, pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: 10 }}>
-        {foto.pavimento && <div style={{ fontWeight: 600 }}>{foto.pavimento}</div>}
-        {foto.data      && <div style={{ opacity: 0.7 }}>{foto.data}</div>}
-        {foto.descricao && <div style={{ opacity: 0.6, marginTop: 2 }}>{foto.descricao}</div>}
-        <div style={{ opacity: 0.4, marginTop: 4, fontSize: 11.5 }}>{idx + 1} / {fotos.length}</div>
+        <div style={{ color: '#fff', textAlign: 'center', fontSize: 13, pointerEvents: 'none', whiteSpace: 'nowrap', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+          {foto.pavimento && <div style={{ fontWeight: 600 }}>{foto.pavimento}</div>}
+          {foto.data      && <div style={{ opacity: 0.8 }}>{foto.data}</div>}
+          {foto.descricao && <div style={{ opacity: 0.7, marginTop: 2 }}>{foto.descricao}</div>}
+          <div style={{ opacity: 0.5, marginTop: 4, fontSize: 11.5 }}>{idx + 1} / {fotos.length}</div>
+        </div>
       </div>
     </div>
   );
@@ -620,10 +621,10 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                   <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}
                        onClick={() => setLightboxIdx(i)}>
                     <img src={f.url} alt={f.descricao || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '20px 10px 8px', color: '#fff', fontSize: 11.5 }}>
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.8))', padding: '20px 10px 8px', color: '#fff', fontSize: 11.5, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
                       {f.pavimento && <div style={{ fontWeight: 600 }}>{f.pavimento}</div>}
-                      {f.data && <div style={{ opacity: 0.75, fontSize: 11 }}>{f.data}</div>}
-                      {f.descricao && <div style={{ opacity: 0.65, marginTop: 2 }}>{f.descricao}</div>}
+                      {f.data && <div style={{ opacity: 0.85, fontSize: 11 }}>{f.data}</div>}
+                      {f.descricao && <div style={{ opacity: 0.8, marginTop: 2 }}>{f.descricao}</div>}
                     </div>
                     {!readOnly && (
                       <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
