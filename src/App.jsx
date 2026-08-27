@@ -201,6 +201,13 @@ const AppInner = () => {
     }
   }, []);
 
+  // Reseta a rolagem ao trocar de tela/obra — sem isso a janela mantinha a
+  // posição de scroll anterior (nenhum container tem overflow próprio, quem
+  // rola é o window), fazendo a tela nova abrir "no meio".
+  React.useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [view, selectedObra?.id]);
+
   const handleLogout = () => authService.signOut();
 
   // apply theme + density + accent to root
