@@ -313,10 +313,15 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
       {/* Visualizador fullscreen — mesmo componente da aba Fotos */}
       {lightboxIdx !== null && (
         <FotoLightbox
-          fotos={imagens.map(a => ({ url: thumbs.current[a.id], descricao: a.name, data: relDateTime(a.uploadedAt) }))}
+          fotos={imagens.map(a => ({ url: thumbs.current[a.id], nome: a.name, descricao: a.name, data: relDateTime(a.uploadedAt) }))}
           idx={lightboxIdx}
           onNavigate={setLightboxIdx}
           onClose={() => setLightboxIdx(null)}
+          onDownload={(im) => {
+            // im.url já é um blob: local (thumbs.current) — sem precisar refazer o fetch.
+            const el = document.createElement('a');
+            el.href = im.url; el.download = im.nome; document.body.appendChild(el); el.click(); el.remove();
+          }}
         />
       )}
     </div>

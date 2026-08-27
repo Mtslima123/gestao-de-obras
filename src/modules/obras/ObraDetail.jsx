@@ -322,7 +322,7 @@ const CurveS = ({ series }) => {
 };
 
 // ----- Lightbox de foto com zoom e pan -----
-const FotoLightbox = ({ fotos, idx, onNavigate, onClose }) => {
+const FotoLightbox = ({ fotos, idx, onNavigate, onClose, onDownload }) => {
   const foto = fotos[idx];
   const [scale,      setScale]     = React.useState(1);
   const [translate,  setTranslate] = React.useState({ x: 0, y: 0 });
@@ -394,6 +394,15 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose }) => {
         onClick={e => { e.stopPropagation(); onClose(); }}>
         <Icon name="x" size={20} />
       </button>
+
+      {/* Botão baixar */}
+      {onDownload && (
+        <button className="icon-btn" title="Baixar"
+          style={{ position: 'absolute', top: 16, right: 64, color: '#fff', background: 'rgba(255,255,255,0.15)', width: 40, height: 40, zIndex: 10 }}
+          onClick={e => { e.stopPropagation(); onDownload(foto); }}>
+          <Icon name="download" size={18} />
+        </button>
+      )}
 
       {/* Navegar para foto anterior */}
       {idx > 0 && (
@@ -674,6 +683,26 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
     toast('Foto excluída', { tone: 'neutral' });
   };
 
+  // f.url é uma URL assinada do Supabase Storage (outro domínio) — um <a download>
+  // direto não força o download de forma confiável entre origens. Busca o blob
+  // primeiro e baixa a partir dele, mesmo padrão já usado em anexos de tarefa.
+  const baixarFoto = async (foto) => {
+    try {
+      const res = await fetch(foto.url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const el = document.createElement('a');
+      el.href = blobUrl;
+      el.download = foto.storage_path?.split('/').pop() || `foto-${foto.id}.jpg`;
+      document.body.appendChild(el);
+      el.click();
+      el.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch {
+      toast('Falha ao baixar a foto.', { tone: 'danger', icon: 'alert' });
+    }
+  };
+
   const pavimentosComFoto = [...new Set(fotos.map(f => f.pavimento).filter(Boolean))].sort();
   const fotosFiltradas = fotos.filter(f => {
     if (filtroMes && !(f.data || '').startsWith(filtroMes)) return false;
@@ -756,16 +785,18 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                       {f.data && <div style={{ opacity: 0.85, fontSize: 11 }}>{isoToBR(f.data)}</div>}
                       {f.descricao && <div style={{ opacity: 0.8, marginTop: 2 }}>{f.descricao}</div>}
                     </div>
-                    {!readOnly && (
-                      <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
+                    <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
+                      <button className="icon-btn" title="Baixar foto" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
+                        onClick={e => { e.stopPropagation(); baixarFoto(f); }}><Icon name="download" size={13} /></button>
+                      {!readOnly && (
                         <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
                           onClick={e => { e.stopPropagation(); setEditando(f); }}><Icon name="edit" size={13} /></button>
-                        {isAdmin && (
-                          <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
-                            onClick={e => { e.stopPropagation(); setDeleteFoto(f); }}><Icon name="trash" size={13} /></button>
-                        )}
-                      </div>
-                    )}
+                      )}
+                      {!readOnly && isAdmin && (
+                        <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
+                          onClick={e => { e.stopPropagation(); setDeleteFoto(f); }}><Icon name="trash" size={13} /></button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -774,7 +805,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
       {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFotos} onClose={() => setShowUpload(false)} />}
       {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={(m) => { atualizarFoto(editando.id, m); setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
-        <FotoLightbox fotos={fotosFiltradas} idx={lightboxIdx} onNavigate={setLightboxIdx} onClose={() => setLightboxIdx(null)} />
+        <FotoLightbox fotos={fotosFiltradas} idx={lightboxIdx} onNavigate={setLightboxIdx} onClose={() => setLightboxIdx(null)} onDownload={baixarFoto} />
       )}
       {deleteFoto && (
         <Modal title="Excluir foto" onClose={() => setDeleteFoto(null)}
