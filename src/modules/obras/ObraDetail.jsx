@@ -1046,6 +1046,23 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
     toast('Posição da miniatura salva', { tone: 'success', icon: 'check' });
   };
 
+  // Janela de recorte: mesma proporção aproximada da miniatura da lista de Obras
+  // (.obra-card-img, 164px de altura por um card mais largo). Sempre a maior possível
+  // dentro do quadro (só encolhe no eixo que precisa, pra caber).
+  const WIN_ASPECT = 1.7;
+  let winW = frameSize.w;
+  let winH = winW / WIN_ASPECT;
+  if (winH > frameSize.h) { winH = frameSize.h; winW = winH * WIN_ASPECT; }
+  // `pos.x/y` guarda o MESMO valor usado como object-position na miniatura (0-100%,
+  // igual ao CSS) — não o centro da janela. As duas coisas só coincidem quando a janela
+  // é pequena; aqui ela costuma ocupar quase o quadro todo, então a diferença é grande.
+  // object-position X% == "X% da folga (quadro - janela) fica escondida antes da janela
+  // começar" — por isso a posição da janela vem da FOLGA, não do quadro inteiro.
+  const excessW = Math.max(0, frameSize.w - winW);
+  const excessH = Math.max(0, frameSize.h - winH);
+  const winLeft = (pos.x / 100) * excessW;
+  const winTop  = (pos.y / 100) * excessH;
+
   // Arrasta a JANELA de recorte (a foto fica parada) — mais direto que arrastar a foto
   // por baixo de uma janela fixa, e mais fácil de acompanhar visualmente.
   const onWindowMouseDown = (ev) => {
@@ -1059,22 +1076,11 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
     if (!isDraggingRef.current) return;
     const dx = ev.clientX - dragOriginRef.current.x;
     const dy = ev.clientY - dragOriginRef.current.y;
-    const nx = Math.min(100, Math.max(0, dragStartPosRef.current.x + (dx / frameSize.w) * 100));
-    const ny = Math.min(100, Math.max(0, dragStartPosRef.current.y + (dy / frameSize.h) * 100));
+    const nx = excessW > 0 ? Math.min(100, Math.max(0, dragStartPosRef.current.x + (dx / excessW) * 100)) : dragStartPosRef.current.x;
+    const ny = excessH > 0 ? Math.min(100, Math.max(0, dragStartPosRef.current.y + (dy / excessH) * 100)) : dragStartPosRef.current.y;
     setPos({ x: nx, y: ny });
   };
   const onFrameMouseUp = () => { isDraggingRef.current = false; };
-
-  // Janela de recorte: mesma proporção aproximada da miniatura da lista de Obras
-  // (.obra-card-img, 164px de altura por um card mais largo), centrada em `pos`.
-  // Sempre a maior possível dentro do quadro (só encolhe no eixo que precisa, pra
-  // caber) — não faz sentido deixá-la artificialmente pequena.
-  const WIN_ASPECT = 1.7;
-  let winW = frameSize.w;
-  let winH = winW / WIN_ASPECT;
-  if (winH > frameSize.h) { winH = frameSize.h; winW = winH * WIN_ASPECT; }
-  const winLeft = Math.min(Math.max((pos.x / 100) * frameSize.w - winW / 2, 0), Math.max(0, frameSize.w - winW));
-  const winTop  = Math.min(Math.max((pos.y / 100) * frameSize.h - winH / 2, 0), Math.max(0, frameSize.h - winH));
 
   // Bucket privado: a capa é exibida via URL assinada do caminho determinístico.
   React.useEffect(() => {
