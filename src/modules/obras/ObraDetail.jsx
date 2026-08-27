@@ -474,11 +474,99 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose }) => {
 
         <div style={{ color: '#fff', textAlign: 'center', fontSize: 13, pointerEvents: 'none', whiteSpace: 'nowrap', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
           {foto.pavimento && <div style={{ fontWeight: 600 }}>{foto.pavimento}</div>}
-          {foto.data      && <div style={{ opacity: 0.8 }}>{foto.data}</div>}
+          {foto.data      && <div style={{ opacity: 0.8 }}>{isoToBR(foto.data)}</div>}
           {foto.descricao && <div style={{ opacity: 0.7, marginTop: 2 }}>{foto.descricao}</div>}
           <div style={{ opacity: 0.5, marginTop: 4, fontSize: 11.5 }}>{idx + 1} / {fotos.length}</div>
         </div>
       </div>
+    </div>
+  );
+};
+
+// ----- Seletor de mês/ano (substitui o <input type="month"> nativo, cujo popup do
+// navegador não permite trocar de ano de forma confiável em todos os ambientes) -----
+const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+const MesAnoInput = ({ value, onChange }) => {
+  const [open, setOpen] = React.useState(false);
+  const [rect, setRect] = React.useState(null);
+  const hoje = new Date();
+  const [anoExibido, setAnoExibido] = React.useState(() => value ? Number(value.slice(0, 4)) : hoje.getFullYear());
+  const wrapRef = React.useRef(null);
+  const btnRef = React.useRef(null);
+  const menuRef = React.useRef(null);
+
+  const abrir = () => {
+    setAnoExibido(value ? Number(value.slice(0, 4)) : hoje.getFullYear());
+    const el = btnRef.current;
+    if (!el) { setOpen(true); return; }
+    const r = el.getBoundingClientRect();
+    setRect({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 224) });
+    setOpen(true);
+  };
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (wrapRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const anoSel = value ? Number(value.slice(0, 4)) : null;
+  const mesSel = value ? Number(value.slice(5, 7)) : null;
+
+  const escolherMes = (mesIdx1) => {
+    onChange(`${anoExibido}-${String(mesIdx1).padStart(2, '0')}`);
+    setOpen(false);
+  };
+
+  const label = value ? `${MESES_ABREV[mesSel - 1]} de ${anoSel}` : 'Filtrar por mês';
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <button type="button" ref={btnRef} onClick={() => (open ? setOpen(false) : abrir())}
+        className="btn btn-ghost"
+        style={{ height: 32, fontSize: 13, borderRadius: 6, color: value ? 'var(--text)' : 'var(--text-muted)' }}>
+        <Icon name="calendar" size={14} />{label}
+      </button>
+      {open && rect && createPortal(
+        <div ref={menuRef} style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 300,
+                                     background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+                                     boxShadow: '0 10px 30px rgba(0,0,0,0.14)', padding: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <button type="button" className="icon-btn" onClick={() => setAnoExibido(a => a - 1)} title="Ano anterior">
+              <Icon name="chevron-left" size={15} />
+            </button>
+            <span style={{ fontWeight: 700, fontSize: 13.5 }}>{anoExibido}</span>
+            <button type="button" className="icon-btn" onClick={() => setAnoExibido(a => a + 1)} title="Próximo ano">
+              <Icon name="chevron-right" size={15} />
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
+            {MESES_ABREV.map((m, i) => {
+              const ativo = anoSel === anoExibido && mesSel === i + 1;
+              return (
+                <button key={m} type="button" onClick={() => escolherMes(i + 1)}
+                  className={'btn btn-sm' + (ativo ? ' btn-primary' : ' btn-ghost')}
+                  style={{ fontSize: 12.5, padding: '6px 0' }}>
+                  {m}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { onChange(''); setOpen(false); }}>Limpar</button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
+              onChange(`${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`);
+              setOpen(false);
+            }}>Este mês</button>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
@@ -493,6 +581,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   const [filtroMes,    setFiltroMes]    = React.useState('');
   const [filtroPavimento, setFiltroPavimento] = React.useState('');
   const [lightboxIdx,  setLightboxIdx]  = React.useState(null);
+  const [deleteFoto,   setDeleteFoto]   = React.useState(null);
   // Pavimentos cadastrados na obra — abastecem o dropdown do campo Pavimento
   const [pavimentos,   setPavimentos]   = React.useState([]);
   React.useEffect(() => { pavimentosService.listar(obra.id).then(setPavimentos); }, [obra.id]);
@@ -530,21 +619,30 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
 
   React.useEffect(() => { carregarFotos(); }, [obra.id]);
 
-  const salvarFoto = async (metadados, file) => {
-    if (file.size > 5 * 1024 * 1024) {
-      toast('Imagem muito grande. Máximo: 5 MB', { tone: 'danger' });
-      return;
+  // Upload em lote: metadados (data/pavimento/descrição) compartilhados por todas as fotos
+  // selecionadas de uma vez; insere tudo num único insert e recarrega a galeria uma só vez.
+  const salvarFotos = async (metadados, files) => {
+    const rows = [];
+    for (const file of files) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast(`"${file.name}" muito grande (máx. 5 MB) — não foi enviada`, { tone: 'danger' });
+        continue;
+      }
+      // Sufixo aleatório além do timestamp: evita colisão de path quando várias fotos
+      // do mesmo lote caem no mesmo milissegundo.
+      const path = `obras/${obra.id}/fotos/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`;
+      const blob = await compressImagem(file, 1200, 0.82);
+      const { error: upErr } = await supabase.storage.from('obras-images').upload(path, blob, { contentType: 'image/jpeg' });
+      if (upErr) { toast(`Erro no upload de "${file.name}": ${upErr.message}`, { tone: 'danger' }); continue; }
+      // Bucket privado: a exibição é por URL assinada gerada do storage_path. A coluna
+      // `url` é legada e NOT NULL — guardamos o próprio path (não geramos mais URL pública).
+      rows.push({ obra_id: obra.id, url: path, storage_path: path, ...metadados });
     }
-    const path = `obras/${obra.id}/fotos/${Date.now()}.jpg`;
-    const blob = await compressImagem(file, 1200, 0.82);
-    const { error: upErr } = await supabase.storage.from('obras-images').upload(path, blob, { contentType: 'image/jpeg' });
-    if (upErr) { toast('Erro no upload: ' + upErr.message, { tone: 'danger' }); return; }
-    // Bucket privado: a exibição é por URL assinada gerada do storage_path. A coluna
-    // `url` é legada e NOT NULL — guardamos o próprio path (não geramos mais URL pública).
-    const { error: dbErr } = await supabase.from('fotos_obra').insert([{ obra_id: obra.id, url: path, storage_path: path, ...metadados }]);
-    if (dbErr) { toast('Erro ao salvar foto', { tone: 'danger' }); return; }
+    if (rows.length === 0) return;
+    const { error: dbErr } = await supabase.from('fotos_obra').insert(rows);
+    if (dbErr) { toast('Erro ao salvar fotos', { tone: 'danger' }); return; }
     registrarPavimento(metadados.pavimento);
-    toast('Foto salva', { tone: 'success', icon: 'check' });
+    toast(rows.length === 1 ? 'Foto salva' : `${rows.length} fotos salvas`, { tone: 'success', icon: 'check' });
     carregarFotos();
   };
 
@@ -576,9 +674,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
         </span>
         {!loading && fotos.length > 0 && (
           <>
-            <input type="month" value={filtroMes}
-              onChange={e => setFiltroMes(e.target.value)}
-              style={{ height: 32, fontSize: 13, borderRadius: 6 }} />
+            <MesAnoInput value={filtroMes} onChange={setFiltroMes} />
             {pavimentosComFoto.length > 0 && (
               <select value={filtroPavimento} onChange={e => setFiltroPavimento(e.target.value)}
                 title="Filtrar por pavimento"
@@ -623,7 +719,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                     <img src={f.url} alt={f.descricao || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.8))', padding: '20px 10px 8px', color: '#fff', fontSize: 11.5, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
                       {f.pavimento && <div style={{ fontWeight: 600 }}>{f.pavimento}</div>}
-                      {f.data && <div style={{ opacity: 0.85, fontSize: 11 }}>{f.data}</div>}
+                      {f.data && <div style={{ opacity: 0.85, fontSize: 11 }}>{isoToBR(f.data)}</div>}
                       {f.descricao && <div style={{ opacity: 0.8, marginTop: 2 }}>{f.descricao}</div>}
                     </div>
                     {!readOnly && (
@@ -632,7 +728,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                           onClick={e => { e.stopPropagation(); setEditando(f); }}><Icon name="edit" size={13} /></button>
                         {isAdmin && (
                           <button className="icon-btn" style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', width: 28, height: 28 }}
-                            onClick={e => { e.stopPropagation(); excluirFoto(f); }}><Icon name="trash" size={13} /></button>
+                            onClick={e => { e.stopPropagation(); setDeleteFoto(f); }}><Icon name="trash" size={13} /></button>
                         )}
                       </div>
                     )}
@@ -640,10 +736,22 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                 ))}
               </div>
       }
-      {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFoto} onClose={() => setShowUpload(false)} />}
+      {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFotos} onClose={() => setShowUpload(false)} />}
       {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={(m) => { atualizarFoto(editando.id, m); setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox fotos={fotosFiltradas} idx={lightboxIdx} onNavigate={setLightboxIdx} onClose={() => setLightboxIdx(null)} />
+      )}
+      {deleteFoto && (
+        <Modal title="Excluir foto" onClose={() => setDeleteFoto(null)}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setDeleteFoto(null)}>Cancelar</button>
+            <button className="btn" style={{ background: 'var(--danger)', color: '#fff', fontWeight: 600 }}
+              onClick={() => { excluirFoto(deleteFoto); setDeleteFoto(null); }}>
+              Sim, excluir
+            </button>
+          </>}>
+          <p style={{ fontSize: 14 }}>Tem certeza que deseja excluir esta foto? Essa ação não pode ser desfeita.</p>
+        </Modal>
       )}
     </>
   );
@@ -732,29 +840,42 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
 
 // ----- Modal: Upload de Foto -----
 const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
-  const [file,    setFile]    = React.useState(null);
-  const [preview, setPreview] = React.useState(null);
+  const [files,   setFiles]   = React.useState([]); // [{ file, preview }]
   const [saving,  setSaving]  = React.useState(false);
-  const [form,    setForm]    = React.useState({ data: new Date().toISOString().slice(0, 10), pavimento: '', descricao: '' });
+  const [form,    setForm]    = React.useState({ data: '', pavimento: '', descricao: '' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const filesRef = React.useRef(files);
+  filesRef.current = files;
 
-  // Revoga o objectURL anterior sempre que o preview muda e no unmount (evita leak de blob)
+  // Revoga todos os objectURLs no unmount (usa ref pra pegar a lista mais recente,
+  // já que o array final só é conhecido no momento do cleanup)
   React.useEffect(() => {
-    return () => { if (preview) URL.revokeObjectURL(preview); };
-  }, [preview]);
+    return () => { filesRef.current.forEach(f => URL.revokeObjectURL(f.preview)); };
+  }, []);
 
   const onFileChange = (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+    const picked = Array.from(e.target.files || []);
+    if (!picked.length) return;
+    const novos = picked.map(f => ({ file: f, preview: URL.createObjectURL(f) }));
+    setFiles(prev => [...prev, ...novos]);
+    e.target.value = ''; // permite reselecionar o mesmo arquivo depois de removido
   };
 
+  const removerArquivo = (idx) => {
+    setFiles(prev => {
+      const alvo = prev[idx];
+      if (alvo) URL.revokeObjectURL(alvo.preview);
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const valido = files.length > 0 && !!form.data && !!form.pavimento.trim();
+
   const handleSave = async () => {
-    if (!file) return;
+    if (!valido) return;
     setSaving(true);
     try {
-      await onSave(form, file);
+      await onSave(form, files.map(f => f.file));
       onClose();
     } catch (e) {
       // onSave normalmente já exibe o toast de erro; mantém o modal aberto para nova tentativa
@@ -768,33 +889,50 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
     <Modal title="Upload de Foto" onClose={onClose} draggable overlay={false}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-        <button className="btn btn-primary" onClick={handleSave} disabled={!file || saving}>
-          <Icon name="upload" size={14} />{saving ? 'Salvando…' : 'Salvar foto'}
+        <button className="btn btn-primary" onClick={handleSave} disabled={!valido || saving}>
+          <Icon name="upload" size={14} />{saving ? 'Salvando…' : (files.length > 1 ? `Salvar ${files.length} fotos` : 'Salvar foto')}
         </button>
       </>}
     >
       <div className="stack">
-        {preview
-          ? <img src={preview} alt="preview" style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8 }} />
-          : <label style={{ display: 'block', border: '2px dashed var(--border)', borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
+        {files.length === 0
+          ? <label style={{ display: 'block', border: '2px dashed var(--border)', borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
               <Icon name="image" size={32} />
-              <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Clique para selecionar imagem</div>
-              <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={onFileChange} />
+              <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Clique para selecionar uma ou mais imagens</div>
+              <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={onFileChange} />
             </label>
+          : (
+            <div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                {files.map((f, i) => (
+                  <div key={i} style={{ position: 'relative', width: 72, height: 72 }}>
+                    <img src={f.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
+                    <button type="button" className="icon-btn"
+                      style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, background: 'var(--danger)', color: '#fff' }}
+                      onClick={() => removerArquivo(i)}>
+                      <Icon name="x" size={11} />
+                    </button>
+                  </div>
+                ))}
+                <label style={{ width: 72, height: 72, border: '2px dashed var(--border)', borderRadius: 8,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                  <Icon name="plus" size={18} />
+                  <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={onFileChange} />
+                </label>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {files.length} foto{files.length !== 1 ? 's' : ''} selecionada{files.length !== 1 ? 's' : ''} — mesma descrição e pavimento serão aplicados a todas.
+              </div>
+            </div>
+          )
         }
-        {preview && (
-          <label style={{ cursor: 'pointer', color: 'var(--brand)', fontSize: 13 }}>
-            Trocar imagem
-            <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={onFileChange} />
-          </label>
-        )}
         <div className="form-grid">
           <div className="field">
-            <label>Data</label>
+            <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
             <input type="date" value={form.data} onChange={e => set('data', e.target.value)} />
           </div>
           <div className="field">
-            <label>Pavimento</label>
+            <label>Pavimento <span style={{ color: 'var(--danger)' }}>*</span></label>
             <PavimentoInput value={form.pavimento} onChange={v => set('pavimento', v)} options={pavimentos} />
           </div>
           <div className="field full">
@@ -811,22 +949,23 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
 const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
   const [form, setForm] = React.useState({ data: foto.data || '', pavimento: foto.pavimento || '', descricao: foto.descricao || '' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const valido = !!form.data && !!form.pavimento.trim();
   return (
     <Modal title="Editar informações da foto" onClose={onClose} draggable overlay={false}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => { onSave(form); onClose(); }}>
+        <button className="btn btn-primary" onClick={() => { onSave(form); onClose(); }} disabled={!valido}>
           <Icon name="check" size={14} />Salvar
         </button>
       </>}
     >
       <div className="form-grid">
         <div className="field">
-          <label>Data</label>
+          <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
           <input type="date" value={form.data} onChange={e => set('data', e.target.value)} />
         </div>
         <div className="field">
-          <label>Pavimento</label>
+          <label>Pavimento <span style={{ color: 'var(--danger)' }}>*</span></label>
           <PavimentoInput value={form.pavimento} onChange={v => set('pavimento', v)} options={pavimentos} />
         </div>
         <div className="field full">
@@ -1045,12 +1184,13 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     { id: 'visao',      label: 'Visão geral' },
     { id: 'cronograma', label: 'Cronograma'  },
     { id: 'fotos',      label: 'Fotos'       },
-  ].filter(t => podeVerAba(userProfile, 'obras', t.id));
+  ].map(t => ({ ...t, locked: !podeVerAba(userProfile, 'obras', t.id) }));
+  const tabsLiberadas = tabs.filter(t => !t.locked);
 
   // Se a aba salva não estiver liberada para este usuário, cai na primeira permitida
   React.useEffect(() => {
-    if (tabs.length && !tabs.some(t => t.id === tab)) setTab(tabs[0].id);
-  }, [tabs, tab]);
+    if (tabsLiberadas.length && !tabsLiberadas.some(t => t.id === tab)) setTab(tabsLiberadas[0].id);
+  }, [tabsLiberadas, tab]);
 
   return (
     <>
@@ -1123,7 +1263,12 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
         {tabs.map(t => {
           const ativo = tab === t.id;
           return (
-            <button key={t.id} className={'tab' + (ativo ? ' active' : '')} onClick={() => setTab(t.id)}
+            <button
+              key={t.id}
+              className={'tab' + (ativo ? ' active' : '') + (t.locked ? ' locked' : '')}
+              title={t.locked ? 'Sem acesso a esta aba. Fale com o administrador.' : undefined}
+              aria-disabled={t.locked || undefined}
+              onClick={t.locked ? undefined : () => setTab(t.id)}
               style={ativo ? { background: 'var(--brand)', color: '#fff', borderRadius: 8, borderBottomColor: 'transparent' } : undefined}>
               {t.label}
             </button>

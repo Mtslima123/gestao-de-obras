@@ -2029,12 +2029,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     { id: 'curva', label: 'Curva Física' },
     { id: 'medicao', label: 'Medição Mensal' },
     { id: 'fluxo', label: 'Fluxo Executivo' },
-  ].filter(a => podeVerAba(userProfile, 'cronograma', a.id));
+  ].map(a => ({ ...a, locked: !podeVerAba(userProfile, 'cronograma', a.id) }));
+  const abasCronogramaLiberadas = abasCronograma.filter(a => !a.locked);
 
   // Se a sub-aba salva não estiver liberada para este usuário, cai na primeira permitida
   React.useEffect(() => {
-    if (abasCronograma.length && !abasCronograma.some(a => a.id === view)) setView(abasCronograma[0].id);
-  }, [abasCronograma, view]);
+    if (abasCronogramaLiberadas.length && !abasCronogramaLiberadas.some(a => a.id === view)) setView(abasCronogramaLiberadas[0].id);
+  }, [abasCronogramaLiberadas, view]);
   React.useEffect(() => { if (obraSel) sessionStorage.setItem('cronograma_obra', obraSel); }, [obraSel]);
   const [etapas,       setEtapas]       = React.useState([]);
   const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
@@ -2715,7 +2716,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
           </select>
           <div className="segmented">
             {abasCronograma.map(a => (
-              <button key={a.id} className={view === a.id ? 'active' : ''} onClick={() => setView(a.id)}>{a.label}</button>
+              <button
+                key={a.id}
+                className={(view === a.id ? 'active' : '') + (a.locked ? ' locked' : '')}
+                title={a.locked ? 'Sem acesso a esta aba. Fale com o administrador.' : undefined}
+                aria-disabled={a.locked || undefined}
+                onClick={a.locked ? undefined : () => setView(a.id)}
+              >{a.label}</button>
             ))}
           </div>
         </div>

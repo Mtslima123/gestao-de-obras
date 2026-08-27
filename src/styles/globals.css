@@ -313,6 +313,9 @@ a:hover { color: var(--brand-600); }
 }
 .nav-item.subtle .nav-badge { background: rgba(255,255,255,0.06); color: var(--sb-text-muted); }
 .nav-item.active .nav-badge { background: #ffffff; color: var(--brand); }
+.nav-item.locked { opacity: 0.45; cursor: not-allowed; }
+.nav-item.locked:hover { background: none; color: var(--sb-text); }
+.nav-item.locked:hover .nav-icon { color: inherit; }
 
 .nav-sub-group {
   margin: 2px 0 4px 0;
@@ -342,6 +345,8 @@ a:hover { color: var(--brand-600); }
   border-left-color: var(--sb-accent);
   background: rgba(255,255,255,0.06);
 }
+.nav-sub-item.locked { opacity: 0.45; cursor: not-allowed; }
+.nav-sub-item.locked:hover { background: none; color: var(--sb-text-muted); }
 
 .sidebar-user {
   border-top: 1px solid var(--sb-border);
@@ -967,6 +972,8 @@ a:hover { color: var(--brand-600); }
   font-weight: 600;
   border-bottom-color: var(--brand);
 }
+.tab.locked { opacity: 0.45; cursor: not-allowed; }
+.tab.locked:hover { color: var(--text-muted); }
 .tab .tab-count {
   display: inline-block;
   margin-left: 6px;
@@ -1348,6 +1355,8 @@ a:hover { color: var(--brand-600); }
   box-shadow: var(--shadow-xs);
 }
 .segmented button:not(.active):hover { color: var(--text); }
+.segmented button.locked { opacity: 0.45; cursor: not-allowed; }
+.segmented button.locked:hover { color: inherit; }
 
 /* ============================================
    DROPDOWN MENU

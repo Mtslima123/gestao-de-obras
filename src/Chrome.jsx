@@ -117,15 +117,15 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
   }, [currentView]);
   const open = expanded || pinned;   // aberto por hover OU por fixação
   const collapsed = !open;
-  // Menu derivado da fonte única (config/modulos) e filtrado pelas permissões
-  // do usuário (admin vê tudo; usuário comum vê o que está em modulos_ids)
+  // Menu derivado da fonte única (config/modulos). Módulos sem permissão
+  // continuam visíveis (locked: true) em vez de somem — só ficam bloqueados
+  // ao clique (admin vê tudo; usuário comum vê o que está em modulos_ids)
   const navItems = MODULOS_TOPO
-    .map(m => ({ id: m.id, label: m.label, icon: m.icon }))
-    .filter(item => moduloLiberado(userProfile, item.id));
+    .map(m => ({ id: m.id, label: m.label, icon: m.icon, locked: !moduloLiberado(userProfile, m.id) }));
   const cronogramaSubItems = [
     { id: 'gantt',       label: 'Cronograma',       mod: 'cronograma' },
     { id: 'orc-x-cron',  label: 'Orç. × Cronograma', mod: 'orc-x-cron' },
-  ].filter(sub => moduloLiberado(userProfile, sub.mod));
+  ].map(sub => ({ ...sub, locked: !moduloLiberado(userProfile, sub.mod) }));
   const adminSubItems = [
     { id: 'usuarios',  label: 'Usuários' },
     { id: 'auditoria', label: 'Auditoria do Sistema' },
@@ -152,9 +152,10 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
   const renderItem = (item, onClick) => (
     <button
       key={item.id}
-      className={'nav-item' + (currentView === item.id ? ' active' : '') + (item.subtle ? ' subtle' : '')}
-      onClick={onClick ?? (() => onNavigate(item.id))}
-      title={collapsed ? item.label : undefined}
+      className={'nav-item' + (currentView === item.id ? ' active' : '') + (item.subtle ? ' subtle' : '') + (item.locked ? ' locked' : '')}
+      onClick={item.locked ? undefined : (onClick ?? (() => onNavigate(item.id)))}
+      title={item.locked ? 'Sem acesso a este módulo. Fale com o administrador.' : (collapsed ? item.label : undefined)}
+      aria-disabled={item.locked || undefined}
       aria-current={currentView === item.id ? 'page' : undefined}
     >
       <Icon name={item.icon} size={20} className="nav-icon" />
@@ -213,8 +214,10 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
                       {cronogramaSubItems.map(sub => (
                         <button
                           key={sub.id}
-                          className={'nav-sub-item' + (cronogramaTab === sub.id ? ' active' : '')}
-                          onClick={() => { onNavigate('cronograma'); onCronogramaTabChange && onCronogramaTabChange(sub.id); }}
+                          className={'nav-sub-item' + (cronogramaTab === sub.id ? ' active' : '') + (sub.locked ? ' locked' : '')}
+                          title={sub.locked ? 'Sem acesso a este módulo. Fale com o administrador.' : undefined}
+                          aria-disabled={sub.locked || undefined}
+                          onClick={sub.locked ? undefined : () => { onNavigate('cronograma'); onCronogramaTabChange && onCronogramaTabChange(sub.id); }}
                         >
                           {sub.label}
                         </button>
