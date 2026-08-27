@@ -49,6 +49,7 @@ const transformar = (u) => ({
   abasReadonlyIds: u.abas_readonly_ids || [],
   dataCadastro: u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '—',
   ultimoAcesso: u.ultimo_acesso ? new Date(u.ultimo_acesso).toLocaleString('pt-BR') : '—',
+  ultimaAtualizacao: u.updated_at ? new Date(u.updated_at).toLocaleString('pt-BR') : '—',
 });
 
 const UsuariosScreen = ({ obras = [] }) => {
@@ -309,14 +310,14 @@ const UsuariosScreen = ({ obras = [] }) => {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--border)' }}>
-                {['Nome', 'E-mail', 'Perfil', 'Obras Liberadas', 'Status', 'Data de Cadastro', 'Último Acesso', 'Ações'].map(h => (
+                {['Nome', 'E-mail', 'Perfil', 'Obras Liberadas', 'Status', 'Data de Cadastro', 'Último Acesso', 'Última Atualização', 'Ações'].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: 12.5 }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {paginados.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '48px 12px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum usuário encontrado.</td></tr>
+                <tr><td colSpan={9} style={{ padding: '48px 12px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum usuário encontrado.</td></tr>
               ) : paginados.map((u, i) => (
                 <tr key={u.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.012)' }}>
                   <td style={{ padding: '11px 12px', fontWeight: 500 }}>{u.nome}</td>
@@ -326,6 +327,7 @@ const UsuariosScreen = ({ obras = [] }) => {
                   <td style={{ padding: '11px 12px' }}><BadgeStatus status={u.status} /></td>
                   <td style={{ padding: '11px 12px', color: 'var(--text-muted)' }}>{u.dataCadastro}</td>
                   <td style={{ padding: '11px 12px', color: 'var(--text-muted)' }}>{u.ultimoAcesso}</td>
+                  <td style={{ padding: '11px 12px', color: 'var(--text-muted)' }}>{u.ultimaAtualizacao}</td>
                   <td style={{ padding: '11px 12px' }}>
                     <div className="row" style={{ gap: 4 }}>
                       <button className="icon-btn" title="Editar" onClick={() => abrirForm(u)}>

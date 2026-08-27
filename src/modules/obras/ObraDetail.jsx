@@ -1005,6 +1005,9 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
   const [confirmRemover, setConfirmRemover] = React.useState(false);
   const [adjustMode, setAdjustMode] = React.useState(false);
   const [pos, setPos] = React.useState({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 });
+  // Dimensão natural da foto carregada — o quadro passa a ter a mesma proporção dela,
+  // em vez de um tamanho fixo (que sobrava faixa preta quando a foto não era 480x340).
+  const [natural, setNatural] = React.useState(null); // { w, h }
   const inputRef = React.useRef();
   const frameRef = React.useRef();
   const isDraggingRef = React.useRef(false);
@@ -1021,6 +1024,24 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
       .catch(err => logger.error('falha ao carregar capa', { module: 'obra', action: 'carregarCapa', err }));
     return () => { alive = false; };
   }, [obra.id, obra.imageUrl]);
+
+  // Reseta a proporção conhecida sempre que a URL da capa muda (nova obra, nova foto),
+  // pra não mostrar por um instante o quadro dimensionado pra foto anterior.
+  React.useEffect(() => { setNatural(null); }, [heroSrc]);
+
+  // Quadro do tamanho da foto: parte de uma altura-alvo e deriva a largura pela
+  // proporção real da imagem, com limites pra não ficar absurdamente estreito/largo/
+  // baixo/alto (ex.: panorama muito largo, foto vertical muito alta). Sem foto ainda
+  // carregada, cai no tamanho fixo de antes (480x340).
+  const heroSize = (() => {
+    if (!natural?.w || !natural?.h) return { w: 480, h: 340 };
+    const ratio = natural.w / natural.h;
+    let w = Math.min(560, Math.max(320, 340 * ratio));
+    let h = w / ratio;
+    if (h < 240) { h = 240; w = h * ratio; }
+    else if (h > 460) { h = 460; w = h * ratio; }
+    return { w, h };
+  })();
 
   // Sincroniza a posição local com a obra (troca de obra selecionada, ou atualização
   // vinda de outro lugar) — não durante o ajuste, pra não atropelar um arraste em curso.
@@ -1112,9 +1133,13 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
       onMouseMove={onFrameMouseMove}
       onMouseUp={onFrameMouseUp}
       onMouseLeave={onFrameMouseUp}
-      style={{ cursor: adjustMode ? (isDraggingRef.current ? 'grabbing' : 'grab') : (canUpload ? 'pointer' : 'default'), userSelect: adjustMode ? 'none' : undefined }}
+      style={{ width: heroSize.w, height: heroSize.h,
+               cursor: adjustMode ? (isDraggingRef.current ? 'grabbing' : 'grab') : (canUpload ? 'pointer' : 'default'), userSelect: adjustMode ? 'none' : undefined }}
     >
-      {src && <img src={src} alt={obra.nome} draggable={false} style={{ objectPosition: `${pos.x}% ${pos.y}%` }} />}
+      {src && (
+        <img src={src} alt={obra.nome} draggable={false} style={{ objectPosition: `${pos.x}% ${pos.y}%` }}
+          onLoad={e => setNatural({ w: e.target.naturalWidth, h: e.target.naturalHeight })} />
+      )}
       {!src && <span>1280 × 720</span>}
       {canUpload && !adjustMode && (
         <>

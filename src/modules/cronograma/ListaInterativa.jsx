@@ -2002,17 +2002,30 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     setDeleteConfirm([selectedId]);
   };
 
+  // Se a ação fez alguma linha virar tarefa-resumo (isGroup passou a true) e o checkbox
+  // "Mostrar tarefas resumo" está desligado, liga ele — senão a linha some da lista bem na
+  // hora em que o usuário acabou de criá-la, dando a falsa impressão de que foi excluída.
+  const avisarSeVirouGrupo = (novas) => {
+    if (showSummaryTasks) return;
+    const antes = new Map(etapas.map(e => [e.id, e.isGroup]));
+    if (novas.some(e => e.isGroup && !antes.get(e.id))) onToggleSummaryTasks?.();
+  };
+
   // Recuar/Avançar operam sobre TODA a seleção (calha/célula-range, multiSel ou linha única).
   const handleIndent = () => {
     const ids = [...selectedRowIds()];
     if (!ids.length) return;
-    onCommit(indentTasks(etapas, ids));
+    const novas = indentTasks(etapas, ids);
+    onCommit(novas);
+    avisarSeVirouGrupo(novas);
   };
 
   const handleOutdent = () => {
     const ids = [...selectedRowIds()];
     if (!ids.length) return;
-    onCommit(outdentTasks(etapas, ids));
+    const novas = outdentTasks(etapas, ids);
+    onCommit(novas);
+    avisarSeVirouGrupo(novas);
   };
 
   // Define o modo (auto/manual) de toda a seleção; reagenda em seguida (auto recalcula na hora).

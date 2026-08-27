@@ -171,6 +171,13 @@ const AppInner = () => {
     const autorizado = !!perfil && perfil.status === 'ativo';
     setAuthed(autorizado);
     setAcessoNegado(!autorizado); // mantém a sessão para exibir o e-mail na tela de bloqueio
+    // Fire-and-forget: RLS não deixa o usuário comum dar UPDATE direto na própria
+    // linha, por isso passa por função SECURITY DEFINER estreita (só grava esta coluna).
+    if (autorizado) {
+      supabase.rpc('registrar_ultimo_acesso').then(({ error }) => {
+        if (error) logger.error('falha ao registrar ultimo acesso', { module: 'app', action: 'registrarUltimoAcesso', err: error });
+      });
+    }
   };
 
   React.useEffect(() => {

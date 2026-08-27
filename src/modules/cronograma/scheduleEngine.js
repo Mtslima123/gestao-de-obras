@@ -125,6 +125,7 @@ export function outdentTasks(etapas, selectedIds) {
   const novas = etapas.map(e => {
     if (!selSet.has(e.id)) return e;
     if (!e.parentId) return e; // já é raiz
+    if (selSet.has(e.parentId)) return e; // a própria pai também vai subir — a filha acompanha, sem subir ela mesma
     const pai = map.get(e.parentId);
     return { ...e, parentId: pai ? pai.parentId : null };
   });

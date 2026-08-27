@@ -834,11 +834,11 @@ a:hover { color: var(--brand-600); }
   padding: 0;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 480px 1fr;
+  grid-template-columns: auto 1fr;
 }
 .hero-img {
   position: relative;
-  min-height: 340px;
+  max-width: 100%; /* a largura vem inline (heroSize), mas nunca deve estourar a coluna em telas estreitas */
   background:
     repeating-linear-gradient(135deg, transparent 0, transparent 14px, rgba(1,67,134,0.06) 14px, rgba(1,67,134,0.06) 15px),
     linear-gradient(135deg, var(--brand-50) 0%, var(--brand-100) 100%);
