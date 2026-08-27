@@ -4,6 +4,7 @@ import { AppData } from '../../utils/data';
 import { Modal, ObraFormModal } from '../../components/Modals';
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
+import { capaCache } from '../../services/capaCache';
 import { offsetToISO, migrateEtapas, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { isAdmin } from '../../utils/permissions';
@@ -77,7 +78,12 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
     supabase.storage.from('obras-images').createSignedUrls(Object.keys(pathToId), 3600).then(({ data }) => {
       if (cancelled) return;
       const map = {};
-      (data || []).forEach(u => { if (u.signedUrl && !u.error && pathToId[u.path]) map[pathToId[u.path]] = u.signedUrl; });
+      (data || []).forEach(u => {
+        if (u.signedUrl && !u.error && pathToId[u.path]) {
+          map[pathToId[u.path]] = u.signedUrl;
+          capaCache.set(pathToId[u.path], u.signedUrl); // reaproveitado ao abrir a obra
+        }
+      });
       _obrasResumoCache.capaUrls = map;
       setCapaUrls(map);
     }).catch(err => logger.error('falha ao carregar capas', { module: 'obras', action: 'carregarCapas', err }));
@@ -208,7 +214,8 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenObra(o); } }}>
               <div className="obra-card-img">
                 {capaUrls[o.id]
-                  ? <img src={capaUrls[o.id]} alt={o.nome} />
+                  ? <img src={capaUrls[o.id]} alt={o.nome}
+                      style={{ objectPosition: `${o.capaPos?.x ?? 50}% ${o.capaPos?.y ?? 50}%` }} />
                   : <div className="obra-card-img-ph">
                       <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>

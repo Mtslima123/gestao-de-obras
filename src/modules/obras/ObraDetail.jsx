@@ -12,6 +12,7 @@ import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFis
 import { SCurveChart2 } from '../cronograma/SCurveChart2';
 import { pavimentosService } from '../../services/pavimentos.service';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
+import { capaCache } from '../../services/capaCache';
 
 // Obra Detail Page
 const { brl: brlD } = AppData;
@@ -1001,17 +1002,90 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
 const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
   const toast = useToast();
   const [uploading, setUploading] = React.useState(false);
-  const [heroSrc, setHeroSrc]     = React.useState(null);
+  // Já nasce com a URL assinada da miniatura da lista de Obras, se tiver sido buscada
+  // há pouco (capaCache) — evita mostrar o placeholder vazio e rebaixar pra uma URL
+  // nova (que quebraria o cache HTTP da imagem já baixada) toda vez que a pessoa clica
+  // num card pra abrir a obra.
+  const [heroSrc, setHeroSrc]     = React.useState(() => capaCache.get(obra.id));
   const [confirmRemover, setConfirmRemover] = React.useState(false);
+  // Ajuste de qual pedaço da foto aparece na miniatura (cards da lista de Obras — essa
+  // miniatura é pequena e sempre corta a foto; a capa grande aqui na página não corta
+  // mais nada, então serve de "área de trabalho" pra escolher o ponto focal do corte.
+  const [adjustMode, setAdjustMode] = React.useState(false);
+  const [pos, setPos] = React.useState({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 });
+  const [frameSize, setFrameSize] = React.useState({ w: 480, h: 340 });
   const inputRef = React.useRef();
+  const frameRef = React.useRef();
+  const isDraggingRef = React.useRef(false);
+  const dragOriginRef = React.useRef({ x: 0, y: 0 });
+  const dragStartPosRef = React.useRef({ x: 50, y: 50 });
+
+  React.useEffect(() => {
+    if (adjustMode) return;
+    setPos({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 });
+  }, [obra.id, obra.capaPos?.x, obra.capaPos?.y, adjustMode]);
+
+  // Mede o quadro (a foto agora tem tamanho natural, não fixo) pra posicionar/dimensionar
+  // a janela de recorte proporcionalmente, e acompanha se ele mudar de tamanho.
+  React.useEffect(() => {
+    if (!adjustMode) return;
+    const el = frameRef.current;
+    if (!el) return;
+    const update = () => { const r = el.getBoundingClientRect(); setFrameSize({ w: r.width, h: r.height }); };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [adjustMode]);
+
+  const iniciarAjuste = () => { setPos({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 }); setAdjustMode(true); };
+  const cancelarAjuste = () => { setPos({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 }); setAdjustMode(false); };
+  const salvarAjuste = () => {
+    onObraUpdate({ ...obra, capaPos: pos });
+    setAdjustMode(false);
+    toast('Posição da miniatura salva', { tone: 'success', icon: 'check' });
+  };
+
+  // Arrasta a JANELA de recorte (a foto fica parada) — mais direto que arrastar a foto
+  // por baixo de uma janela fixa, e mais fácil de acompanhar visualmente.
+  const onWindowMouseDown = (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    isDraggingRef.current = true;
+    dragOriginRef.current = { x: ev.clientX, y: ev.clientY };
+    dragStartPosRef.current = { ...pos };
+  };
+  const onFrameMouseMove = (ev) => {
+    if (!isDraggingRef.current) return;
+    const dx = ev.clientX - dragOriginRef.current.x;
+    const dy = ev.clientY - dragOriginRef.current.y;
+    const nx = Math.min(100, Math.max(0, dragStartPosRef.current.x + (dx / frameSize.w) * 100));
+    const ny = Math.min(100, Math.max(0, dragStartPosRef.current.y + (dy / frameSize.h) * 100));
+    setPos({ x: nx, y: ny });
+  };
+  const onFrameMouseUp = () => { isDraggingRef.current = false; };
+
+  // Janela de recorte: mesma proporção aproximada da miniatura da lista de Obras
+  // (.obra-card-img, 164px de altura por um card mais largo), centrada em `pos`.
+  const WIN_ASPECT = 1.7;
+  const winW = Math.min(frameSize.w * 0.62, frameSize.h * WIN_ASPECT * 0.9);
+  const winH = winW / WIN_ASPECT;
+  const winLeft = Math.min(Math.max((pos.x / 100) * frameSize.w - winW / 2, 0), Math.max(0, frameSize.w - winW));
+  const winTop  = Math.min(Math.max((pos.y / 100) * frameSize.h - winH / 2, 0), Math.max(0, frameSize.h - winH));
 
   // Bucket privado: a capa é exibida via URL assinada do caminho determinístico.
   React.useEffect(() => {
     let alive = true;
     if (!obra.imageUrl) { setHeroSrc(null); return; }
+    const cached = capaCache.get(obra.id);
+    if (cached) { setHeroSrc(cached); return; }
     supabase.storage.from('obras-images')
       .createSignedUrl(`obras/${obra.id}/capa.jpg`, 3600)
-      .then(({ data }) => { if (alive) setHeroSrc(data?.signedUrl || null); })
+      .then(({ data }) => {
+        if (!alive) return;
+        setHeroSrc(data?.signedUrl || null);
+        if (data?.signedUrl) capaCache.set(obra.id, data.signedUrl);
+      })
       .catch(err => logger.error('falha ao carregar capa', { module: 'obra', action: 'carregarCapa', err }));
     return () => { alive = false; };
   }, [obra.id, obra.imageUrl]);
@@ -1039,6 +1113,7 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
     }
     const { data: signed } = await supabase.storage.from('obras-images').createSignedUrl(path, 3600);
     setHeroSrc(signed?.signedUrl || null);
+    if (signed?.signedUrl) capaCache.set(obra.id, signed.signedUrl);
     // Guarda o caminho (marcador de "tem capa"); a exibição sempre re-assina.
     onObraUpdate({ ...obra, imageUrl: path });
     toast('Imagem salva com sucesso', { tone: 'success', icon: 'check' });
@@ -1050,6 +1125,7 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
     const path = `obras/${obra.id}/capa.jpg`;
     await supabase.storage.from('obras-images').remove([path]);
     setHeroSrc(null);
+    capaCache.clear(obra.id);
     onObraUpdate({ ...obra, imageUrl: null });
     toast('Imagem da capa removida', { tone: 'neutral' });
     setUploading(false);
@@ -1061,13 +1137,17 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
 
   return (
     <div
+      ref={frameRef}
       className={'hero-img' + (src ? ' has-img' : '') + (uploading ? ' hero-img-uploading' : '')}
-      onClick={() => canUpload && !uploading && inputRef.current?.click()}
-      style={{ cursor: canUpload ? 'pointer' : 'default' }}
+      onClick={() => !adjustMode && canUpload && !uploading && inputRef.current?.click()}
+      onMouseMove={onFrameMouseMove}
+      onMouseUp={onFrameMouseUp}
+      onMouseLeave={onFrameMouseUp}
+      style={{ cursor: adjustMode ? 'default' : (canUpload ? 'pointer' : 'default') }}
     >
       {src && <img src={src} alt={obra.nome} draggable={false} />}
       {!src && <span>1280 × 720</span>}
-      {canUpload && (
+      {canUpload && !adjustMode && (
         <>
           <div className="hero-img-overlay">
             {uploading ? (
@@ -1092,12 +1172,40 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
           />
         </>
       )}
-      {canUpload && src && !uploading && (
-        <button type="button" className="icon-btn"
-          style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', width: 28, height: 28, zIndex: 2 }}
-          onClick={e => { e.stopPropagation(); setConfirmRemover(true); }} title="Remover capa">
-          <Icon name="trash" size={13} />
-        </button>
+      {canUpload && src && !uploading && !adjustMode && (
+        <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6, zIndex: 2 }}>
+          <button type="button" className="icon-btn"
+            style={{ background: 'rgba(0,0,0,0.55)', color: '#fff', width: 28, height: 28 }}
+            onClick={e => { e.stopPropagation(); iniciarAjuste(); }} title="Ajustar miniatura">
+            <Icon name="move" size={13} />
+          </button>
+          <button type="button" className="icon-btn"
+            style={{ background: 'rgba(0,0,0,0.55)', color: '#fff', width: 28, height: 28 }}
+            onClick={e => { e.stopPropagation(); setConfirmRemover(true); }} title="Remover capa">
+            <Icon name="trash" size={13} />
+          </button>
+        </div>
+      )}
+      {adjustMode && (
+        <>
+          <div
+            onMouseDown={onWindowMouseDown}
+            style={{
+              position: 'absolute', left: winLeft, top: winTop, width: winW, height: winH,
+              border: '2px solid #fff', borderRadius: 6,
+              boxShadow: '0 0 0 2000px rgba(0,0,0,0.55)',
+              cursor: isDraggingRef.current ? 'grabbing' : 'grab',
+              zIndex: 3,
+            }}
+          />
+          <div onMouseDown={e => e.stopPropagation()}
+            style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 4,
+                     display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(0,0,0,0.75)', padding: '8px 12px', borderRadius: 10 }}>
+            <span style={{ color: '#fff', fontSize: 12 }}>Arraste o quadro para escolher o que aparece na miniatura</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={cancelarAjuste}>Cancelar</button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={salvarAjuste}>Salvar</button>
+          </div>
+        </>
       )}
       {confirmRemover && (
         <Modal title="Remover capa" onClose={() => setConfirmRemover(false)}
