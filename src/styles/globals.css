@@ -838,7 +838,9 @@ a:hover { color: var(--brand-600); }
 }
 .hero-img {
   position: relative;
-  max-width: 100%; /* a largura vem inline (heroSize), mas nunca deve estourar a coluna em telas estreitas */
+  width: 480px;
+  min-height: 340px;
+  max-width: 100%; /* nunca estoura a coluna em telas estreitas */
   background:
     repeating-linear-gradient(135deg, transparent 0, transparent 14px, rgba(1,67,134,0.06) 14px, rgba(1,67,134,0.06) 15px),
     linear-gradient(135deg, var(--brand-50) 0%, var(--brand-100) 100%);
@@ -850,14 +852,19 @@ a:hover { color: var(--brand-600); }
   letter-spacing: 0.05em;
   overflow: hidden;
 }
-.hero-img.has-img { background: #000; }
+/* Com foto, o quadro deixa de ter tamanho fixo e passa a acompanhar o tamanho
+   natural da imagem (dimensionamento nativo do navegador — sem JS, sem esperar
+   onLoad, sem "pulo" de layout depois que a imagem termina de carregar). */
+.hero-img.has-img { width: auto; min-height: 0; background: #000; }
 .hero-img.has-img > span { display: none; }
 .hero-img img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 560px;
+  max-height: 460px;
+  min-width: 320px;
+  min-height: 240px;
 }
 .hero-img::after {
   content: 'FOTO DA OBRA';

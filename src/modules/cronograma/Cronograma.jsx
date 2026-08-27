@@ -2127,16 +2127,21 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     pavimentosService.excluir(obraSel, nome);
   };
   // Preferências de visualização estilo MS Project (Mostrar/Ocultar), por obra.
+  // summaryTasks (mostrar tarefa-resumo em negrito/azul) NÃO é persistido: ficava salvo
+  // por navegador/aparelho, então duas pessoas na mesma obra podiam ver a hierarquia
+  // diferente sem nenhuma pista do motivo (uma com o checkbox desligado de uma sessão
+  // antiga, esquecido). Sempre nasce ligado; ainda dá pra desligar durante a sessão,
+  // só não fica "preso" desligado de uma vez anterior.
   const [viewCfg, setViewCfg] = React.useState({ projSummary: false, summaryTasks: true });
   React.useEffect(() => {
     try {
       const v = JSON.parse(localStorage.getItem('crono_view_' + obraSel) || 'null');
-      setViewCfg({ projSummary: v?.projSummary ?? false, summaryTasks: v?.summaryTasks ?? true });
+      setViewCfg({ projSummary: v?.projSummary ?? false, summaryTasks: true });
     } catch { setViewCfg({ projSummary: false, summaryTasks: true }); }
   }, [obraSel]);
   const setViewPref = (patch) => setViewCfg(prev => {
     const next = { ...prev, ...patch };
-    try { localStorage.setItem('crono_view_' + obraSel, JSON.stringify(next)); } catch { /* ignore */ }
+    try { localStorage.setItem('crono_view_' + obraSel, JSON.stringify({ projSummary: next.projSummary })); } catch { /* ignore */ }
     return next;
   });
   // Filtro global (aba "Filtro" da Lista) — compartilhado entre Lista e Gantt, para o filtro
