@@ -18,10 +18,6 @@ const _obrasResumoCache = { cronFinal: {}, avancoMap: {}, capaUrls: {} };
 const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete, userProfile }) => {
   const D = AppData;
   const { brl } = D;
-  // Barra de filtros gruda sob a topbar ao rolar — mesmo padrão de Orcamentos.jsx
-  // (topbar 60px + 32px de respiro); aqui não precisa medir/limitar altura porque a
-  // grade de cards é um elemento separado abaixo, não rola dentro do card fixo.
-  const STICKY_TOP = 92;
   const [filter,         setFilter]        = React.useState('todos');
   const [search,         setSearch]        = React.useState('');
   const [showNovaObra,   setShowNovaObra]  = React.useState(false);
@@ -133,7 +129,7 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
         )}
       </div>
 
-      <div className="card" style={{ marginBottom: 'var(--gap)', padding: '14px 18px', position: 'sticky', top: STICKY_TOP, zIndex: 2 }}>
+      <div className="card" style={{ marginBottom: 'var(--gap)', padding: '14px 18px' }}>
         <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
           <div className="filters" style={{ flex: 1 }}>
             {[

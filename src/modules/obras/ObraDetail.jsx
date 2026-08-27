@@ -560,7 +560,7 @@ const MesAnoInput = ({ value, onChange }) => {
               return (
                 <button key={m} type="button" onClick={() => escolherMes(i + 1)}
                   className={'btn btn-sm' + (ativo ? ' btn-primary' : ' btn-ghost')}
-                  style={{ fontSize: 12.5, padding: '6px 0' }}>
+                  style={{ fontSize: 12.5, padding: '6px 0', justifyContent: 'center' }}>
                   {m}
                 </button>
               );
@@ -591,6 +591,13 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   const [filtroPavimento, setFiltroPavimento] = React.useState('');
   const [lightboxIdx,  setLightboxIdx]  = React.useState(null);
   const [deleteFoto,   setDeleteFoto]   = React.useState(null);
+  // Toolbar gruda sob a topbar ao rolar (mesmo padrão do card "Cronograma físico" logo
+  // acima, e de Orcamentos.jsx: STICKY_TOP = topbar 60px + 32px de respiro); a galeria
+  // ganha scroll próprio limitado ao espaço restante da viewport, pra toolbar continuar
+  // sempre visível e o restante rolar por dentro.
+  const FOTOS_STICKY_TOP = 92;
+  const fotosHeaderRef = React.useRef(null);
+  const [fotosBodyMaxH, setFotosBodyMaxH] = React.useState(null);
   // Pavimentos cadastrados na obra — abastecem o dropdown do campo Pavimento
   const [pavimentos,   setPavimentos]   = React.useState([]);
   React.useEffect(() => { pavimentosService.listar(obra.id).then(setPavimentos); }, [obra.id]);
@@ -674,9 +681,20 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
     return true;
   });
 
+  React.useLayoutEffect(() => {
+    const recompute = () => {
+      const H = fotosHeaderRef.current?.offsetHeight || 0;
+      setFotosBodyMaxH(Math.max(200, window.innerHeight - FOTOS_STICKY_TOP - H - 24));
+    };
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, [fotosFiltradas.length]);
+
   return (
     <>
-      <div className="card" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '12px 16px', marginBottom: 16, flexWrap: 'wrap' }}>
+      <div ref={fotosHeaderRef} className="card" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '12px 16px', marginBottom: 16, flexWrap: 'wrap',
+                                     position: 'sticky', top: FOTOS_STICKY_TOP, zIndex: 2 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-2)',
                        padding: '3px 10px', borderRadius: 20, fontWeight: 500 }}>
           {fotos.length} foto{fotos.length !== 1 ? 's' : ''}
@@ -727,7 +745,8 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                 <Icon name="search" size={32} style={{ color: 'var(--text-faint)' }} />
                 <div className="text-muted" style={{ marginTop: 12 }}>Nenhuma foto encontrada para o filtro selecionado.</div>
               </div>
-            : <div className="gallery">
+            : <div style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
+              <div className="gallery">
                 {fotosFiltradas.map((f, i) => (
                   <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}
                        onClick={() => setLightboxIdx(i)}>
@@ -749,6 +768,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                     )}
                   </div>
                 ))}
+              </div>
               </div>
       }
       {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFotos} onClose={() => setShowUpload(false)} />}
