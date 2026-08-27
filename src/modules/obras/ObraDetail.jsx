@@ -1067,9 +1067,12 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
 
   // Janela de recorte: mesma proporção aproximada da miniatura da lista de Obras
   // (.obra-card-img, 164px de altura por um card mais largo), centrada em `pos`.
+  // Sempre a maior possível dentro do quadro (só encolhe no eixo que precisa, pra
+  // caber) — não faz sentido deixá-la artificialmente pequena.
   const WIN_ASPECT = 1.7;
-  const winW = Math.min(frameSize.w * 0.62, frameSize.h * WIN_ASPECT * 0.9);
-  const winH = winW / WIN_ASPECT;
+  let winW = frameSize.w;
+  let winH = winW / WIN_ASPECT;
+  if (winH > frameSize.h) { winH = frameSize.h; winW = winH * WIN_ASPECT; }
   const winLeft = Math.min(Math.max((pos.x / 100) * frameSize.w - winW / 2, 0), Math.max(0, frameSize.w - winW));
   const winTop  = Math.min(Math.max((pos.y / 100) * frameSize.h - winH / 2, 0), Math.max(0, frameSize.h - winH));
 
@@ -1199,9 +1202,13 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
             }}
           />
           <div onMouseDown={e => e.stopPropagation()}
+            style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 4,
+                     background: 'rgba(0,0,0,0.75)', padding: '5px 10px', borderRadius: 8, maxWidth: '92%' }}>
+            <span style={{ color: '#fff', fontSize: 11.5, whiteSpace: 'nowrap' }}>Arraste para ajustar</span>
+          </div>
+          <div onMouseDown={e => e.stopPropagation()}
             style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 4,
-                     display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(0,0,0,0.75)', padding: '8px 12px', borderRadius: 10 }}>
-            <span style={{ color: '#fff', fontSize: 12 }}>Arraste o quadro para escolher o que aparece na miniatura</span>
+                     display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.75)', padding: '8px 10px', borderRadius: 10 }}>
             <button type="button" className="btn btn-ghost btn-sm" onClick={cancelarAjuste}>Cancelar</button>
             <button type="button" className="btn btn-primary btn-sm" onClick={salvarAjuste}>Salvar</button>
           </div>
