@@ -512,8 +512,15 @@ const MesAnoInput = ({ value, onChange }) => {
       if (wrapRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
       setOpen(false);
     };
+    // O menu é posicionado em pixels fixos no momento de abrir e não acompanha o
+    // scroll da página — em vez de deixar flutuando no lugar errado, fecha ao rolar.
+    const onWheel = () => setOpen(false);
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    document.addEventListener('wheel', onWheel, { passive: true });
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('wheel', onWheel);
+    };
   }, [open]);
 
   const anoSel = value ? Number(value.slice(0, 4)) : null;
@@ -669,7 +676,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
 
   return (
     <>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+      <div className="card" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '12px 16px', marginBottom: 16, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-2)',
                        padding: '3px 10px', borderRadius: 20, fontWeight: 500 }}>
           {fotos.length} foto{fotos.length !== 1 ? 's' : ''}
@@ -678,12 +685,18 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
           <>
             <MesAnoInput value={filtroMes} onChange={setFiltroMes} />
             {pavimentosComFoto.length > 0 && (
-              <select value={filtroPavimento} onChange={e => setFiltroPavimento(e.target.value)}
-                title="Filtrar por pavimento"
-                style={{ height: 32, fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', padding: '0 8px', cursor: 'pointer' }}>
-                <option value="">Todos os pavimentos</option>
-                {pavimentosComFoto.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
+              <div style={{ position: 'relative', display: 'inline-flex' }}>
+                <select value={filtroPavimento} onChange={e => setFiltroPavimento(e.target.value)}
+                  title="Filtrar por pavimento"
+                  style={{ height: 32, fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)',
+                           color: 'var(--text)', padding: '0 26px 0 8px', cursor: 'pointer',
+                           appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none' }}>
+                  <option value="">Todos os pavimentos</option>
+                  {pavimentosComFoto.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <Icon name="chevron-down" size={13}
+                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-muted)' }} />
+              </div>
             )}
             {(filtroMes || filtroPavimento) && (
               <button className="btn btn-ghost" style={{ height: 32 }}
@@ -811,8 +824,15 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
       if (wrapRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
       setOpen(false);
     };
+    // O menu é posicionado em pixels fixos no momento de abrir e não acompanha o
+    // scroll da página — em vez de deixar flutuando no lugar errado, fecha ao rolar.
+    const onWheel = () => setOpen(false);
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    document.addEventListener('wheel', onWheel, { passive: true });
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('wheel', onWheel);
+    };
   }, [open]);
 
   const q = (value || '').toLowerCase();
@@ -1237,11 +1257,10 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
 
 // ----- Main ObraDetail -----
 const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma }) => {
-  const [tab, setTab] = React.useState(() => {
-    const saved = sessionStorage.getItem('obra_tab');
-    return ['visao', 'cronograma', 'fotos'].includes(saved) ? saved : 'visao';
-  });
-  React.useEffect(() => { sessionStorage.setItem('obra_tab', tab); }, [tab]);
+  // Sempre abre em "Visão geral" ao entrar numa obra — antes ficava salvo em
+  // sessionStorage sem distinguir qual obra, então abrir a obra B na aba "Fotos"
+  // reaproveitava a aba que tinha ficado selecionada na obra A.
+  const [tab, setTab] = React.useState('visao');
   const [cronoView, setCronoView] = React.useState('gantt');
   const [cronoCollapsed, setCronoCollapsed] = React.useState(() => new Set()); // grupos recolhidos na mini-Lista
   const [showEdit,   setShowEdit]   = React.useState(false);
