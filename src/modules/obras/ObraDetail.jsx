@@ -322,7 +322,7 @@ const CurveS = ({ series }) => {
 };
 
 // ----- Lightbox de foto com zoom e pan -----
-const FotoLightbox = ({ fotos, idx, onNavigate, onClose, onDownload }) => {
+const FotoLightbox = ({ fotos, idx, onNavigate, onClose, onDownload, urlOriginal, onRequestOriginal }) => {
   const foto = fotos[idx];
   const [scale,      setScale]     = React.useState(1);
   const [translate,  setTranslate] = React.useState({ x: 0, y: 0 });
@@ -334,6 +334,12 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose, onDownload }) => {
 
   // Reset zoom/pan ao trocar de foto
   React.useEffect(() => { setScale(1); setTranslate({ x: 0, y: 0 }); }, [idx]);
+
+  // A foto que vem no array pode ser um thumbnail (galeria paginada, ex: aba Fotos de
+  // Obras) — pede a resolução original assim que essa foto específica é aberta, sem
+  // depender do chamador ter resolvido isso pra todas de uma vez. Opcional: quem não
+  // usa thumbnail (ex: aba Anexos) simplesmente não passa essas props.
+  React.useEffect(() => { onRequestOriginal?.(foto); }, [foto?.id]);
 
   // Teclado: setas e Escape
   React.useEffect(() => {
@@ -431,7 +437,7 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose, onDownload }) => {
         onMouseLeave={onMouseUp}
       >
         <img
-          src={foto.url}
+          src={urlOriginal || foto.url}
           alt={foto.descricao || ''}
           draggable={false}
           style={{
@@ -590,24 +596,60 @@ const MesAnoInput = ({ value, onChange }) => {
 };
 
 // ----- Fotos tab -----
+const FOTOS_POR_LOTE = 32;
+
+// "YYYY-MM" -> intervalo [ini, fim) em ISO date, pro filtro de mês virar .gte/.lt no
+// servidor. new Date(y, m, 1) usa o mês (1-indexado) como índice 0-indexado do PRÓXIMO
+// mês, e o JS Date normaliza sozinho a virada de ano (mês 12 -> ano seguinte).
+function mesRangeISO(mesStr) {
+  const [y, m] = mesStr.split('-').map(Number);
+  const ini = `${mesStr}-01`;
+  const d = new Date(y, m, 1);
+  const fim = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  return { ini, fim };
+}
+
 const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   const toast = useToast();
   const [fotos,        setFotos]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
+  const [loadingMore,  setLoadingMore]  = React.useState(false);
+  const [hasMore,      setHasMore]      = React.useState(true);
+  const [totalCount,   setTotalCount]   = React.useState(0);
   const [showUpload,   setShowUpload]   = React.useState(false);
   const [editando,     setEditando]     = React.useState(null);
   const [filtroMes,    setFiltroMes]    = React.useState('');
   const [filtroPavimento, setFiltroPavimento] = React.useState('');
   const [lightboxIdx,  setLightboxIdx]  = React.useState(null);
   const [deleteFoto,   setDeleteFoto]   = React.useState(null);
+  const [pavimentosComFoto, setPavimentosComFoto] = React.useState([]);
+  // id -> signed URL da imagem ORIGINAL, resolvida sob demanda (lightbox/download),
+  // porque o que vem no lote é o thumbnail (ou a original, como fallback — ver carregarLote).
+  const [originalUrls, setOriginalUrls] = React.useState({});
   // Toolbar gruda sob a topbar ao rolar (mesmo padrão do card "Cronograma físico" logo
   // acima, e de Orcamentos.jsx: STICKY_TOP = topbar 60px + 32px de respiro); a galeria
   // ganha scroll próprio limitado ao espaço restante da viewport, pra toolbar continuar
-  // sempre visível e o restante rolar por dentro.
+  // sempre visível e o restante rolar por dentro — esse mesmo container é o "root" do
+  // IntersectionObserver do scroll infinito, mais abaixo.
   const FOTOS_STICKY_TOP = 92;
   const fotosHeaderRef = React.useRef(null);
   const [fotosBodyMaxH, setFotosBodyMaxH] = React.useState(null);
-  // Pavimentos cadastrados na obra — abastecem o dropdown do campo Pavimento
+  const scrollContainerRef = React.useRef(null);
+  const sentinelRef = React.useRef(null);
+
+  // Bookkeeping de paginação em refs: precisa ser lido de forma síncrona dentro do
+  // callback do IntersectionObserver (recriado só quando hasMore/loading mudam) e
+  // logo após cada await dentro de carregarLote — state só reflete no próximo render.
+  const requestIdRef   = React.useRef(0); // geração da requisição em curso — descarta resposta obsoleta se o filtro mudar antes dela voltar
+  const paginaRef      = React.useRef(0); // próximo índice de lote a buscar
+  const loadedRef      = React.useRef(0); // quantas fotos já foram acumuladas nesta sequência de filtro
+  const totalRef       = React.useRef(0); // total que bate com o filtro atual (do count:'exact' do reset)
+  const hasMoreRef     = React.useRef(true);
+  const loadingMoreRef = React.useRef(false);
+  React.useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+  React.useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
+
+  // Pavimentos cadastrados na obra — abastecem o dropdown do campo Pavimento nos modais
   const [pavimentos,   setPavimentos]   = React.useState([]);
   React.useEffect(() => { pavimentosService.listar(obra.id).then(setPavimentos); }, [obra.id]);
   const registrarPavimento = (nome) => {
@@ -617,32 +659,98 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
     pavimentosService.salvar(obra.id, [n]);
   };
 
-  const carregarFotos = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.from('fotos_obra')
-        .select('*').eq('obra_id', obra.id).order('created_at', { ascending: false });
-      if (error) throw error;
-      if (data) {
-        // Bucket privado: exibe via URL assinada gerada do storage_path (funciona também
-        // em bucket público, então não depende da ordem de deploy). A coluna `url` pública
-        // fica só como fallback.
-        const paths = data.map(f => f.storage_path).filter(Boolean);
-        const signed = {};
-        if (paths.length) {
-          const { data: urls } = await supabase.storage.from('obras-images').createSignedUrls(paths, 3600);
-          (urls || []).forEach(u => { if (u.signedUrl && !u.error) signed[u.path] = u.signedUrl; });
-        }
-        setFotos(data.map(f => ({ ...f, url: signed[f.storage_path] || f.url })));
-      }
-    } catch (err) {
-      logger.error('falha ao carregar fotos', { module: 'obra', action: 'carregarFotos', err });
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Lista de pavimentos que TÊM foto, pro filtro — query própria e leve (só a coluna
+  // pavimento, sem imagem/URL assinada). Com paginação, `fotos` só tem o que já foi
+  // carregado, não dá mais pra derivar isso em memória sem perder pavimentos que só
+  // apareceriam num lote mais adiante.
+  const carregarPavimentosComFoto = React.useCallback(async () => {
+    const { data } = await supabase.from('fotos_obra').select('pavimento').eq('obra_id', obra.id);
+    setPavimentosComFoto([...new Set((data || []).map(f => f.pavimento).filter(Boolean))].sort());
+  }, [obra.id]);
+  React.useEffect(() => { carregarPavimentosComFoto(); }, [carregarPavimentosComFoto]);
 
-  React.useEffect(() => { carregarFotos(); }, [obra.id]);
+  const carregarLote = React.useCallback(async ({ reset }) => {
+    if (reset) {
+      requestIdRef.current += 1;
+      paginaRef.current = 0;
+      loadedRef.current = 0;
+      setLoading(true);
+      setHasMore(true);
+      hasMoreRef.current = true;
+    } else {
+      if (!hasMoreRef.current || loadingMoreRef.current) return;
+      setLoadingMore(true);
+      loadingMoreRef.current = true;
+    }
+    const meuId = requestIdRef.current;
+    const pageIndex = paginaRef.current;
+    try {
+      let q = supabase.from('fotos_obra')
+        .select('*', reset ? { count: 'exact' } : undefined)
+        .eq('obra_id', obra.id);
+      if (filtroPavimento) q = q.eq('pavimento', filtroPavimento);
+      if (filtroMes) {
+        const { ini, fim } = mesRangeISO(filtroMes);
+        q = q.gte('data', ini).lt('data', fim);
+      }
+      q = q.order('data', { ascending: false, nullsFirst: false })
+           .order('created_at', { ascending: false })
+           .range(pageIndex * FOTOS_POR_LOTE, pageIndex * FOTOS_POR_LOTE + FOTOS_POR_LOTE - 1);
+      const { data, error, count } = await q;
+      if (meuId !== requestIdRef.current) return; // filtro mudou enquanto isso corria — descarta
+      if (error) throw error;
+      const rows = data || [];
+      // Bucket privado: exibe via URL assinada gerada do thumbnail (ou da própria
+      // imagem, se a foto ainda não tiver thumbnail_path — fotos antigas, ou upload
+      // cujo thumbnail falhou). A coluna `url` legada fica só como fallback final.
+      const paths = rows.map(f => f.thumbnail_path || f.storage_path).filter(Boolean);
+      const signed = {};
+      if (paths.length) {
+        const { data: urls } = await supabase.storage.from('obras-images').createSignedUrls(paths, 3600);
+        (urls || []).forEach(u => { if (u.signedUrl && !u.error) signed[u.path] = u.signedUrl; });
+      }
+      if (meuId !== requestIdRef.current) return;
+      const comUrl = rows.map(f => ({ ...f, url: signed[f.thumbnail_path || f.storage_path] || f.url }));
+      setFotos(prev => reset ? comUrl : [...prev, ...comUrl]);
+      paginaRef.current = pageIndex + 1;
+      loadedRef.current += comUrl.length;
+      if (reset && typeof count === 'number') { totalRef.current = count; setTotalCount(count); }
+      const novoHasMore = loadedRef.current < totalRef.current;
+      setHasMore(novoHasMore);
+      hasMoreRef.current = novoHasMore;
+    } catch (err) {
+      logger.error('falha ao carregar fotos', { module: 'obra', action: 'carregarLote', err });
+    } finally {
+      if (meuId === requestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+        loadingMoreRef.current = false;
+      }
+    }
+  }, [obra.id, filtroMes, filtroPavimento]);
+
+  const carregarProximoLoteRef = React.useRef(() => {});
+  carregarProximoLoteRef.current = () => carregarLote({ reset: false });
+
+  // Reinicia a paginação sempre que a obra ou os filtros mudam
+  React.useEffect(() => { carregarLote({ reset: true }); }, [carregarLote]);
+
+  // Scroll infinito: sentinela dentro do mesmo container que já tem overflow próprio
+  // (toolbar sticky). root customizado (não a window) porque quem rola aqui é essa div.
+  // useEffect, não callback ref: refs de filhos são anexados antes do ref do pai
+  // durante o commit, então só depois do efeito é garantido que o container já não é
+  // nulo. Depende de [hasMore, loading] pra reconectar sempre que a sentinela aparece/
+  // some do DOM (ela só existe quando !loading && hasMore).
+  React.useEffect(() => {
+    const root = scrollContainerRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) carregarProximoLoteRef.current();
+    }, { root, rootMargin: '600px 0px' });
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [hasMore, loading]);
 
   // Upload em lote: metadados (data/pavimento/descrição) compartilhados por todas as fotos
   // selecionadas de uma vez; insere tudo num único insert e recarrega a galeria uma só vez.
@@ -656,39 +764,76 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
       // Sufixo aleatório além do timestamp: evita colisão de path quando várias fotos
       // do mesmo lote caem no mesmo milissegundo.
       const path = `obras/${obra.id}/fotos/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`;
-      const blob = await compressImagem(file, 1200, 0.82);
+      const thumbPath = path.replace(/\.jpg$/, '_thumb.jpg');
+      const [blob, thumbBlob] = await Promise.all([
+        compressImagem(file, 1200, 0.82),
+        compressImagem(file, 600, 0.82),
+      ]);
       const { error: upErr } = await supabase.storage.from('obras-images').upload(path, blob, { contentType: 'image/jpeg' });
       if (upErr) { toast(`Erro no upload de "${file.name}": ${upErr.message}`, { tone: 'danger' }); continue; }
+      // Thumbnail é "best effort": se falhar, a foto ainda é salva (thumbnail_path nulo
+      // cai no fallback pra imagem original, em carregarLote) — não vale a pena
+      // descartar o upload inteiro por causa só da miniatura.
+      let thumbnailPath = null;
+      const { error: thumbErr } = await supabase.storage.from('obras-images').upload(thumbPath, thumbBlob, { contentType: 'image/jpeg' });
+      if (!thumbErr) thumbnailPath = thumbPath;
+      else logger.error('falha ao subir thumbnail, segue só com a original', { module: 'obra', action: 'salvarFotos', err: thumbErr });
       // Bucket privado: a exibição é por URL assinada gerada do storage_path. A coluna
       // `url` é legada e NOT NULL — guardamos o próprio path (não geramos mais URL pública).
-      rows.push({ obra_id: obra.id, url: path, storage_path: path, ...metadados });
+      rows.push({ obra_id: obra.id, url: path, storage_path: path, thumbnail_path: thumbnailPath, ...metadados });
     }
     if (rows.length === 0) return;
     const { error: dbErr } = await supabase.from('fotos_obra').insert(rows);
     if (dbErr) { toast('Erro ao salvar fotos', { tone: 'danger' }); return; }
     registrarPavimento(metadados.pavimento);
     toast(rows.length === 1 ? 'Foto salva' : `${rows.length} fotos salvas`, { tone: 'success', icon: 'check' });
-    carregarFotos();
+    carregarLote({ reset: true });
+    carregarPavimentosComFoto();
   };
 
   const atualizarFoto = async (id, metadados) => {
     const { error } = await supabase.from('fotos_obra').update(metadados).eq('id', id);
-    if (!error) { registrarPavimento(metadados.pavimento); toast('Foto atualizada', { tone: 'success', icon: 'check' }); carregarFotos(); }
+    if (!error) {
+      registrarPavimento(metadados.pavimento);
+      toast('Foto atualizada', { tone: 'success', icon: 'check' });
+      carregarLote({ reset: true });
+      carregarPavimentosComFoto();
+    }
   };
 
   const excluirFoto = async (foto) => {
-    await supabase.storage.from('obras-images').remove([foto.storage_path]);
+    const paths = [foto.storage_path, foto.thumbnail_path].filter(Boolean);
+    await supabase.storage.from('obras-images').remove(paths);
     await supabase.from('fotos_obra').delete().eq('id', foto.id);
     setFotos(f => f.filter(x => x.id !== foto.id));
+    setTotalCount(c => Math.max(0, c - 1));
     toast('Foto excluída', { tone: 'neutral' });
+    carregarPavimentosComFoto();
   };
 
-  // f.url é uma URL assinada do Supabase Storage (outro domínio) — um <a download>
-  // direto não força o download de forma confiável entre origens. Busca o blob
-  // primeiro e baixa a partir dele, mesmo padrão já usado em anexos de tarefa.
+  // Resolve a URL assinada da imagem ORIGINAL (não o thumbnail) sob demanda — só quando
+  // a foto é aberta no lightbox, nunca pro lote inteiro de uma vez.
+  const garantirUrlOriginal = React.useCallback((foto) => {
+    if (!foto || !foto.thumbnail_path || originalUrls[foto.id]) return; // sem thumbnail: foto.url já É a original
+    supabase.storage.from('obras-images').createSignedUrl(foto.storage_path, 3600).then(({ data, error }) => {
+      if (!error && data?.signedUrl) setOriginalUrls(prev => ({ ...prev, [foto.id]: data.signedUrl }));
+    });
+  }, [originalUrls]);
+
+  // f.url no grid pode ser o thumbnail — baixar sempre a original, resolvendo/cacheando
+  // a signed URL se ainda não tiver sido pedida (ex: baixou direto do card, sem passar
+  // pelo lightbox antes). Busca o blob primeiro em vez de <a download> direto: a URL é
+  // de outro domínio (Supabase Storage), e o atributo download não é confiável entre origens.
   const baixarFoto = async (foto) => {
     try {
-      const res = await fetch(foto.url);
+      let url = foto.thumbnail_path ? originalUrls[foto.id] : foto.url;
+      if (!url) {
+        const { data, error } = await supabase.storage.from('obras-images').createSignedUrl(foto.storage_path, 3600);
+        if (error || !data?.signedUrl) throw error || new Error('sem url');
+        url = data.signedUrl;
+        if (foto.thumbnail_path) setOriginalUrls(prev => ({ ...prev, [foto.id]: url }));
+      }
+      const res = await fetch(url);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const el = document.createElement('a');
@@ -703,13 +848,6 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
     }
   };
 
-  const pavimentosComFoto = [...new Set(fotos.map(f => f.pavimento).filter(Boolean))].sort();
-  const fotosFiltradas = fotos.filter(f => {
-    if (filtroMes && !(f.data || '').startsWith(filtroMes)) return false;
-    if (filtroPavimento && f.pavimento !== filtroPavimento) return false;
-    return true;
-  });
-
   React.useLayoutEffect(() => {
     const recompute = () => {
       const H = fotosHeaderRef.current?.offsetHeight || 0;
@@ -718,7 +856,9 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
     recompute();
     window.addEventListener('resize', recompute);
     return () => window.removeEventListener('resize', recompute);
-  }, [fotosFiltradas.length]);
+  }, [totalCount, filtroMes, filtroPavimento, pavimentosComFoto.length]);
+
+  const semFiltro = !filtroMes && !filtroPavimento;
 
   return (
     <>
@@ -726,9 +866,9 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                                      position: 'sticky', top: FOTOS_STICKY_TOP, zIndex: 2 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-2)',
                        padding: '3px 10px', borderRadius: 20, fontWeight: 500 }}>
-          {fotos.length} foto{fotos.length !== 1 ? 's' : ''}
+          {totalCount} foto{totalCount !== 1 ? 's' : ''}
         </span>
-        {!loading && fotos.length > 0 && (
+        {!loading && (totalCount > 0 || !semFiltro) && (
           <>
             <MesAnoInput value={filtroMes} onChange={setFiltroMes} />
             {pavimentosComFoto.length > 0 && (
@@ -745,7 +885,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                   style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-muted)' }} />
               </div>
             )}
-            {(filtroMes || filtroPavimento) && (
+            {!semFiltro && (
               <button className="btn btn-ghost" style={{ height: 32 }}
                 onClick={() => { setFiltroMes(''); setFiltroPavimento(''); }}>
                 <Icon name="x" size={13} />Limpar
@@ -765,21 +905,21 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
       {loading
         ? <div className="text-muted" style={{ padding: 48, textAlign: 'center' }}>Carregando…</div>
         : fotos.length === 0
-          ? <div className="card" style={{ padding: '64px 24px', textAlign: 'center' }}>
-              <Icon name="image" size={40} style={{ color: 'var(--text-faint)' }} />
-              <div className="text-muted" style={{ marginTop: 12 }}>Nenhuma foto cadastrada.<br/>Clique em Upload para adicionar a primeira foto.</div>
-            </div>
-          : fotosFiltradas.length === 0
-            ? <div className="card" style={{ padding: '48px 24px', textAlign: 'center' }}>
+          ? semFiltro
+            ? <div className="card" style={{ padding: '64px 24px', textAlign: 'center' }}>
+                <Icon name="image" size={40} style={{ color: 'var(--text-faint)' }} />
+                <div className="text-muted" style={{ marginTop: 12 }}>Nenhuma foto cadastrada.<br/>Clique em Upload para adicionar a primeira foto.</div>
+              </div>
+            : <div className="card" style={{ padding: '48px 24px', textAlign: 'center' }}>
                 <Icon name="search" size={32} style={{ color: 'var(--text-faint)' }} />
                 <div className="text-muted" style={{ marginTop: 12 }}>Nenhuma foto encontrada para o filtro selecionado.</div>
               </div>
-            : <div style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
+          : <div ref={scrollContainerRef} style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
               <div className="gallery">
-                {fotosFiltradas.map((f, i) => (
+                {fotos.map((f, i) => (
                   <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}
                        onClick={() => setLightboxIdx(i)}>
-                    <img src={f.url} alt={f.descricao || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={f.url} alt={f.descricao || ''} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.8))', padding: '20px 10px 8px', color: '#fff', fontSize: 11.5, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
                       {f.pavimento && <div style={{ fontWeight: 600 }}>{f.pavimento}</div>}
                       {f.data && <div style={{ opacity: 0.85, fontSize: 11 }}>{isoToBR(f.data)}</div>}
@@ -800,12 +940,25 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                   </div>
                 ))}
               </div>
-              </div>
+              {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+              {loadingMore && <div className="text-muted" style={{ padding: '16px 0', textAlign: 'center', fontSize: 13 }}>Carregando mais fotos…</div>}
+            </div>
       }
       {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFotos} onClose={() => setShowUpload(false)} />}
       {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={(m) => { atualizarFoto(editando.id, m); setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
-        <FotoLightbox fotos={fotosFiltradas} idx={lightboxIdx} onNavigate={setLightboxIdx} onClose={() => setLightboxIdx(null)} onDownload={baixarFoto} />
+        <FotoLightbox
+          fotos={fotos}
+          idx={lightboxIdx}
+          onNavigate={(novoIdx) => {
+            setLightboxIdx(novoIdx);
+            if (novoIdx >= fotos.length - 5) carregarProximoLoteRef.current();
+          }}
+          onClose={() => setLightboxIdx(null)}
+          onDownload={baixarFoto}
+          urlOriginal={originalUrls[fotos[lightboxIdx]?.id]}
+          onRequestOriginal={garantirUrlOriginal}
+        />
       )}
       {deleteFoto && (
         <Modal title="Excluir foto" onClose={() => setDeleteFoto(null)}
