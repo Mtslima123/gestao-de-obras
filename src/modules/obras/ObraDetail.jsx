@@ -528,8 +528,9 @@ const MesAnoInput = ({ value, onChange }) => {
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <button type="button" ref={btnRef} onClick={() => (open ? setOpen(false) : abrir())}
-        className="btn btn-ghost"
-        style={{ height: 32, fontSize: 13, borderRadius: 6, color: value ? 'var(--text)' : 'var(--text-muted)' }}>
+        style={{ height: 32, fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)',
+                 color: value ? 'var(--text)' : 'var(--text-muted)', padding: '0 8px', cursor: 'pointer', fontWeight: 400,
+                 display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         <Icon name="calendar" size={14} />{label}
       </button>
       {open && rect && createPortal(
@@ -869,10 +870,15 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
     });
   };
 
-  const valido = files.length > 0 && !!form.data && !!form.pavimento.trim();
+  const [erros, setErros] = React.useState({});
 
   const handleSave = async () => {
-    if (!valido) return;
+    const novosErros = {};
+    if (!files.length) novosErros.arquivo = 'Selecione ao menos uma foto.';
+    if (!form.data) novosErros.data = 'Preencha a data.';
+    if (!form.pavimento.trim()) novosErros.pavimento = 'Preencha o pavimento.';
+    setErros(novosErros);
+    if (Object.keys(novosErros).length) return;
     setSaving(true);
     try {
       await onSave(form, files.map(f => f.file));
@@ -889,17 +895,18 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
     <Modal title="Upload de Foto" onClose={onClose} draggable overlay={false}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-        <button className="btn btn-primary" onClick={handleSave} disabled={!valido || saving}>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
           <Icon name="upload" size={14} />{saving ? 'Salvando…' : (files.length > 1 ? `Salvar ${files.length} fotos` : 'Salvar foto')}
         </button>
       </>}
     >
       <div className="stack">
         {files.length === 0
-          ? <label style={{ display: 'block', border: '2px dashed var(--border)', borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
+          ? <label style={{ display: 'block', border: '2px dashed ' + (erros.arquivo ? 'var(--danger)' : 'var(--border)'), borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
               <Icon name="image" size={32} />
               <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Clique para selecionar uma ou mais imagens</div>
-              <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={onFileChange} />
+              {erros.arquivo && <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--danger)' }}>{erros.arquivo}</div>}
+              <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
             </label>
           : (
             <div>
@@ -929,11 +936,13 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
         <div className="form-grid">
           <div className="field">
             <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <input type="date" value={form.data} onChange={e => set('data', e.target.value)} />
+            <input type="date" value={form.data} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
+            {erros.data && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erros.data}</div>}
           </div>
           <div className="field">
             <label>Pavimento <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <PavimentoInput value={form.pavimento} onChange={v => set('pavimento', v)} options={pavimentos} />
+            <PavimentoInput value={form.pavimento} onChange={v => { set('pavimento', v); setErros(er => ({ ...er, pavimento: undefined })); }} options={pavimentos} />
+            {erros.pavimento && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erros.pavimento}</div>}
           </div>
           <div className="field full">
             <label>Descrição</label>
@@ -948,13 +957,22 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
 // ----- Modal: Editar Foto -----
 const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
   const [form, setForm] = React.useState({ data: foto.data || '', pavimento: foto.pavimento || '', descricao: foto.descricao || '' });
+  const [erros, setErros] = React.useState({});
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const valido = !!form.data && !!form.pavimento.trim();
+  const handleSave = () => {
+    const novosErros = {};
+    if (!form.data) novosErros.data = 'Preencha a data.';
+    if (!form.pavimento.trim()) novosErros.pavimento = 'Preencha o pavimento.';
+    setErros(novosErros);
+    if (Object.keys(novosErros).length) return;
+    onSave(form);
+    onClose();
+  };
   return (
     <Modal title="Editar informações da foto" onClose={onClose} draggable overlay={false}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => { onSave(form); onClose(); }} disabled={!valido}>
+        <button className="btn btn-primary" onClick={handleSave}>
           <Icon name="check" size={14} />Salvar
         </button>
       </>}
@@ -962,11 +980,13 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
       <div className="form-grid">
         <div className="field">
           <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
-          <input type="date" value={form.data} onChange={e => set('data', e.target.value)} />
+          <input type="date" value={form.data} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
+          {erros.data && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erros.data}</div>}
         </div>
         <div className="field">
           <label>Pavimento <span style={{ color: 'var(--danger)' }}>*</span></label>
-          <PavimentoInput value={form.pavimento} onChange={v => set('pavimento', v)} options={pavimentos} />
+          <PavimentoInput value={form.pavimento} onChange={v => { set('pavimento', v); setErros(er => ({ ...er, pavimento: undefined })); }} options={pavimentos} />
+          {erros.pavimento && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erros.pavimento}</div>}
         </div>
         <div className="field full">
           <label>Descrição</label>
@@ -978,10 +998,11 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
 };
 
 // ----- Hero Image com upload -----
-const HeroImage = ({ obra, onObraUpdate }) => {
+const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
   const toast = useToast();
   const [uploading, setUploading] = React.useState(false);
   const [heroSrc, setHeroSrc]     = React.useState(null);
+  const [confirmRemover, setConfirmRemover] = React.useState(false);
   const inputRef = React.useRef();
 
   // Bucket privado: a capa é exibida via URL assinada do caminho determinístico.
@@ -1022,8 +1043,19 @@ const HeroImage = ({ obra, onObraUpdate }) => {
     setUploading(false);
   };
 
+  const removerCapa = async () => {
+    setUploading(true);
+    const path = `obras/${obra.id}/capa.jpg`;
+    await supabase.storage.from('obras-images').remove([path]);
+    setHeroSrc(null);
+    onObraUpdate({ ...obra, imageUrl: null });
+    toast('Imagem da capa removida', { tone: 'neutral' });
+    setUploading(false);
+    setConfirmRemover(false);
+  };
+
   const src = heroSrc;
-  const canUpload = !!onObraUpdate;
+  const canUpload = isAdmin && !!onObraUpdate;
 
   return (
     <div
@@ -1057,6 +1089,24 @@ const HeroImage = ({ obra, onObraUpdate }) => {
             onChange={e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; }}
           />
         </>
+      )}
+      {canUpload && src && !uploading && (
+        <button type="button" className="icon-btn"
+          style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', width: 28, height: 28, zIndex: 2 }}
+          onClick={e => { e.stopPropagation(); setConfirmRemover(true); }}>
+          <Icon name="trash" size={13} />
+        </button>
+      )}
+      {confirmRemover && (
+        <Modal title="Remover capa" onClose={() => setConfirmRemover(false)}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setConfirmRemover(false)}>Cancelar</button>
+            <button className="btn" style={{ background: 'var(--danger)', color: '#fff', fontWeight: 600 }} onClick={removerCapa}>
+              Sim, remover
+            </button>
+          </>}>
+          <p style={{ fontSize: 14 }}>Tem certeza que deseja remover a imagem de capa desta obra?</p>
+        </Modal>
       )}
     </div>
   );
@@ -1203,7 +1253,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
             </span>
           </div>
         </div>
-        {onObraUpdate && onObraDelete && !readOnly && (
+        {onObraUpdate && onObraDelete && !readOnly && isAdmin(userProfile) && (
           <div className="page-actions">
             <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(true)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1225,7 +1275,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
 
       {/* HERO */}
       <div className="hero" style={{ marginBottom: 20 }}>
-        <HeroImage obra={o} onObraUpdate={onObraUpdate} />
+        <HeroImage obra={o} onObraUpdate={onObraUpdate} isAdmin={isAdmin(userProfile)} />
         <div className="hero-body">
           <div className="hero-meta">
             <span className="code">{o.sigla || o.id}</span>

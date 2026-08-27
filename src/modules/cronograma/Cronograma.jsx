@@ -10,7 +10,7 @@ import { FluxoExecutivo } from './FluxoExecutivo';
 import { useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
-import { podeVerAba, moduloSomenteLeitura, isAdmin } from '../../utils/permissions';
+import { podeVerAba, moduloSomenteLeitura, abaSomenteLeitura, isAdmin } from '../../utils/permissions';
 import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd } from './cronogramaDateUtils';
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, autoScheduleFromDeps,
@@ -2004,7 +2004,6 @@ async function carregarCronogramaDB(obraId) {
 const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const D    = AppData;
   const toast = useToast();
-  const readOnly = moduloSomenteLeitura(userProfile, 'cronograma');
 
   // Escolhe a obra inicial a partir da lista real de obras (prop). Navegação
   // explícita (initialObraId) tem prioridade; depois a obra salva na sessão,
@@ -2021,6 +2020,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const [view,         setView]         = React.useState(() => sessionStorage.getItem('cronograma_view') || 'gantt');
   // Persistem a sub-aba e a obra na sessão para o F5 reabrir onde o usuário estava
   React.useEffect(() => { sessionStorage.setItem('cronograma_view', view); }, [view]);
+  // Módulo inteiro OU só a aba ativa marcada como "Visualizar" no admin — recalcula a
+  // cada troca de aba (view), então uma aba liberada pra editar volta a funcionar ao navegar pra ela.
+  const readOnly = moduloSomenteLeitura(userProfile, 'cronograma') || abaSomenteLeitura(userProfile, 'cronograma', view);
 
   const abasCronograma = [
     { id: 'gantt', label: 'Gantt' },

@@ -185,10 +185,12 @@ export const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 })
 
 // ─── PavimentosModal ─────────────────────────────────────────────────────────
 export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir, isAdmin = false }) => {
+  const toast = useToast();
   const [step,          setStep]          = React.useState(1);
   // Pré-preenche com os pavimentos já cadastrados nesta obra (não precisa redigitar a cada vez).
   const [floors,        setFloors]        = React.useState(pavimentosSalvos.length ? [...pavimentosSalvos] : ['']);
   const [selectedTasks, setSelectedTasks] = React.useState([]);
+  const [selectedFloors, setSelectedFloors] = React.useState([]);
   const floorInputRefs = React.useRef([]);
   const prevFloorsLenRef = React.useRef(floors.length);
 
@@ -215,14 +217,24 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
   };
 
   const handleConfirm = () => {
-    if (!validFloors.length || !selectedTasks.length) return;
+    if (!selectedFloors.length || !selectedTasks.length) return;
     let novas = etapas.map(e => ({ ...e }));
+    let puladas = 0;
 
     selectedTasks.forEach(taskId => {
       // Converter tarefa em grupo se ainda não for
       novas = novas.map(e => e.id === taskId ? { ...e, isGroup: true } : e);
       const task = novas.find(e => e.id === taskId);
       if (!task) return;
+
+      // Não recria pavimento que já existe como subtarefa desta tarefa
+      const existentes = new Set(
+        novas.filter(e => e.parentId === taskId && e.pavimento)
+             .map(e => e.pavimento.trim().toLowerCase())
+      );
+      const paraInserir = selectedFloors.filter(nome => !existentes.has(nome.trim().toLowerCase()));
+      puladas += selectedFloors.length - paraInserir.length;
+      if (!paraInserir.length) return;
 
       // Encontra índice do último descendente para inserir subtarefas após ele
       let insertIdx = novas.findIndex(e => e.id === taskId);
@@ -236,11 +248,11 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
       }
 
       // Cria subtarefas para cada pavimento
-      const subDur = Math.max(1, Math.round(task.dur / validFloors.length));
-      const toInsert = validFloors.map((nome, fi) => {
-        const allSoFar = [...novas, ...validFloors.slice(0, fi).map((_, j) => ({ id: `_tmp${j}` }))];
+      const subDur = Math.max(1, Math.round(task.dur / paraInserir.length));
+      const toInsert = paraInserir.map((nome, fi) => {
+        const allSoFar = [...novas, ...paraInserir.slice(0, fi).map((_, j) => ({ id: `_tmp${j}` }))];
         return {
-          id:         nextEtapaId([...novas, ...validFloors.slice(0, fi).map((_, j) => ({ id: `E${9000 + j}` }))]),
+          id:         nextEtapaId([...novas, ...paraInserir.slice(0, fi).map((_, j) => ({ id: `E${9000 + j}` }))]),
           etapa:      `${task.etapa} - ${nome}`,
           nivel:      (task.nivel || 0) + 1,
           parentId:   taskId,
@@ -272,19 +284,21 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
 
     onCommit(novas);
     onPavimentosCriados?.(validFloors);
+    if (puladas > 0) toast(`${puladas} pavimento${puladas !== 1 ? 's' : ''} já existia${puladas !== 1 ? 'm' : ''} nas tarefas selecionadas e ${puladas !== 1 ? 'foram ignorados' : 'foi ignorado'}`, { tone: 'neutral' });
     onClose();
   };
 
   // Apenas registra os pavimentos na obra (disponíveis para reutilizar em inserções/fotos),
   // sem criar subtarefas agora. A lista da tela é a verdade: o que o usuário tirou daqui
   // sai também do cadastro da obra — senão o pavimento excluído voltava na próxima abertura.
+  // Não fecha o modal: o usuário pode continuar ajustando a lista e seguir pro passo 2.
   const handleSalvarPreCadastro = () => {
     if (!validFloors.length) return;
     // Remoção implícita (pavimento tirado da lista) só é aplicada pra admin — pra quem
     // não é admin, o pavimento "removido" simplesmente reaparece na próxima abertura.
     if (isAdmin) pavimentosSalvos.filter(n => !validFloors.includes(n)).forEach(n => onPavimentoExcluir?.(n));
     onPavimentosCriados?.(validFloors);
-    onClose();
+    toast('Pré-cadastro salvo', { tone: 'success', icon: 'check' });
   };
 
   return (
@@ -305,13 +319,13 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
                 title="Sincroniza o cadastro da obra com esta lista (adiciona os novos e exclui os removidos), sem criar subtarefas agora">
                 Salvar pré-cadastro
               </button>
-              <button className="btn btn-primary" disabled={!validFloors.length} onClick={() => setStep(2)}>
+              <button className="btn btn-primary" disabled={!validFloors.length} onClick={() => { setSelectedFloors(validFloors); setStep(2); }}>
                 Próximo →
               </button>
             </>
           ) : (
-            <button className="btn btn-primary" disabled={!selectedTasks.length} onClick={handleConfirm}>
-              Criar {validFloors.length} pavimento{validFloors.length !== 1 ? 's' : ''} em {selectedTasks.length} tarefa{selectedTasks.length !== 1 ? 's' : ''}
+            <button className="btn btn-primary" disabled={!selectedTasks.length || !selectedFloors.length} onClick={handleConfirm}>
+              Criar {selectedFloors.length} pavimento{selectedFloors.length !== 1 ? 's' : ''} em {selectedTasks.length} tarefa{selectedTasks.length !== 1 ? 's' : ''}
             </button>
           )}
         </>
@@ -381,9 +395,28 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
 
       {step === 2 && (
         <div>
+          <p style={{ marginBottom: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+            Escolha quais pavimentos serão criados:
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+            {validFloors.map(nome => {
+              const marcado = selectedFloors.includes(nome);
+              return (
+                <label key={nome} className="btn btn-ghost"
+                  style={{ fontSize: 12.5, padding: '4px 10px 4px 6px', height: 28, borderRadius: 14, cursor: 'pointer',
+                           display: 'inline-flex', alignItems: 'center', gap: 5,
+                           background: marcado ? 'var(--brand-tint)' : undefined,
+                           borderColor: marcado ? 'var(--brand)' : undefined,
+                           color: marcado ? 'var(--brand)' : undefined }}>
+                  <input type="checkbox" checked={marcado}
+                    onChange={ev => setSelectedFloors(sf => ev.target.checked ? [...sf, nome] : sf.filter(n => n !== nome))} />
+                  {nome}
+                </label>
+              );
+            })}
+          </div>
           <p style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-muted)' }}>
             Selecione as tarefas que receberão os pavimentos como subtarefas.
-            Serão criados: <strong>{validFloors.join(', ')}</strong>.
           </p>
           <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             {etapas.map(e => (
