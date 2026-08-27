@@ -1022,8 +1022,10 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
       toast('Formato não suportado. Use JPG, PNG ou WEBP.', { tone: 'error' });
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast('Imagem muito grande. Máximo: 5 MB', { tone: 'danger' });
+    // Limite generoso: a imagem é comprimida (compressImagem) antes do upload, então o
+    // tamanho final salvo é bem menor que o arquivo original — só barra algo fora do razoável.
+    if (file.size > 20 * 1024 * 1024) {
+      toast('Imagem muito grande. Máximo: 20 MB', { tone: 'danger' });
       return;
     }
     setUploading(true);

@@ -143,7 +143,7 @@ const AppInner = () => {
     if (!email) return null;
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('id, perfil, status, modulos_ids, modulos_readonly_ids, abas_ids, deve_alterar_senha, user_obras(obra_id)')
+      .select('id, perfil, status, modulos_ids, modulos_readonly_ids, abas_ids, abas_readonly_ids, deve_alterar_senha, user_obras(obra_id)')
       .eq('email', email)
       .single();
     // PGRST116 = 0 linhas (usuário sem perfil cadastrado) — caso legítimo, não é erro.

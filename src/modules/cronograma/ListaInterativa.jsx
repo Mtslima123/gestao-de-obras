@@ -1325,6 +1325,25 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     });
     onCommit(novas, { silent: true });
   };
+  // Pincel de formatação: SUBSTITUI a formatação da célula alvo pela capturada, em vez de
+  // mesclar (applyFmtToCells) — senão copiar uma célula sem formatação (padrão) não
+  // conseguia limpar negrito/cor/etc. já aplicados no destino (patch vazio não remove nada).
+  const applyFmtReplace = (cellsList, fmt) => {
+    if (readOnly || !cellsList.length) return;
+    const byTask = {};
+    cellsList.forEach(({ taskId, colId }) => { (byTask[taskId] = byTask[taskId] || []).push(colId); });
+    const novas = etapas.map(e => {
+      const colIds = byTask[e.id];
+      if (!colIds) return e;
+      const nextFmt = { ...(e.fmt || {}) };
+      colIds.forEach(colId => {
+        const nk = cleanFmtObj({ ...fmt });
+        if (Object.keys(nk).length) nextFmt[colId] = nk; else delete nextFmt[colId];
+      });
+      return { ...e, fmt: nextFmt };
+    });
+    onCommit(novas, { silent: true });
+  };
   const applyFmt = (patch) => {
     if (readOnly) return;
     if (multiSelCols.length) { applyFmtToCells(multiColCellList(), patch); return; }
@@ -1510,8 +1529,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const spec = cellSpec(colId);
         if (!spec) continue;
         const topVal = spec.get(topTask);
+        const topFmt = topTask.fmt?.[colId];
         for (let r = r1 + 1; r <= r2; r++) {
-          edits.push({ taskId: rows[r], colId, field: spec.field, rawValue: topVal });
+          edits.push({ taskId: rows[r], colId, field: spec.field, rawValue: topVal, fmt: topFmt });
         }
       }
       applyBlockEdits(edits);
@@ -1656,7 +1676,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         // Pincel de formatação ativo: aplica a formatação capturada nesta célula e desliga
         if (painterOn && painterRef.current) {
           ev.preventDefault();
-          applyFmtToCells([{ taskId, colId }], painterRef.current);
+          applyFmtReplace([{ taskId, colId }], painterRef.current);
           setPainterOn(false);
           setSelectedCell({ taskId, colId }); setSelAnchor({ taskId, colId });
           if (!ev.ctrlKey && !ev.metaKey) setSelectedId(taskId);
