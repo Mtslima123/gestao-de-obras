@@ -1003,7 +1003,13 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
   const [uploading, setUploading] = React.useState(false);
   const [heroSrc, setHeroSrc]     = React.useState(null);
   const [confirmRemover, setConfirmRemover] = React.useState(false);
+  const [adjustMode, setAdjustMode] = React.useState(false);
+  const [pos, setPos] = React.useState({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 });
   const inputRef = React.useRef();
+  const frameRef = React.useRef();
+  const isDraggingRef = React.useRef(false);
+  const dragOriginRef = React.useRef({ x: 0, y: 0 });
+  const dragStartPosRef = React.useRef({ x: 50, y: 50 });
 
   // Bucket privado: a capa é exibida via URL assinada do caminho determinístico.
   React.useEffect(() => {
@@ -1015,6 +1021,44 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
       .catch(err => logger.error('falha ao carregar capa', { module: 'obra', action: 'carregarCapa', err }));
     return () => { alive = false; };
   }, [obra.id, obra.imageUrl]);
+
+  // Sincroniza a posição local com a obra (troca de obra selecionada, ou atualização
+  // vinda de outro lugar) — não durante o ajuste, pra não atropelar um arraste em curso.
+  React.useEffect(() => {
+    if (adjustMode) return;
+    setPos({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 });
+  }, [obra.id, obra.capaPos?.x, obra.capaPos?.y, adjustMode]);
+
+  const iniciarAjuste = () => { setPos({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 }); setAdjustMode(true); };
+  const cancelarAjuste = () => { setPos({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 }); setAdjustMode(false); };
+  const salvarAjuste = () => {
+    onObraUpdate({ ...obra, capaPos: pos });
+    setAdjustMode(false);
+    toast('Posição da capa salva', { tone: 'success', icon: 'check' });
+  };
+
+  // Arrastar move a imagem junto com o cursor (mesma sensação de "pegar e deslizar" da
+  // Lightbox de fotos) — dx/dy negativos ao objectPosition, então arrastar pra direita
+  // desloca o recorte visível pra esquerda da imagem (revela o lado esquerdo escondido).
+  const onFrameMouseDown = (ev) => {
+    if (!adjustMode) return;
+    ev.preventDefault();
+    isDraggingRef.current = true;
+    dragOriginRef.current = { x: ev.clientX, y: ev.clientY };
+    dragStartPosRef.current = { ...pos };
+  };
+  const onFrameMouseMove = (ev) => {
+    if (!isDraggingRef.current) return;
+    const el = frameRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const dx = ev.clientX - dragOriginRef.current.x;
+    const dy = ev.clientY - dragOriginRef.current.y;
+    const nx = Math.min(100, Math.max(0, dragStartPosRef.current.x - (dx / rect.width) * 100));
+    const ny = Math.min(100, Math.max(0, dragStartPosRef.current.y - (dy / rect.height) * 100));
+    setPos({ x: nx, y: ny });
+  };
+  const onFrameMouseUp = () => { isDraggingRef.current = false; };
 
   const handleFile = async (file) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
@@ -1061,13 +1105,18 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
 
   return (
     <div
+      ref={frameRef}
       className={'hero-img' + (src ? ' has-img' : '') + (uploading ? ' hero-img-uploading' : '')}
-      onClick={() => canUpload && !uploading && inputRef.current?.click()}
-      style={{ cursor: canUpload ? 'pointer' : 'default' }}
+      onClick={() => !adjustMode && canUpload && !uploading && inputRef.current?.click()}
+      onMouseDown={onFrameMouseDown}
+      onMouseMove={onFrameMouseMove}
+      onMouseUp={onFrameMouseUp}
+      onMouseLeave={onFrameMouseUp}
+      style={{ cursor: adjustMode ? (isDraggingRef.current ? 'grabbing' : 'grab') : (canUpload ? 'pointer' : 'default'), userSelect: adjustMode ? 'none' : undefined }}
     >
-      {src && <img src={src} alt={obra.nome} />}
+      {src && <img src={src} alt={obra.nome} draggable={false} style={{ objectPosition: `${pos.x}% ${pos.y}%` }} />}
       {!src && <span>1280 × 720</span>}
-      {canUpload && (
+      {canUpload && !adjustMode && (
         <>
           <div className="hero-img-overlay">
             {uploading ? (
@@ -1092,12 +1141,28 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
           />
         </>
       )}
-      {canUpload && src && !uploading && (
-        <button type="button" className="icon-btn"
-          style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', width: 28, height: 28, zIndex: 2 }}
-          onClick={e => { e.stopPropagation(); setConfirmRemover(true); }}>
-          <Icon name="trash" size={13} />
-        </button>
+      {canUpload && src && !uploading && !adjustMode && (
+        <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6, zIndex: 2 }}>
+          <button type="button" className="icon-btn"
+            style={{ background: 'rgba(0,0,0,0.55)', color: '#fff', width: 28, height: 28 }}
+            onClick={e => { e.stopPropagation(); iniciarAjuste(); }} title="Ajustar posição da foto">
+            <Icon name="move" size={13} />
+          </button>
+          <button type="button" className="icon-btn"
+            style={{ background: 'rgba(0,0,0,0.55)', color: '#fff', width: 28, height: 28 }}
+            onClick={e => { e.stopPropagation(); setConfirmRemover(true); }} title="Remover capa">
+            <Icon name="trash" size={13} />
+          </button>
+        </div>
+      )}
+      {adjustMode && (
+        <div onMouseDown={e => e.stopPropagation()}
+          style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 3,
+                   display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(0,0,0,0.65)', padding: '8px 12px', borderRadius: 10 }}>
+          <span style={{ color: '#fff', fontSize: 12 }}>Arraste a imagem para posicionar</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={cancelarAjuste}>Cancelar</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={salvarAjuste}>Salvar posição</button>
+        </div>
       )}
       {confirmRemover && (
         <Modal title="Remover capa" onClose={() => setConfirmRemover(false)}
