@@ -179,6 +179,23 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
 
 // ----- Visão Geral tab -----
 const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
+  // Card "Cronograma resumido" gruda sob a topbar ao rolar, mesmo padrão do card
+  // "Cronograma físico" (aba Cronograma) e da toolbar da aba Fotos: STICKY_TOP =
+  // topbar 60px + 32px de respiro. O corpo (mini-Gantt) ganha scroll próprio limitado
+  // ao espaço restante da viewport, pro cabeçalho do card ficar sempre visível.
+  const RESUMO_STICKY_TOP = 92;
+  const resumoHeaderRef = React.useRef(null);
+  const [resumoBodyMaxH, setResumoBodyMaxH] = React.useState(null);
+  React.useLayoutEffect(() => {
+    const recompute = () => {
+      const H = resumoHeaderRef.current?.offsetHeight || 0;
+      setResumoBodyMaxH(Math.max(200, window.innerHeight - RESUMO_STICKY_TOP - H - 24));
+    };
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, [etapas.length]);
+
   // "Previsto" = a linha de base mais antiga da obra (plano original aprovado), a mesma
   // fonte usada como "Linha de Base" no Cronograma → Curva Física.
   const baseline = React.useMemo(() => (
@@ -260,8 +277,8 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
           </div>
         </div>
 
-        <div className="card">
-          <div className="card-header">
+        <div className="card" style={{ position: 'sticky', top: RESUMO_STICKY_TOP, zIndex: 2 }}>
+          <div className="card-header" ref={resumoHeaderRef}>
             <div>
               <div className="card-title">Cronograma resumido</div>
               <div className="card-subtitle">10 etapas principais</div>
@@ -273,7 +290,7 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
                 Carregando cronograma…
               </div>
             ) : (
-              <Gantt etapas={etapas} resumoOnly />
+              <Gantt etapas={etapas} resumoOnly maxHeight={resumoBodyMaxH} />
             )}
           </div>
         </div>
