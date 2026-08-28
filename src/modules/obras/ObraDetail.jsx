@@ -1505,8 +1505,14 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
       setCronoBodyMaxH(Math.max(200, window.innerHeight - CRONO_STICKY_TOP - H - 24));
     };
     recompute();
+    // ResizeObserver no cabeçalho: reage a qualquer mudança de altura dele (fonte
+    // carregando, ícone assentando etc.), não só quando etapasObra/cronoView mudam —
+    // sem isso, o congelamento só "destravava" depois de trocar Lista/Gantt uma vez.
+    const el = cronoHeaderRef.current;
+    const ro = el ? new ResizeObserver(recompute) : null;
+    ro?.observe(el);
     window.addEventListener('resize', recompute);
-    return () => window.removeEventListener('resize', recompute);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', recompute); };
   }, [etapasObra.length, cronoView]);
   const [etapasLoaded, setEtapasLoaded] = React.useState(!!AppData.cronograma[o.id]?.length);
   // Linhas de base do cronograma — usadas na Curva S da Visão Geral como "Previsto".

@@ -100,6 +100,14 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [exportUsoOpen]);
+  const [colsUsoOpen, setColsUsoOpen] = React.useState(false);
+  const colsUsoRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!colsUsoOpen) return;
+    const h = (e) => { if (colsUsoRef.current && !colsUsoRef.current.contains(e.target)) setColsUsoOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [colsUsoOpen]);
 
   // Ordem das colunas do painel esquerdo (arrastar cabeçalhos), persistida por obra
   const [usoColOrder, setUsoColOrder] = React.useState(() => {
@@ -113,6 +121,16 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   React.useEffect(() => {
     if (obraId) localStorage.setItem(`uso_order_${obraId}`, JSON.stringify(usoColOrder));
   }, [usoColOrder, obraId]);
+  // Colunas fixas ocultadas (só as 7 do painel esquerdo — colunas de mês sempre aparecem)
+  const [usoHiddenCols, setUsoHiddenCols] = React.useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`uso_hidden_${obraId}`) || '[]')); }
+    catch { return new Set(); }
+  });
+  React.useEffect(() => {
+    if (obraId) localStorage.setItem(`uso_hidden_${obraId}`, JSON.stringify([...usoHiddenCols]));
+  }, [usoHiddenCols, obraId]);
+  const usoColOrderVisible = usoColOrder.filter(k => !usoHiddenCols.has(k));
+  const toggleUsoColHidden = (k) => setUsoHiddenCols(prev => { const next = new Set(prev); next.has(k) ? next.delete(k) : next.add(k); return next; });
   const [dragUsoCol, setDragUsoCol] = React.useState(null);
   const [dragOverUsoCol, setDragOverUsoCol] = React.useState(null); // { key, side: 'before' | 'after' }
   const usoLabel = (k) => USO_COL_LABELS[USO_COL_KEYS.indexOf(k)];
@@ -440,6 +458,25 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
         <div className="card-header">
           <div className="card-title" style={{ fontWeight: 400 }}>Custo (R$) previsto por mês</div>
           <div className="card-actions">
+            <div ref={colsUsoRef} style={{ position: 'relative' }}>
+              <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 28, gap: 5 }}
+                onClick={() => setColsUsoOpen(v => !v)} title="Mostrar/ocultar colunas">
+                <Icon name="layers" size={13} />Colunas{usoHiddenCols.size > 0 && <span className="nav-badge" style={{ marginLeft: 2 }}>{usoHiddenCols.size}</span>}
+              </button>
+              {colsUsoOpen && (
+                <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 10, minWidth: 190, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {USO_COL_KEYS.map(k => (
+                    <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', padding: '3px 4px' }}>
+                      <input type="checkbox" checked={!usoHiddenCols.has(k)} onChange={() => toggleUsoColHidden(k)} />
+                      {usoLabel(k)}
+                    </label>
+                  ))}
+                  {usoHiddenCols.size > 0 && (
+                    <button className="btn btn-ghost btn-sm" style={{ marginTop: 4 }} onClick={() => setUsoHiddenCols(new Set())}>Mostrar todas</button>
+                  )}
+                </div>
+              )}
+            </div>
             {/* Recolher/expandir por nivel — mesmo select da Lista e do Gantt, mas local. */}
             <select defaultValue="" title="Expandir/recolher a estrutura por nivel"
               onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') aplicarNivelUso(Number(v)); }}
@@ -492,11 +529,11 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
         <div ref={leftRef} className="uso-hide-scrollbar" style={{ flexShrink: 0, overflowY: 'auto', overflowX: 'hidden', borderRight: '1px solid var(--border)' }}>
           <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              {usoColOrder.map(k => <col key={k} style={{ width: getUsoW(k) }} />)}
+              {usoColOrderVisible.map(k => <col key={k} style={{ width: getUsoW(k) }} />)}
             </colgroup>
             <thead>
               <tr>
-                {usoColOrder.map(k => (
+                {usoColOrderVisible.map(k => (
                   <th key={k}
                     className={dragOverUsoCol?.key === k ? `drag-over-col-${dragOverUsoCol.side}` : undefined}
                     onDragOver={ev => {
@@ -555,15 +592,15 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                   <tr key={e.id}
                     style={{ background: rowBg(e), cursor: 'pointer', height: usoRowH }}
                     onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
-                    {usoColOrder.map(k => cellMap[k])}
+                    {usoColOrderVisible.map(k => cellMap[k])}
                   </tr>
                 );
               })}
               <tr style={{ height: usoRowH }}>
-                <td colSpan={usoColOrder.length} style={{ ...totalTopTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>Total geral</td>
+                <td colSpan={usoColOrderVisible.length} style={{ ...totalTopTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>Total geral</td>
               </tr>
               <tr style={{ height: usoRowH }}>
-                <td colSpan={usoColOrder.length} style={{ ...totalBotTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>% do total</td>
+                <td colSpan={usoColOrderVisible.length} style={{ ...totalBotTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>% do total</td>
               </tr>
             </tbody>
           </table>
@@ -1622,7 +1659,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
           return false;
         };
         const distRows    = visibleRows.filter(e => (e.isGroup || liveShown.has(e.id) || e.showInDist === true) && !isHiddenCurva(e));
-        const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 52, TOT_W = 68;
+        const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 58, TOT_W = 68;
         // Colunas congeladas: Atividade, Valor, Peso e Conc. ficam fixas à esquerda ao
         // rolar horizontal (mesma técnica das colunas congeladas da Lista) — só os meses
         // e o Total rolam por baixo delas.
@@ -2825,7 +2862,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                     </div>
                   </div>
                   ) : view === 'medicao' ? null : (
-                <div className="kpi-grid cols-5">
+                <div className="kpi-grid cols-5" style={view === 'uso' ? { position: 'sticky', top: topbarH + 32, zIndex: 2 } : undefined}>
                   <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Avanço físico</div>
                     <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{avancoTotal.toFixed(2)}<span className="unit">%</span></div>

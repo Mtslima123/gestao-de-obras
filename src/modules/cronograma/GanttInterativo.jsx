@@ -1551,7 +1551,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
                           height: 10,
                           backgroundColor: sc.track,
                           borderRadius: 2,
-                          border: (isConf || isCrit) ? `${borderW}px solid ${borderCol}` : 'none',
+                          border: (isConf || isCrit) ? `${borderW}px solid ${borderCol}` : `1px solid ${sc.fill}`,
                           boxShadow: isSel
                             ? `0 0 0 2px white, 0 0 0 2px ${sc.fill}`
                             : 'none',
