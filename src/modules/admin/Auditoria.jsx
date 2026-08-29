@@ -115,9 +115,9 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
   const [origemFiltro, setOrigemFiltro] = React.useState('Web');
 
   const carregarKpis = React.useCallback(async () => {
-    const k = await auditoriaService.kpis();
+    const k = await auditoriaService.kpis(origemFiltro);
     setKpis(k);
-  }, []);
+  }, [origemFiltro]);
 
   const carregarLogs = React.useCallback(async (filt = aplicados, pg = pagina) => {
     setLoading(true);
@@ -135,7 +135,7 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
       setTotal(count ?? 0);
       setUsandoMock(false);
       if (aba !== 'criticos') {
-        const { count: cc } = await auditoriaService.listar({ criticidade: 'critica', perPage: 1 });
+        const { count: cc } = await auditoriaService.listar({ criticidade: 'critica', origem: origemFiltro, perPage: 1 });
         setCriticosCount(cc ?? 0);
       }
     }
@@ -195,7 +195,8 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
 
       {/* KPI Cards */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-        <KpiCard icon="file" label="Total de Eventos" value={kpis.totalEventos.toLocaleString('pt-BR')} sub="Todos os registros" color="#2563eb" />
+        <KpiCard icon="file" label="Total de Eventos" value={kpis.totalEventos.toLocaleString('pt-BR')}
+          sub={origemFiltro === 'Web' ? 'Operação' : origemFiltro === 'DB-trigger' ? 'Segurança' : 'Todos os registros'} color="#2563eb" />
         <KpiCard icon="alert" label="Eventos Críticos" value={kpis.eventosCriticos} sub="Últimos 7 dias" color="#b91c1c" />
         <KpiCard icon="clock" label="Última Atualização" value={kpis.ultimaAtualizacao ? new Date(kpis.ultimaAtualizacao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'} sub={kpis.ultimaAtualizacao ? new Date(kpis.ultimaAtualizacao).toLocaleDateString('pt-BR') : '—'} color="#0891b2" />
         <KpiCard icon="calendar" label="Período Retido" value="5 anos" sub="Política atual" color="#16a34a" />

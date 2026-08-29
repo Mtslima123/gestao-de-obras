@@ -1,9 +1,25 @@
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
 
+// IP público do navegador, resolvido uma vez por sessão (evita repetir a chamada externa
+// a cada evento de auditoria) e reaproveitado em todo insert seguinte. Falha (rede,
+// bloqueador etc.) não impede o registro do evento — só fica sem IP, como já era.
+let ipCache = null;
+let ipPromise = null;
+const obterIp = () => {
+  if (ipCache) return Promise.resolve(ipCache);
+  if (!ipPromise) {
+    ipPromise = fetch('https://api.ipify.org?format=json')
+      .then(r => r.json())
+      .then(d => { ipCache = d?.ip || null; return ipCache; })
+      .catch(() => null);
+  }
+  return ipPromise;
+};
+
 export const auditoriaService = {
   // Busca logs paginados com filtros opcionais
-  listar: async ({ dataInicio, dataFim, userId, obraId, modulo, acao, criticidade, busca, entidade, origem, page = 1, perPage = 10 } = {}) => {
+  listar: async ({ dataInicio, dataFim, userId, obraId, modulo, acao, criticidade, busca, entidade, origem, ip, page = 1, perPage = 10 } = {}) => {
     // 🔒 SEGURANÇA [VULN-8]: teto de 100 registros por página — previne dump completo (CWE-400)
     const safePerPage = Math.min(Math.max(1, Number(perPage) || 10), 100);
     let q = supabase
@@ -22,21 +38,31 @@ export const auditoriaService = {
     if (busca)      q = q.ilike('descricao', `%${busca}%`);
     if (entidade)   q = q.or(`entidade_tipo.ilike.%${entidade}%,entidade_id.ilike.%${entidade}%,descricao.ilike.%${entidade}%`);
     if (origem)     q = q.eq('origem', origem);
+    if (ip)         q = q.ilike('ip', `%${ip}%`);
 
     return q;
   },
 
-  // KPIs consolidados
-  kpis: async () => {
+  // KPIs consolidados. `origem` deve refletir a mesma aba (Operação/Segurança/Todos)
+  // selecionada na Linha do Tempo — sem isso, "Total de Eventos" contava a mesma ação
+  // duas vezes (a versão 'Web' legível + a versão 'DB-trigger' crua que o banco grava
+  // automaticamente pra obras/orçamentos/itens/usuários/fotos), inflando o número pra
+  // quase o dobro do que a lista filtrada (padrão: só Operação) realmente mostra.
+  kpis: async (origem) => {
     const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) + 'T00:00:00Z';
 
-    const [totalRes, criticosRes, ultimoRes] = await Promise.all([
-      supabase.from('audit_logs').select('*', { count: 'exact', head: true }),
-      supabase.from('audit_logs').select('*', { count: 'exact', head: true })
-        .eq('criticidade', 'critica').gte('created_at', seteDiasAtras),
-      supabase.from('audit_logs').select('created_at, user_id')
-        .order('created_at', { ascending: false }).limit(1),
-    ]);
+    let totalQ = supabase.from('audit_logs').select('*', { count: 'exact', head: true });
+    let criticosQ = supabase.from('audit_logs').select('*', { count: 'exact', head: true })
+      .eq('criticidade', 'critica').gte('created_at', seteDiasAtras);
+    let ultimoQ = supabase.from('audit_logs').select('created_at, user_id')
+      .order('created_at', { ascending: false }).limit(1);
+    if (origem) {
+      totalQ    = totalQ.eq('origem', origem);
+      criticosQ = criticosQ.eq('origem', origem);
+      ultimoQ   = ultimoQ.eq('origem', origem);
+    }
+
+    const [totalRes, criticosRes, ultimoRes] = await Promise.all([totalQ, criticosQ, ultimoQ]);
 
     return {
       totalEventos:      totalRes.count   ?? 0,
@@ -56,6 +82,7 @@ export const auditoriaService = {
 
   // Registra um evento de auditoria (chamado pelos outros módulos)
   registrar: async (evento) => {
+    const ip = await obterIp();
     const { data, error } = await supabase.from('audit_logs').insert([{
       user_id:        evento.userId        ?? null,
       user_nome:      evento.userNome      ?? null,
@@ -71,6 +98,7 @@ export const auditoriaService = {
       valor_novo:     evento.valorNovo     ?? null,
       criticidade:    evento.criticidade   ?? 'media',
       origem:         'Web',
+      ip,
     }]);
     // A auditoria era 100% fire-and-forget: se o insert falhava, o evento (às vezes
     // crítico, ex.: redefinição de senha) sumia sem rastro. Agora deixa registro no log.

@@ -2488,8 +2488,9 @@ tr:hover .obras-row-actions {
    heatmap por --f (0..1) definido inline por célula.
    ============================================ */
 
-/* KPI band: 5 colunas + bordas de risco */
+/* KPI band: 5 ou 3 colunas + bordas de risco */
 .kpi-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.kpi-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
 .kpi.risk { border-color: #fca5a5; }
 .kpi.warn { border-color: #fde68a; }
 /* Mini-barra de apoio no KPI (realizado x meta) */

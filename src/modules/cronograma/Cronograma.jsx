@@ -2572,7 +2572,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
 
   const obra       = obras.find(o => o.id === obraSel) || obras[0];
   const concluidas = etapas.filter(e => effStatus(e) === 'done').length;
-  const atrasadas  = etapas.filter(e => effStatus(e) === 'late').length;
 
   // Pesos vinculados ao orçamento — quando existem, substituem custo na Curva S e no avanço
   const valorVinculadoMapFull = React.useMemo(
@@ -2827,11 +2826,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               {/* KPIs — faixa de 5 (redesenho handoff). Dados reais onde há; mock sinalizado. */}
               {(() => {
                 const leaves = etapas.filter(e => !e.isGroup);
-                const pesoDe = (e) => custoOrcadoMap[e.id] || 0;
-                const custoPrev = leaves.reduce((s, e) => s + pesoDe(e), 0);
-                // Custo incorrido = valor agregado (avanço × peso) — proxy de earned value
-                const custoReal = leaves.reduce((s, e) => s + (e.avanco || 0) / 100 * pesoDe(e), 0);
-                const custoPct = custoPrev > 0 ? Math.round(custoReal / custoPrev * 100) : 0;
                 // Previsto acumulado até hoje, a partir da distribuição mensal já computada
                 const totalPlan = Object.values(monthlyTotals).reduce((s, v) => s + v, 0);
                 const todayKey = new Date().toISOString().slice(0, 7);
@@ -2887,7 +2881,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                     </div>
                   </div>
                   ) : view === 'medicao' ? null : (
-                <div className="kpi-grid cols-5" style={view === 'uso' ? { position: 'sticky', top: topbarH + 32, zIndex: 2 } : undefined}>
+                <div className="kpi-grid cols-3" style={view === 'uso' ? { position: 'sticky', top: topbarH + 32, zIndex: 2 } : undefined}>
                   <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Avanço físico</div>
                     <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{avancoTotal.toFixed(2)}<span className="unit">%</span></div>
@@ -2898,21 +2892,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                     </div>
                   </div>
                   <div className="kpi" style={{ padding: '18px 20px' }}>
-                    <div className="kpi-label">Custo incorrido</div>
-                    <div className="kpi-value num" style={{ fontSize: 28, marginTop: 4 }}>{D.brl(custoReal, { compact: true })}</div>
-                    <div className="kpi-bar"><span className="kpi-bar-fill ok" style={{ width: custoPct + '%' }} /></div>
-                    <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">de {D.brl(custoPrev, { compact: true })} previstos ({custoPct}%)</span></div>
-                  </div>
-                  <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Término projetado</div>
                     <div className="kpi-value num" style={{ fontSize: 26, marginTop: 4, textTransform: 'capitalize' }}>{termino}</div>
                     {/* TODO: comparar com a linha de base (delta de dias) quando houver baseline selecionada */}
                     <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">maior término entre as tarefas</span></div>
-                  </div>
-                  <div className="kpi risk" style={{ padding: '18px 20px' }}>
-                    <div className="kpi-label">Etapas atrasadas</div>
-                    <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4, color: 'var(--danger)' }}>{atrasadas}</div>
-                    <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">{atrasadas === 0 ? 'nenhuma tarefa atrasada' : 'status = atrasada'}</span></div>
                   </div>
                   <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Folga total</div>
