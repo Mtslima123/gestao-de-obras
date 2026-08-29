@@ -449,6 +449,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   // Estado do modal de edição de vínculos por tarefa
   const [editandoEtapaId,  setEditandoEtapaId]  = React.useState(null);
   const [buscaModalItem,   setBuscaModalItem]    = React.useState('');
+  // Reatribuir os vínculos desta tarefa pra outra, caso o usuário tenha escolhido errado
+  const [novaTarefaId,     setNovaTarefaId]     = React.useState('');
+  const [movendoTarefa,    setMovendoTarefa]    = React.useState(false);
 
   // Confirmação antes de remover vínculo. Na tabela é um modal; dentro do modal de edição
   // é inline na própria linha (modal sobre modal quebra o Escape e o scroll do fundo).
@@ -577,6 +580,26 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     setSaving(false);
   };
 
+  // ── Reatribuir os vínculos da tarefa em edição pra outra tarefa do cronograma ──
+  const handleMoverVinculos = async () => {
+    if (!editandoEtapaId || !novaTarefaId || novaTarefaId === editandoEtapaId) return;
+    const ids = vinculosEtapa.map(v => v.id);
+    if (!ids.length) return;
+    setMovendoTarefa(true);
+    const { error } = await vinculoService.moverParaEtapa(ids, novaTarefaId);
+    if (error) {
+      toast('Erro ao mover os itens: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+    } else {
+      const { data } = await vinculoService.listarPorObra(obraSel);
+      setVinculos(data || []);
+      if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = data || [];
+      toast('Itens movidos para a nova tarefa', { tone: 'success', icon: 'check' });
+      setEditandoEtapaId(novaTarefaId); // segue editando já na tarefa de destino
+      setNovaTarefaId('');
+    }
+    setMovendoTarefa(false);
+  };
+
   // ── Salvar distribuição de pesos (fator_peso) de volta no cronograma ───────
   const handleSalvarPesos = async (novosPesos, unidade) => {
     setSalvandoPeso(true);
@@ -624,8 +647,27 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
 
   const totalVinculado = filtrados.reduce((s, v) => s + itemValor(v.orcamento_itens), 0);
 
-  // Etapas disponíveis: exclui apenas as já vinculadas (todas aparecem, incluindo resumos)
-  const etapasDisponiveis = etapas.filter(et => !linkedEtapaIds.has(et.id));
+  // Etapas disponíveis: exclui as já vinculadas E todas as descendentes de uma tarefa-pai
+  // já vinculada — usar a tarefa-pai já cobre o valor dela e dos filhos (via distribuição de
+  // pesos), então eles não devem continuar aparecendo como pendentes de vínculo.
+  const etapasDisponiveis = React.useMemo(() => {
+    const escondidas = new Set(linkedEtapaIds);
+    const filhosDe = new Map();
+    etapas.forEach(e => {
+      if (e.parentId) {
+        if (!filhosDe.has(e.parentId)) filhosDe.set(e.parentId, []);
+        filhosDe.get(e.parentId).push(e.id);
+      }
+    });
+    const pilha = [...linkedEtapaIds];
+    while (pilha.length) {
+      const id = pilha.pop();
+      (filhosDe.get(id) || []).forEach(filhoId => {
+        if (!escondidas.has(filhoId)) { escondidas.add(filhoId); pilha.push(filhoId); }
+      });
+    }
+    return etapas.filter(et => !escondidas.has(et.id));
+  }, [etapas, linkedEtapaIds]);
 
   // Sugestões para autocomplete dos filtros
   const sugestoesItem = React.useMemo(
@@ -647,7 +689,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     return it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q);
   });
 
-  const fecharModal = () => { setEditandoEtapaId(null); setBuscaModalItem(''); setConfirmRemoveId(null); };
+  const fecharModal = () => { setEditandoEtapaId(null); setBuscaModalItem(''); setConfirmRemoveId(null); setNovaTarefaId(''); };
 
   // ── Dados do modal de distribuição de pesos ────────────────────────────────
   const distribuirEtapa    = etapas.find(e => e.id === distribuirEtapaId) || null;
@@ -940,7 +982,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
       {/* ── Modal: Editar Itens Associados ─────────────────────────────────── */}
       {editandoEtapaId && editandoEtapa && (
         <Modal
-          title={`Editar Itens Associados — ${editandoEtapa.etapa}`}
+          title={`Editar Itens Associados — ${editandoEtapa.displayId ?? editandoEtapa.id}  ${editandoEtapa.etapa}`}
           onClose={fecharModal}
           draggable
           overlay={false}
@@ -948,6 +990,32 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
             <button className="btn btn-ghost" onClick={fecharModal}>Fechar</button>
           }
         >
+          {/* Reatribuir esta associação pra outra tarefa, caso tenha escolhido a errada */}
+          {isAdmin(userProfile) && (
+            <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                Mover para outra tarefa
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <div style={{ flex: 1 }}>
+                  <TarefaCronogramaSelect
+                    etapas={etapas.filter(e => e.id !== editandoEtapaId)}
+                    value={novaTarefaId}
+                    onChange={setNovaTarefaId}
+                  />
+                </div>
+                <button className="btn btn-ghost" style={{ flexShrink: 0 }}
+                  disabled={!novaTarefaId || movendoTarefa}
+                  onClick={handleMoverVinculos}>
+                  {movendoTarefa ? 'Movendo…' : 'Mover'}
+                </button>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 6 }}>
+                Transfere os {vinculosEtapa.length} itens vinculados desta tarefa para a tarefa escolhida acima, caso a tarefa atual esteja errada.
+              </div>
+            </div>
+          )}
+
           {/* Itens atualmente vinculados */}
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
@@ -1159,6 +1227,7 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistr
                 <td>
                   {' '.repeat((e.nivel || 0) * 2)}
                   {e.isGroup && <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>▸</span>}
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', marginRight: 6 }}>{e.displayId ?? e.id}</span>
                   {e.etapa}
                 </td>
                 <td style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>

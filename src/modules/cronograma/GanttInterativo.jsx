@@ -5,10 +5,10 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { useToast, Modal } from '../../components/Modals';
 import { buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
-         buildCalendarWeeks, buildCalendarDays, computeCustoOrcadoMap } from './ganttUtils';
+         buildCalendarWeeks, buildCalendarDays } from './ganttUtils';
 import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, todayOffset } from './cronogramaDateUtils';
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
-         updateParentBounds, formatDepList, verificarRestricoes, computeGroupValues,
+         updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
          nextEtapaId, nextDisplayId, emptyCustomCols } from './scheduleEngine';
 import { PavimentosModal } from './cronogramaModais';
@@ -71,7 +71,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   filtroResp = '', filtroPreset = '', filtroPresetRange = { de: '', ate: '' }, filtroTaskIds = [],
-  filtroTexto = '', filtroVinculo = '', vinculadoIds, valorVinculadoMap = {}, hasVinculos = false }) => {
+  filtroTexto = '', filtroVinculo = '', vinculadoIds, valorVinculadoMap = {}, hasVinculos = false,
+  // custoOrcadoMap/groupVals calculados 1x em CronogramaFull (nunca desmonta ao trocar de
+  // aba) e repassados por prop — evita recalcular sobre todas as etapas a cada remontagem.
+  custoOrcadoMap = {}, groupVals = {} }) => {
   const toast = useToast();
   const [selected,    setSel]      = React.useState(new Set());
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
@@ -318,14 +321,8 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
     }
   };
 
-  // Custo Orçado (Valor Vinculado + Custo Real) — peso do avanço físico, igual Cronograma.jsx.
-  const custoOrcadoMap = React.useMemo(
-    () => computeCustoOrcadoMap(etapas, valorVinculadoMap),
-    [etapas, valorVinculadoMap]
-  );
-
-  // Valores calculados dos grupos (inicio/dur baseados nos descendentes)
-  const groupVals = React.useMemo(() => computeGroupValues(etapas, custoOrcadoMap), [etapas, custoOrcadoMap]);
+  // custoOrcadoMap e groupVals (valores calculados dos grupos, inicio/dur baseados nos
+  // descendentes) vêm por prop — ver comentário no destructuring dos parâmetros.
 
   // Para grupos usa inicio/dur calculados; para tarefas normais usa os valores diretos.
   // O draft (estado de drag) tem prioridade em ambos os casos.

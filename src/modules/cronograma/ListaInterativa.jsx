@@ -5,13 +5,12 @@ import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
-import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
 import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, dateToOffset } from './cronogramaDateUtils';
 import {
-  fmtBRL, computeAllWBS, indentTasks, outdentTasks, computeSuccessors,
+  fmtBRL, indentTasks, outdentTasks,
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
   createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
-  computeGroupValues, moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange,
+  moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange,
   reprogramarRestante,
 } from './scheduleEngine';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal } from './cronogramaModais';
@@ -37,6 +36,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   filtroPreset = '', setFiltroPreset, filtroPresetRange = { de: '', ate: '' }, setFiltroPresetRange,
   filtroTaskIds = [], setFiltroTaskIds,
   filtroTexto = '', setFiltroTexto, filtroVinculo = '', setFiltroVinculo, vinculadoIds,
+  // Derivados de etapas/vínculos calculados 1x em CronogramaFull (nunca desmonta ao trocar
+  // de aba) e repassados por prop — evita recalcular sobre todas as etapas a cada remontagem.
+  valorVinculadoMap = {}, custoOrcadoMap = {}, groupVals = {}, succMap = {}, wbsMap = {},
   focusTaskId = null }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
@@ -214,8 +216,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     try { localStorage.setItem(`ls_crono_rowheights_${obraId}`, JSON.stringify(rowHeights)); } catch { /* ignore */ }
   }, [rowHeights, obraId]);
 
-  const wbsMap      = React.useMemo(() => computeAllWBS(etapas), [etapas]);
-  const succMap     = React.useMemo(() => computeSuccessors(etapas), [etapas]);
   const idToDisplayId = React.useMemo(
     () => Object.fromEntries(etapas.map(e => [e.id, e.displayId ?? e.id])),
     [etapas]
@@ -240,25 +240,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const totalReal   = React.useMemo(() => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (e.custoRealizado || 0), 0), [etapas]);
   const totalSaldo  = totalCusto - totalReal;
 
-  // Integração Orçamento × Cronograma — calcula valor vinculado por etapa
+  // Integração Orçamento × Cronograma — valorVinculadoMap vem por prop (ver acima)
   const hasVinculos = vinculos.length > 0;
-  const valorVinculadoMap = React.useMemo(
-    () => computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap),
-    [etapas, vinculos, orcamentoItensMap]
-  );
   // Total para calcular o peso % (soma das folhas)
   const totalValorVinculado = React.useMemo(
     () => etapas.filter(e => !e.isGroup).reduce((s, e) => s + (valorVinculadoMap[e.id] || 0), 0),
     [etapas, valorVinculadoMap]
   );
-  // Custo Orçado (novo peso do Avanço Físico): Valor Vinculado + Custo Real de cada
-  // etapa, somados sempre. Cobre folhas e grupos via bubble-up.
-  const custoOrcadoMap = React.useMemo(
-    () => computeCustoOrcadoMap(etapas, valorVinculadoMap),
-    [etapas, valorVinculadoMap]
-  );
+  // custoOrcadoMap e groupVals também vêm por prop (Valor Vinculado + Custo Real de cada
+  // etapa, cobrindo folhas e grupos via bubble-up — mesmo cálculo, feito 1x no pai).
   const totalCustoOrcado = totalValorVinculado + totalReal;
-  const groupVals   = React.useMemo(() => computeGroupValues(etapas, custoOrcadoMap), [etapas, custoOrcadoMap]);
 
   // Custo efetivo: quando há vínculos, o custo de cada etapa é o valor vinculado distribuído
   // (valorVinculadoMap já cobre folhas e grupos via bubble-up). Nunca grava no dado — só exibe.
@@ -1549,6 +1540,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       setDeleteConfirm(ids);
       return;
     }
+    // Ctrl/Cmd + '-' (estilo Excel): exclui a(s) linha(s) selecionada(s) — espelha o
+    // Ctrl++ que insere. Mesmo critério e mesma confirmação do Delete acima.
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === '-' || ev.code === 'NumpadSubtract') && !readOnly && isAdmin) {
+      if (!isWholeRowSelection()) return;
+      ev.preventDefault();
+      const ids = [...selectedRowIds()];
+      if (!ids.length) return;
+      setDeleteConfirm(ids);
+      return;
+    }
     // Shift+Espaço: seleciona as LINHAS inteiras (estilo Excel) — cobre todas as colunas do
     // intervalo atual, então funciona tanto com uma célula quanto com várias selecionadas.
     if (ev.shiftKey && (ev.key === ' ' || ev.key === 'Spacebar') && selectedCell) {
@@ -2530,7 +2531,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         </div>
                         {isAdmin && (
                           <div style={rowStyle}>
-                            <button style={{ ...cmdBtn, width: '100%', color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.5 }} onClick={handleDelete} disabled={!selectedId} title="Excluir a tarefa selecionada (Delete)">
+                            <button style={{ ...cmdBtn, width: '100%', color: selectedId ? 'var(--danger)' : undefined, opacity: selectedId ? 1 : 0.5 }} onClick={handleDelete} disabled={!selectedId} title="Excluir a tarefa selecionada (Delete ou Ctrl+-)">
                               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                               Excluir
                             </button>
@@ -2571,7 +2572,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
-                        <div style={rowStyle}>
+                        <div style={{ ...rowStyle, justifyContent: 'center' }}>
                           <button style={iconBtn} onClick={() => setShowPavimentos(true)} title="Inserir pavimentos automaticamente como subtarefas">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
                           </button>

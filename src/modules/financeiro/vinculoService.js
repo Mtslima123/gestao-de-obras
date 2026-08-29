@@ -34,6 +34,15 @@ export const vinculoService = {
       .delete()
       .eq('id', id),
 
+  // Move vínculos existentes (por id) para outra tarefa do cronograma — usado quando o
+  // usuário escolheu a tarefa errada e quer reatribuir os itens já associados sem precisar
+  // excluir e recriar cada um.
+  moverParaEtapa: (ids, etapaId) =>
+    supabase
+      .from('orcamento_cronograma_vinculos')
+      .update({ etapa_id: etapaId })
+      .in('id', ids),
+
   // Existe algum vínculo orçamento×cronograma pra QUALQUER item deste orçamento?
   // Usado para bloquear a exclusão de um orçamento vinculado — apagar a linha
   // deixaria o cronograma referenciando um orçamento_item_id que não existe mais,

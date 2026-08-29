@@ -67,7 +67,7 @@ const USO_COL_LABELS  = ['ID', 'EAP', 'Nome da Tarefa', 'Início', 'Término', '
 const USO_COL_DEFAULT = { id: 44, wbs: 52, nome: 208, inicio: 88, fim: 88, dur: 56, avanco: 52 };
 const USO_COL_ALIGN   = { id: 'right', wbs: 'left', nome: 'left', inicio: 'left', fim: 'left', dur: 'right', avanco: 'right' };
 
-const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap = {} }) => {
+const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap = {}, custoOrcadoMap = {}, wbsMap = {} }) => {
   const [selectedId, setSelectedId] = React.useState(null);
   const leftRef  = React.useRef(null);
   const rightRef = React.useRef(null);
@@ -216,13 +216,9 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     nivel > 0 ? new Set(etapas.filter(e => e.isGroup && (e.nivel || 0) >= nivel - 1).map(e => e.id)) : new Set()
   );
 
-  const wbsMap  = React.useMemo(() => computeAllWBS(etapas), [etapas]);
-
-  // Distribuição sempre pelo Custo Orçado (valor vinculado + custo real de cada tarefa).
-  const custoOrcadoMap = React.useMemo(
-    () => computeCustoOrcadoMap(etapas, valorVinculadoMap),
-    [etapas, valorVinculadoMap]
-  );
+  // wbsMap e custoOrcadoMap vêm por prop, calculados uma única vez em CronogramaFull
+  // (que nunca desmonta ao trocar de aba) — evita recalcular sobre todas as etapas
+  // toda vez que o usuário volta pra esta aba.
   const cfg = {
     val: (e) => custoOrcadoMap[e.id] || 0,
     cell: (v) => v < 1 ? '—' : fmtBRL(v),
@@ -2585,6 +2581,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     [etapas, valorVinculadoMapFull]
   );
   const weightOverride = custoOrcadoMap;
+  // WBS e rollup de grupo (valores agregados por tarefa-pai): calculados aqui porque
+  // CronogramaFull nunca desmonta ao trocar de aba — Lista/Uso da Tarefa/Gantt recebem
+  // por prop em vez de recalcular do zero a cada remontagem (custo real com 1000+ etapas).
+  const groupVals = React.useMemo(() => computeGroupValues(etapas, custoOrcadoMap), [etapas, custoOrcadoMap]);
+  const wbsMap     = React.useMemo(() => computeAllWBS(etapas), [etapas]);
 
   // Ids de tarefa com vínculo direto a algum item de orçamento (para o filtro vinculado/não vinculado).
   const vinculadoIds = React.useMemo(() => new Set(vinculos.map(v => v.etapa_id)), [vinculos]);
@@ -2964,7 +2965,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           filtroResp={filtroResp} filtroPreset={filtroPreset}
                           filtroPresetRange={filtroPresetRange} filtroTaskIds={filtroTaskIds}
                           filtroTexto={filtroTexto} filtroVinculo={filtroVinculo} vinculadoIds={vinculadoIds}
-                          valorVinculadoMap={valorVinculadoMapFull} hasVinculos={vinculos.length > 0} />
+                          valorVinculadoMap={valorVinculadoMapFull} hasVinculos={vinculos.length > 0}
+                          custoOrcadoMap={custoOrcadoMap} groupVals={groupVals} />
                       </div>
                     </div>
 
@@ -3207,11 +3209,16 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   filtroTexto={filtroTexto} setFiltroTexto={setFiltroTexto}
                   filtroVinculo={filtroVinculo} setFiltroVinculo={setFiltroVinculo}
                   vinculadoIds={vinculadoIds}
+                  valorVinculadoMap={valorVinculadoMapFull}
+                  custoOrcadoMap={custoOrcadoMap}
+                  groupVals={groupVals}
+                  succMap={succByIdAll}
+                  wbsMap={wbsMap}
                 />
               )}
 
               {view === 'uso' && (
-                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} valorVinculadoMap={valorVinculadoMapFull} />
+                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} valorVinculadoMap={valorVinculadoMapFull} custoOrcadoMap={custoOrcadoMap} wbsMap={wbsMap} />
               )}
 
               {view === 'medicao' && (
