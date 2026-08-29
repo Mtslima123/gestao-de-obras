@@ -289,7 +289,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         avancoFisico:     0,
         avancoFinanceiro: 0,
         inicio:           new Date().toISOString().slice(0, 10),
-        previsto:         form.dataPrevista || new Date().toISOString().slice(0, 10),
+        previsto:         form.dataPrevista || null,
         dataFimObra:      form.dataFimObra || null,
         status:           'em_andamento',
         risco:            'baixo',
@@ -717,7 +717,7 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
           <div className="text-muted" style={{ marginTop: 6, fontSize: 13 }}>
             {semObras
               ? 'Todo orçamento precisa estar vinculado a uma obra.'
-              : 'Cada obra já possui um orçamento. Para criar outra versão, use "Criar revisão" no orçamento existente.'}
+              : 'Cada obra já possui um orçamento.'}
           </div>
         </div>
       </Modal>
@@ -727,8 +727,8 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
   return (
     <Modal
       title="Novo orçamento"
-      subtitle="Preencha os dados iniciais do orçamento"
       onClose={onClose}
+      size="sm"
       draggable
       overlay={false}
       footer={

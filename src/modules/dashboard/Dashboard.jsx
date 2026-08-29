@@ -365,7 +365,7 @@ const Dashboard = ({ onOpenObra, onAcao }) => {
                         <span className="mono num text-sm">{o.equipe}</span>
                       </span>
                     </td>
-                    <td className="mono text-sm text-soft">{o.previsto.split('-').reverse().join('/')}</td>
+                    <td className="mono text-sm text-soft">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</td>
                   </tr>
                 ))}
               </tbody>

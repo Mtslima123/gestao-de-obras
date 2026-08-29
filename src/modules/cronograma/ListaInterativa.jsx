@@ -1766,6 +1766,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [ctxMenu]);
 
+  // Clique fora do card da Lista inteira (ribbon + tabela + popovers/modais internos, todos
+  // dentro de listaRef) limpa a seleção de célula/linha — sem isso, criar uma tarefa e clicar
+  // em qualquer outro lugar da tela deixava a seleção "presa" visualmente na grade.
+  React.useEffect(() => {
+    const onDown = (ev) => {
+      if (listaRef.current && !listaRef.current.contains(ev.target)) {
+        setSelectedCell(null);
+        setSelAnchor(null);
+        setSelectedId(null);
+        setMultiSel([]);
+        setMultiSelCols([]);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
+
   // Atalho Ctrl+L — abre o "Localizar" (estilo Excel/Project). preventDefault: o navegador
   // usaria Ctrl+L para a barra de endereços.
   React.useEffect(() => {

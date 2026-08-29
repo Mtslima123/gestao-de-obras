@@ -191,8 +191,16 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
   const [floors,        setFloors]        = React.useState(pavimentosSalvos.length ? [...pavimentosSalvos] : ['']);
   const [selectedTasks, setSelectedTasks] = React.useState([]);
   const [selectedFloors, setSelectedFloors] = React.useState([]);
+  const [buscaTarefa,   setBuscaTarefa]   = React.useState('');
   const floorInputRefs = React.useRef([]);
   const prevFloorsLenRef = React.useRef(floors.length);
+
+  const normBusca = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const etapasFiltradas = React.useMemo(() => {
+    const q = normBusca(buscaTarefa);
+    if (!q) return etapas;
+    return etapas.filter(e => normBusca(e.etapa).includes(q));
+  }, [etapas, buscaTarefa]);
 
   // Ao surgir um novo campo de pavimento (Enter na última linha, ou "Adicionar pavimento"),
   // já habilita a digitação nele — sem precisar clicar.
@@ -418,8 +426,20 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
           <p style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-muted)' }}>
             Selecione as tarefas que receberão os pavimentos como subtarefas.
           </p>
+          <input
+            className="input"
+            placeholder="Buscar tarefa…"
+            value={buscaTarefa}
+            onChange={ev => setBuscaTarefa(ev.target.value)}
+            style={{ width: '100%', marginBottom: 8 }}
+          />
           <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
-            {etapas.map(e => (
+            {etapasFiltradas.length === 0 && (
+              <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>
+                Nenhuma tarefa encontrada para essa busca.
+              </div>
+            )}
+            {etapasFiltradas.map(e => (
               <label key={e.id} style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '8px 14px', cursor: 'pointer',
@@ -547,12 +567,11 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
     // Distribui datas em cascata só nas folhas (grupos têm datas calculadas depois)
     const childCount = {};
     items.forEach(it => { if (it.parentId) childCount[it.parentId] = (childCount[it.parentId] || 0) + 1; });
-    let cursor = todayOffset();
+    const cursor = todayOffset();
     const nodes = items.map(it => {
       const isLeaf = !childCount[it.id];
       const dur    = isLeaf ? (it.dur || 1) : 1;
       const inicio = isLeaf ? cursor : 0;
-      if (isLeaf) cursor += dur;
       return { ...it, isLeaf, dur, inicio };
     });
     if (!useCode && levelIdx < 0) warnings.push('Sem coluna EAP ou Nível: todas as tarefas entraram no mesmo nível. Use recuo depois se precisar.');

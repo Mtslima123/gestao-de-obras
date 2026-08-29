@@ -2895,7 +2895,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                     <div className="kpi-label">Término projetado</div>
                     <div className="kpi-value num" style={{ fontSize: 26, marginTop: 4, textTransform: 'capitalize' }}>{termino}</div>
                     {/* TODO: comparar com a linha de base (delta de dias) quando houver baseline selecionada */}
-                    <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">maior término entre as tarefas</span></div>
                   </div>
                   <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Folga total</div>
