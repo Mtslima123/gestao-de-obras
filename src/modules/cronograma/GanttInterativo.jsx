@@ -923,7 +923,11 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
                 <div style={groupBox}>
                   <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
-                      <button style={tglStyle(editModeRaw)} onClick={() => { const nv = !editModeRaw; saveGanttCfg({ editMode: nv }); setEdit(nv); }}>
+                      {/* Sempre no estilo "ativo": este botão indica o modo atual (Editando ou
+                          Leitura), não um flag ligado/desligado — "Leitura" é tão selecionado
+                          quanto "Editando", então nunca deve aparecer como desmarcado. */}
+                      <button style={tglStyle(true)} onClick={() => { const nv = !editModeRaw; saveGanttCfg({ editMode: nv }); setEdit(nv); }}
+                        title={editModeRaw ? 'Clique para bloquear edição (modo Leitura)' : 'Clique para permitir edição'}>
                         <Icon name="edit" size={12} />{editModeRaw ? 'Editando' : 'Leitura'}
                       </button>
                       <button style={tglStyle(lockDone)} onClick={() => { const nv = !lockDone; saveGanttCfg({ lockDone: nv }); setLock(nv); }} title="Bloquear edição de tarefas concluídas">
