@@ -151,11 +151,15 @@ export const effStatus = (e) => (!e?.isGroup && (e?.avanco ?? 0) >= 100 ? 'done'
 export function getVisibleEtapas(etapas) {
   const collapsed = new Set(etapas.filter(e => e.isGroup && e.collapsed).map(e => e.id));
   if (collapsed.size === 0) return etapas;
+  // Mapa id -> etapa: sem isso, cada subida na cadeia de pais fazia um etapas.find()
+  // (varredura linear) — com EAPs de milhares de tarefas e vários níveis de profundidade
+  // isso vira O(n² × profundidade). Com o mapa, cada subida é O(1).
+  const byId = new Map(etapas.map(e => [e.id, e]));
   return etapas.filter(e => {
     let cur = e;
     while (cur.parentId) {
       if (collapsed.has(cur.parentId)) return false;
-      cur = etapas.find(x => x.id === cur.parentId) || { parentId: null };
+      cur = byId.get(cur.parentId) || { parentId: null };
     }
     return true;
   });
@@ -688,13 +692,26 @@ export function verificarRestricoes(etapas) {
 export function computeGroupValues(etapas, weightOverride = null) {
   const result = {};
 
+  // Mapa id -> etapa e mapa parentId -> filhos, montados 1x: sem eles, getDepth fazia um
+  // etapas.find() por subida na cadeia de pais e o loop de grupos refazia um etapas.filter()
+  // completo pra cada grupo — em EAPs de milhares de tarefas com vários grupos isso vira
+  // O(n² ) (ou pior, com a profundidade). Com os mapas, cada acesso é O(1).
+  const byId = new Map(etapas.map(e => [e.id, e]));
+  const childrenOf = new Map();
+  etapas.forEach(e => {
+    if (e.parentId) {
+      if (!childrenOf.has(e.parentId)) childrenOf.set(e.parentId, []);
+      childrenOf.get(e.parentId).push(e);
+    }
+  });
+
   // Determina a profundidade de cada tarefa para ordenar do mais profundo para o mais raso
   const depthOf = {};
   const getDepth = (id, visited = new Set()) => {
     if (depthOf[id] !== undefined) return depthOf[id];
     if (visited.has(id)) return 0;
     visited.add(id);
-    const e = etapas.find(x => x.id === id);
+    const e = byId.get(id);
     depthOf[id] = e && e.parentId ? 1 + getDepth(e.parentId, visited) : 0;
     return depthOf[id];
   };
@@ -706,7 +723,7 @@ export function computeGroupValues(etapas, weightOverride = null) {
     .sort((a, b) => (depthOf[b.id] || 0) - (depthOf[a.id] || 0));
 
   groups.forEach(g => {
-    const children = etapas.filter(e => e.parentId === g.id);
+    const children = childrenOf.get(g.id) || [];
     if (!children.length) return;
 
     // Para filhos que são grupos, usa os valores já calculados nesta passagem
