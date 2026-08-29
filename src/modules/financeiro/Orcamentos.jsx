@@ -1735,6 +1735,18 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
   }, [refreshKey]);
 
   const handleDelete = async (id) => {
+    // Bloqueia a exclusão se o orçamento já tem itens cadastrados na composição —
+    // apagar de uma vez perderia a composição inteira sem aviso explícito; o usuário
+    // precisa esvaziar os itens primeiro (na tela de composição) antes de excluir.
+    const { existe: temItens, error: itensError } = await orcamentosService.existemItens(id);
+    if (itensError) {
+      toast('Não foi possível verificar os itens deste orçamento. Tente novamente.', { tone: 'danger', icon: 'alert' });
+      return;
+    }
+    if (temItens) {
+      toast('Não é possível excluir: este orçamento já tem itens cadastrados. Remova todos os itens na composição antes de excluir.', { tone: 'danger', icon: 'alert' });
+      return;
+    }
     // Bloqueia a exclusão se algum item deste orçamento já estiver vinculado ao
     // cronograma — apagar o orçamento deixaria o vínculo apontando pra um item que
     // não existe mais, e perderia o rastro de qual valor cobria qual etapa.

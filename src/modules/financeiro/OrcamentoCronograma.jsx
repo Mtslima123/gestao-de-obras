@@ -415,6 +415,25 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   const toast = useToast();
 
   const [obraSel,    setObraSel]    = React.useState('');
+  // Obras com cronograma já criado (etapas não vazias) — só essas fazem sentido aqui,
+  // já que a tela inteira depende de vincular itens a tarefas do cronograma.
+  const [obrasComCronograma, setObrasComCronograma] = React.useState(new Set());
+  React.useEffect(() => {
+    const ids = obras.map(o => o.id);
+    if (ids.length === 0) { setObrasComCronograma(new Set()); return; }
+    let cancelled = false;
+    supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids).then(({ data }) => {
+      if (cancelled) return;
+      const set = new Set();
+      (data || []).forEach(row => { if (migrateEtapas(row.etapas || []).length > 0) set.add(row.obra_id); });
+      setObrasComCronograma(set);
+    });
+    return () => { cancelled = true; };
+  }, [obras]);
+  const obrasDisponiveis = React.useMemo(
+    () => obras.filter(o => obrasComCronograma.has(o.id)),
+    [obras, obrasComCronograma]
+  );
   const [vinculos,   setVinculos]   = React.useState([]);
   const [itens,      setItens]      = React.useState([]);
   const [etapas,     setEtapas]     = React.useState([]);
@@ -651,7 +670,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
             style={{ minWidth: 240 }}
           >
             <option value="">Selecione uma obra…</option>
-            {obras.map(o => (
+            {obrasDisponiveis.map(o => (
               <option key={o.id} value={o.id}>{o.nome}</option>
             ))}
           </select>
@@ -665,7 +684,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
           </div>
           <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Nenhuma obra selecionada</h2>
           <div className="text-muted" style={{ maxWidth: 400, margin: '0 auto', fontSize: 13.5 }}>
-            Selecione uma obra para gerenciar os vínculos entre orçamento e cronograma.
+            {obrasDisponiveis.length === 0
+              ? 'Nenhuma obra com cronograma criado ainda. Crie o cronograma da obra primeiro.'
+              : 'Selecione uma obra para gerenciar os vínculos entre orçamento e cronograma.'}
           </div>
         </div>
       )}

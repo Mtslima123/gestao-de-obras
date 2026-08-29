@@ -40,6 +40,16 @@ export const orcamentosService = {
   buscarPorId: (id) =>
     supabase.from('orcamentos').select('*').eq('id', id).single(),
 
+  // Usado pra bloquear a exclusão do orçamento: se já tem itens na composição,
+  // não pode ser apagado (evita perder a composição sem aviso).
+  existemItens: async (id) => {
+    const { count, error } = await supabase
+      .from('orcamento_itens')
+      .select('id', { count: 'exact', head: true })
+      .eq('orcamento_id', id);
+    return { existe: (count || 0) > 0, error };
+  },
+
   criar: async (dados, userId) => {
     const res = await supabase.from('orcamentos').insert([{ ...dados, user_id: userId }]);
     if (!res.error) registrar({

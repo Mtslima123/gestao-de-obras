@@ -2080,9 +2080,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     || null;
 
   const [obraSel,      setObraSel]      = React.useState(defaultObraId);
-  const [view,         setView]         = React.useState(() => sessionStorage.getItem('cronograma_view') || 'gantt');
-  // Persistem a sub-aba e a obra na sessão para o F5 reabrir onde o usuário estava
-  React.useEffect(() => { sessionStorage.setItem('cronograma_view', view); }, [view]);
+  // Sempre abre na aba Gantt (não persiste a sub-aba entre acessos ao módulo).
+  const [view,         setView]         = React.useState('gantt');
   // Módulo inteiro OU só a aba ativa marcada como "Visualizar" no admin — recalcula a
   // cada troca de aba (view), então uma aba liberada pra editar volta a funcionar ao navegar pra ela.
   const readOnly = moduloSomenteLeitura(userProfile, 'cronograma') || abaSomenteLeitura(userProfile, 'cronograma', view);
