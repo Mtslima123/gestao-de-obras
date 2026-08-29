@@ -351,10 +351,10 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
   // track = trilho claro (parte não executada), fill = cor sólida (executado).
   // fills em hex (não var()) para permitir sufixo alfa CSS, ex: `${sc.fill}33`
   const STATUS_COLORS = {
-    done:     { fill: '#16a34a', track: '#c8efd5', text: '#166534' },
-    late:     { fill: '#b3241e', track: '#f2b3af', text: '#991b1b' },
-    upcoming: { fill: '#60a5fa', track: '#e4eefb', text: '#1e40af' },
-    exec:     { fill: '#1c4584', track: '#d5e2f0', text: '#102b54' },
+    done:     { fill: '#16a34a', track: '#9fdfb8', text: '#166534' },
+    late:     { fill: '#b3241e', track: '#e8938d', text: '#991b1b' },
+    upcoming: { fill: '#60a5fa', track: '#bcd7f5', text: '#1e40af' },
+    exec:     { fill: '#1c4584', track: '#aec3dc', text: '#102b54' },
   };
   const statusKey = (e) => {
     const s = effStatus(e);
@@ -1551,7 +1551,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
                           height: 10,
                           backgroundColor: sc.track,
                           borderRadius: 2,
-                          border: (isConf || isCrit) ? `${borderW}px solid ${borderCol}` : `1px solid ${sc.fill}`,
+                          border: (isConf || isCrit) ? `${borderW}px solid ${borderCol}` : 'none',
                           boxShadow: isSel
                             ? `0 0 0 2px white, 0 0 0 2px ${sc.fill}`
                             : 'none',

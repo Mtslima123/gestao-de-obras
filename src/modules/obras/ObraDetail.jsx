@@ -630,9 +630,8 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   const toast = useToast();
   const [fotos,        setFotos]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
-  const [loadingMore,  setLoadingMore]  = React.useState(false);
-  const [hasMore,      setHasMore]      = React.useState(true);
   const [totalCount,   setTotalCount]   = React.useState(0);
+  const [pagina,       setPagina]       = React.useState(1);
   const [showUpload,   setShowUpload]   = React.useState(false);
   const [editando,     setEditando]     = React.useState(null);
   const [filtroMes,    setFiltroMes]    = React.useState('');
@@ -641,30 +640,18 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   const [deleteFoto,   setDeleteFoto]   = React.useState(null);
   const [pavimentosComFoto, setPavimentosComFoto] = React.useState([]);
   // id -> signed URL da imagem ORIGINAL, resolvida sob demanda (lightbox/download),
-  // porque o que vem no lote é o thumbnail (ou a original, como fallback — ver carregarLote).
+  // porque o que vem na página é o thumbnail (ou a original, como fallback — ver carregarPagina).
   const [originalUrls, setOriginalUrls] = React.useState({});
   // Toolbar gruda sob a topbar ao rolar (mesmo padrão do card "Cronograma físico" logo
   // acima, e de Orcamentos.jsx: STICKY_TOP = topbar 60px + 32px de respiro); a galeria
   // ganha scroll próprio limitado ao espaço restante da viewport, pra toolbar continuar
-  // sempre visível e o restante rolar por dentro — esse mesmo container é o "root" do
-  // IntersectionObserver do scroll infinito, mais abaixo.
+  // sempre visível e o restante rolar por dentro.
   const FOTOS_STICKY_TOP = 92;
   const fotosHeaderRef = React.useRef(null);
   const [fotosBodyMaxH, setFotosBodyMaxH] = React.useState(null);
-  const scrollContainerRef = React.useRef(null);
-  const sentinelRef = React.useRef(null);
 
-  // Bookkeeping de paginação em refs: precisa ser lido de forma síncrona dentro do
-  // callback do IntersectionObserver (recriado só quando hasMore/loading mudam) e
-  // logo após cada await dentro de carregarLote — state só reflete no próximo render.
-  const requestIdRef   = React.useRef(0); // geração da requisição em curso — descarta resposta obsoleta se o filtro mudar antes dela voltar
-  const paginaRef      = React.useRef(0); // próximo índice de lote a buscar
-  const loadedRef      = React.useRef(0); // quantas fotos já foram acumuladas nesta sequência de filtro
-  const totalRef       = React.useRef(0); // total que bate com o filtro atual (do count:'exact' do reset)
-  const hasMoreRef     = React.useRef(true);
-  const loadingMoreRef = React.useRef(false);
-  React.useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
-  React.useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
+  // Descarta resposta obsoleta se o filtro ou a página mudar antes dela voltar.
+  const requestIdRef = React.useRef(0);
 
   // Pavimentos cadastrados na obra — abastecem o dropdown do campo Pavimento nos modais
   const [pavimentos,   setPavimentos]   = React.useState([]);
@@ -686,24 +673,16 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   }, [obra.id]);
   React.useEffect(() => { carregarPavimentosComFoto(); }, [carregarPavimentosComFoto]);
 
-  const carregarLote = React.useCallback(async ({ reset }) => {
-    if (reset) {
-      requestIdRef.current += 1;
-      paginaRef.current = 0;
-      loadedRef.current = 0;
-      setLoading(true);
-      setHasMore(true);
-      hasMoreRef.current = true;
-    } else {
-      if (!hasMoreRef.current || loadingMoreRef.current) return;
-      setLoadingMore(true);
-      loadingMoreRef.current = true;
-    }
+  // Busca a página pedida (1-indexed) já filtrada/ordenada — sempre TROCA o conteúdo
+  // da galeria pelo da página, nunca acumula com a anterior (isso é o que torna
+  // possível paginar por número em vez de rolagem infinita).
+  const carregarPagina = React.useCallback(async (pag) => {
+    requestIdRef.current += 1;
     const meuId = requestIdRef.current;
-    const pageIndex = paginaRef.current;
+    setLoading(true);
     try {
       let q = supabase.from('fotos_obra')
-        .select('*', reset ? { count: 'exact' } : undefined)
+        .select('*', { count: 'exact' })
         .eq('obra_id', obra.id);
       if (filtroPavimento) q = q.eq('pavimento', filtroPavimento);
       if (filtroMes) {
@@ -712,9 +691,9 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
       }
       q = q.order('data', { ascending: false, nullsFirst: false })
            .order('created_at', { ascending: false })
-           .range(pageIndex * FOTOS_POR_LOTE, pageIndex * FOTOS_POR_LOTE + FOTOS_POR_LOTE - 1);
+           .range((pag - 1) * FOTOS_POR_LOTE, pag * FOTOS_POR_LOTE - 1);
       const { data, error, count } = await q;
-      if (meuId !== requestIdRef.current) return; // filtro mudou enquanto isso corria — descarta
+      if (meuId !== requestIdRef.current) return; // filtro/página mudou enquanto isso corria — descarta
       if (error) throw error;
       const rows = data || [];
       // Bucket privado: exibe via URL assinada gerada do thumbnail (ou da própria
@@ -727,47 +706,18 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
         (urls || []).forEach(u => { if (u.signedUrl && !u.error) signed[u.path] = u.signedUrl; });
       }
       if (meuId !== requestIdRef.current) return;
-      const comUrl = rows.map(f => ({ ...f, url: signed[f.thumbnail_path || f.storage_path] || f.url }));
-      setFotos(prev => reset ? comUrl : [...prev, ...comUrl]);
-      paginaRef.current = pageIndex + 1;
-      loadedRef.current += comUrl.length;
-      if (reset && typeof count === 'number') { totalRef.current = count; setTotalCount(count); }
-      const novoHasMore = loadedRef.current < totalRef.current;
-      setHasMore(novoHasMore);
-      hasMoreRef.current = novoHasMore;
+      setFotos(rows.map(f => ({ ...f, url: signed[f.thumbnail_path || f.storage_path] || f.url })));
+      if (typeof count === 'number') setTotalCount(count);
     } catch (err) {
-      logger.error('falha ao carregar fotos', { module: 'obra', action: 'carregarLote', err });
+      logger.error('falha ao carregar fotos', { module: 'obra', action: 'carregarPagina', err });
     } finally {
-      if (meuId === requestIdRef.current) {
-        setLoading(false);
-        setLoadingMore(false);
-        loadingMoreRef.current = false;
-      }
+      if (meuId === requestIdRef.current) setLoading(false);
     }
   }, [obra.id, filtroMes, filtroPavimento]);
 
-  const carregarProximoLoteRef = React.useRef(() => {});
-  carregarProximoLoteRef.current = () => carregarLote({ reset: false });
-
-  // Reinicia a paginação sempre que a obra ou os filtros mudam
-  React.useEffect(() => { carregarLote({ reset: true }); }, [carregarLote]);
-
-  // Scroll infinito: sentinela dentro do mesmo container que já tem overflow próprio
-  // (toolbar sticky). root customizado (não a window) porque quem rola aqui é essa div.
-  // useEffect, não callback ref: refs de filhos são anexados antes do ref do pai
-  // durante o commit, então só depois do efeito é garantido que o container já não é
-  // nulo. Depende de [hasMore, loading] pra reconectar sempre que a sentinela aparece/
-  // some do DOM (ela só existe quando !loading && hasMore).
-  React.useEffect(() => {
-    const root = scrollContainerRef.current;
-    const sentinel = sentinelRef.current;
-    if (!root || !sentinel) return;
-    const io = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) carregarProximoLoteRef.current();
-    }, { root, rootMargin: '600px 0px' });
-    io.observe(sentinel);
-    return () => io.disconnect();
-  }, [hasMore, loading]);
+  // Troca de obra ou de filtro sempre volta pra primeira página
+  React.useEffect(() => { setPagina(1); }, [obra.id, filtroMes, filtroPavimento]);
+  React.useEffect(() => { carregarPagina(pagina); }, [pagina, carregarPagina]);
 
   // Upload em lote: metadados (data/pavimento/descrição) compartilhados por todas as fotos
   // selecionadas de uma vez; insere tudo num único insert e recarrega a galeria uma só vez.
@@ -789,7 +739,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
       const { error: upErr } = await supabase.storage.from('obras-images').upload(path, blob, { contentType: 'image/jpeg' });
       if (upErr) { toast(`Erro no upload de "${file.name}": ${upErr.message}`, { tone: 'danger' }); continue; }
       // Thumbnail é "best effort": se falhar, a foto ainda é salva (thumbnail_path nulo
-      // cai no fallback pra imagem original, em carregarLote) — não vale a pena
+      // cai no fallback pra imagem original, em carregarPagina) — não vale a pena
       // descartar o upload inteiro por causa só da miniatura.
       let thumbnailPath = null;
       const { error: thumbErr } = await supabase.storage.from('obras-images').upload(thumbPath, thumbBlob, { contentType: 'image/jpeg' });
@@ -804,7 +754,8 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
     if (dbErr) { toast('Erro ao salvar fotos', { tone: 'danger' }); return; }
     registrarPavimento(metadados.pavimento);
     toast(rows.length === 1 ? 'Foto salva' : `${rows.length} fotos salvas`, { tone: 'success', icon: 'check' });
-    carregarLote({ reset: true });
+    // Fotos novas entram no topo (ordenação por data/criação desc) — volta pra 1ª página.
+    if (pagina === 1) carregarPagina(1); else setPagina(1);
     carregarPavimentosComFoto();
   };
 
@@ -813,7 +764,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
     if (!error) {
       registrarPavimento(metadados.pavimento);
       toast('Foto atualizada', { tone: 'success', icon: 'check' });
-      carregarLote({ reset: true });
+      carregarPagina(pagina);
       carregarPavimentosComFoto();
     }
   };
@@ -822,10 +773,12 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
     const paths = [foto.storage_path, foto.thumbnail_path].filter(Boolean);
     await supabase.storage.from('obras-images').remove(paths);
     await supabase.from('fotos_obra').delete().eq('id', foto.id);
-    setFotos(f => f.filter(x => x.id !== foto.id));
-    setTotalCount(c => Math.max(0, c - 1));
     toast('Foto excluída', { tone: 'neutral' });
     carregarPavimentosComFoto();
+    // Era a última foto desta página (e não é a 1ª página): volta uma página em vez de
+    // ficar numa página vazia.
+    if (pagina > 1 && fotos.length === 1) setPagina(p => p - 1);
+    else carregarPagina(pagina);
   };
 
   // Resolve a URL assinada da imagem ORIGINAL (não o thumbnail) sob demanda — só quando
@@ -876,6 +829,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   }, [totalCount, filtroMes, filtroPavimento, pavimentosComFoto.length]);
 
   const semFiltro = !filtroMes && !filtroPavimento;
+  const totalPaginas = Math.max(1, Math.ceil(totalCount / FOTOS_POR_LOTE));
 
   return (
     <>
@@ -931,7 +885,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                 <Icon name="search" size={32} style={{ color: 'var(--text-faint)' }} />
                 <div className="text-muted" style={{ marginTop: 12 }}>Nenhuma foto encontrada para o filtro selecionado.</div>
               </div>
-          : <div ref={scrollContainerRef} style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
+          : <div style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
               <div className="gallery">
                 {fotos.map((f, i) => (
                   <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}
@@ -957,8 +911,26 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                   </div>
                 ))}
               </div>
-              {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
-              {loadingMore && <div className="text-muted" style={{ padding: '16px 0', textAlign: 'center', fontSize: 13 }}>Carregando mais fotos…</div>}
+              {totalPaginas > 1 && (
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'center', padding: '16px 0' }}>
+                  <button onClick={() => setPagina(1)} disabled={pagina === 1}
+                    style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, background: 'none', cursor: pagina === 1 ? 'default' : 'pointer', opacity: pagina === 1 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>«</button>
+                  <button onClick={() => setPagina(p => p - 1)} disabled={pagina === 1}
+                    style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, background: 'none', cursor: pagina === 1 ? 'default' : 'pointer', opacity: pagina === 1 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>‹</button>
+                  {Array.from({ length: Math.min(5, totalPaginas) }, (_, i) => {
+                    const pg = Math.max(1, Math.min(totalPaginas - 4, pagina - 2)) + i;
+                    if (pg > totalPaginas) return null;
+                    return (
+                      <button key={pg} onClick={() => setPagina(pg)}
+                        style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', background: pg === pagina ? 'var(--brand)' : 'none', color: pg === pagina ? '#fff' : 'var(--text)', fontWeight: pg === pagina ? 700 : 400, fontSize: 13 }}>{pg}</button>
+                    );
+                  })}
+                  <button onClick={() => setPagina(p => p + 1)} disabled={pagina === totalPaginas}
+                    style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, background: 'none', cursor: pagina === totalPaginas ? 'default' : 'pointer', opacity: pagina === totalPaginas ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>›</button>
+                  <button onClick={() => setPagina(totalPaginas)} disabled={pagina === totalPaginas}
+                    style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, background: 'none', cursor: pagina === totalPaginas ? 'default' : 'pointer', opacity: pagina === totalPaginas ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>»</button>
+                </div>
+              )}
             </div>
       }
       {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFotos} onClose={() => setShowUpload(false)} />}
@@ -967,10 +939,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
         <FotoLightbox
           fotos={fotos}
           idx={lightboxIdx}
-          onNavigate={(novoIdx) => {
-            setLightboxIdx(novoIdx);
-            if (novoIdx >= fotos.length - 5) carregarProximoLoteRef.current();
-          }}
+          onNavigate={setLightboxIdx}
           onClose={() => setLightboxIdx(null)}
           onDownload={baixarFoto}
           urlOriginal={originalUrls[fotos[lightboxIdx]?.id]}
@@ -1514,6 +1483,39 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     window.addEventListener('resize', recompute);
     return () => { ro?.disconnect(); window.removeEventListener('resize', recompute); };
   }, [etapasObra.length, cronoView]);
+  // `position: sticky` de CSS não é confiável pra esse card (mesma lição já documentada em
+  // Cronograma.jsx pro ganttPinned/distPinned: a topbar também é sticky, não fixed, e dois
+  // sticky independentes no scroll do documento podem ficar com o cálculo desatualizado até
+  // um reflow forçado acontecer — era por isso que só "destravava" trocando de aba Lista/Gantt).
+  // Troca pro mesmo mecanismo em JS (sentinela + position:fixed) já usado lá.
+  const cronoSentinelRef = React.useRef(null);
+  const cronoCardRef = React.useRef(null);
+  const [cronoPinned, setCronoPinned] = React.useState(null);
+  React.useEffect(() => {
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      const s = cronoSentinelRef.current;
+      if (!s) return;
+      const r = s.getBoundingClientRect();
+      if (r.top <= CRONO_STICKY_TOP) {
+        setCronoPinned(prev => {
+          if (prev) {
+            return (Math.abs(prev.left - r.left) < 0.5 && Math.abs(prev.width - r.width) < 0.5) ? prev : { ...prev, left: r.left, width: r.width };
+          }
+          // transição solto -> fixo: captura a altura natural do card ANTES de fixá-lo
+          return { left: r.left, width: r.width, height: cronoCardRef.current?.offsetHeight || 0 };
+        });
+      } else {
+        setCronoPinned(prev => (prev ? null : prev));
+      }
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(check); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    check();
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); };
+  }, []);
   const [etapasLoaded, setEtapasLoaded] = React.useState(!!AppData.cronograma[o.id]?.length);
   // Linhas de base do cronograma — usadas na Curva S da Visão Geral como "Previsto".
   const [baselinesObra, setBaselinesObra] = React.useState([]);
@@ -1697,7 +1699,12 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
 
       {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} baselines={baselinesObra} />}
       {tab === 'cronograma' && (
-        <div className="card" style={{ position: 'sticky', top: CRONO_STICKY_TOP, zIndex: 2 }}>
+        <>
+          <div ref={cronoSentinelRef} aria-hidden="true" style={{ height: 0 }} />
+          {cronoPinned && <div aria-hidden="true" style={{ height: cronoPinned.height }} />}
+          <div ref={cronoCardRef} className="card" style={cronoPinned
+            ? { position: 'fixed', top: CRONO_STICKY_TOP, left: cronoPinned.left, width: cronoPinned.width, zIndex: 5 }
+            : undefined}>
           <div className="card-header" ref={cronoHeaderRef}>
             <div>
               <div className="card-title">Cronograma físico</div>
@@ -1823,7 +1830,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
               );
             })()}
           </div>
-        </div>
+          </div>
+        </>
       )}
       {tab === 'fotos' && <Fotos obra={o} readOnly={readOnly || abaSomenteLeitura(userProfile, 'obras', 'fotos')} isAdmin={isAdmin(userProfile)} />}
 

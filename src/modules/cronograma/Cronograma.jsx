@@ -314,48 +314,76 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     textAlign: 'right', fontVariantNumeric: 'tabular-nums',
   };
 
+  // Valor por coluna fixa (id/wbs/nome/inicio/fim/dur/avanco), respeitando a mesma
+  // ordem/ocultação usada na tabela em tela (usoColOrderVisible) — 'Valor (R$)',
+  // meses e 'Total' continuam fixos e vêm sempre depois, como já era.
+  const usoExcelVal = (e, k) => {
+    switch (k) {
+      case 'id':     return e.displayId ?? e.id;
+      case 'wbs':    return wbsMap[e.id] || '';
+      case 'nome':   return '  '.repeat(e.nivel || 0) + e.etapa;
+      case 'inicio': return offsetToDate(e.inicio);
+      case 'fim':    return offsetToDate(e.inicio + e.dur);
+      case 'dur':    return e.dur;
+      case 'avanco': return e.avanco / 100;
+      default:       return '';
+    }
+  };
+  const usoPdfVal = (e, k) => {
+    switch (k) {
+      case 'id':     return String(e.displayId ?? e.id);
+      case 'wbs':    return wbsMap[e.id] || '';
+      case 'nome':   return '  '.repeat(e.nivel || 0) + e.etapa;
+      case 'inicio': return isoToBR(offsetToISO(e.inicio));
+      case 'fim':    return isoToBR(offsetToISO(taskEnd(e)));
+      case 'dur':    return e.dur + 'd';
+      case 'avanco': return e.avanco + '%';
+      default:       return '';
+    }
+  };
+
   const exportExcelUso = () => {
     import('xlsx').then(XLSX => {
-      const wb   = XLSX.utils.book_new();
-      const hdrs = [...USO_COL_LABELS, 'Valor (R$)', ...months.map(m => m.label), 'Total'];
+      const wb     = XLSX.utils.book_new();
+      const nFixed = usoColOrderVisible.length;
+      const hdrs   = [...usoColOrderVisible.map(usoLabel), 'Valor (R$)', ...months.map(m => m.label), 'Total'];
       const rows = [hdrs, ...etapas.map(e => {
         const dist  = getDist(e);
         const total = Object.values(dist).reduce((s, v) => s + v, 0);
         return [
-          e.displayId ?? e.id,
-          wbsMap[e.id] || '',
-          '  '.repeat(e.nivel || 0) + e.etapa,
-          offsetToDate(e.inicio),
-          offsetToDate(e.inicio + e.dur),
-          e.dur,
-          e.avanco / 100,
+          ...usoColOrderVisible.map(k => usoExcelVal(e, k)),
           e.isGroup ? '' : cfg.val(e),
           ...months.map(m => dist[m.key] || 0),
           total,
         ];
       })];
       // Linhas de total: "Total geral" (R$) e "% do total"
-      rows.push(['Total geral', '', '', '', '', '', '', '', ...months.map(m => monthTotals[m.key] || 0), grandTotal]);
-      rows.push(['% do total', '', '', '', '', '', '', '', ...months.map(m => grandTotal > 0 ? monthTotals[m.key] / grandTotal : 0), grandTotal > 0 ? 1 : 0]);
+      rows.push(['Total geral', ...Array(nFixed).fill(''), ...months.map(m => monthTotals[m.key] || 0), grandTotal]);
+      rows.push(['% do total', ...Array(nFixed).fill(''), ...months.map(m => grandTotal > 0 ? monthTotals[m.key] / grandTotal : 0), grandTotal > 0 ? 1 : 0]);
       const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
       const rng = XLSX.utils.decode_range(ws['!ref']);
+      const fmtCols = [];
+      const iIni = usoColOrderVisible.indexOf('inicio'); if (iIni >= 0) fmtCols.push([iIni, 'DD/MM/YYYY']);
+      const iFim = usoColOrderVisible.indexOf('fim');    if (iFim >= 0) fmtCols.push([iFim, 'DD/MM/YYYY']);
+      const iAv  = usoColOrderVisible.indexOf('avanco'); if (iAv  >= 0) fmtCols.push([iAv, '0.00%']);
+      fmtCols.push([nFixed, '#,##0.00']); // Valor (R$)
       for (let R = 1; R <= rng.e.r; R++) {
-        [[3, 'DD/MM/YYYY'], [4, 'DD/MM/YYYY'], [6, '0.00%'], [7, '#,##0.00']].forEach(([C, z]) => {
+        fmtCols.forEach(([C, z]) => {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (ws[addr]) ws[addr].z = z;
         });
-        for (let C = 8; C <= rng.e.c; C++) {
+        for (let C = nFixed + 1; C <= rng.e.c; C++) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (ws[addr]) ws[addr].z = '#,##0.00';
         }
       }
       // Última linha ("% do total") formatada como porcentagem
-      for (let C = 8; C <= rng.e.c; C++) {
+      for (let C = nFixed + 1; C <= rng.e.c; C++) {
         const addr = XLSX.utils.encode_cell({ r: rng.e.r, c: C });
         if (ws[addr]) ws[addr].z = '0.00%';
       }
-      ws['!cols']   = [...USO_COL_KEYS.map(k => ({ wch: Math.max(8, Math.round(getUsoW(k) / 7)) })), { wch: 16 }, ...months.map(() => ({ wch: 16 })), { wch: 16 }];
-      ws['!freeze'] = { xSplit: 3, ySplit: 1 };
+      ws['!cols']   = [...usoColOrderVisible.map(k => ({ wch: Math.max(8, Math.round(getUsoW(k) / 7)) })), { wch: 16 }, ...months.map(() => ({ wch: 16 })), { wch: 16 }];
+      ws['!freeze'] = { xSplit: Math.min(3, nFixed), ySplit: 1 };
       XLSX.utils.book_append_sheet(wb, ws, 'Uso da Tarefa');
       XLSX.writeFile(wb, `uso-tarefa-${new Date().toISOString().slice(0, 10)}.xlsx`);
     });
@@ -373,46 +401,44 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       doc.setFontSize(8);  doc.setTextColor(130);
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
+      const nFixed = usoColOrderVisible.length;
       const body = etapas.map(e => {
         const dist  = getDist(e);
         const total = Object.values(dist).reduce((s, v) => s + v, 0);
         return {
           _isGroup: e.isGroup,
           vals: [
-            String(e.displayId ?? e.id),
-            wbsMap[e.id] || '',
-            '  '.repeat(e.nivel || 0) + e.etapa,
-            isoToBR(offsetToISO(e.inicio)),
-            isoToBR(offsetToISO(taskEnd(e))),
-            e.dur + 'd',
-            e.avanco + '%',
+            ...usoColOrderVisible.map(k => usoPdfVal(e, k)),
             e.isGroup ? '—' : fmtBRL(cfg.val(e)),
             ...months.map(m => dist[m.key] > 0 ? fmtBRL(dist[m.key]) : '—'),
             total > 0 ? fmtBRL(total) : '—',
           ],
         };
       });
-      const fixedStyles = {
-        0: { cellWidth: 8,  halign: 'right' },
-        1: { cellWidth: 12, halign: 'left' },
-        2: { cellWidth: 55, halign: 'left' },
-        3: { cellWidth: 18, halign: 'center' },
-        4: { cellWidth: 18, halign: 'center' },
-        5: { cellWidth: 10, halign: 'right' },
-        6: { cellWidth: 10, halign: 'right' },
-        7: { cellWidth: 22, halign: 'right' },
+      const USO_PDF_STYLE = {
+        id:     { cellWidth: 8,  halign: 'right' },
+        wbs:    { cellWidth: 12, halign: 'left' },
+        nome:   { cellWidth: 55, halign: 'left' },
+        inicio: { cellWidth: 18, halign: 'center' },
+        fim:    { cellWidth: 18, halign: 'center' },
+        dur:    { cellWidth: 10, halign: 'right' },
+        avanco: { cellWidth: 10, halign: 'right' },
       };
+      const fixedStyles = Object.fromEntries([
+        ...usoColOrderVisible.map((k, i) => [i, USO_PDF_STYLE[k]]),
+        [nFixed, { cellWidth: 22, halign: 'right' }],
+      ]);
       const monthStyles = Object.fromEntries([
-        ...months.map((_, i) => [8 + i, { cellWidth: 22, halign: 'right' }]),
-        [8 + months.length, { cellWidth: 22, halign: 'right' }],
+        ...months.map((_, i) => [nFixed + 1 + i, { cellWidth: 22, halign: 'right' }]),
+        [nFixed + 1 + months.length, { cellWidth: 22, halign: 'right' }],
       ]);
       autoTable(doc, {
         startY: 25,
-        head: [[ ...USO_COL_LABELS, 'Valor (R$)', ...months.map(m => m.label), 'Total']],
+        head: [[ ...usoColOrderVisible.map(usoLabel), 'Valor (R$)', ...months.map(m => m.label), 'Total']],
         body: body.map(r => r.vals),
         foot: [
-          [{ content: 'Total geral', colSpan: 8, styles: { halign: 'left' } }, ...months.map(m => monthTotals[m.key] > 0 ? fmtBRL(monthTotals[m.key]) : '—'), grandTotal > 0 ? fmtBRL(grandTotal) : '—'],
-          [{ content: '% do total', colSpan: 8, styles: { halign: 'left' } }, ...months.map(m => grandTotal > 0 ? (monthTotals[m.key] / grandTotal * 100).toFixed(2) + '%' : '—'), grandTotal > 0 ? '100%' : '—'],
+          [{ content: 'Total geral', colSpan: nFixed + 1, styles: { halign: 'left' } }, ...months.map(m => monthTotals[m.key] > 0 ? fmtBRL(monthTotals[m.key]) : '—'), grandTotal > 0 ? fmtBRL(grandTotal) : '—'],
+          [{ content: '% do total', colSpan: nFixed + 1, styles: { halign: 'left' } }, ...months.map(m => grandTotal > 0 ? (monthTotals[m.key] / grandTotal * 100).toFixed(2) + '%' : '—'), grandTotal > 0 ? '100%' : '—'],
         ],
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
