@@ -224,11 +224,11 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     cell: (v) => v < 1 ? '—' : fmtBRL(v),
     tot: (v) => fmtBRL(v),
   };
-  const metricOverride = React.useMemo(() => {
-    const o = {}; etapas.forEach(e => { if (!e.isGroup) o[e.id] = cfg.val(e); }); return o;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etapas, custoOrcadoMap]);
-  const dist2 = React.useMemo(() => computeMonthlyDist(etapas, metricOverride), [etapas, metricOverride]);
+  // dist2 (distribuição mensal por tarefa) NÃO é recalculado aqui — é matematicamente
+  // idêntico ao `monthlyDist` que já chega pronto por prop (mesmo computeMonthlyDist,
+  // mesmo custoOrcadoMap; computeMonthlyDist já ignora grupos e só lê o peso da folha).
+  // Recalcular seria refazer, a cada montagem, o mesmo trabalho que o pai já fez.
+  const dist2 = monthlyDist;
   const cellMax = React.useMemo(() => {
     let mx = 0;
     etapas.forEach(e => { if (!e.isGroup) { const d = dist2[e.id] || {}; months.forEach(m => { const v = d[m.key] || 0; if (v > mx) mx = v; }); } });
