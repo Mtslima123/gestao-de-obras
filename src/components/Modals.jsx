@@ -8,11 +8,17 @@ import { logger } from '../services/logger';
 // Modals, toasts, dropdowns — shared interactive components
 
 // ----- Modal shell -----
-const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false, overlay = true }) => {
+const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false, resizable = false, overlay = true }) => {
   const nodeRef  = React.useRef(null);
   const dragging = React.useRef(false);
   const offset   = React.useRef({ x: 0, y: 0 });
   const [pos, setPos] = React.useState(null);
+  // Redimensionamento pelo canto (arrastar na diagonal) — opt-in via `resizable`,
+  // independente do `draggable` (mover pelo cabeçalho). `customSize` fica null até o
+  // usuário arrastar o canto pela 1ª vez; até lá o modal usa o tamanho da classe `size`.
+  const resizing = React.useRef(false);
+  const resizeStart = React.useRef({ x: 0, y: 0, w: 0, h: 0 });
+  const [customSize, setCustomSize] = React.useState(null);
 
   React.useEffect(() => {
     const onEsc = (e) => { if (e.key === 'Escape') onClose(); };
@@ -62,8 +68,41 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     e.preventDefault();
   };
 
+  React.useEffect(() => {
+    if (!resizable) return;
+    const move = (e) => {
+      if (!resizing.current) return;
+      const { x, y, w, h } = resizeStart.current;
+      const left = nodeRef.current?.getBoundingClientRect().left ?? 0;
+      const top  = nodeRef.current?.getBoundingClientRect().top  ?? 0;
+      setCustomSize({
+        w: Math.max(320, Math.min(window.innerWidth  - left - 8, w + (e.clientX - x))),
+        h: Math.max(200, Math.min(window.innerHeight - top  - 8, h + (e.clientY - y))),
+      });
+    };
+    const up = () => { resizing.current = false; };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+  }, [resizable]);
+
+  const handleResizeDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizing.current = true;
+    const el = nodeRef.current;
+    resizeStart.current = { x: e.clientX, y: e.clientY, w: el?.offsetWidth ?? 600, h: el?.offsetHeight ?? 400 };
+  };
+
   const sizeClass = size === 'sm' ? 'sm' : size === 'lg' ? 'lg' : size === 'xl' ? 'xl' : '';
-  const modalStyle = draggable && pos ? { position: 'fixed', left: pos.x, top: pos.y, margin: 0 } : {};
+  const modalStyle = {
+    position: 'relative', // âncora pra alça de redimensionar (position:absolute); "fixed" abaixo sobrescreve quando draggable
+    ...(draggable && pos ? { position: 'fixed', left: pos.x, top: pos.y, margin: 0 } : {}),
+    ...(customSize ? { width: customSize.w, height: customSize.h, maxWidth: 'none', maxHeight: 'none' } : {}),
+  };
   const headerStyle = draggable ? { cursor: 'grab', userSelect: 'none' } : {};
 
   return (
@@ -82,6 +121,21 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-footer">{footer}</div>}
+        {resizable && (
+          <div
+            onMouseDown={handleResizeDown}
+            title="Arraste para redimensionar"
+            style={{
+              position: 'absolute', right: 0, bottom: 0, width: 18, height: 18,
+              cursor: 'nwse-resize', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 2,
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" style={{ opacity: 0.45 }}>
+              <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.4" />
+              <line x1="9" y1="5" x2="5" y2="9" stroke="currentColor" strokeWidth="1.4" />
+            </svg>
+          </div>
+        )}
       </div>
     </div>
   );
