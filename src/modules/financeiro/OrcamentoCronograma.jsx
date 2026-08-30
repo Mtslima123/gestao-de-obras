@@ -348,7 +348,7 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
           )}
         </div>
         <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'var(--surface-muted)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'var(--surface-muted)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', borderLeft: '3px solid transparent' }}>
             <span style={{ flex: 1 }}>Subtarefa</span>
             <span style={{ width: 90, textAlign: 'center' }}>Fator peso</span>
             <span style={{ width: 24 }} />
@@ -361,16 +361,27 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
             const bloqueada = concluida || cadeado;
             const podeDigitarValor = !bloqueada && valorEditavel(f);
             const aberto = !collapsed.has(f.id);
+            // Tarefa-pai dentro de outra tarefa-pai: tom mais forte para o nível mais alto,
+            // enfraquecendo a cada nível mais fundo — mesma escala do Gantt, da Lista, da
+            // Curva Física e da Medição Mensal. Aqui a profundidade é relativa ao grupo que
+            // está sendo distribuído, que é a hierarquia que o modal mostra.
+            const groupTint = no.depth <= 0 ? 'var(--brand-100)' : no.depth === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
             return (
-              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--border-subtle)', background: no.temFilhos ? 'var(--surface-muted)' : undefined }}>
+              <div key={f.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                borderTop: '1px solid var(--border-subtle)',
+                background: no.temFilhos ? groupTint : undefined,
+                // Barra à esquerda: sinal de grupo que sobrevive ao tom mais fraco dos níveis fundos
+                borderLeft: no.temFilhos ? '3px solid var(--brand)' : '3px solid transparent',
+              }}>
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: no.depth * 16 }}>
                   {no.temFilhos ? (
                     <button onClick={() => toggle(f.id)} title={aberto ? 'Colapsar' : 'Expandir'}
-                      style={{ display: 'flex', padding: 2, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                      style={{ display: 'flex', padding: 2, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand)' }}>
                       <Icon name={aberto ? 'chevron-down' : 'chevron-right'} size={14} />
                     </button>
                   ) : <span style={{ width: 18 }} />}
-                  <span style={{ fontSize: 13, fontWeight: no.temFilhos ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.etapa}</span>
+                  <span style={{ fontSize: 13, fontWeight: no.temFilhos ? 700 : 400, color: no.temFilhos ? 'var(--brand)' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.etapa}</span>
                 </div>
                 <input
                   ref={el => { pesoRefs.current[idx] = el; }}
@@ -419,14 +430,20 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
                     title={podeDigitarValor ? 'Duplo clique para digitar o valor'
                       : cadeado ? 'Linha travada — destrave o cadeado para editar'
                       : 'Valor definido pelas irmãs — ajuste o fator peso ou o valor de outra linha'}
-                    style={{ width: 130, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13, cursor: podeDigitarValor ? 'text' : 'default' }}>
+                    style={{
+                      width: 130, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13,
+                      cursor: podeDigitarValor ? 'text' : 'default',
+                      // Valor do grupo é a soma da subárvore, não um número irmão dos outros
+                      fontWeight: no.temFilhos ? 700 : 400,
+                      color: no.temFilhos ? 'var(--brand)' : undefined,
+                    }}>
                     {formatBRL(valorPorNo[f.id] || 0)}
                   </span>
                 )}
               </div>
             );
           })}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '2px solid var(--border)', borderLeft: '3px solid transparent', fontWeight: 700 }}>
             <span style={{ flex: 1, textAlign: 'right', fontSize: 13 }}>Total</span>
             <span style={{ width: 90 }} />
             <span className="mono" style={{ width: 130, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
