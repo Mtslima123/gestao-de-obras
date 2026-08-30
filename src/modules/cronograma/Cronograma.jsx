@@ -23,7 +23,8 @@ import {
   CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal,
 } from './cronogramaModais';
 import { GM_TOTAL, gmConflicts } from './cronogramaShared';
-import { _cronCache, _cronSavedAt, invalidateOcCache } from './cronogramaCache';
+import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache } from './cronogramaCache';
+import { snapshotEtapas, diffEtapas, patchCompensa } from './etapasPatch';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
@@ -2012,6 +2013,43 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
   // de etapas não sobrescrevem a config de feriados já gravada na obra.
   if (feriados !== undefined) payload.feriados = feriados;
   const expected = _cronSavedAt[obraId];
+  const outros = { customCols, baselines, reprogramacoes, feriados };
+
+  // ── Caminho rápido: manda só as etapas que mudaram ────────────────────────
+  // O array inteiro tem 497 kB na maior obra; subir tudo para mexer numa célula era
+  // o que fazia cada save levar segundos. Só vale com baseline conhecida (o patch
+  // depende do snapshot do último save bater com o banco).
+  if (expected) {
+    const patch = diffEtapas(_cronSavedSnap[obraId], etapas, outros);
+    if (patch && patch.inalterado) return { error: null }; // nada mudou: não escreve
+    if (patch && patchCompensa(patch, etapas.length)) {
+      const t0 = performance.now();
+      const { data, error } = await supabase.rpc('aplicar_patch_etapas', {
+        p_obra_id: obraId,
+        p_upserts: patch.upserts,
+        p_ordem: patch.ordem,
+        p_expected_updated_at: expected,
+      });
+      // A função é deployada pelo TI à parte (migration 20260829000002). Sem ela o
+      // PostgREST devolve PGRST202 e o save segue pelo caminho completo abaixo.
+      const indisponivel = error && (error.code === 'PGRST202' || /function .* does not exist/i.test(error.message || ''));
+      if (!indisponivel) {
+        if (error) { logger.error('falha ao salvar cronograma', { module: 'cronograma', action: 'patch', obraId, err: error }); return { error }; }
+        if (!data) {
+          logger.warn('conflito de edicao — outra sessao salvou', { module: 'cronograma', action: 'conflito', obraId });
+          return { error: null, conflict: true };
+        }
+        _cronSavedAt[obraId] = data;
+        _cronSavedSnap[obraId] = snapshotEtapas(etapas, outros);
+        invalidateOcCache(obraId);
+        logger.debug('cronograma salvo por patch', {
+          module: 'cronograma', obraId, ms: Math.round(performance.now() - t0),
+          upserts: patch.upserts.length, reordenou: patch.ordem != null, etapasTotal: etapas.length,
+        });
+        return { error: null };
+      }
+    }
+  }
 
   // Sem baseline conhecida (1ª sessão sem ter carregado do banco): upsert simples (comportamento anterior).
   if (expected === undefined || expected === null) {
@@ -2019,6 +2057,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
       { obra_id: obraId, ...payload }, { onConflict: 'obra_id' });
     if (error) { logger.error('falha ao salvar cronograma', { module: 'cronograma', action: 'upsert', obraId, err: error }); return { error }; }
     _cronSavedAt[obraId] = nowISO;
+    _cronSavedSnap[obraId] = snapshotEtapas(etapas, outros);
     invalidateOcCache(obraId);
     return { error: null };
   }
@@ -2027,7 +2066,12 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
   const { data, error } = await supabase.from('cronogramas')
     .update(payload).eq('obra_id', obraId).eq('updated_at', expected).select('updated_at');
   if (error) { logger.error('falha ao salvar cronograma', { module: 'cronograma', action: 'update', obraId, err: error }); return { error }; }
-  if (data && data.length) { _cronSavedAt[obraId] = nowISO; invalidateOcCache(obraId); return { error: null }; }
+  if (data && data.length) {
+    _cronSavedAt[obraId] = nowISO;
+    _cronSavedSnap[obraId] = snapshotEtapas(etapas, outros);
+    invalidateOcCache(obraId);
+    return { error: null };
+  }
 
   // 0 linhas: ou a linha ainda não existe, ou o updated_at mudou (conflito).
   const { data: atual } = await supabase.from('cronogramas')
@@ -2036,6 +2080,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
     const { error: insErr } = await supabase.from('cronogramas').insert({ obra_id: obraId, ...payload });
     if (insErr) { logger.error('falha ao inserir cronograma', { module: 'cronograma', action: 'insert', obraId, err: insErr }); return { error: insErr }; }
     _cronSavedAt[obraId] = nowISO;
+    _cronSavedSnap[obraId] = snapshotEtapas(etapas, outros);
     invalidateOcCache(obraId);
     return { error: null };
   }
@@ -2051,6 +2096,9 @@ async function carregarCronogramaDB(obraId) {
     .single();
   if (error) return null;
   _cronSavedAt[obraId] = data.updated_at;  // baseline do bloqueio otimista
+  // O snapshot do diff é montado por quem chama, depois de migrateEtapas/autoSchedule:
+  // aqui os objetos ainda são o JSON cru do banco, com outra ordem de chaves e sem os
+  // defaults preenchidos, e todo diff acusaria as 1139 etapas como alteradas.
   return data;
 }
 
@@ -2377,6 +2425,16 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         setReprogramacoes(reps);
         if (db.reprogramacoes?.length) salvarReprogramacoesLocal(obraSel, db.reprogramacoes);
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(reps));
+        // Base do diff do save incremental: as mesmas etapas e os mesmos `outros` que o
+        // próximo salvarCronograma vai receber. Montado aqui, e não no carregarCronogramaDB,
+        // porque é depois de migrateEtapas/autoScheduleFromDeps que os objetos ficam iguais
+        // aos que o commit envia.
+        _cronSavedSnap[obraSel] = snapshotEtapas(etapasDB, {
+          customCols: db.custom_cols?.length ? db.custom_cols : customCols,
+          baselines: bls,
+          reprogramacoes: reps,
+          feriados: undefined,
+        });
         // Feriados: DB é a fonte de verdade quando tem conteúdo; senão mantém o valor do
         // localStorage (setado no efeito keyed em obraSel) para migração suave.
         if (db.feriados && (db.feriados.dias?.length || db.feriados.sabadoUtil)) {

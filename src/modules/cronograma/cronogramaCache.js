@@ -4,10 +4,14 @@
 // restaura etapas antigas do cache sem reler o banco.
 export const _cronCache   = {}; // { [obraId]: { etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap } }
 export const _cronSavedAt = {}; // { [obraId]: updated_at } — baseline do bloqueio otimista
+// Espelho do que está gravado no banco (JSON por id + ordem), base do diff do save
+// incremental. Ver etapasPatch.js. Sem isto o save cai no envio do array inteiro.
+export const _cronSavedSnap = {}; // { [obraId]: { porId, ordem, outros } }
 
 export function invalidateCronCache(obraId) {
   delete _cronCache[obraId];
   delete _cronSavedAt[obraId];
+  delete _cronSavedSnap[obraId];
 }
 
 // Cache da tela Orçamento × Cronograma (vínculos + itens + etapas), mesmo padrão acima —

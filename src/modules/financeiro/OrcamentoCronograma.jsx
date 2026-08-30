@@ -5,8 +5,11 @@ import { supabase } from '../../services/supabase';
 import { vinculoService, itemValor } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
+import { parseBRL } from '../cronograma/scheduleEngine';
+import { buildChildrenMap, flattenTree, noTravado, redistribuirPorValor } from './distribuirPesos';
 import { invalidateCronCache, _ocCache } from '../cronograma/cronogramaCache';
 import { isAdmin } from '../../utils/permissions';
+import { logger } from '../../services/logger';
 
 // ─── AutocompleteInput ────────────────────────────────────────────────────────
 const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
@@ -177,35 +180,64 @@ const TarefaCronogramaSelect = React.memo(({ etapas, value, onChange, disabled }
 });
 
 // ─── DistribuirPesosModal ─────────────────────────────────────────────────────
-// Distribui o valor de um grupo entre suas subtarefas-folha ajustando o fator_peso
-// de cada uma (entrada por fator peso, igual à Lista). O valor em R$ é recalculado
-// via computeValorVinculadoMap, isolado ao valor que este grupo recebe.
+// Distribui o valor de um grupo pela sua árvore de subtarefas ajustando o fator_peso.
+// Mostra os subgrupos intermediários como linhas próprias: o valor de um grupo é
+// dividido entre seus filhos diretos pelo peso relativo, e cada subgrupo reparte o
+// que recebeu entre os próprios filhos — então dá para definir quanto vai para cada
+// subgrupo sem mexer na divisão interna dele.
+// As duas colunas são editáveis: fator peso direto, ou o valor em R$ (convertido de
+// volta em peso por redistribuirPorValor). O R$ é sempre recalculado por
+// computeValorVinculadoMap, isolado ao valor que este grupo recebe.
 const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, saving, onSave, onClose }) => {
-  // Folhas descendentes do grupo (sem filhos), na ordem do array
-  const folhas = React.useMemo(() => {
-    const filhosDe = (id) => etapas.filter(e => e.parentId === id);
-    const out = [];
-    const walk = (id) => filhosDe(id).forEach(c => {
-      if (filhosDe(c.id).length === 0) out.push(c); else walk(c.id);
-    });
-    walk(etapa.id);
-    return out;
-  }, [etapa, etapas]);
+  const childrenOf = React.useMemo(() => buildChildrenMap(etapas), [etapas]);
+
+  // Todos os descendentes, em qualquer nível — alimenta o estado e o payload do save
+  const descendentes = React.useMemo(
+    () => flattenTree(etapa.id, childrenOf),
+    [etapa.id, childrenOf]
+  );
+
+  // Subgrupos além do primeiro nível começam colapsados: os filhos diretos do grupo
+  // são a decisão principal, e abrir tudo devolveria a lista quilométrica de antes.
+  const [collapsed, setCollapsed] = React.useState(() =>
+    new Set(descendentes.filter(n => n.temFilhos && n.depth > 0).map(n => n.etapa.id))
+  );
+  const linhas = React.useMemo(
+    () => flattenTree(etapa.id, childrenOf, collapsed),
+    [etapa.id, childrenOf, collapsed]
+  );
+  const grupos = React.useMemo(() => descendentes.filter(n => n.temFilhos), [descendentes]);
+  const tudoAberto = grupos.length > 0 && collapsed.size === 0;
+  const tudoRecolhido = grupos.length > 0 && collapsed.size === grupos.length;
+  const toggle = (id) => setCollapsed(s => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
 
   const [pesos, setPesos] = React.useState(() =>
-    Object.fromEntries(folhas.map(f => [f.id, String(f.fator_peso ?? 1)]))
+    Object.fromEntries(descendentes.map(n => [n.etapa.id, String(n.etapa.fator_peso ?? 1)]))
   );
   const setPeso = (id, val) => setPesos(p => ({ ...p, [id]: val }));
-  // Refs dos inputs de fator peso — Enter confirma e pula para a próxima subtarefa
+  // Cadeado por linha: peso não é editável nem reescrito pela redistribuição das irmãs.
+  // Sai do campo peso_travado salvo no cronograma e volta para lá no save.
+  const [travas, setTravas] = React.useState(() =>
+    new Set(descendentes.filter(n => n.etapa.peso_travado).map(n => n.etapa.id))
+  );
+  const alternarTrava = (id) => setTravas(s => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+  // Refs dos inputs de fator peso — Enter confirma e pula para a próxima linha visível
   const pesoRefs = React.useRef([]);
+  // Linha cuja coluna de R$ está sendo digitada (duplo clique abre, igual à Lista)
+  const [editandoValor, setEditandoValor] = React.useState(null);
   // Unidade base usada para distribuir os pesos deste grupo (registro/documentação)
   const [unidade, setUnidade] = React.useState(etapa.peso_unidade || '');
   const UNIDADES_PESO = ['m²', 'm', 'm³', 'un', 'vb', '%', 'pav'];
 
-  const nomePai = React.useCallback(
-    (f) => (f.parentId && f.parentId !== etapa.id ? (etapas.find(e => e.id === f.parentId)?.etapa || '') : ''),
-    [etapas, etapa]
-  );
+  const travado = React.useCallback((e) => noTravado(e, childrenOf), [childrenOf]);
 
   // Valor que o grupo recebe (soma dos itens vinculados diretamente a ele)
   const valorGrupo = React.useMemo(
@@ -213,39 +245,88 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
     [vinculos, orcamentoItensMap]
   );
 
-  // Com os pesos digitados, quanto cai em cada folha (isolado a este grupo)
-  const valorPorFolha = React.useMemo(() => {
+  // Com os pesos digitados, quanto cai em cada nó (isolado a este grupo). O bubble-up
+  // do computeValorVinculadoMap já devolve o agregado dos grupos, não só das folhas.
+  const valorPorNo = React.useMemo(() => {
     const editadas = etapas.map(e =>
       pesos[e.id] != null ? { ...e, fator_peso: Math.max(0, parseFloat(pesos[e.id]) || 0) } : e
     );
     return computeValorVinculadoMap(editadas, vinculos, orcamentoItensMap);
   }, [pesos, etapas, vinculos, orcamentoItensMap]);
 
-  const totalDistribuido = folhas.reduce((s, f) => s + (valorPorFolha[f.id] || 0), 0);
+  // Só os filhos diretos — somar a árvore inteira contaria os grupos em dobro
+  const totalDistribuido = (childrenOf.get(etapa.id) || [])
+    .reduce((s, c) => s + (valorPorNo[c.id] || 0), 0);
+  // Diferença real de dinheiro: acontece quando um conjunto de irmãos ficou todo com
+  // peso zero e o rateio não teve por onde descer (ganttUtils, totalFator <= 0).
+  const divergencia = valorGrupo - totalDistribuido;
+  const temDivergencia = Math.abs(divergencia) > 0.01;
+
+  // Valor do pai que chega neste conjunto de irmãos
+  const valorDoPai = React.useCallback(
+    (f) => (f.parentId === etapa.id ? valorGrupo : (valorPorNo[f.parentId] || 0)),
+    [etapa.id, valorGrupo, valorPorNo]
+  );
+
+  // Com um só irmão livre não há o que redistribuir: ele recebe tudo por definição.
+  const valorEditavel = React.useCallback((f) => {
+    if (travas.has(f.id) || valorDoPai(f) <= 0) return false;
+    const livres = (childrenOf.get(f.parentId) || [])
+      .filter(c => c.valorVinculadoFixo == null && !travas.has(c.id));
+    return livres.length >= 2;
+  }, [childrenOf, valorDoPai, travas]);
+
+  // R$ digitado → fator_peso dos irmãos
+  const commitValor = (no, raw) => {
+    setEditandoValor(null);
+    const valorPai = valorDoPai(no.etapa);
+    const patch = redistribuirPorValor({
+      irmaos: childrenOf.get(no.etapa.parentId) || [],
+      alvoId: no.etapa.id,
+      valorAlvo: parseBRL(raw),
+      valorPai,
+      valorPorNo,
+      pesos,
+      travas,
+    });
+    if (patch) setPesos(p => ({ ...p, ...patch }));
+  };
+
+  // Peso só vai no payload de quem pode receber peso novo: concluída e cadeado ficam de
+  // fora. O estado do cadeado em si vai à parte, para todas as linhas.
+  const handleSalvar = () => onSave(
+    Object.fromEntries(
+      descendentes
+        .filter(n => !travado(n.etapa) && !travas.has(n.etapa.id))
+        .map(n => [n.etapa.id, pesos[n.etapa.id]])
+    ),
+    unidade,
+    Object.fromEntries(descendentes.map(n => [n.etapa.id, travas.has(n.etapa.id)]))
+  );
 
   return (
     <Modal
       title={`Distribuir pesos — ${etapa.etapa}`}
-      subtitle={`Valor do grupo: ${formatBRL(valorGrupo)} · ajuste o fator peso de cada subtarefa`}
+      subtitle={`Valor do grupo: ${formatBRL(valorGrupo)} · ajuste o fator peso ou digite o valor de cada linha`}
       onClose={onClose}
       resizable
       overlay={false}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={() => onSave(pesos, unidade)} disabled={saving || folhas.length === 0}>
+          <button className="btn btn-primary" onClick={handleSalvar} disabled={saving || descendentes.length === 0}>
             {saving ? 'Salvando…' : 'Salvar distribuição'}
           </button>
         </>
       }
     >
-      {folhas.length === 0 ? (
+      {descendentes.length === 0 ? (
         <div style={{ padding: '10px 4px', fontSize: 13, color: 'var(--text-muted)' }}>
           Esta tarefa não tem subtarefas para distribuir.
         </div>
       ) : (
         <>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)' }}>Unidade base:</span>
           <select className="input" value={unidade} onChange={e => setUnidade(e.target.value)}
             title="Unidade usada para distribuir os pesos deste grupo (apenas registro)" style={{ width: 130 }}>
@@ -253,21 +334,43 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
             {UNIDADES_PESO.map(u => <option key={u} value={u}>{u}</option>)}
           </select>
           <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>referência de como os pesos foram distribuídos</span>
+          {grupos.length > 0 && (
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+              <button className="btn btn-ghost" style={{ fontSize: 12 }} disabled={tudoAberto}
+                onClick={() => setCollapsed(new Set())}>
+                Expandir tudo
+              </button>
+              <button className="btn btn-ghost" style={{ fontSize: 12 }} disabled={tudoRecolhido}
+                onClick={() => setCollapsed(new Set(grupos.map(n => n.etapa.id)))}>
+                Recolher tudo
+              </button>
+            </div>
+          )}
         </div>
         <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'var(--surface-muted)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
             <span style={{ flex: 1 }}>Subtarefa</span>
             <span style={{ width: 90, textAlign: 'center' }}>Fator peso</span>
-            <span style={{ width: 120, textAlign: 'right' }}>Valor (R$)</span>
+            <span style={{ width: 24 }} />
+            <span style={{ width: 130, textAlign: 'right' }}>Valor (R$)</span>
           </div>
-          {folhas.map((f, idx) => {
-            const pai = nomePai(f);
-            const concluida = (f.avanco ?? 0) >= 100;
+          {linhas.map((no, idx) => {
+            const f = no.etapa;
+            const concluida = travado(f);
+            const cadeado = travas.has(f.id);
+            const bloqueada = concluida || cadeado;
+            const podeDigitarValor = !bloqueada && valorEditavel(f);
+            const aberto = !collapsed.has(f.id);
             return (
-              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--border-subtle)' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, paddingLeft: Math.max(0, (f.nivel || 0) - (etapa.nivel || 0) - 1) * 12 }}>{f.etapa}</div>
-                  {pai && <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>em {pai}</div>}
+              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--border-subtle)', background: no.temFilhos ? 'var(--surface-muted)' : undefined }}>
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: no.depth * 16 }}>
+                  {no.temFilhos ? (
+                    <button onClick={() => toggle(f.id)} title={aberto ? 'Colapsar' : 'Expandir'}
+                      style={{ display: 'flex', padding: 2, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                      <Icon name={aberto ? 'chevron-down' : 'chevron-right'} size={14} />
+                    </button>
+                  ) : <span style={{ width: 18 }} />}
+                  <span style={{ fontSize: 13, fontWeight: no.temFilhos ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.etapa}</span>
                 </div>
                 <input
                   ref={el => { pesoRefs.current[idx] = el; }}
@@ -275,8 +378,10 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
                   className="input"
                   value={pesos[f.id] ?? ''}
                   onChange={e => setPeso(f.id, e.target.value)}
-                  disabled={concluida}
-                  title={concluida ? 'Tarefa concluída — peso e valor travados' : undefined}
+                  disabled={bloqueada}
+                  title={cadeado ? 'Peso travado no cadeado'
+                    : concluida ? (no.temFilhos ? 'Todas as subtarefas deste grupo estão concluídas — peso travado' : 'Tarefa concluída — peso e valor travados')
+                    : undefined}
                   onKeyDown={e => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
@@ -284,22 +389,57 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
                       if (next) { next.focus(); next.select(); } else e.currentTarget.blur();
                     }
                   }}
-                  style={{ width: 90, textAlign: 'right', opacity: concluida ? 0.55 : 1, cursor: concluida ? 'not-allowed' : 'text' }}
+                  style={{ width: 90, textAlign: 'right', opacity: bloqueada ? 0.55 : 1, cursor: bloqueada ? 'not-allowed' : 'text' }}
                 />
-                <span className="mono" style={{ width: 120, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
-                  {formatBRL(valorPorFolha[f.id] || 0)}
-                </span>
+                <button
+                  onClick={() => alternarTrava(f.id)}
+                  disabled={concluida}
+                  title={concluida ? 'Tarefa concluída — já travada pela conclusão'
+                    : cadeado ? 'Travada: o peso não muda quando você edita o valor de outra linha. Clique para destravar.'
+                    : 'Travar este peso contra alteração acidental'}
+                  style={{ width: 24, display: 'flex', justifyContent: 'center', padding: 2, background: 'none', border: 'none',
+                    cursor: concluida ? 'not-allowed' : 'pointer', opacity: concluida ? 0.35 : 1,
+                    color: cadeado ? 'var(--brand)' : 'var(--text-faint)' }}>
+                  <Icon name={cadeado ? 'lock' : 'unlock'} size={14} />
+                </button>
+                {editandoValor === f.id ? (
+                  <input
+                    autoFocus type="text" className="input mono"
+                    defaultValue={(valorPorNo[f.id] || 0).toFixed(2).replace('.', ',')}
+                    onBlur={e => commitValor(no, e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+                      if (e.key === 'Escape') { e.preventDefault(); setEditandoValor(null); }
+                    }}
+                    style={{ width: 130, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}
+                  />
+                ) : (
+                  <span className="mono"
+                    onDoubleClick={() => { if (podeDigitarValor) setEditandoValor(f.id); }}
+                    title={podeDigitarValor ? 'Duplo clique para digitar o valor'
+                      : cadeado ? 'Linha travada — destrave o cadeado para editar'
+                      : 'Valor definido pelas irmãs — ajuste o fator peso ou o valor de outra linha'}
+                    style={{ width: 130, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13, cursor: podeDigitarValor ? 'text' : 'default' }}>
+                    {formatBRL(valorPorNo[f.id] || 0)}
+                  </span>
+                )}
               </div>
             );
           })}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '2px solid var(--border)', fontWeight: 700 }}>
             <span style={{ flex: 1, textAlign: 'right', fontSize: 13 }}>Total</span>
             <span style={{ width: 90 }} />
-            <span className="mono" style={{ width: 120, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
+            <span className="mono" style={{ width: 130, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
               {formatBRL(totalDistribuido)}
             </span>
           </div>
         </div>
+        {temDivergencia && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>
+            <Icon name="alert-triangle" size={14} />
+            <span>{formatBRL(Math.abs(divergencia))} do grupo não chegou a nenhuma subtarefa — há um conjunto de irmãs com todos os pesos zerados.</span>
+          </div>
+        )}
         </>
       )}
     </Modal>
@@ -602,33 +742,104 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   };
 
   // ── Salvar distribuição de pesos (fator_peso) de volta no cronograma ───────
-  const handleSalvarPesos = async (novosPesos, unidade) => {
+  const handleSalvarPesos = async (novosPesos, unidade, travas = {}) => {
     setSalvandoPeso(true);
     const novasEtapas = etapas.map(e => {
       let ne = e;
-      // Tarefa 100% concluída: peso travado, não deixa a distribuição alterá-lo.
-      if (novosPesos[e.id] != null && (e.avanco ?? 0) < 100) ne = { ...ne, fator_peso: Math.max(0, parseFloat(novosPesos[e.id]) || 0) };
+      // Cadeado do modal. `undefined` some no JSON.stringify, então destravar remove a
+      // chave em vez de deixar um peso_travado: false acumulado no JSONB.
+      if (travas[e.id] !== undefined) ne = { ...ne, peso_travado: travas[e.id] || undefined };
+      // Folha 100% concluída: peso travado, não deixa a distribuição alterá-lo. Grupo fica
+      // fora dessa regra — o avanco dele é a média dos filhos (recomputeHierarchy) e passaria
+      // de 100 sem que o peso estivesse travado. O modal já omite as linhas travadas do payload.
+      const bloqueada = !e.isGroup && (e.avanco ?? 0) >= 100;
+      if (novosPesos[e.id] != null && !bloqueada) ne = { ...ne, fator_peso: Math.max(0, parseFloat(novosPesos[e.id]) || 0) };
       if (e.id === distribuirEtapaId) ne = { ...ne, peso_unidade: unidade || null };
       return ne;
     });
-    const nowISO = new Date().toISOString();
+    // Só o que de fato mudou vai para o banco. `etapas` é um JSONB único com a árvore
+    // inteira (497 kB / 1139 etapas na maior obra), e subir o array todo para mexer em
+    // três escalares deixava o "Salvando…" 5 a 10 segundos na tela.
+    const antesPorId = new Map(etapas.map(e => [e.id, e]));
+    const pesosDelta = {};
+    const travasDelta = {};
+    novasEtapas.forEach(ne => {
+      const antes = antesPorId.get(ne.id);
+      if (!antes) return;
+      if ((antes.fator_peso ?? 1) !== (ne.fator_peso ?? 1)) pesosDelta[ne.id] = ne.fator_peso ?? 1;
+      if (!!antes.peso_travado !== !!ne.peso_travado) travasDelta[ne.id] = !!ne.peso_travado;
+    });
+    const grupoAtual = antesPorId.get(distribuirEtapaId);
+    const unidadeMudou = grupoAtual && (grupoAtual.peso_unidade || null) !== (unidade || null);
+
+    // Abrir e salvar sem mexer em nada não precisa de escrita: bater o updated_at à toa
+    // derrubaria o lock otimista de quem estiver com a Lista aberta em outra aba.
+    if (!unidadeMudou && !Object.keys(pesosDelta).length && !Object.keys(travasDelta).length) {
+      setDistribuirEtapaId(null);
+      setSalvandoPeso(false);
+      return;
+    }
+
     const expected = etapasUpdatedAtRef.current;
-    const query = supabase.from('cronogramas').update({ etapas: novasEtapas, updated_at: nowISO }).eq('obra_id', obraSel);
-    const { data, error } = await (expected ? query.eq('updated_at', expected) : query).select('updated_at');
-    if (error) {
-      toast('Erro ao salvar os pesos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+    const t0 = performance.now();
+    let novoUpdatedAt = null;
+
+    const rpc = await supabase.rpc('atualizar_pesos_cronograma', {
+      p_obra_id: obraSel,
+      p_pesos: pesosDelta,
+      p_travas: travasDelta,
+      p_grupo_id: unidadeMudou ? distribuirEtapaId : null,
+      p_unidade: unidade || null,
+      p_expected_updated_at: expected || null,
+    });
+
+    // A função é deployada pelo TI à parte (migration 20260829000001). Enquanto não
+    // estiver no banco, o PostgREST devolve PGRST202 e o save cai no UPDATE antigo —
+    // lento, mas funcionando. Some quando a migration subir.
+    const rpcIndisponivel = rpc.error && (rpc.error.code === 'PGRST202' || /function .* does not exist/i.test(rpc.error.message || ''));
+
+    if (rpc.error && !rpcIndisponivel) {
+      toast('Erro ao salvar os pesos: ' + rpc.error.message, { tone: 'danger', icon: 'alert-triangle' });
       setSalvandoPeso(false);
       return;
     }
-    if (expected && (!data || !data.length)) {
-      // Outra sessão (ex.: a Lista) salvou o cronograma nesse meio-tempo — não sobrescreve.
-      toast('Este cronograma foi alterado em outra tela enquanto você editava. Recarregue e tente de novo.', { tone: 'warning', icon: 'alert-triangle' });
-      setSalvandoPeso(false);
-      return;
+
+    if (!rpcIndisponivel) {
+      if (!rpc.data) {
+        // Outra sessão (ex.: a Lista) salvou o cronograma nesse meio-tempo — não sobrescreve.
+        toast('Este cronograma foi alterado em outra tela enquanto você editava. Recarregue e tente de novo.', { tone: 'warning', icon: 'alert-triangle' });
+        setSalvandoPeso(false);
+        return;
+      }
+      novoUpdatedAt = rpc.data;
+    } else {
+      const nowISO = new Date().toISOString();
+      const query = supabase.from('cronogramas').update({ etapas: novasEtapas, updated_at: nowISO }).eq('obra_id', obraSel);
+      const { data, error } = await (expected ? query.eq('updated_at', expected) : query).select('updated_at');
+      if (error) {
+        toast('Erro ao salvar os pesos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+        setSalvandoPeso(false);
+        return;
+      }
+      if (expected && (!data || !data.length)) {
+        toast('Este cronograma foi alterado em outra tela enquanto você editava. Recarregue e tente de novo.', { tone: 'warning', icon: 'alert-triangle' });
+        setSalvandoPeso(false);
+        return;
+      }
+      novoUpdatedAt = nowISO;
     }
-    etapasUpdatedAtRef.current = nowISO;
+
+    logger.debug('distribuir pesos salvo', {
+      module: 'orcamento-cronograma',
+      via: rpcIndisponivel ? 'update-completo' : 'rpc',
+      ms: Math.round(performance.now() - t0),
+      etapasAlteradas: Object.keys(pesosDelta).length + Object.keys(travasDelta).length,
+      etapasTotal: etapas.length,
+    });
+
+    etapasUpdatedAtRef.current = novoUpdatedAt;
     setEtapas(novasEtapas);
-    if (_ocCache[obraSel]) { _ocCache[obraSel].etapas = novasEtapas; _ocCache[obraSel].updatedAt = nowISO; }
+    if (_ocCache[obraSel]) { _ocCache[obraSel].etapas = novasEtapas; _ocCache[obraSel].updatedAt = novoUpdatedAt; }
     // Invalida o cache do Cronograma para a Lista reler os pesos novos do banco.
     invalidateCronCache(obraSel);
     setDistribuirEtapaId(null);

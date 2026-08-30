@@ -328,7 +328,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const pct = totalCustoOrcado > 0 ? (custoOrcadoMap[e.id] || 0) / totalCustoOrcado : 0;
         return { raw: pct * 100, label: (pct * 100).toFixed(1) + '%' };
       }
-      case 'fatorPeso': { const v = e.isGroup ? null : (e.fator_peso ?? 1); return { raw: v, label: v == null ? '' : v.toLocaleString('pt-BR') }; }
+      case 'fatorPeso': { const v = e.fator_peso ?? 1; return { raw: v, label: v.toLocaleString('pt-BR') }; }
       case 'valorVinculado': { const v = valorVinculadoMap[e.id]; return { raw: v || null, label: v ? fmtBRL(v) : '' }; }
       case 'custo':     { const v = custoEf(e, gv); return { raw: v, label: fmtBRL(v) }; }
       case 'custoReal': return { raw: realCst, label: fmtBRL(realCst) };
@@ -1269,7 +1269,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'peso':
         if (e.isGroup) return null;
         return totalCustoOrcado > 0 ? (custoOrcadoMap[e.id] || 0) / totalCustoOrcado : 0;
-      case 'fatorPeso':      return e.isGroup ? null : (e.fator_peso ?? 1);
+      case 'fatorPeso':      return e.fator_peso ?? 1;
       case 'valorVinculado': { const v = valorVinculadoMap[e.id]; return Number.isFinite(v) ? v : null; }
       default: {
         if (colNumericKind(colId)) { const n = Number(e.customCols?.[colId]); return Number.isFinite(n) ? n : null; }
@@ -2148,7 +2148,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           if (e.isGroup) return '';
           return totalCustoOrcado > 0 ? (custoOrcadoMap[e.id] || 0) / totalCustoOrcado : 0;
         }
-        if (cid === 'fatorPeso')      return e.isGroup ? '' : (e.fator_peso ?? 1);
+        if (cid === 'fatorPeso')      return e.fator_peso ?? 1;
         if (cid === 'valorVinculado') return valorVinculadoMap[e.id] || '';
         if (cid === 'custoReal') return realCst;
         if (cid === 'custoOrcado') return custoOrcadoMap[e.id] || 0;
@@ -2226,7 +2226,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           if (e.isGroup) return '—';
           return totalCustoOrcado > 0 ? ((custoOrcadoMap[e.id] || 0) / totalCustoOrcado * 100).toFixed(1) + '%' : '0.0%';
         }
-        if (cid === 'fatorPeso')      return e.isGroup ? '—' : (e.fator_peso ?? 1).toLocaleString('pt-BR');
+        if (cid === 'fatorPeso')      return (e.fator_peso ?? 1).toLocaleString('pt-BR');
         if (cid === 'valorVinculado') return valorVinculadoMap[e.id] ? fmtBRL(valorVinculadoMap[e.id]) : '—';
         if (cid === 'custoReal') return fmtBRL(realCst);
         if (cid === 'custoOrcado') return fmtBRL(custoOrcadoMap[e.id] || 0);
@@ -3175,11 +3175,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 ),
                 fatorPeso: (
                   <td key="fatorPeso" className="num" style={{ textAlign: 'right', fontSize: 12 }} onClick={ev => ev.stopPropagation()}>
-                    {e.isGroup ? (
-                      <span className="text-faint">—</span>
-                    ) : readOnly || effStatus(e) === 'done' ? (
-                      <span className="mono" style={{ display: 'block', textAlign: 'right' }}
-                        title={!readOnly ? 'Tarefa concluída — peso e valor travados' : undefined}>{(e.fator_peso ?? 1).toLocaleString('pt-BR')}</span>
+                    {e.isGroup || e.peso_travado || readOnly || effStatus(e) === 'done' ? (
+                      <span className="mono" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
+                        title={e.peso_travado ? 'Peso travado no cadeado — destrave em Orçamento × Cronograma › Distribuir pesos'
+                          : e.isGroup ? 'Peso do grupo — edite em Orçamento × Cronograma › Distribuir pesos'
+                          : (!readOnly ? 'Tarefa concluída — peso e valor travados' : undefined)}>
+                        {e.peso_travado && <Icon name="lock" size={11} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
+                        {(e.fator_peso ?? 1).toLocaleString('pt-BR')}
+                      </span>
                     ) : editingFatorPeso === e.id ? (
                       <input
                         autoFocus type="number" min="0" step="any"

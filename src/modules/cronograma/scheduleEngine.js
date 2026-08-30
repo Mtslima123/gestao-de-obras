@@ -538,6 +538,7 @@ export function applyFieldToEtapa(e, field, rawValue, etapas) {
   if (field === 'custo' || field === 'custoRealizado') { return { ...e, [field]: parseBRL(rawValue) }; }
   if (field === 'fator_peso')  {
     if ((e.avanco ?? 0) >= 100) return e; // tarefa concluída: peso travado, não altera
+    if (e.peso_travado) return e;         // cadeado do Distribuir pesos (Orçamento × Cronograma)
     const v = parseFloat(rawValue); return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) };
   }
   if (field.startsWith('cc_')) { return { ...e, customCols: { ...(e.customCols || {}), [field]: rawValue } }; }
