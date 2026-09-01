@@ -332,6 +332,19 @@ export default function MedicaoMensal({
     () => computeArvoreMedicao(filtradas, etapas, valorTotalBase, collapsed),
     [filtradas, etapas, valorTotalBase, collapsed]
   );
+  // Árvore sem colapso nenhum: base do seletor de níveis e do aplicarNivel. A `linhas`
+  // não serve porque um grupo colapsado esconde os descendentes, e o nível mais fundo
+  // sumiria da lista de opções conforme o usuário recolhe.
+  const arvoreCompleta = React.useMemo(
+    () => computeArvoreMedicao(filtradas, etapas, valorTotalBase, new Set()),
+    [filtradas, etapas, valorTotalBase]
+  );
+  // gruposParaNivel recolhe grupos de nivel >= alvo-1, então o alvo útil vai até o
+  // nível do grupo mais fundo + 1. Acima disso nada recolhe, e a opção seria inócua.
+  const nivelMax = React.useMemo(
+    () => arvoreCompleta.reduce((m, l) => (l.tipo === 'grupo' ? Math.max(m, l.nivel + 1) : m), 0),
+    [arvoreCompleta]
+  );
   const totais = React.useMemo(() => computeTotaisMedicao(filtradas, valorTotalBase), [filtradas, valorTotalBase]);
   const qtdForaDoMes = React.useMemo(() => filtradas.filter(i => i.foraDoMes).length, [filtradas]);
 
@@ -368,10 +381,7 @@ export default function MedicaoMensal({
 
   // Mesma semântica de applyOutlineLevel do Cronograma (0 = expandir tudo), mas o
   // resultado é o Set local desta tela, sem gravar no cronograma.
-  const aplicarNivel = (nivel) => {
-    const todas = computeArvoreMedicao(filtradas, etapas, valorTotalBase, new Set());
-    setCollapsed(gruposParaNivel(todas, nivel));
-  };
+  const aplicarNivel = (nivel) => setCollapsed(gruposParaNivel(arvoreCompleta, nivel));
 
   // Grava a lista no rascunho. `itens` explícito porque a inclusão/remoção manual precisa
   // salvar a lista nova no mesmo tick, antes do state ter sido aplicado.
@@ -756,12 +766,22 @@ export default function MedicaoMensal({
               {pavimentos.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
-          <button type="button" className="btn btn-ghost"
-            onClick={() => aplicarNivel(collapsed.size > 0 ? 0 : 1)}
-            title="Expandir/recolher todos os grupos">
-            <Icon name={collapsed.size > 0 ? 'chevron-down' : 'chevron-up'} size={15} />
-            {collapsed.size > 0 ? 'Expandir tudo' : 'Recolher tudo'}
-          </button>
+          {/* Estrutura de tópicos por nível — mesmo menu da Lista e do Gantt. Volta ao
+              placeholder depois de escolher: o colapso também muda pelos chevrons de cada
+              linha, então o select não teria como refletir um "nível atual" confiável. */}
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={filtroLabelSt}>Estrutura</span>
+            <select className="input" defaultValue="" style={{ minWidth: 150 }}
+              title="Expandir ou recolher a estrutura por nível"
+              onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') aplicarNivel(Number(v)); }}>
+              <option value="" disabled>Escolher…</option>
+              <option value="0">Expandir tudo</option>
+              <option value="1">Recolher tudo</option>
+              {Array.from({ length: nivelMax }, (_, i) => i + 1).map(n => (
+                <option key={n} value={n}>Nível {n}</option>
+              ))}
+            </select>
+          </label>
           {!bloqueado && (
             <>
               <button type="button" className="btn btn-ghost" onClick={() => setModalIncluirAberto(true)}>
