@@ -7,6 +7,7 @@ import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
 import { parseBRL } from '../cronograma/scheduleEngine';
 import { buildChildrenMap, flattenTree, noTravado, redistribuirPorValor } from './distribuirPesos';
+import { filtrarComSubarvore, folhasDaSubarvore } from './itensHierarquia';
 import { invalidateCronCache, _ocCache } from '../cronograma/cronogramaCache';
 import { isAdmin } from '../../utils/permissions';
 import { logger } from '../../services/logger';
@@ -465,16 +466,13 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
 
 // ─── ItensOrcamentoSelect ─────────────────────────────────────────────────────
 // Multi-select com busca isolado: digitar só re-renderiza este componente, não a tela toda
-const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds, selItens, onToggle, onClearSel }) => {
+const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds, selItens, onToggle, onToggleVarios, onClearSel }) => {
   const [buscaItem, setBuscaItem] = React.useState('');
   const buscaDef = React.useDeferredValue(buscaItem);
   const itensFiltradosBusca = React.useMemo(() => {
     const disponiveis = itens.filter(it => !itensVinculadosIds.has(it.id));
-    if (!buscaDef) return disponiveis;
-    const q = buscaDef.toLowerCase();
-    return disponiveis.filter(it =>
-      it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q)
-    );
+    // Buscar "Ferragens" (nome do resumo) precisa trazer as filhas junto — ver itensHierarquia
+    return filtrarComSubarvore(itens, disponiveis, buscaDef);
   }, [itens, buscaDef, itensVinculadosIds]);
 
   return (
@@ -511,8 +509,14 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
         {itensFiltradosBusca.map(it => {
           const val = itemValor(it);
           const sid = String(it.id);
-          const checked = selItens.includes(sid);
           const resumo = resumoIds.has(it.id);
+          // Resumo não vira vínculo: o checkbox dele é atalho para marcar as folhas da
+          // subárvore que estão na tela. Fora da tela não entra — o que se vê é o que se marca.
+          const folhas = resumo ? folhasDaSubarvore(it, itensFiltradosBusca, resumoIds) : [];
+          const marcadas = folhas.filter(f => selItens.includes(String(f.id))).length;
+          const checked = resumo ? folhas.length > 0 && marcadas === folhas.length : selItens.includes(sid);
+          const parcial = resumo && marcadas > 0 && marcadas < folhas.length;
+          const inerte = resumo && folhas.length === 0;
           // Nível de aninhamento do item-resumo pela contagem de pontos no código (mesma lógica
           // de getNivel em Orcamentos.jsx) — tom mais forte pro nível mais alto (raiz),
           // enfraquecendo a cada nível mais fundo, mesma escala do Gantt/Lista/Curva Física/
@@ -522,13 +526,15 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
           return (
             <label
               key={it.id}
-              title={resumo ? 'Item-resumo não pode ser vinculado diretamente' : undefined}
+              title={inerte ? 'Item-resumo sem filhas disponíveis nesta lista'
+                : resumo ? 'Item-resumo: marca ou desmarca todas as filhas listadas (o resumo em si não é vinculado)'
+                : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 10,
                 padding: '8px 12px',
-                cursor: resumo ? 'not-allowed' : 'pointer',
+                cursor: inerte ? 'not-allowed' : 'pointer',
                 borderBottom: '1px solid var(--border-subtle)',
                 background: checked ? 'var(--brand-tint)' : resumo ? groupTint : 'transparent',
                 transition: 'background 0.1s',
@@ -537,9 +543,15 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
               <input
                 type="checkbox"
                 checked={checked}
-                disabled={resumo}
-                onChange={() => !resumo && onToggle(it.id)}
-                style={{ marginTop: 2, accentColor: 'var(--brand)', flexShrink: 0, opacity: resumo ? 0.5 : 1 }}
+                disabled={inerte}
+                // indeterminate não existe como prop no React — só dá para setar no nó
+                ref={el => { if (el) el.indeterminate = parcial; }}
+                onChange={() => {
+                  if (inerte) return;
+                  if (resumo) onToggleVarios(folhas.map(f => f.id), !checked);
+                  else onToggle(it.id);
+                }}
+                style={{ marginTop: 2, accentColor: 'var(--brand)', flexShrink: 0, opacity: inerte ? 0.5 : 1 }}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: checked ? 600 : resumo ? 600 : 400, color: resumo ? 'var(--text-muted)' : undefined }}>
@@ -666,6 +678,17 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     setSelItens(prev =>
       prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]
     );
+  }, []);
+
+  // Marca/desmarca vários de uma vez (checkbox do item-resumo): um setState só, em vez
+  // de N toggles em sequência.
+  const toggleVarios = React.useCallback((ids, marcar) => {
+    const alvos = ids.map(String);
+    setSelItens(prev => {
+      if (!marcar) { const fora = new Set(alvos); return prev.filter(x => !fora.has(x)); }
+      const jaTem = new Set(prev);
+      return [...prev, ...alvos.filter(id => !jaTem.has(id))];
+    });
   }, []);
 
   const limparSelecao = React.useCallback(() => setSelItens([]), []);
@@ -1006,6 +1029,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                     resumoIds={resumoIds}
                     selItens={selItens}
                     onToggle={toggleItem}
+                    onToggleVarios={toggleVarios}
                     onClearSel={limparSelecao}
                   />
                 </div>
