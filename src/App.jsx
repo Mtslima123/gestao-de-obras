@@ -316,7 +316,7 @@ const AppInner = () => {
           ) : (
           <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
           <>
-          {view === 'dashboard' && <Dashboard onOpenObra={handleOpenObra} onAcao={(a) => setModal(a)} />}
+          {view === 'dashboard' && <Dashboard obras={obrasVisiveis} onOpenObra={handleOpenObra} />}
           {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} obras={obrasVisiveis} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} userProfile={userProfile} />}
           {view === 'obra-detail' && (
             <ObraDetail
