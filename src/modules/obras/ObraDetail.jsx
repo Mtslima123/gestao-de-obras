@@ -10,6 +10,22 @@ import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVin
 import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
 import { SCurveChart2 } from '../cronograma/SCurveChart2';
+
+// Indicadores percentuais do cabeçalho da obra (informados à mão no modal Editar).
+// Zero fica neutro de propósito: não é nem ganho nem perda, e pintar de verde daria a
+// impressão de resultado positivo.
+const corPorSinal = (v) => {
+  const n = Number(v);
+  if (v == null || !Number.isFinite(n) || n === 0) return undefined;
+  return n > 0 ? 'var(--success)' : 'var(--danger)';
+};
+// Positivo leva sinal explícito: sem ele, "3,50%" e "-3,50%" só se distinguem pela cor,
+// que some na impressão e para quem não distingue verde de vermelho.
+const fmtPctSinal = (v) => {
+  const n = Number(v);
+  if (v == null || !Number.isFinite(n)) return '—';
+  return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
+};
 import { pavimentosService } from '../../services/pavimentos.service';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { capaCache } from '../../services/capaCache';
@@ -1674,6 +1690,21 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
             <div className="hero-stat">
               <div className="label">Entrega (cliente)</div>
               <div className="value num">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</div>
+            </div>
+            {/* Indicadores informados no modal Editar — o sistema não calcula nenhum dos dois:
+                não há avanço financeiro acumulado real nem projeção de fechamento.
+                Cor pelo sinal: positivo verde, negativo vermelho, zero neutro. */}
+            <div className="hero-stat">
+              <div className="label">Delta (%) Físico × Financeiro</div>
+              <div className="value num" style={{ color: corPorSinal(o.deltaFisicoFinanceiro) }}>
+                {fmtPctSinal(o.deltaFisicoFinanceiro)}
+              </div>
+            </div>
+            <div className="hero-stat">
+              <div className="label">Tendência de fechamento</div>
+              <div className="value num" style={{ color: corPorSinal(o.tendenciaFechamento) }}>
+                {fmtPctSinal(o.tendenciaFechamento)}
+              </div>
             </div>
           </div>
         </div>

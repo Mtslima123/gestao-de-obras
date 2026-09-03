@@ -932,7 +932,7 @@ a:hover { color: var(--brand-600); }
 }
 .hero-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: 18px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
@@ -943,6 +943,7 @@ a:hover { color: var(--brand-600); }
   color: var(--text-muted);
   letter-spacing: 0.06em;
   font-weight: 600;
+  white-space: nowrap;
 }
 .hero-stat .value {
   font-size: 17px;
@@ -2556,3 +2557,12 @@ th.sticky-left { z-index: 4; }
 .serie-band.reprog { background: var(--brand); }
 .serie-band.real   { background: #15803d; }
 .serie-band.desvio { background: #475569; }
+
+/* A Lista e o Gantt põem user-select:none no container de scroll para o arraste de
+   seleção de linhas não pintar texto. Isso é herdado pelos campos de edição, e no
+   Blink impede arrastar para destacar um trecho DENTRO do input — o usuário abria o
+   nome da tarefa e não conseguia selecionar o pedaço que queria apagar. */
+input, textarea, [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}

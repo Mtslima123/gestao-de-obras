@@ -3,6 +3,13 @@
 
 import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { passoDeRolagem } from './listaAutoScroll';
+
+// Alvo de mousedown que já é um campo de edição aberto. A grade rouba foco e chama
+// preventDefault em vários handlers; dentro de um input isso impede posicionar o cursor
+// e destacar um trecho com o mouse.
+const ehCampoDeEdicao = (el) =>
+  !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
 import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, dateToOffset } from './cronogramaDateUtils';
@@ -251,6 +258,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // etapa, cobrindo folhas e grupos via bubble-up — mesmo cálculo, feito 1x no pai).
   const totalCustoOrcado = totalValorVinculado + totalReal;
 
+  // Sem vínculo o fator peso não divide nada: ele só rateia, entre irmãs, o valor que a
+  // tarefa-pai recebe do orçamento. computeValorVinculadoMap cria a chave de todo nó que
+  // participa de um rateio, inclusive com valor 0 (irmã de peso zero), então a ausência da
+  // chave é exatamente "não está em nenhuma subárvore vinculada" — e aí o peso não é exibido
+  // nem editável. O dado continua gravado: revincular traz a distribuição de volta.
+  const pesoVale = (id) => valorVinculadoMap[id] !== undefined;
+
   // Custo efetivo: quando há vínculos, o custo de cada etapa é o valor vinculado distribuído
   // (valorVinculadoMap já cobre folhas e grupos via bubble-up). Nunca grava no dado — só exibe.
   const custoEf = (e, gv) => hasVinculos
@@ -328,7 +342,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const pct = totalCustoOrcado > 0 ? (custoOrcadoMap[e.id] || 0) / totalCustoOrcado : 0;
         return { raw: pct * 100, label: (pct * 100).toFixed(1) + '%' };
       }
-      case 'fatorPeso': { const v = e.fator_peso ?? 1; return { raw: v, label: v.toLocaleString('pt-BR') }; }
+      case 'fatorPeso': { const v = pesoVale(e.id) ? (e.fator_peso ?? 1) : null; return { raw: v, label: v == null ? '' : v.toLocaleString('pt-BR') }; }
       case 'valorVinculado': { const v = valorVinculadoMap[e.id]; return { raw: v || null, label: v ? fmtBRL(v) : '' }; }
       case 'custo':     { const v = custoEf(e, gv); return { raw: v, label: fmtBRL(v) }; }
       case 'custoReal': return { raw: realCst, label: fmtBRL(realCst) };
@@ -1269,7 +1283,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'peso':
         if (e.isGroup) return null;
         return totalCustoOrcado > 0 ? (custoOrcadoMap[e.id] || 0) / totalCustoOrcado : 0;
-      case 'fatorPeso':      return e.fator_peso ?? 1;
+      case 'fatorPeso':      return pesoVale(e.id) ? (e.fator_peso ?? 1) : null;
       case 'valorVinculado': { const v = valorVinculadoMap[e.id]; return Number.isFinite(v) ? v : null; }
       default: {
         if (colNumericKind(colId)) { const n = Number(e.customCols?.[colId]); return Number.isFinite(n) ? n : null; }
@@ -1580,7 +1594,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const leaf = task && !task.isGroup;
         if      (colId === 'custo'     && leaf) setEditingCusto(taskId + '_custo');
         else if (colId === 'custoReal' && leaf && !valorVinculadoMap[taskId]) setEditingCusto(taskId + '_real');
-        else if (colId === 'fatorPeso' && leaf && effStatus(task) !== 'done') setEditingFatorPeso(taskId);
+        else if (colId === 'fatorPeso' && leaf && effStatus(task) !== 'done' && pesoVale(taskId)) setEditingFatorPeso(taskId);
         else if (colId === 'dep'       && leaf) setEditingDep(taskId);
         else if (colId === 'succ'      && leaf) setEditingSucc(taskId);
         else {
@@ -1608,6 +1622,83 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const up = () => { isSelectingRef.current = false; rowSelectingRef.current = false; };
     document.addEventListener('mouseup', up);
     return () => document.removeEventListener('mouseup', up);
+  }, []);
+
+  // Contexto vivo do arraste. O efeito abaixo roda uma vez só (listeners de documento),
+  // então precisa ler colunas/linhas/seleção por ref, não pela closure do render.
+  const dragCtxRef = React.useRef({ cols: [], filtrada: [], selectedCell: null });
+  dragCtxRef.current = { cols: visibleColIds(), filtrada, selectedCell };
+
+  // Arraste de seleção: extensão por coordenada + rolagem automática na borda.
+  //
+  // O onMouseEnter das células/calha sozinho não dava conta: ele só dispara em linha que
+  // existe no DOM e sob o ponteiro. Sair da coluna, passar pelas linhas em branco do fim
+  // da tabela ou cruzar a fronteira da virtualização (linha fora da janela não tem nó)
+  // congelava a seleção. E não havia rolagem nenhuma ao chegar na borda.
+  //
+  // Aqui o alvo é resolvido por elementFromPoint a cada movimento e a cada quadro da
+  // rolagem, então as linhas que entram na tela são incorporadas mesmo com o mouse parado.
+  React.useEffect(() => {
+    let rafId = null;
+    let ptr = null; // última posição conhecida do ponteiro
+
+    const arrastando = () => isSelectingRef.current || rowSelectingRef.current;
+
+    // Estende a seleção até a linha sob o ponteiro. Fora das linhas (ex.: ponteiro além do
+    // fim da tabela) fixa no extremo mais próximo em vez de largar a seleção.
+    const estender = () => {
+      const sc = listaScrollRef.current;
+      const ctx = dragCtxRef.current;
+      if (!sc || !ptr || !ctx) return;
+      const cols = ctx.cols;
+      if (!cols.length) return;
+
+      const linhas = sc.querySelectorAll('tr[data-taskid]');
+      if (!linhas.length) return;
+
+      let alvo = document.elementFromPoint(ptr.x, ptr.y)?.closest?.('tr[data-taskid]');
+      if (!alvo || !sc.contains(alvo)) {
+        // Ponteiro fora de qualquer linha (ao lado da tabela, além do fim, acima do
+        // cabeçalho): fixa no extremo do lado em que saiu, em vez de largar a seleção.
+        const rect = sc.getBoundingClientRect();
+        alvo = ptr.y < rect.top + rect.height / 2 ? linhas[0] : linhas[linhas.length - 1];
+      }
+      const attr = alvo.getAttribute('data-taskid');
+      if (attr == null) return;
+      // O atributo vem sempre como string; o id real da etapa é quem vale para o estado.
+      const linha = ctx.filtrada.find(x => String(x.id) === attr);
+      if (!linha) return;
+
+      // Arraste pela calha cobre a linha inteira; a partir de uma célula mantém a coluna
+      // em que o arraste começou.
+      const colId = rowSelectingRef.current ? cols[cols.length - 1] : (ctx.selectedCell?.colId ?? cols[cols.length - 1]);
+      setSelectedCell(prev => (prev && prev.taskId === linha.id && prev.colId === colId ? prev : { taskId: linha.id, colId }));
+    };
+
+    const quadro = () => {
+      rafId = null;
+      if (!arrastando()) return;
+      const sc = listaScrollRef.current;
+      if (sc && ptr) {
+        const passo = passoDeRolagem(ptr.y, sc.getBoundingClientRect(), sc.scrollTop, sc.scrollHeight - sc.clientHeight);
+        if (passo) sc.scrollTop += passo;
+        estender();
+        if (passo) rafId = requestAnimationFrame(quadro); // só continua enquanto estiver rolando
+      }
+    };
+
+    const onMove = (ev) => {
+      if (!arrastando()) return;
+      ptr = { x: ev.clientX, y: ev.clientY };
+      estender();
+      if (rafId == null) rafId = requestAnimationFrame(quadro);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      if (rafId != null) cancelAnimationFrame(rafId);
+    };
   }, []);
 
   // Envolve cada <td> com seleção de célula (clique único) + destaque, preservando
@@ -1671,6 +1762,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       'data-ck': taskId + '|' + colId,
       onMouseDown: (ev) => {
         if (ev.button !== 0) return; // só o clique esquerdo mexe na seleção; o direito abre o menu
+        // Clique dentro de um campo já aberto para edição é do campo, não da grade: sem esta
+        // guarda o focus() lá embaixo tira o foco do input, o onBlur salva e o editor desmonta
+        // antes de o cursor ir para onde foi clicado. Mesma guarda da linha em branco (~3613).
+        if (ehCampoDeEdicao(ev.target)) return;
         // Clicar em qualquer célula sai do modo "coluna selecionada" (Ctrl+clique no cabeçalho) —
         // a partir daqui a seleção passa a ser de célula/linha, não mais de coluna inteira.
         if (multiSelCols.length) setMultiSelCols([]);
@@ -2148,7 +2243,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           if (e.isGroup) return '';
           return totalCustoOrcado > 0 ? (custoOrcadoMap[e.id] || 0) / totalCustoOrcado : 0;
         }
-        if (cid === 'fatorPeso')      return e.fator_peso ?? 1;
+        if (cid === 'fatorPeso')      return pesoVale(e.id) ? (e.fator_peso ?? 1) : '';
         if (cid === 'valorVinculado') return valorVinculadoMap[e.id] || '';
         if (cid === 'custoReal') return realCst;
         if (cid === 'custoOrcado') return custoOrcadoMap[e.id] || 0;
@@ -2226,7 +2321,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           if (e.isGroup) return '—';
           return totalCustoOrcado > 0 ? ((custoOrcadoMap[e.id] || 0) / totalCustoOrcado * 100).toFixed(1) + '%' : '0.0%';
         }
-        if (cid === 'fatorPeso')      return (e.fator_peso ?? 1).toLocaleString('pt-BR');
+        if (cid === 'fatorPeso')      return pesoVale(e.id) ? (e.fator_peso ?? 1).toLocaleString('pt-BR') : '—';
         if (cid === 'valorVinculado') return valorVinculadoMap[e.id] ? fmtBRL(valorVinculadoMap[e.id]) : '—';
         if (cid === 'custoReal') return fmtBRL(realCst);
         if (cid === 'custoOrcado') return fmtBRL(custoOrcadoMap[e.id] || 0);
@@ -3080,9 +3175,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       )}
                       {/* Indentação da hierarquia (acima) fica fixa; só o texto do nome
                          responde ao alinhamento, pra não quebrar a leitura da EAP. */}
-                      <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: alignJC(effFmt(e, 'etapa').align) }}>
+                      {/* Alinhamento por texto, não por flex: com justifyContent o span do
+                         EditableCell encolhia até a largura do nome e o duplo clique só pegava em
+                         cima das letras. Ocupando a largura toda, vale a célula inteira. */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <EditableCell value={e.etapa} onSave={v => v.trim() && handleCellSave(e.id, 'etapa', v)}
-                          readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 12 : 11 }}
+                          readOnly={readOnly} style={{ fontWeight: e.isGroup ? 700 : 400, fontSize: e.isGroup ? 12 : 11, width: '100%', textAlign: effFmt(e, 'etapa').align || 'left' }}
                           onExitEdit={exitEdit} />
                       </div>
                     </div>
@@ -3175,7 +3273,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 ),
                 fatorPeso: (
                   <td key="fatorPeso" className="num" style={{ textAlign: 'right', fontSize: 12 }} onClick={ev => ev.stopPropagation()}>
-                    {e.isGroup || e.peso_travado || readOnly || effStatus(e) === 'done' ? (
+                    {!pesoVale(e.id) ? (
+                      <span className="text-faint" style={{ display: 'block', textAlign: 'right' }}
+                        title="Sem valor vinculado do orçamento — o fator peso só entra no rateio quando a tarefa recebe valor">—</span>
+                    ) : e.isGroup || e.peso_travado || readOnly || effStatus(e) === 'done' ? (
                       <span className="mono" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
                         title={e.peso_travado ? 'Peso travado no cadeado — destrave em Orçamento × Cronograma › Distribuir pesos'
                           : e.isGroup ? 'Peso do grupo — edite em Orçamento × Cronograma › Distribuir pesos'
@@ -3434,6 +3535,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   onMouseDown={(ev) => {
                     if (ev.button !== 0) return; // direito preserva a seleção (abre o menu)
                     if (readOnly) return;
+                    // A faixa de borda é 5px em cima e 5px embaixo — quase metade de uma linha de
+                    // 21px. Sem esta guarda o preventDefault abaixo engolia o clique dentro de um
+                    // campo em edição, deixando o texto selecionado e o cursor parado.
+                    if (ehCampoDeEdicao(ev.target)) return;
                     const rect = ev.currentTarget.getBoundingClientRect();
                     const nearBorder = (ev.clientY - rect.top <= 5) || (rect.bottom - ev.clientY <= 5);
                     if (!nearBorder || !(selectedId === e.id || multiSel.includes(e.id))) return;

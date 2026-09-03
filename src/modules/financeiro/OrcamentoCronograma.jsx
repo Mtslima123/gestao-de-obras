@@ -627,6 +627,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   // é inline na própria linha (modal sobre modal quebra o Escape e o scroll do fundo).
   const [pendingRemove,   setPendingRemove]   = React.useState(null);
   const [confirmRemoveId, setConfirmRemoveId] = React.useState(null);
+  // Confirmação da remoção em lote — inline pelo mesmo motivo da individual
+  const [confirmRemoveTodos, setConfirmRemoveTodos] = React.useState(false);
+  const [removendoTodos,     setRemovendoTodos]     = React.useState(false);
 
   // Estado do modal de distribuição de pesos (fator_peso das subtarefas de um grupo)
   const [distribuirEtapaId, setDistribuirEtapaId] = React.useState(null);
@@ -739,6 +742,25 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     setVinculos(v => v.filter(x => x.id !== id));
     if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = _ocCache[obraSel].vinculos.filter(x => x.id !== id);
     toast('Vínculo removido', { tone: 'neutral', icon: 'check' });
+  };
+
+  // ── Remover todos os vínculos da tarefa aberta no modal ────────────────────
+  const handleRemoveTodos = async () => {
+    const ids = vinculosEtapa.map(v => v.id);
+    if (!ids.length) return;
+    setRemovendoTodos(true);
+    const { error } = await vinculoService.excluirVarios(ids);
+    if (error) {
+      toast('Erro ao remover os vínculos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+      setRemovendoTodos(false);
+      return;
+    }
+    const fora = new Set(ids);
+    setVinculos(v => v.filter(x => !fora.has(x.id)));
+    if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = _ocCache[obraSel].vinculos.filter(x => !fora.has(x.id));
+    setConfirmRemoveTodos(false);
+    setRemovendoTodos(false);
+    toast(ids.length === 1 ? 'Vínculo removido' : `${ids.length} vínculos removidos`, { tone: 'neutral', icon: 'check' });
   };
 
   // ── Adicionar vínculo via modal "Editar Itens Associados" ─────────────────
@@ -941,7 +963,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     return it.nome?.toLowerCase().includes(q) || it.codigo?.toLowerCase().includes(q);
   });
 
-  const fecharModal = () => { setEditandoEtapaId(null); setBuscaModalItem(''); setConfirmRemoveId(null); setNovaTarefaId(''); };
+  const fecharModal = () => {
+    setConfirmRemoveTodos(false); setEditandoEtapaId(null); setBuscaModalItem(''); setConfirmRemoveId(null); setNovaTarefaId(''); };
 
   // ── Dados do modal de distribuição de pesos ────────────────────────────────
   const distribuirEtapa    = etapas.find(e => e.id === distribuirEtapaId) || null;
@@ -1272,8 +1295,37 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
 
           {/* Itens atualmente vinculados */}
           <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-              Itens vinculados ({vinculosEtapa.length})
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, minHeight: 26 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                Itens vinculados ({vinculosEtapa.length})
+              </div>
+              {/* Remover todos de uma vez. Confirmação inline (não modal aninhado) pelo mesmo
+                  motivo da lixeira individual, e com a contagem no texto para o usuário ver o
+                  que está prestes a apagar. */}
+              {isAdmin(userProfile) && vinculosEtapa.length > 0 && (
+                confirmRemoveTodos ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                    <button className="btn btn-danger" disabled={removendoTodos}
+                      style={{ fontSize: 11.5, padding: '2px 10px', height: 26 }}
+                      onClick={handleRemoveTodos}>
+                      {removendoTodos ? 'Removendo…' : `Confirmar remoção de ${vinculosEtapa.length} ${vinculosEtapa.length === 1 ? 'item' : 'itens'}`}
+                    </button>
+                    <button className="btn btn-ghost" title="Cancelar" disabled={removendoTodos}
+                      style={{ fontSize: 14, padding: 0, width: 26, height: 26, lineHeight: 1, justifyContent: 'center' }}
+                      onClick={() => setConfirmRemoveTodos(false)}>
+                      ×
+                    </button>
+                  </div>
+                ) : (
+                  <button className="btn btn-ghost"
+                    style={{ marginLeft: 'auto', fontSize: 11.5, padding: '2px 10px', height: 26, color: 'var(--danger)' }}
+                    title="Remove todos os itens vinculados a esta tarefa"
+                    onClick={() => setConfirmRemoveTodos(true)}>
+                    <Icon name="trash" size={13} />
+                    Excluir todos
+                  </button>
+                )
+              )}
             </div>
             {vinculosEtapa.length === 0 ? (
               <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: '8px 0' }}>
@@ -1307,7 +1359,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                         <button
                           className="btn btn-ghost"
                           title="Cancelar"
-                          style={{ fontSize: 14, padding: 0, width: 26, height: 26, flexShrink: 0, lineHeight: 1 }}
+                          style={{ fontSize: 14, padding: 0, width: 26, height: 26, flexShrink: 0, lineHeight: 1, justifyContent: 'center' }}
                           onClick={() => setConfirmRemoveId(null)}
                         >
                           ×
