@@ -338,7 +338,7 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
         style={{ width: '100%', marginBottom: 6 }}
       />
       <div style={{
-        maxHeight: 220,
+        maxHeight: 360,
         overflowY: 'auto',
         border: '1px solid var(--border)',
         borderRadius: 6,
@@ -368,9 +368,9 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
               title={resumo ? 'Item-resumo não pode ser vinculado diretamente' : undefined}
               style={{
                 display: 'flex',
-                alignItems: 'flex-start',
+                alignItems: 'center',
                 gap: 10,
-                padding: '8px 12px',
+                padding: '6px 12px',
                 cursor: resumo ? 'not-allowed' : 'pointer',
                 borderBottom: '1px solid var(--border-subtle)',
                 background: checked ? 'var(--brand-tint)' : resumo ? groupTint : 'transparent',
@@ -382,17 +382,15 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
                 checked={checked}
                 disabled={resumo}
                 onChange={() => !resumo && onToggle(it.id)}
-                style={{ marginTop: 2, accentColor: 'var(--brand)', flexShrink: 0, opacity: resumo ? 0.5 : 1 }}
+                style={{ accentColor: 'var(--brand)', flexShrink: 0, opacity: resumo ? 0.5 : 1 }}
               />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: checked ? 600 : resumo ? 600 : 400, color: resumo ? 'var(--text-muted)' : undefined }}>
-                  <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{it.codigo}</span>
-                  {it.nome}
-                  {resumo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>resumo</span>}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
-                  {formatBRL(val)}
-                </div>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: checked ? 600 : resumo ? 600 : 400, color: resumo ? 'var(--text-muted)' : undefined, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{it.codigo}</span>
+                {it.nome}
+                {resumo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>resumo</span>}
+              </div>
+              <div className="mono" style={{ flexShrink: 0, fontSize: 12, color: 'var(--text-muted)', textAlign: 'right' }}>
+                {formatBRL(val)}
               </div>
             </label>
           );

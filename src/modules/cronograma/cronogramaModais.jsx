@@ -5,7 +5,7 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps } from "./scheduleEngine";
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
 export const AddColModal = ({ onClose, onAdd }) => {
@@ -460,6 +460,162 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
                 </span>
               </label>
             ))}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+};
+
+// ─── VincularTarefasModal — cria vínculos de Predecessora/Sucessora em lote ───
+// Duas listas com busca (predecessoras candidatas à esquerda, sucessoras candidatas à
+// direita); pra cada sucessora marcada, um dropdown escolhe manualmente qual das
+// predecessoras marcadas ela recebe. Sem casamento automático por nome/posição — o
+// mapeamento entre os dois grupos pode ter deslocamento (ex.: Alvenaria Tipo 1 depende
+// de Estrutura Tipo 2), então quem decide cada par é o usuário.
+export const VincularTarefasModal = ({ etapas, onCommit, onClose, initialPredIds = [] }) => {
+  const toast = useToast();
+  const [buscaPred, setBuscaPred] = React.useState('');
+  const [buscaSucc, setBuscaSucc] = React.useState('');
+  const [predSelected, setPredSelected] = React.useState([...initialPredIds]);
+  const [succSelected, setSuccSelected] = React.useState([]);
+  const [links, setLinks] = React.useState({}); // succId -> predId ('' = "Nenhuma")
+
+  const normBusca = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const leafTasks = React.useMemo(() => etapas.filter(e => !e.isGroup), [etapas]);
+  const predFiltradas = React.useMemo(() => {
+    const q = normBusca(buscaPred);
+    return q ? leafTasks.filter(e => normBusca(e.etapa).includes(q)) : leafTasks;
+  }, [leafTasks, buscaPred]);
+  const succFiltradas = React.useMemo(() => {
+    const q = normBusca(buscaSucc);
+    return q ? leafTasks.filter(e => normBusca(e.etapa).includes(q)) : leafTasks;
+  }, [leafTasks, buscaSucc]);
+  const succRows = React.useMemo(() => leafTasks.filter(e => succSelected.includes(e.id)), [leafTasks, succSelected]);
+  const qtdLinks = Object.values(links).filter(Boolean).length;
+
+  // Desmarcar uma predecessora limpa qualquer dropdown que apontava pra ela (evita vínculo
+  // "fantasma" apontando pra uma opção que sumiu da lista).
+  const togglePred = (id, checked) => {
+    setPredSelected(ids => checked ? [...ids, id] : ids.filter(x => x !== id));
+    if (!checked) setLinks(l => {
+      const next = { ...l };
+      for (const k of Object.keys(next)) if (next[k] === id) delete next[k];
+      return next;
+    });
+  };
+  // Desmarcar uma sucessora remove a linha de vínculo dela (some da seção de baixo).
+  const toggleSucc = (id, checked) => {
+    setSuccSelected(ids => checked ? [...ids, id] : ids.filter(x => x !== id));
+    if (!checked) setLinks(l => { const next = { ...l }; delete next[id]; return next; });
+  };
+
+  const handleConfirm = () => {
+    const pairs = Object.entries(links).filter(([, predId]) => predId);
+    if (!pairs.length) return;
+    let novas = etapas.map(e => ({ ...e }));
+    let jaExistiam = 0;
+    pairs.forEach(([succId, predId]) => {
+      novas = novas.map(e => {
+        if (e.id !== succId) return e;
+        const dep = e.dep || [];
+        const jaTem = dep.some(d => (typeof d === 'string' ? d : d.id) === predId);
+        if (jaTem) { jaExistiam++; return e; }
+        return { ...e, dep: [...dep, { id: predId, tipo: 'TI', lag: 0 }] };
+      });
+    });
+    onCommit(autoScheduleFromDeps(novas));
+    if (jaExistiam > 0) {
+      toast(`${jaExistiam} vínculo${jaExistiam !== 1 ? 's' : ''} já exist${jaExistiam !== 1 ? 'iam' : 'ia'} e ${jaExistiam !== 1 ? 'foram ignorados' : 'foi ignorado'}`, { tone: 'neutral' });
+    }
+    onClose();
+  };
+
+  const listaTarefas = (itens, selecionados, toggle) => (
+    <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+      {itens.map(e => (
+        <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px',
+          cursor: 'pointer', borderBottom: '1px solid var(--border)',
+          background: selecionados.includes(e.id) ? 'var(--brand-tint)' : 'transparent' }}>
+          <input type="checkbox" checked={selecionados.includes(e.id)}
+            onChange={ev => toggle(e.id, ev.target.checked)} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 28 }}>
+            {e.displayId ?? e.id}
+          </span>
+          <span style={{ paddingLeft: (e.nivel || 0) * 12, fontSize: 12.5 }}>{e.etapa}</span>
+        </label>
+      ))}
+    </div>
+  );
+
+  return (
+    <Modal
+      title="Vincular tarefas"
+      subtitle="Marque as predecessoras e sucessoras, depois escolha o vínculo de cada sucessora"
+      size="xl"
+      draggable
+      overlay={false}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" disabled={qtdLinks === 0} onClick={handleConfirm}>
+            Criar {qtdLinks} vínculo{qtdLinks !== 1 ? 's' : ''}
+          </button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', gap: 14, marginBottom: 16 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
+            Predecessoras ({predSelected.length})
+          </div>
+          <input className="input" placeholder="Buscar tarefa…" value={buscaPred}
+            onChange={e => setBuscaPred(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
+          {listaTarefas(predFiltradas, predSelected, togglePred)}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
+            Sucessoras ({succSelected.length})
+          </div>
+          <input className="input" placeholder="Buscar tarefa…" value={buscaSucc}
+            onChange={e => setBuscaSucc(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
+          {listaTarefas(succFiltradas, succSelected, toggleSucc)}
+        </div>
+      </div>
+
+      {succRows.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
+            Vínculos a criar
+          </div>
+          <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '6px 12px' }}>Sucessora</th>
+                  <th style={{ textAlign: 'left', padding: '6px 12px' }}>Predecessora</th>
+                </tr>
+              </thead>
+              <tbody>
+                {succRows.map(s => (
+                  <tr key={s.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: '6px 12px' }}>{s.etapa}</td>
+                    <td style={{ padding: '6px 12px' }}>
+                      <select className="input" value={links[s.id] || ''}
+                        onChange={ev => setLinks(l => ({ ...l, [s.id]: ev.target.value }))}
+                        style={{ width: '100%' }}>
+                        <option value="">Nenhuma</option>
+                        {predSelected.map(pid => {
+                          const p = etapas.find(e => e.id === pid);
+                          return <option key={pid} value={pid}>{p?.etapa ?? pid}</option>;
+                        })}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

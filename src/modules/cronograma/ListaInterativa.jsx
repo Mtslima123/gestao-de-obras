@@ -11,9 +11,9 @@ import {
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
   createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
   moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange,
-  reprogramarRestante,
+  reprogramarRestante, computeSuccessors,
 } from './scheduleEngine';
-import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal } from './cronogramaModais';
+import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal } from './cronogramaModais';
 import { TaskFormPanel } from './TaskFormPanel';
 import { OrtografiaModal } from './OrtografiaModal';
 import { substituirTokens } from './spellcheckPure';
@@ -46,6 +46,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [showAddCol,     setShowAddCol]     = React.useState(false);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // array de ids a excluir (ou null)
   const [showPavimentos, setShowPavimentos] = React.useState(false);
+  const [showVincularTarefas, setShowVincularTarefas] = React.useState(false);
+  const [vincularPredIds, setVincularPredIds] = React.useState([]); // seleção da grade capturada ao abrir o modal
   const [showImportEAP, setShowImportEAP] = React.useState(false);
   const [showRowHDialog, setShowRowHDialog] = React.useState(false); // caixa "Altura da linha"
   const [rowHDialogTargets, setRowHDialogTargets] = React.useState([]); // linhas alvo da altura
@@ -643,6 +645,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     custoReal: { kind: 'number', get: e => String(e.custoRealizado ?? 0),   field: 'custoRealizado' },
     resp:      { kind: 'text',   get: e => e.responsavel || '',              field: 'responsavel' },
     restricao: { kind: 'date',   get: e => e.restricaoData || '',            field: 'restricao' },
+    dep:       { kind: 'text',   get: e => formatDepList(e.dep, etapas),      field: 'dep' },
+    // Sucessora é derivada (vínculo reverso, gravado no `dep` de OUTRAS tarefas) — colar aqui
+    // não usa applyFieldToEtapa como as demais colunas; ver applySuccEdits/applyBlockEdits.
+    succ:      { kind: 'text',   get: e => formatSucc(e.id),                  field: 'succ' },
   };
   const cellSpec = (colId) => {
     if (colId?.startsWith('cc_')) return { kind: 'text', get: e => (e.customCols || {})[colId] ?? '', field: colId };
@@ -783,7 +789,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       let novo = newLeafTask([...etapas, ...novos], nome);
       gr.forEach((val, dc) => {
         const colId = cols[c0 + dc];
-        if (!colId || colId === 'etapa') return; // etapa já tratado acima
+        // etapa já tratado acima; sucessora é derivada e não existe ainda pra ligar (tarefa nova
+        // nesta mesma leva) — ignora nas duas.
+        if (!colId || colId === 'etapa' || colId === 'succ') return;
         const spec = cellSpec(colId);
         if (!spec || !spec.field) return;
         novo = applyFieldToEtapa(novo, spec.field, val, [...etapas, ...novos]);
@@ -796,17 +804,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const byTask = new Map();
     edits.forEach(ed => { if (!byTask.has(ed.taskId)) byTask.set(ed.taskId, []); byTask.get(ed.taskId).push(ed); });
     let reschedule = false;
+    // Sucessora é derivada (grava no `dep` de OUTRAS tarefas) — separada e aplicada à parte.
+    const succEdits = [];
     const editadas = etapas.map(e => {
       const list = byTask.get(e.id);
       if (!list) return e;
       let ne = e;
       list.forEach(ed => {
+        if (ed.field === 'succ') { succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue }); return; }
         ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas);
         if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
       });
       return ne;
     });
-    const novas = [...editadas, ...novos];
+    let novas = [...editadas, ...novos];
+    if (succEdits.length) { novas = applySuccEdits(novas, succEdits); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
   // Cola criando tarefas NOVAS a partir do zero (grade sem nenhuma linha ainda, ou nenhuma
@@ -826,7 +838,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       row.forEach((val, dc) => {
         if (dc === 0) return; // já usado como nome
         const colId = cols[c0 + dc];
-        if (!colId) return;
+        // sucessora é derivada e não há como ligar a tarefas que ainda não existem: ignora.
+        if (!colId || colId === 'succ') return;
         const spec = cellSpec(colId);
         if (!spec || !spec.field) return;
         novo = applyFieldToEtapa(novo, spec.field, val, [...etapas, ...novos]);
@@ -1899,7 +1912,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const byTask = new Map();
     edits.forEach(ed => { if (!byTask.has(ed.taskId)) byTask.set(ed.taskId, []); byTask.get(ed.taskId).push(ed); });
     let reschedule = false;
-    const novas = etapas.map(e => {
+    // Sucessora é derivada (grava no `dep` de OUTRAS tarefas) — não passa por applyFieldToEtapa
+    // como as demais colunas; separada aqui e aplicada depois via applySuccEdits.
+    const succEdits = [];
+    let novas = etapas.map(e => {
       const list = byTask.get(e.id);
       if (!list) return e;
       let ne = e;
@@ -1907,8 +1923,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       let fmtChanged = false;
       list.forEach(ed => {
         if (ed.field !== undefined) {
-          ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas);
-          if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
+          if (ed.field === 'succ') succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue });
+          else {
+            ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas);
+            if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
+          }
         }
         if ('fmt' in ed) {
           const nk = cleanFmtObj({ ...(ed.fmt || {}) });
@@ -1919,6 +1938,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (fmtChanged) ne = { ...ne, fmt };
       return ne;
     });
+    if (succEdits.length) { novas = applySuccEdits(novas, succEdits); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
 
@@ -1988,12 +2008,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return nomeDaTarefa(sid) + (tl ? ` (${tl})` : '');
   }).join('; ');
 
-  // Edita a Sucessora escrevendo o vínculo reverso (predecessora) nas outras tarefas.
-  const handleSuccSave = (taskId, raw) => {
-    const alvos  = parseDep(raw, etapas);                 // [{id: idDoSucessor, tipo, lag}]
+  // Aplica um lote de edições da coluna Sucessora de uma vez (colar em bloco: Ctrl+V numa
+  // seleção com várias linhas) — escreve o vínculo reverso (predecessora) nas tarefas-alvo de
+  // cada edição, em sequência, recalculando o mapa de sucessoras a cada passo (uma edição pode
+  // afetar o que a próxima considera "antiga"). Mesma regra usada por handleSuccSave (uma linha
+  // só) — aqui generalizada para N linhas no mesmo commit.
+  const applySuccEdits = (base, succEdits) => succEdits.reduce((acc, { taskId, rawValue }) => {
+    const alvos   = parseDep(rawValue, acc);
     const novoSet = new Map(alvos.filter(a => a.id !== taskId).map(a => [a.id, a]));
-    const antigos = new Set(succMap[taskId] || []);
-    const novas = etapas.map(e => {
+    const antigos = new Set(computeSuccessors(acc)[taskId] || []);
+    return acc.map(e => {
       if (e.id === taskId) return e;
       const alvo = novoSet.get(e.id);
       const era  = antigos.has(e.id);
@@ -2002,7 +2026,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (alvo) dep = [...dep, { id: taskId, tipo: alvo.tipo, lag: alvo.lag }];
       return { ...e, dep };
     });
-    const reprog = autoScheduleFromDeps(novas);
+  }, base);
+
+  // Edita a Sucessora escrevendo o vínculo reverso (predecessora) nas outras tarefas.
+  const handleSuccSave = (taskId, raw) => {
+    const reprog = autoScheduleFromDeps(applySuccEdits(etapas, [{ taskId, rawValue: raw }]));
     if (JSON.stringify(reprog) === JSON.stringify(etapas)) return; // sem mudança real
     onCommit(reprog);
   };
@@ -2579,6 +2607,19 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         </div>
                       </div>
                       <div style={caption}>Estrutura</div>
+                    </div>
+
+                    <div style={groupBox}>
+                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                        <div style={{ ...rowStyle, justifyContent: 'center' }}>
+                          <button style={iconBtn}
+                            onClick={() => { setVincularPredIds([...selectedRowIds()]); setShowVincularTarefas(true); }}
+                            title="Vincular predecessoras e sucessoras em lote">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.5 7.5 15.5 16.5"/></svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div style={caption}>Dependências</div>
                     </div>
 
                     <div style={groupBox}>
@@ -3832,6 +3873,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           onPavimentoExcluir={onPavimentoExcluir}
           isAdmin={isAdmin}
           onClose={() => setShowPavimentos(false)}
+        />
+      )}
+
+      {/* Modal de vínculo em lote de predecessoras/sucessoras */}
+      {showVincularTarefas && (
+        <VincularTarefasModal
+          etapas={etapas}
+          onCommit={onCommit}
+          initialPredIds={vincularPredIds}
+          onClose={() => setShowVincularTarefas(false)}
         />
       )}
 
