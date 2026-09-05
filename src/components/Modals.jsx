@@ -311,8 +311,18 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     endereco:     obra?.endereco    || '',
     dataPrevista: obra?.previsto    || '',
     dataFimObra:  obra?.dataFimObra || '',
+    // Indicadores digitados à mão (o sistema não calcula nenhum dos dois hoje)
+    deltaFisicoFinanceiro: obra?.deltaFisicoFinanceiro ?? '',
+    tendenciaFechamento:   obra?.tendenciaFechamento ?? '',
     // Campos futuros: cliente, tipo, area, orcamento, risco, observacoes
   });
+
+  // Campo vazio grava NULL; número inválido não vira NaN no payload.
+  const numOuNull = (v) => {
+    if (v === '' || v == null) return null;
+    const n = parseFloat(String(v).replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  };
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -328,6 +338,8 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         endereco:    form.endereco,
         previsto:    form.dataPrevista || obra.previsto,
         dataFimObra: form.dataFimObra || null,
+        deltaFisicoFinanceiro: numOuNull(form.deltaFisicoFinanceiro),
+        tendenciaFechamento:   numOuNull(form.tendenciaFechamento),
         // id não é sobrescrito — permanece imutável
       };
     } else {
@@ -385,9 +397,9 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
           />
         </div>
         <div className="field">
-          <label>Sigla / Código</label>
+          <label>Sigla</label>
           <input
-            placeholder="Ex.: OB-008"
+            placeholder="Ex.: DMS"
             value={form.sigla}
             onChange={e => set('sigla', e.target.value)}
             maxLength={12}
@@ -424,6 +436,22 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
             type="date"
             value={form.dataFimObra}
             onChange={e => set('dataFimObra', e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Delta (%) Físico × Financeiro</label>
+          <input
+            type="number" step="any" placeholder="ex.: -3,5"
+            value={form.deltaFisicoFinanceiro}
+            onChange={e => set('deltaFisicoFinanceiro', e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Tendência de fechamento (%)</label>
+          <input
+            type="number" step="any" placeholder="ex.: 98,2"
+            value={form.tendenciaFechamento}
+            onChange={e => set('tendenciaFechamento', e.target.value)}
           />
         </div>
         {/* Campos futuros: cliente, tipo, área, orçamento, risco, observações */}

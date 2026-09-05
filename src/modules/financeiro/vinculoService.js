@@ -34,6 +34,14 @@ export const vinculoService = {
       .delete()
       .eq('id', id),
 
+  // Remove vários de uma vez (botão "excluir todos" do modal de edição). Um round-trip
+  // em vez de N — mesmo formato do moverParaEtapa abaixo.
+  excluirVarios: (ids) =>
+    supabase
+      .from('orcamento_cronograma_vinculos')
+      .delete()
+      .in('id', ids),
+
   // Move vínculos existentes (por id) para outra tarefa do cronograma — usado quando o
   // usuário escolheu a tarefa errada e quer reatribuir os itens já associados sem precisar
   // excluir e recriar cada um.
