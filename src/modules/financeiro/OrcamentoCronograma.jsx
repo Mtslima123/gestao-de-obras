@@ -7,7 +7,7 @@ import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
 import { parseBRL } from '../cronograma/scheduleEngine';
 import { buildChildrenMap, flattenTree, noTravado, redistribuirPorValor } from './distribuirPesos';
-import { filtrarComSubarvore, folhasDaSubarvore } from './itensHierarquia';
+import { filtrarComSubarvore, folhasDaSubarvore, ancestraisDe } from './itensHierarquia';
 import { invalidateCronCache, _ocCache } from '../cronograma/cronogramaCache';
 import { isAdmin } from '../../utils/permissions';
 import { logger } from '../../services/logger';
@@ -475,6 +475,23 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
     return filtrarComSubarvore(itens, disponiveis, buscaDef);
   }, [itens, buscaDef, itensVinculadosIds]);
 
+  // Valor exibido no item-resumo: soma das FOLHAS de toda a subárvore (não só as visíveis
+  // na tela, e independente de já estarem vinculadas) — o resumo em si nunca tem valor
+  // próprio real (fica 0 no banco), então mostrar isso direto passava a impressão de que o
+  // grupo "não vale nada". O resumo continua não-vinculável, só o valor exibido muda.
+  const valorGrupoMap = React.useMemo(() => {
+    const map = {};
+    itens.forEach(it => {
+      if (resumoIds.has(it.id)) return; // só folha contribui, senão conta em dobro
+      const v = itemValor(it);
+      if (!v || !it.codigo) return;
+      ancestraisDe(it.codigo).forEach(codigoAncestral => {
+        map[codigoAncestral] = (map[codigoAncestral] || 0) + v;
+      });
+    });
+    return map;
+  }, [itens, resumoIds]);
+
   return (
     <>
       <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
@@ -507,9 +524,9 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
           </div>
         )}
         {itensFiltradosBusca.map(it => {
-          const val = itemValor(it);
-          const sid = String(it.id);
           const resumo = resumoIds.has(it.id);
+          const val = resumo ? (valorGrupoMap[it.codigo] || 0) : itemValor(it);
+          const sid = String(it.id);
           // Resumo não vira vínculo: o checkbox dele é atalho para marcar as folhas da
           // subárvore que estão na tela. Fora da tela não entra — o que se vê é o que se marca.
           const folhas = resumo ? folhasDaSubarvore(it, itensFiltradosBusca, resumoIds) : [];

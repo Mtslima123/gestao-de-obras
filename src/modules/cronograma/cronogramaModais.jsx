@@ -5,7 +5,7 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds } from "./scheduleEngine";
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
 export const AddColModal = ({ onClose, onAdd }) => {
@@ -482,32 +482,78 @@ export const VincularTarefasModal = ({ etapas, onCommit, onClose, initialPredIds
   const [links, setLinks] = React.useState({}); // succId -> predId ('' = "Nenhuma")
 
   const normBusca = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const leafTasks = React.useMemo(() => etapas.filter(e => !e.isGroup), [etapas]);
-  const predFiltradas = React.useMemo(() => {
-    const q = normBusca(buscaPred);
-    return q ? leafTasks.filter(e => normBusca(e.etapa).includes(q)) : leafTasks;
-  }, [leafTasks, buscaPred]);
-  const succFiltradas = React.useMemo(() => {
-    const q = normBusca(buscaSucc);
-    return q ? leafTasks.filter(e => normBusca(e.etapa).includes(q)) : leafTasks;
-  }, [leafTasks, buscaSucc]);
+  // Nem toda tarefa-pai desta base tem `isGroup` marcado (dado legado/importado) — mesma
+  // regra de robustez já usada na Lista (`e.isGroup || hasChildren`): considera tarefa-pai
+  // quem tem filhas, mesmo sem a flag.
+  const parentIdSet = React.useMemo(() => new Set(etapas.filter(e => e.parentId).map(e => e.parentId)), [etapas]);
+  const ehGrupo = (e) => e.isGroup || parentIdSet.has(e.id);
+  const leafTasks = React.useMemo(() => etapas.filter(e => !ehGrupo(e)), [etapas, parentIdSet]);
+
+  // Ids do(s) pai(s) direto(s) até a raiz — usado pra manter a linha do grupo visível
+  // quando a busca só casa com uma tarefa-filha (senão a filha aparecia "solta", sem
+  // contexto de hierarquia).
+  const ancestraisDe = (task) => {
+    const out = [];
+    let cur = task;
+    while (cur?.parentId) {
+      const pai = etapas.find(e => e.id === cur.parentId);
+      if (!pai) break;
+      out.push(pai.id);
+      cur = pai;
+    }
+    return out;
+  };
+  // Busca que enxerga a subárvore (mesma regra do "Adicionar vínculo" do Orçamento x
+  // Cronograma): uma tarefa entra se ela casa pelo nome, é ANCESTRAL de quem casou (dá
+  // contexto — sem isso o grupo some e a filha marcada fica sem cabeçalho) ou
+  // DESCENDENTE de quem casou (é o que o usuário quer marcar em massa).
+  const filtrarComSubarvore = (busca) => {
+    const q = normBusca(busca);
+    if (!q) return etapas;
+    const casaram = etapas.filter(e => normBusca(e.etapa).includes(q));
+    if (!casaram.length) return [];
+    const manter = new Set();
+    const raizesIds = new Set(casaram.map(e => e.id));
+    casaram.forEach(e => { manter.add(e.id); ancestraisDe(e).forEach(aid => manter.add(aid)); });
+    const ehDescendente = (e) => ancestraisDe(e).some(aid => raizesIds.has(aid));
+    return etapas.filter(e => manter.has(e.id) || ehDescendente(e));
+  };
+  const predFiltradas = React.useMemo(() => filtrarComSubarvore(buscaPred), [etapas, buscaPred]);
+  const succFiltradas = React.useMemo(() => filtrarComSubarvore(buscaSucc), [etapas, buscaSucc]);
   const succRows = React.useMemo(() => leafTasks.filter(e => succSelected.includes(e.id)), [leafTasks, succSelected]);
   const qtdLinks = Object.values(links).filter(Boolean).length;
 
+  // Folhas (não-grupo) abaixo de `pai`, dentro da lista VISÍVEL (`lista`, não a completa) —
+  // clicar no grupo marca só o que está na tela, igual ao "Adicionar vínculo" do Orçamento.
+  const folhasDaSubarvore = (pai, lista) => {
+    const descIds = collectDescendantIds(pai.id, etapas);
+    return lista.filter(e => !ehGrupo(e) && e.id !== pai.id && descIds.has(e.id));
+  };
+
   // Desmarcar uma predecessora limpa qualquer dropdown que apontava pra ela (evita vínculo
   // "fantasma" apontando pra uma opção que sumiu da lista).
-  const togglePred = (id, checked) => {
-    setPredSelected(ids => checked ? [...ids, id] : ids.filter(x => x !== id));
+  const togglePred = (ids, checked) => {
+    const alvo = Array.isArray(ids) ? ids : [ids];
+    setPredSelected(cur => checked
+      ? [...new Set([...cur, ...alvo])]
+      : cur.filter(x => !alvo.includes(x)));
     if (!checked) setLinks(l => {
       const next = { ...l };
-      for (const k of Object.keys(next)) if (next[k] === id) delete next[k];
+      for (const k of Object.keys(next)) if (alvo.includes(next[k])) delete next[k];
       return next;
     });
   };
   // Desmarcar uma sucessora remove a linha de vínculo dela (some da seção de baixo).
-  const toggleSucc = (id, checked) => {
-    setSuccSelected(ids => checked ? [...ids, id] : ids.filter(x => x !== id));
-    if (!checked) setLinks(l => { const next = { ...l }; delete next[id]; return next; });
+  const toggleSucc = (ids, checked) => {
+    const alvo = Array.isArray(ids) ? ids : [ids];
+    setSuccSelected(cur => checked
+      ? [...new Set([...cur, ...alvo])]
+      : cur.filter(x => !alvo.includes(x)));
+    if (!checked) setLinks(l => {
+      const next = { ...l };
+      alvo.forEach(id => delete next[id]);
+      return next;
+    });
   };
 
   const handleConfirm = () => {
@@ -531,20 +577,52 @@ export const VincularTarefasModal = ({ etapas, onCommit, onClose, initialPredIds
     onClose();
   };
 
+  // Mesma escala de cor por nível de aninhamento usada na Lista/Gantt/Curva Física pras
+  // tarefas-pai (mais forte na raiz, enfraquecendo a cada nível mais fundo).
+  const groupTintDoNivel = (nivel) =>
+    (nivel || 0) <= 0 ? 'var(--brand-100)' : nivel === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
+
   const listaTarefas = (itens, selecionados, toggle) => (
     <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
-      {itens.map(e => (
-        <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px',
-          cursor: 'pointer', borderBottom: '1px solid var(--border)',
-          background: selecionados.includes(e.id) ? 'var(--brand-tint)' : 'transparent' }}>
-          <input type="checkbox" checked={selecionados.includes(e.id)}
-            onChange={ev => toggle(e.id, ev.target.checked)} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 28 }}>
-            {e.displayId ?? e.id}
-          </span>
-          <span style={{ paddingLeft: (e.nivel || 0) * 12, fontSize: 12.5 }}>{e.etapa}</span>
-        </label>
-      ))}
+      {itens.map(e => {
+        if (ehGrupo(e)) {
+          const folhas = folhasDaSubarvore(e, itens);
+          const marcadas = folhas.filter(f => selecionados.includes(f.id)).length;
+          const checked = folhas.length > 0 && marcadas === folhas.length;
+          const parcial = marcadas > 0 && marcadas < folhas.length;
+          const inerte = folhas.length === 0;
+          return (
+            <label key={e.id}
+              title={inerte ? 'Grupo sem tarefas-folha disponíveis nesta lista'
+                : 'Tarefa-pai: marca ou desmarca todas as folhas listadas (o grupo em si não recebe vínculo)'}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px',
+                cursor: inerte ? 'not-allowed' : 'pointer', borderBottom: '1px solid var(--border)',
+                background: groupTintDoNivel(e.nivel), opacity: inerte ? 0.6 : 1 }}>
+              <input type="checkbox" checked={checked} disabled={inerte}
+                ref={el => { if (el) el.indeterminate = parcial; }}
+                onChange={ev => !inerte && toggle(folhas.map(f => f.id), ev.target.checked)} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 28 }}>
+                {e.displayId ?? e.id}
+              </span>
+              <span style={{ paddingLeft: (e.nivel || 0) * 12, fontSize: 12.5, fontWeight: 700, color: 'var(--brand)' }}>
+                {e.etapa}
+              </span>
+            </label>
+          );
+        }
+        return (
+          <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px',
+            cursor: 'pointer', borderBottom: '1px solid var(--border)',
+            background: selecionados.includes(e.id) ? 'var(--brand-tint)' : 'transparent' }}>
+            <input type="checkbox" checked={selecionados.includes(e.id)}
+              onChange={ev => toggle(e.id, ev.target.checked)} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 28 }}>
+              {e.displayId ?? e.id}
+            </span>
+            <span style={{ paddingLeft: (e.nivel || 0) * 12, fontSize: 12.5 }}>{e.etapa}</span>
+          </label>
+        );
+      })}
     </div>
   );
 
