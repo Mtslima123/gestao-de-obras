@@ -184,7 +184,7 @@ export const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 })
 };
 
 // ─── PavimentosModal ─────────────────────────────────────────────────────────
-export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir, isAdmin = false }) => {
+export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir, isAdmin = false }) => {
   const toast = useToast();
   const [step,          setStep]          = React.useState(1);
   // Pré-preenche com os pavimentos já cadastrados nesta obra (não precisa redigitar a cada vez).
@@ -454,7 +454,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
                     else setSelectedTasks(ts => ts.filter(id => id !== e.id));
                   }}
                 />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 32 }}>{e.id}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 32 }}>{rowNumberMap[e.id] ?? e.id}</span>
                 <span style={{ paddingLeft: (e.nivel || 0) * 16, fontSize: 13, fontWeight: e.isGroup ? 600 : 400 }}>
                   {e.etapa}
                 </span>
@@ -473,7 +473,7 @@ export const PavimentosModal = ({ etapas, customCols, onCommit, onClose, pavimen
 // predecessoras marcadas ela recebe. Sem casamento automático por nome/posição — o
 // mapeamento entre os dois grupos pode ter deslocamento (ex.: Alvenaria Tipo 1 depende
 // de Estrutura Tipo 2), então quem decide cada par é o usuário.
-export const VincularTarefasModal = ({ etapas, onCommit, onClose, initialPredIds = [] }) => {
+export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onClose, initialPredIds = [] }) => {
   const toast = useToast();
   const [buscaPred, setBuscaPred] = React.useState('');
   const [buscaSucc, setBuscaSucc] = React.useState('');
@@ -602,7 +602,7 @@ export const VincularTarefasModal = ({ etapas, onCommit, onClose, initialPredIds
                 ref={el => { if (el) el.indeterminate = parcial; }}
                 onChange={ev => !inerte && toggle(folhas.map(f => f.id), ev.target.checked)} />
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 28 }}>
-                {e.displayId ?? e.id}
+                {rowNumberMap[e.id] ?? e.id}
               </span>
               <span style={{ paddingLeft: (e.nivel || 0) * 12, fontSize: 12.5, fontWeight: 700, color: 'var(--brand)' }}>
                 {e.etapa}
@@ -617,7 +617,7 @@ export const VincularTarefasModal = ({ etapas, onCommit, onClose, initialPredIds
             <input type="checkbox" checked={selecionados.includes(e.id)}
               onChange={ev => toggle(e.id, ev.target.checked)} />
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 28 }}>
-              {e.displayId ?? e.id}
+              {rowNumberMap[e.id] ?? e.id}
             </span>
             <span style={{ paddingLeft: (e.nivel || 0) * 12, fontSize: 12.5 }}>{e.etapa}</span>
           </label>

@@ -5,7 +5,7 @@ import { supabase } from '../../services/supabase';
 import { vinculoService, itemValor } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
-import { parseBRL } from '../cronograma/scheduleEngine';
+import { parseBRL, computeRowNumberMap } from '../cronograma/scheduleEngine';
 import { buildChildrenMap, flattenTree, noTravado, redistribuirPorValor } from './distribuirPesos';
 import { filtrarComSubarvore, folhasDaSubarvore, ancestraisDe } from './itensHierarquia';
 import { invalidateCronCache, _ocCache } from '../cronograma/cronogramaCache';
@@ -74,7 +74,7 @@ const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style })
 // Combobox com busca para a "Tarefa do Cronograma": abre a lista ao focar e filtra
 // conforme digita. Devolve o id da etapa (value/onChange). Desambigua nomes
 // repetidos (pavimentos) mostrando o EAP e a tarefa-pai.
-const TarefaCronogramaSelect = React.memo(({ etapas, value, onChange, disabled }) => {
+const TarefaCronogramaSelect = React.memo(({ etapas, rowNumberMap = {}, value, onChange, disabled }) => {
   const [query,     setQuery]     = React.useState('');
   const [open,      setOpen]      = React.useState(false);
   const [highlight, setHighlight] = React.useState(0);
@@ -87,15 +87,15 @@ const TarefaCronogramaSelect = React.memo(({ etapas, value, onChange, disabled }
     [etapas]
   );
   const etapaSel   = etapas.find(e => e.id === value) || null;
-  const labelEtapa = (et) => (et ? `${et.displayId ?? et.id}  ${et.etapa}` : '');
+  const labelEtapa = (et) => (et ? `${rowNumberMap[et.id] ?? et.id}  ${et.etapa}` : '');
 
   const filtradas = React.useMemo(() => {
     if (!query) return etapas;
     const q = norm(query);
     return etapas.filter(et =>
-      norm(et.etapa).includes(q) || norm(String(et.displayId ?? et.id)).includes(q)
+      norm(et.etapa).includes(q) || norm(String(rowNumberMap[et.id] ?? et.id)).includes(q)
     );
-  }, [etapas, query]);
+  }, [etapas, query, rowNumberMap]);
 
   // Fecha ao clicar fora; limpa o texto digitado (volta a mostrar a seleção)
   React.useEffect(() => {
@@ -166,7 +166,7 @@ const TarefaCronogramaSelect = React.memo(({ etapas, value, onChange, disabled }
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 34 }}>{et.displayId ?? et.id}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 34 }}>{rowNumberMap[et.id] ?? et.id}</span>
                   <span style={{ paddingLeft: (et.nivel || 0) * 12, fontWeight: et.isGroup ? 700 : 400, color: et.isGroup ? 'var(--brand)' : undefined }}>{et.etapa}</span>
                   {et.isGroup && <span style={{ fontSize: 10, color: 'var(--brand)', background: 'var(--brand-tint)', borderRadius: 4, padding: '0 5px' }}>grupo</span>}
                 </div>
@@ -679,6 +679,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     [vinculos]
   );
 
+  // Mesmo "ID" (número de linha atual) mostrado na Lista/Gantt do Cronograma — pra não
+  // ter duas numerações de tarefa diferentes entre as telas.
+  const rowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+
   // Mapa orcamento_item_id -> valor (alimenta a distribuição de pesos por fator_peso)
   const orcamentoItensMap = React.useMemo(
     () => Object.fromEntries(itens.map(it => [it.id, itemValor(it)])),
@@ -1082,6 +1086,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                   </label>
                   <TarefaCronogramaSelect
                     etapas={etapasDisponiveis}
+                    rowNumberMap={rowNumberMap}
                     value={selEtapa}
                     onChange={setSelEtapa}
                     disabled={etapasDisponiveis.length === 0}
@@ -1273,7 +1278,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
       {/* ── Modal: Editar Itens Associados ─────────────────────────────────── */}
       {editandoEtapaId && editandoEtapa && (
         <Modal
-          title={`Editar Itens Associados — ${editandoEtapa.displayId ?? editandoEtapa.id}  ${editandoEtapa.etapa}`}
+          title={`Editar Itens Associados — ${rowNumberMap[editandoEtapa.id] ?? editandoEtapa.id}  ${editandoEtapa.etapa}`}
           onClose={fecharModal}
           draggable
           resizable
@@ -1292,6 +1297,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                 <div style={{ flex: 1 }}>
                   <TarefaCronogramaSelect
                     etapas={etapas.filter(e => e.id !== editandoEtapaId)}
+                    rowNumberMap={rowNumberMap}
                     value={novaTarefaId}
                     onChange={setNovaTarefaId}
                   />
@@ -1548,7 +1554,7 @@ const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistr
                 <td>
                   {' '.repeat((e.nivel || 0) * 2)}
                   {e.isGroup && <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>▸</span>}
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', marginRight: 6 }}>{e.displayId ?? e.id}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', marginRight: 6 }}>{rowNumberMap[e.id] ?? e.id}</span>
                   {e.etapa}
                 </td>
                 <td style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>

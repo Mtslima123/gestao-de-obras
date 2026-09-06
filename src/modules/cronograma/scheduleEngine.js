@@ -143,6 +143,19 @@ export function computeSuccessors(etapas) {
   return r;
 }
 
+// Número de linha (posição atual, 1-based) de cada tarefa no array `etapas` — que já é
+// mantido na ordem visual real (drag-and-drop, indentar/recuar, recortar/colar linha
+// reordenam o próprio array, não só a exibição). É o número mostrado na coluna "ID" e
+// digitado em Predecessora/Sucessora: ao contrário de um id fixo, acompanha a tarefa
+// automaticamente quando ela muda de posição — estilo MS Project. Passe único, mesmo
+// padrão de rollup de computeSuccessors/computeAllWBS (evita repetir busca linear por
+// tarefa, que já causou problema de performance neste projeto em EAPs grandes).
+export function computeRowNumberMap(etapas) {
+  const map = {};
+  etapas.forEach((e, i) => { map[e.id] = i + 1; });
+  return map;
+}
+
 // Status efetivo para EXIBIÇÃO/contagem: tarefa em 100% conta como concluída (verde),
 // mesmo que o status salvo ainda seja outro. Não altera o dado persistido.
 // Grupos não flipam aqui (o avanço do grupo é calculado à parte, não vive em e.avanco).
@@ -481,34 +494,35 @@ export function reprogramarRestante(etapaId, etapas) {
   return novas;
 }
 
-// Converte dep[] para string exibível usando displayId: "1, 2TT+3d"
-export function formatDepList(dep, etapas) {
-  const idToDisp = etapas
-    ? Object.fromEntries(etapas.map(e => [e.id, e.displayId ?? e.id]))
-    : {};
+// Converte dep[] para string exibível usando o número de linha ATUAL da tarefa
+// (posição no array, não um id fixo — ver computeRowNumberMap): "1, 2TT+3d".
+// `rowNumberMap` é opcional; se não vier, calcula na hora (chamadas fora do caminho
+// quente da grade, ex.: TaskFormPanel, não precisam se preocupar em pré-calcular).
+export function formatDepList(dep, etapas, rowNumberMap) {
+  const map = rowNumberMap || (etapas ? computeRowNumberMap(etapas) : {});
   return (dep || []).map(d => {
-    if (typeof d === 'string') return idToDisp[d] ?? d;
-    const disp = idToDisp[d.id] ?? d.id;
+    if (typeof d === 'string') return map[d] ?? d;
+    const disp = map[d.id] ?? d.id;
     const t = (d.tipo && d.tipo !== 'TI') ? d.tipo : '';
     const l = d.lag ? ((d.lag > 0 ? '+' : '') + d.lag + 'd') : '';
     return disp + t + l;
   }).join('; ');
 }
 
-// Converte string "1; 2TT+3d" para dep[] resolvendo SEMPRE por displayId (o número
-// simples exibido na coluna ID/Predecessora/Sucessora) — nunca pelo id interno
-// (ex.: "TSK-078"), que não aparece em lugar nenhum da tela e só confundiria quem
-// for digitar uma predecessora.
+// Converte string "1; 2TT+3d" para dep[] resolvendo pelo NÚMERO DE LINHA atual (o
+// mesmo número exibido na coluna ID/Predecessora/Sucessora e na calha da grade) —
+// "3" é literalmente a tarefa na posição 3 do array, `etapas[2]`. Como a numeração é
+// a posição (não um id fixo), mover a tarefa referenciada muda automaticamente o que
+// aparece pra quem aponta pra ela — sem precisar reeditar nada.
 // Aceita separador ';' ou ',' e lag no formato "+3d" ou "+3 dias" (colado do Project).
 export function parseDep(raw, etapas) {
   return String(raw).split(/[;,]/).map(s => s.trim()).filter(Boolean).map(token => {
     const norm = token.replace(/\s+/g, '').replace(/dias?$/i, 'd');
     const m = norm.match(/^(\d+)(TI|TT|II|IT)?([+-]\d+d?)?$/);
     if (!m) return null;
-    const ref  = m[1];
     const tipo = m[2] || 'TI';
     const lag  = m[3] ? parseInt(m[3]) : 0;
-    const found = etapas.find(x => String(x.displayId) === ref);
+    const found = etapas[parseInt(m[1], 10) - 1];
     if (!found) return null;
     return { id: found.id, tipo, lag };
   }).filter(Boolean);

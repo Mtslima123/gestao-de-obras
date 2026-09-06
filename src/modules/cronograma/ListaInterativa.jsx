@@ -35,7 +35,7 @@ import {
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
 const EMPTY_HIDDEN_COLS = new Set();
 
-export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, isAdmin = false,
+export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, isAdmin = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
@@ -225,10 +225,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     try { localStorage.setItem(`ls_crono_rowheights_${obraId}`, JSON.stringify(rowHeights)); } catch { /* ignore */ }
   }, [rowHeights, obraId]);
 
-  const idToDisplayId = React.useMemo(
-    () => Object.fromEntries(etapas.map(e => [e.id, e.displayId ?? e.id])),
-    [etapas]
-  );
+  // Número de linha atual (posição na lista) de cada tarefa — recebido do componente
+  // pai (nunca desmonta ao trocar de aba, calcula uma vez só). É o que aparece na
+  // coluna "ID" e no que se digita/mostra em Predecessora e Sucessora.
+  const idToDisplayId = rowNumberMap;
   const visible     = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
   // Sugestões (datalist) das colunas "Lista com sugestão automática": valores já digitados em
   // qualquer linha da mesma coluna, sem restringir a digitação a essa lista (livre, não fixa).
@@ -328,7 +328,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       : (e.custoRealizado || 0);
     switch (colId) {
       case 'wbs':   { const v = wbsMap[e.id] || ''; return { raw: v, label: v }; }
-      case 'id':    { const v = String(e.displayId ?? e.id); return { raw: v, label: v }; }
+      case 'id':    { const v = String(rowNumberMap[e.id] ?? e.id); return { raw: v, label: v }; }
       case 'etapa': return { raw: e.etapa || '', label: e.etapa || '' };
       case 'modo':  { const v = e.isGroup ? '' : (e.modo === 'manual' ? 'Manual' : 'Automático'); return { raw: v, label: v }; }
       case 'inicio': { const d = offsetToDate(ini); return { raw: d, label: isoToBR(offsetToISO(ini)) }; }
@@ -350,7 +350,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'custoReal': return { raw: realCst, label: fmtBRL(realCst) };
       case 'custoOrcado': { const v = custoOrcadoMap[e.id] || 0; return { raw: v, label: fmtBRL(v) }; }
       case 'saldo':     { const v = custoEf(e, gv) - realCst; return { raw: v, label: fmtBRL(v) }; }
-      case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas); return { raw: v, label: v === '—' ? '' : v }; }
+      case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap); return { raw: v, label: v === '—' ? '' : v }; }
       case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; '); return { raw: v, label: v }; }
       case 'resp': { const v = e.isGroup ? '' : (e.responsavel || ''); return { raw: v, label: v }; }
       case 'pavimento': { const v = e.isGroup ? '' : (e.pavimento || ''); return { raw: v, label: v }; }
@@ -659,7 +659,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     custoReal: { kind: 'number', get: e => String(e.custoRealizado ?? 0),   field: 'custoRealizado' },
     resp:      { kind: 'text',   get: e => e.responsavel || '',              field: 'responsavel' },
     restricao: { kind: 'date',   get: e => e.restricaoData || '',            field: 'restricao' },
-    dep:       { kind: 'text',   get: e => formatDepList(e.dep, etapas),      field: 'dep' },
+    dep:       { kind: 'text',   get: e => formatDepList(e.dep, etapas, rowNumberMap), field: 'dep' },
     // Sucessora é derivada (vínculo reverso, gravado no `dep` de OUTRAS tarefas) — colar aqui
     // não usa applyFieldToEtapa como as demais colunas; ver applySuccEdits/applyBlockEdits.
     succ:      { kind: 'text',   get: e => formatSucc(e.id),                  field: 'succ' },
@@ -1926,7 +1926,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const q = localizarTermo.trim().toLowerCase();
     if (!q) return;
     const matches = filtrada.filter(e =>
-      norm2(e.etapa).includes(q) || norm2(wbsMap[e.id]).includes(q) || String(e.displayId ?? '').includes(q)
+      norm2(e.etapa).includes(q) || norm2(wbsMap[e.id]).includes(q) || String(rowNumberMap[e.id] ?? '').includes(q)
     );
     if (!matches.length) { toast('Nenhuma tarefa encontrada', { tone: 'neutral', icon: 'search' }); return; }
     localizarIdxRef.current = (localizarIdxRef.current + 1) % matches.length;
@@ -2037,6 +2037,24 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
 
+  // Avisa quando algum número digitado em Predecessora/Sucessora não corresponde a
+  // nenhuma tarefa real — parseDep descarta esses tokens em silêncio, o que sem aviso
+  // parece "a célula não salvou nada" (ver comentário em handleCellSave/handleSuccSave).
+  const avisarTokensNaoResolvidos = (rawValue) => {
+    const tokens = String(rawValue ?? '').split(/[;,]/).map(s => s.trim()).filter(Boolean);
+    if (!tokens.length) return;
+    const resolvidos = parseDep(rawValue, etapas).length;
+    if (resolvidos < tokens.length) {
+      const naoResolvidos = tokens.length - resolvidos;
+      toast(
+        naoResolvidos === 1
+          ? 'Não encontrei uma tarefa com esse número — confira o ID digitado.'
+          : `Não encontrei ${naoResolvidos} dos números digitados — confira os IDs.`,
+        { tone: 'warning', icon: 'alert-triangle' }
+      );
+    }
+  };
+
   const handleCellSave = (id, field, rawValue) => {
     // Tratamento especial para mudança de ID (propaga referências)
     if (field === 'id') {
@@ -2060,6 +2078,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       toast('ID atualizado', { tone: 'success', icon: 'check' });
       return;
     }
+
+    // Predecessora digitada sem corresponder a nenhuma tarefa real (ID errado, tarefa
+    // ainda sem displayId etc.): parseDep descarta o token em silêncio — sem isso o
+    // usuário só vê a célula "não salvar", sem entender por quê.
+    if (field === 'dep') avisarTokensNaoResolvidos(rawValue);
 
     // No-op guard: se o valor não mudou de verdade (ex.: abrir/fechar a célula sem editar,
     // ou digitar o mesmo número), não commita — senão empilha uma entrada idêntica no undo
@@ -2125,6 +2148,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   // Edita a Sucessora escrevendo o vínculo reverso (predecessora) nas outras tarefas.
   const handleSuccSave = (taskId, raw) => {
+    avisarTokensNaoResolvidos(raw);
     const reprog = autoScheduleFromDeps(applySuccEdits(etapas, [{ taskId, rawValue: raw }]));
     if (JSON.stringify(reprog) === JSON.stringify(etapas)) return; // sem mudança real
     onCommit(reprog);
@@ -2260,7 +2284,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
           : (e.custoRealizado || 0);
         if (cid === 'wbs')      return wbsMap[e.id] || '';
-        if (cid === 'id')       return e.displayId ?? e.id;
+        if (cid === 'id')       return rowNumberMap[e.id] ?? e.id;
         if (cid === 'etapa')    return '  '.repeat(e.nivel || 0) + e.etapa;
         if (cid === 'inicio')   return offsetToDate(ini);
         if (cid === 'fim')      return offsetToDate(ini + dur);
@@ -2277,7 +2301,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custoOrcado') return custoOrcadoMap[e.id] || 0;
         if (cid === 'saldo')    return cst - realCst;
         if (cid === 'resp')     return e.responsavel || '';
-        if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas);
+        if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap);
         if (cid === 'succ')     return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; ');
         if (cid === 'status')   return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap')
@@ -2338,7 +2362,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
           : (e.custoRealizado || 0);
         if (cid === 'wbs')       return wbsMap[e.id] || '';
-        if (cid === 'id')        return String(e.displayId ?? e.id);
+        if (cid === 'id')        return String(rowNumberMap[e.id] ?? e.id);
         if (cid === 'etapa')     return '  '.repeat(e.nivel || 0) + e.etapa;
         if (cid === 'inicio')    return isoToBR(offsetToISO(ini));
         if (cid === 'fim')       return isoToBR(offsetToISO(ini + dur));
@@ -2355,7 +2379,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custoOrcado') return fmtBRL(custoOrcadoMap[e.id] || 0);
         if (cid === 'saldo')     return fmtBRL(cst - realCst);
         if (cid === 'resp')      return e.responsavel || '';
-        if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas);
+        if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap);
         if (cid === 'succ')      return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; ');
         if (cid === 'status')    return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap') ? `${e.restricaoTipo}${e.restricaoData ? ' ' + e.restricaoData : ''}` : '';
@@ -3201,7 +3225,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 id: (
                   <td key="id" className="mono"
                     style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', ...stickyStyle('id') }}>
-                    {e.displayId ?? e.id}
+                    {rowNumberMap[e.id] ?? e.id}
                   </td>
                 ),
                 etapa: (
@@ -3416,7 +3440,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 dep: (
                   <td key="dep" onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? null : editingDep === e.id ? (
-                      <input autoFocus defaultValue={formatDepList(e.dep, etapas)}
+                      <input autoFocus defaultValue={formatDepList(e.dep, etapas, rowNumberMap)}
                         style={{ width: '100%', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); }}
                         onKeyDown={ev => {
@@ -3425,7 +3449,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
-                      const txt = formatDepList(e.dep, etapas);
+                      const txt = formatDepList(e.dep, etapas, rowNumberMap);
                       return (
                         <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={formatDepNames(e.dep) || undefined}>
                           {txt || <span className="text-faint">—</span>}
@@ -3974,6 +3998,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       {showPavimentos && (
         <PavimentosModal
           etapas={etapas}
+          rowNumberMap={rowNumberMap}
           customCols={customCols}
           onCommit={onCommit}
           pavimentosSalvos={pavimentosSalvos}
@@ -3988,6 +4013,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       {showVincularTarefas && (
         <VincularTarefasModal
           etapas={etapas}
+          rowNumberMap={rowNumberMap}
           onCommit={onCommit}
           initialPredIds={vincularPredIds}
           onClose={() => setShowVincularTarefas(false)}

@@ -66,7 +66,7 @@ function BaselineSelect({ value, baselines, reprogramacoes, onChange }) {
   );
 }
 
-export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, canRedo = true, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, isAdmin = false, customCols = [],
+export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, redo, canUndo = true, canRedo = true, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, isAdmin = false, customCols = [],
   baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
@@ -376,7 +376,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
         const cst = custoOrcadoMap[e.id] || 0;
         return [
           wbs[e.id] || '',
-          e.displayId ?? e.id,
+          rowNumberMap[e.id] ?? e.id,
           '  '.repeat(e.nivel || 0) + e.etapa,
           offsetToDate(ini),
           offsetToDate(ini + dur),
@@ -768,7 +768,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
   // Utilitário para verificar se uma tarefa é compatível com a busca atual
   const matchesSearch = (e) => !search ||
     e.etapa?.toLowerCase().includes(search.toLowerCase()) ||
-    String(e.displayId || '').toLowerCase().includes(search.toLowerCase()) ||
+    String(rowNumberMap[e.id] || '').toLowerCase().includes(search.toLowerCase()) ||
     e.isGroup;
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1405,7 +1405,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
                 >
                   {/* Coluna EAP */}
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', minWidth: 30, flexShrink: 0 }}>
-                    {e.displayId ?? e.id}
+                    {rowNumberMap[e.id] ?? e.id}
                   </span>
                   {/* Chevron de recolher para grupos / espaço para tarefas */}
                   {e.isGroup
@@ -1838,6 +1838,7 @@ export const GanttInterativo = ({ etapas, onCommit, undo, redo, canUndo = true, 
           <TaskFormPanel
             task={idx >= 0 ? visible[idx] : null}
             etapas={etapas}
+            rowNumberMap={rowNumberMap}
             onCommit={onCommit}
             readOnly={readOnly}
             canPrev={idx > 0}

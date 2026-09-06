@@ -15,7 +15,7 @@ import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd } from './crono
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
-  computeGroupValues, computeSuccessors, computeAvancoFisico,
+  computeGroupValues, computeSuccessors, computeAvancoFisico, computeRowNumberMap,
 } from './scheduleEngine';
 import MedicaoMensal from './MedicaoMensal';
 import {
@@ -316,7 +316,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   // meses e 'Total' continuam fixos e vêm sempre depois, como já era.
   const usoExcelVal = (e, k) => {
     switch (k) {
-      case 'id':     return e.displayId ?? e.id;
+      case 'id':     return rowNumberMap[e.id] ?? e.id;
       case 'wbs':    return wbsMap[e.id] || '';
       case 'nome':   return '  '.repeat(e.nivel || 0) + e.etapa;
       case 'inicio': return offsetToDate(e.inicio);
@@ -328,7 +328,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   };
   const usoPdfVal = (e, k) => {
     switch (k) {
-      case 'id':     return String(e.displayId ?? e.id);
+      case 'id':     return String(rowNumberMap[e.id] ?? e.id);
       case 'wbs':    return wbsMap[e.id] || '';
       case 'nome':   return '  '.repeat(e.nivel || 0) + e.etapa;
       case 'inicio': return isoToBR(offsetToISO(e.inicio));
@@ -586,7 +586,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
             <tbody>
               {visible.map(e => {
                 const nomeText = e.etapa;
-                const idText   = String(e.displayId ?? e.id);
+                const idText   = String(rowNumberMap[e.id] ?? e.id);
                 const wbsText  = wbsMap[e.id] || '';
                 const iniText  = isoToBR(offsetToISO(e.inicio));
                 const fimText  = isoToBR(offsetToISO(taskEnd(e)));
@@ -2644,6 +2644,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // por prop em vez de recalcular do zero a cada remontagem (custo real com 1000+ etapas).
   const groupVals = React.useMemo(() => computeGroupValues(etapas, custoOrcadoMap), [etapas, custoOrcadoMap]);
   const wbsMap     = React.useMemo(() => computeAllWBS(etapas), [etapas]);
+  // Número de linha atual de cada tarefa (posição no array) — usado como "ID" em toda
+  // a tela (Lista, Gantt, Formulário de Tarefa, Orçamento x Cronograma) e para
+  // exibir/digitar Predecessora e Sucessora. Ver computeRowNumberMap (scheduleEngine.js).
+  const rowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
 
   // Ids de tarefa com vínculo direto a algum item de orçamento (para o filtro vinculado/não vinculado).
   const vinculadoIds = React.useMemo(() => new Set(vinculos.map(v => v.etapa_id)), [vinculos]);
@@ -3008,7 +3012,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                         </div>
                       </div>
                       <div className="card-body" style={{ padding: 0, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} onCommit={commit} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} isAdmin={currentUser.isAdmin} customCols={customCols}
+                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} rowNumberMap={rowNumberMap} onCommit={commit} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} isAdmin={currentUser.isAdmin} customCols={customCols}
                           baselines={baselines} reprogramacoes={reprogramacoes}
                           blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
                           onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}
@@ -3042,7 +3046,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                               {detailTask.etapa}
                             </div>
                             <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>
-                              EAP {detailTask.displayId ?? detailTask.id}
+                              EAP {rowNumberMap[detailTask.id] ?? detailTask.id}
                             </div>
                           </div>
                           <button onClick={() => setDetailId(null)}
@@ -3080,7 +3084,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                                   ['Início', isoToBR(offsetToISO(detailTask.inicio))],
                                   ['Término', isoToBR(offsetToISO(taskEnd(detailTask)))],
                                   ['Duração', `${detailTask.dur} dias`],
-                                  ['EAP', detailTask.displayId ?? detailTask.id],
+                                  ['EAP', rowNumberMap[detailTask.id] ?? detailTask.id],
                                 ].map(([label, val]) => (
                                   <div key={label}>
                                     <div style={{ fontSize: 10.5, color: 'var(--text-faint)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{label}</div>
@@ -3160,7 +3164,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                                   const nome = v.t?.etapa || v.id;
                                   return (
                                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
-                                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--brand)', background: 'var(--brand-tint)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{v.t?.displayId ?? v.id}</span>
+                                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--brand)', background: 'var(--brand-tint)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{rowNumberMap[v.id] ?? v.id}</span>
                                       <span title={pai ? `${pai} · ${nome}` : nome} style={{ flex: 1, minWidth: 0 }}>
                                         <span style={{ display: 'block', color: 'var(--text-soft)', fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nome}</span>
                                         {pai && <span style={{ display: 'block', color: 'var(--text-faint)', fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>em {pai}</span>}
@@ -3230,6 +3234,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               {view === 'lista' && (
                 <ListaInterativa
                   etapas={etapas}
+                  rowNumberMap={rowNumberMap}
                   onCommit={commit}
                   customCols={customCols}
                   onCustomColsChange={handleCustomColsChange}

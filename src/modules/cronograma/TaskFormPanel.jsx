@@ -14,7 +14,7 @@ const labelSt = { fontSize: 10.5, fontWeight: 600, color: 'var(--text-faint)', t
 const thSt = { padding: '5px 8px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-faint)', textAlign: 'right', borderBottom: '1px solid var(--border)', background: 'var(--surface-muted)' };
 const tdSt = { padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))' };
 
-export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext }) => {
+export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext }) => {
   const [novoPredId, setNovoPredId] = React.useState('');
   const [novoSuccId, setNovoSuccId] = React.useState('');
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
@@ -39,10 +39,15 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
   const setDep = (novoDep) => onCommit(autoScheduleFromDeps(etapas.map(e => (e.id === task.id ? { ...e, dep: novoDep } : e))));
   const updatePred = (idx, patch) => setDep(task.dep.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
   const removePred = (idx) => setDep((task.dep || []).filter((_, i) => i !== idx));
+  // Resolve pelo número de linha ATUAL (mesmo mostrado na coluna ID/na calha da Lista/
+  // Gantt), não por um id fixo — mover a tarefa referenciada muda o número mostrado
+  // aqui automaticamente, sem precisar reeditar (ver computeRowNumberMap/parseDep em
+  // scheduleEngine.js). Mantém a busca por id interno como fallback (colar direto).
+  const resolveRef = (ref) => etapas[parseInt(ref, 10) - 1] || etapas.find(e => e.id === ref);
   const addPred = () => {
     const ref = (novoPredId || '').trim();
     if (!ref) return;
-    const found = etapas.find(e => String(e.displayId) === ref) || etapas.find(e => e.id === ref);
+    const found = resolveRef(ref);
     if (!found || found.id === task.id || (task.dep || []).some(d => d.id === found.id)) { setNovoPredId(''); return; }
     setDep([...(task.dep || []), { id: found.id, tipo: 'TI', lag: 0 }]);
     setNovoPredId('');
@@ -67,7 +72,7 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
   const addSucc = () => {
     const ref = (novoSuccId || '').trim();
     if (!ref) return;
-    const found = etapas.find(e => String(e.displayId) === ref) || etapas.find(e => e.id === ref);
+    const found = resolveRef(ref);
     if (!found || found.id === task.id || (found.dep || []).some(d => depId(d) === task.id)) { setNovoSuccId(''); return; }
     reschedule(etapas.map(e => (e.id === found.id ? { ...e, dep: [...(e.dep || []), { id: task.id, tipo: 'TI', lag: 0 }] } : e)));
     setNovoSuccId('');
@@ -144,7 +149,7 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
                 const pred = etapas.find(e => e.id === d.id);
                 return (
                   <tr key={i}>
-                    <td style={{ ...tdSt, width: 30 }}>{pred?.displayId ?? d.id}</td>
+                    <td style={{ ...tdSt, width: 30 }}>{rowNumberMap[d.id] ?? d.id}</td>
                     <td style={{ ...tdSt, textAlign: 'left' }} title={paiNome(pred) ? `${paiNome(pred)} · ${pred?.etapa ?? ''}` : (pred?.etapa ?? '')}>
                       {pred?.etapa ?? '—'}
                       {paiNome(pred) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(pred)}</div>}
@@ -174,7 +179,7 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
               {!locked && (
                 <tr>
                   <td colSpan={5} style={{ ...tdSt, textAlign: 'left' }}>
-                    <input placeholder="Id da predecessora + Enter" value={novoPredId}
+                    <input placeholder="Nº da linha da predecessora + Enter" value={novoPredId}
                       onChange={e => setNovoPredId(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') addPred(); }}
                       style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
@@ -207,7 +212,7 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
                 const lag = typeof link === 'string' ? 0 : (link?.lag ?? 0);
                 return (
                   <tr key={sid}>
-                    <td style={{ ...tdSt, width: 30 }}>{st?.displayId ?? sid}</td>
+                    <td style={{ ...tdSt, width: 30 }}>{rowNumberMap[sid] ?? sid}</td>
                     <td style={{ ...tdSt, textAlign: 'left' }} title={paiNome(st) ? `${paiNome(st)} · ${st?.etapa ?? ''}` : (st?.etapa ?? '')}>
                       {st?.etapa ?? '—'}
                       {paiNome(st) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(st)}</div>}
@@ -237,7 +242,7 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
               {!locked && (
                 <tr>
                   <td colSpan={5} style={{ ...tdSt, textAlign: 'left' }}>
-                    <input placeholder="Id da sucessora + Enter" value={novoSuccId}
+                    <input placeholder="Nº da linha da sucessora + Enter" value={novoSuccId}
                       onChange={e => setNovoSuccId(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') addSucc(); }}
                       style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
