@@ -518,9 +518,9 @@ export function formatDepList(dep, etapas, rowNumberMap) {
 export function parseDep(raw, etapas) {
   return String(raw).split(/[;,]/).map(s => s.trim()).filter(Boolean).map(token => {
     const norm = token.replace(/\s+/g, '').replace(/dias?$/i, 'd');
-    const m = norm.match(/^(\d+)(TI|TT|II|IT)?([+-]\d+d?)?$/);
+    const m = norm.match(/^(\d+)(TI|TT|II|IT)?([+-]\d+d?)?$/i);
     if (!m) return null;
-    const tipo = m[2] || 'TI';
+    const tipo = (m[2] || 'TI').toUpperCase();
     const lag  = m[3] ? parseInt(m[3]) : 0;
     const found = etapas[parseInt(m[1], 10) - 1];
     if (!found) return null;
@@ -535,12 +535,16 @@ export const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restri
 // Aplica um único campo a uma etapa (conversões de valor). Reutilizado pela Lista
 // (célula editável, colar em bloco) e pelo Formulário de Tarefa do Gantt.
 // NÃO trata 'id' (caso especial de renomeação, tratado no chamador).
-export function applyFieldToEtapa(e, field, rawValue, etapas) {
+// `resolveList` (opcional): lista usada pra resolver o número digitado em 'dep' —
+// por padrão é a própria `etapas`, mas a Lista passa a lista VISÍVEL (respeitando
+// grupos recolhidos), pra "3" sempre significar "a 3ª linha que aparece na grade"
+// (a mesma numeração da calha), não a 3ª posição na lista inteira.
+export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   if (field === 'inicio')      { return { ...e, inicio: Math.round(dateToOffset(rawValue)) }; }
   if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)); return { ...e, dur: workDur(e.inicio, offset) }; }
   if (field === 'duracaoDias') { return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) }; }
   if (field === 'avanco')      { return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) }; }
-  if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, etapas) }; }
+  if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, resolveList || etapas) }; }
   if (field === 'restricao') {
     // Campo virtual da coluna simplificada (estilo Project): só uma data, sem tipo à escolha.
     // Preenchida = "não iniciar antes de" (snet); vazia = sem restrição (asap).
@@ -562,8 +566,8 @@ export function applyFieldToEtapa(e, field, rawValue, etapas) {
 // Aplica um campo e já decide se reprograma (mesma regra de RESCHEDULE_FIELDS) — usado
 // diretamente pelo Formulário de Tarefa; a Lista usa applyFieldToEtapa por célula/lote
 // e decide o reagendamento ela mesma (autoScheduleFromDeps sobre o array inteiro).
-export function commitFieldChange(etapas, id, field, rawValue) {
-  const novas = etapas.map(e => (e.id !== id ? e : applyFieldToEtapa(e, field, rawValue, etapas)));
+export function commitFieldChange(etapas, id, field, rawValue, resolveList) {
+  const novas = etapas.map(e => (e.id !== id ? e : applyFieldToEtapa(e, field, rawValue, etapas, resolveList)));
   return RESCHEDULE_FIELDS.includes(field) ? autoScheduleFromDeps(novas) : novas;
 }
 

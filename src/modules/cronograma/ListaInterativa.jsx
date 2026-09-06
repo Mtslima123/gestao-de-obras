@@ -18,8 +18,9 @@ import {
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
   createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
   moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange,
-  reprogramarRestante, computeSuccessors,
+  reprogramarRestante, computeSuccessors, computeRowNumberMap,
 } from './scheduleEngine';
+import { computeAutofillSeries } from './autofillSeries';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal } from './cronogramaModais';
 import { TaskFormPanel } from './TaskFormPanel';
 import { OrtografiaModal } from './OrtografiaModal';
@@ -35,7 +36,16 @@ import {
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
 const EMPTY_HIDDEN_COLS = new Set();
 
-export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, isAdmin = false,
+// ── Alça de preenchimento (fill handle) ─────────────────────────────────────────
+// Colunas de cellSpec que fazem sentido arrastar em sequência: dep/succ guardam
+// referência a OUTRA tarefa (id de linha), não uma série — ficam de fora mesmo
+// sendo 'text'.
+const FILL_EXCLUDED_COLS = new Set(['dep', 'succ']);
+// Campos que a própria grade já trava para tarefa-resumo (rollup automático a
+// partir dos filhos) — preenchimento pula essas linhas nesses campos.
+const GROUP_BLOCKED_FIELDS = new Set(['inicio', 'fim', 'avanco', 'custo', 'custoRealizado', 'duracaoDias']);
+
+export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, isAdmin = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
@@ -118,6 +128,8 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
   const [painterOn,      setPainterOn]      = React.useState(false); // pincel de formatação ativo
   const painterRef = React.useRef(null); // fmt capturado pelo pincel
   const isSelectingRef = React.useRef(false); // arraste de seleção de intervalo em andamento
+  const fillDragRef = React.useRef(null); // arraste da alça de preenchimento em andamento (ver startFillDrag)
+  const [fillPreview, setFillPreview] = React.useState(null); // { colId, ids: Set } — destaque das linhas-alvo enquanto arrasta
   const blankFirstRef = React.useRef(null);   // input da 1ª linha em branco
   const blankFocusPending = React.useRef(false); // após criar da linha em branco, foca a linha abaixo (blank-0)
   // Altura real da topbar (para congelar o cabeçalho exatamente abaixo dela, sem corte)
@@ -225,11 +237,14 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
     try { localStorage.setItem(`ls_crono_rowheights_${obraId}`, JSON.stringify(rowHeights)); } catch { /* ignore */ }
   }, [rowHeights, obraId]);
 
-  // Número de linha atual (posição na lista) de cada tarefa — recebido do componente
-  // pai (nunca desmonta ao trocar de aba, calcula uma vez só). É o que aparece na
-  // coluna "ID" e no que se digita/mostra em Predecessora e Sucessora.
-  const idToDisplayId = rowNumberMap;
   const visible     = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
+  // Número de linha "cedo" (baseado só em `visible`, sem os filtros de busca/coluna) —
+  // usado apenas dentro de colFilterValue/filterKeyOf, que por sua vez alimentam o
+  // cálculo de `filtrada` mais abaixo. O rowNumberMap "de verdade" (que bate com a
+  // calha, incluindo filtro de busca/coluna) só pode ser calculado DEPOIS de `filtrada`
+  // existir — usar esse aqui evitaria uma dependência circular (filtrada precisa de
+  // colFilterValue, que precisaria do rowNumberMap final, que precisa de filtrada).
+  const rowNumberMapEarly = React.useMemo(() => computeRowNumberMap(visible), [visible]);
   // Sugestões (datalist) das colunas "Lista com sugestão automática": valores já digitados em
   // qualquer linha da mesma coluna, sem restringir a digitação a essa lista (livre, não fixa).
   const autocompleteOptionsByCol = React.useMemo(() => {
@@ -328,7 +343,7 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
       : (e.custoRealizado || 0);
     switch (colId) {
       case 'wbs':   { const v = wbsMap[e.id] || ''; return { raw: v, label: v }; }
-      case 'id':    { const v = String(rowNumberMap[e.id] ?? e.id); return { raw: v, label: v }; }
+      case 'id':    { const v = String(rowNumberMapEarly[e.id] ?? e.id); return { raw: v, label: v }; }
       case 'etapa': return { raw: e.etapa || '', label: e.etapa || '' };
       case 'modo':  { const v = e.isGroup ? '' : (e.modo === 'manual' ? 'Manual' : 'Automático'); return { raw: v, label: v }; }
       case 'inicio': { const d = offsetToDate(ini); return { raw: d, label: isoToBR(offsetToISO(ini)) }; }
@@ -350,8 +365,8 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
       case 'custoReal': return { raw: realCst, label: fmtBRL(realCst) };
       case 'custoOrcado': { const v = custoOrcadoMap[e.id] || 0; return { raw: v, label: fmtBRL(v) }; }
       case 'saldo':     { const v = custoEf(e, gv) - realCst; return { raw: v, label: fmtBRL(v) }; }
-      case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap); return { raw: v, label: v === '—' ? '' : v }; }
-      case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; '); return { raw: v, label: v }; }
+      case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMapEarly); return { raw: v, label: v === '—' ? '' : v }; }
+      case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => rowNumberMapEarly[id] ?? id).join('; '); return { raw: v, label: v }; }
       case 'resp': { const v = e.isGroup ? '' : (e.responsavel || ''); return { raw: v, label: v }; }
       case 'pavimento': { const v = e.isGroup ? '' : (e.pavimento || ''); return { raw: v, label: v }; }
       case 'participa': { if (e.isGroup) return { raw: null, label: '' }; const v = e.showInDist ? 'Sim' : 'Não'; return { raw: v, label: v }; }
@@ -367,7 +382,7 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
         return { raw, label: String(raw) };
       }
     }
-  }, [groupVals, etapas, wbsMap, hasVinculos, totalValorVinculado, totalCusto, valorVinculadoMap, custoOrcadoMap, totalCustoOrcado, succMap, idToDisplayId, customCols]);
+  }, [groupVals, etapas, wbsMap, hasVinculos, totalValorVinculado, totalCusto, valorVinculadoMap, custoOrcadoMap, totalCustoOrcado, succMap, rowNumberMapEarly, customCols]);
 
   const filterKeyOf = React.useCallback((colId, e) => {
     const type = resolveColType(colId, customCols);
@@ -620,6 +635,13 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
     return applySiblingSort(base, sortSpec);
   }, [visible, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Número de linha (posição em `filtrada`, a mesma lista que numera a calha) de cada
+  // tarefa — é o que aparece na coluna "ID" e no que se digita/mostra em Predecessora e
+  // Sucessora. Sempre igual ao que a calha mostra na hora (grupo recolhido/filtro ativo
+  // incluso), em vez da posição na lista inteira — ver computeRowNumberMap.
+  const rowNumberMap = React.useMemo(() => computeRowNumberMap(filtrada), [filtrada]);
+  const idToDisplayId = rowNumberMap;
+
   // Virtualização (windowing) da Lista — ativa só acima de VIRT_MIN. Abaixo, renderiza
   // todas as linhas (comportamento atual). Altura variável (rowH + overrides por linha)
   // é MEDIDA de verdade via measureElement (o height do <td> funciona como min-height).
@@ -826,13 +848,13 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
       let ne = e;
       list.forEach(ed => {
         if (ed.field === 'succ') { succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue }); return; }
-        ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas);
+        ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, filtrada);
         if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
       });
       return ne;
     });
     let novas = [...editadas, ...novos];
-    if (succEdits.length) { novas = applySuccEdits(novas, succEdits); reschedule = true; }
+    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, filtrada); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
   // Cola criando tarefas NOVAS a partir do zero (grade sem nenhuma linha ainda, ou nenhuma
@@ -1437,6 +1459,49 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
     return s;
   })();
 
+  // Abre a edição da célula selecionada, decidindo qual editor pelo colId (mesma
+  // lógica usada por F2 e, agora, por "digitar direto" com a célula selecionada).
+  // `seedChar`, quando presente, substitui o valor atual pelo caractere digitado —
+  // estilo Excel/Project: F2 chama sem seedChar (abre só pra navegar/editar o que já
+  // tinha); digitar direto chama com o caractere que acabou de ser pressionado.
+  const abrirEdicaoCelula = (cell, seedChar) => {
+    if (!cell || readOnly) return;
+    const { taskId, colId } = cell;
+    const task = filtrada.find(x => x.id === taskId);
+    const leaf = task && !task.isGroup;
+    if      (colId === 'custo'     && leaf) setEditingCusto(taskId + '_custo');
+    else if (colId === 'custoReal' && leaf && !valorVinculadoMap[taskId]) setEditingCusto(taskId + '_real');
+    else if (colId === 'fatorPeso' && leaf && effStatus(task) !== 'done' && pesoVale(taskId)) setEditingFatorPeso(taskId);
+    else if (colId === 'dep'       && leaf) setEditingDep(taskId);
+    else if (colId === 'succ'      && leaf) setEditingSucc(taskId);
+    else {
+      // Demais colunas (etapa, datas, duração, avanço, responsável, personalizadas)
+      // usam EditableCell: dispara o mesmo caminho do duplo-clique.
+      const sc = listaScrollRef.current;
+      const td = sc?.querySelector(`td[data-ck="${taskId}|${colId}"]`);
+      td?.querySelector('[title="Duplo-clique para editar"]')
+        ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    }
+    if (seedChar === undefined) return;
+    // O input só existe no DOM depois do próximo render (o estado que abre a edição
+    // acima ainda não foi aplicado nesta mesma execução síncrona).
+    requestAnimationFrame(() => {
+      const sc = listaScrollRef.current;
+      const input = sc?.querySelector(`td[data-ck="${taskId}|${colId}"] input`);
+      if (!input) return;
+      input.focus();
+      // Input CONTROLADO (dentro de EditableCell, value+onChange): setar .value direto
+      // não dispara o onChange do React — usa o setter nativo + evento sintético
+      // "input", truque padrão pra sincronizar o estado controlado por fora do React.
+      // Inputs NÃO-controlados (Custo/Fator Peso/Predecessora/Sucessora, defaultValue)
+      // já ficam com o valor certo só com o .value = seedChar.
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      nativeSetter ? nativeSetter.call(input, seedChar) : (input.value = seedChar);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.setSelectionRange?.(seedChar.length, seedChar.length);
+    });
+  };
+
   // Teclado da lista: ligado ao container focável (onKeyDown), não ao document,
   // para as setas moverem a seleção de célula em vez de rolar a página.
   const handleListKeyDown = (ev) => {
@@ -1555,17 +1620,31 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
       applyBlockEdits(edits);
       return;
     }
-    // Delete (estilo Excel/MS Project): só age quando a seleção cobre a LINHA INTEIRA
-    // (todas as colunas visíveis — mesmo critério do Shift+Espaço/drag na calha, ou
-    // multiSel). Uma célula ou um intervalo parcial de colunas não faz nada. Sempre
-    // pede confirmação (mesmo sem subtarefas) antes de excluir.
-    if (ev.key === 'Delete' && !readOnly && isAdmin) {
-      if (!isWholeRowSelection()) return;
-      ev.preventDefault();
-      const ids = [...selectedRowIds()];
-      if (!ids.length) return;
-      setDeleteConfirm(ids);
-      return;
+    // Delete (estilo Excel/MS Project): com a seleção cobrindo a LINHA INTEIRA (todas as
+    // colunas visíveis — mesmo critério do Shift+Espaço/drag na calha, ou multiSel), exclui
+    // a(s) tarefa(s) (com confirmação, só admin — igual antes). Numa seleção parcial (uma
+    // célula ou um intervalo que não cobre todas as colunas), Delete e Backspace só apagam
+    // o CONTEÚDO das células selecionadas, estilo Excel — sem confirmação, sem exigir admin
+    // (é uma edição comum, mesmo nível de permissão de digitar na célula).
+    if ((ev.key === 'Delete' || ev.key === 'Backspace') && !readOnly) {
+      if (editingNow) return; // deixa o navegador apagar o caractere dentro do campo em edição
+      if (ev.key === 'Delete' && isAdmin && isWholeRowSelection()) {
+        ev.preventDefault();
+        const ids = [...selectedRowIds()];
+        if (!ids.length) return;
+        setDeleteConfirm(ids);
+        return;
+      }
+      if (selectedCell) {
+        ev.preventDefault();
+        const edits = [];
+        rangeCellList().forEach(({ taskId, colId }) => {
+          const spec = cellSpec(colId);
+          if (spec) edits.push({ taskId, colId, field: spec.field, rawValue: '' });
+        });
+        if (edits.length) applyBlockEdits(edits);
+        return;
+      }
     }
     // Ctrl/Cmd + '-' (estilo Excel): exclui a(s) linha(s) selecionada(s) — espelha o
     // Ctrl++ que insere. Mesmo critério e mesma confirmação do Delete acima.
@@ -1602,26 +1681,20 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
       // F2 (estilo Excel): abre a célula selecionada para digitação.
       // Só F2 puro — com Ctrl/Alt/Meta não abre (Ctrl+F2 é o atalho de vincular em cadeia).
       if (ev.key === 'F2' && selectedCell && !readOnly && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-        const { taskId, colId } = selectedCell;
-        const task = filtrada.find(x => x.id === taskId);
-        const leaf = task && !task.isGroup;
-        if      (colId === 'custo'     && leaf) setEditingCusto(taskId + '_custo');
-        else if (colId === 'custoReal' && leaf && !valorVinculadoMap[taskId]) setEditingCusto(taskId + '_real');
-        else if (colId === 'fatorPeso' && leaf && effStatus(task) !== 'done' && pesoVale(taskId)) setEditingFatorPeso(taskId);
-        else if (colId === 'dep'       && leaf) setEditingDep(taskId);
-        else if (colId === 'succ'      && leaf) setEditingSucc(taskId);
-        else {
-          // Demais colunas (etapa, datas, duração, avanço, responsável, personalizadas)
-          // usam EditableCell: dispara o mesmo caminho do duplo-clique.
-          const sc = listaScrollRef.current;
-          const td = sc?.querySelector(`td[data-ck="${taskId}|${colId}"]`);
-          td?.querySelector('[title="Duplo-clique para editar"]')
-            ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-        }
+        abrirEdicaoCelula(selectedCell);
       } else if (ev.key === 'Enter' && selectedCell) {
         // Enter (estilo Excel): desce a célula ativa uma linha.
         moveSelCell('ArrowDown', false);
       }
+    }
+    // Digitar direto com a célula selecionada, sem precisar de duplo clique nem F2 —
+    // estilo Excel/Project: um clique já seleciona, e começar a digitar substitui o
+    // valor antigo e abre a edição na hora. Só uma tecla imprimível de um caractere só
+    // (letra/número/símbolo), sem Ctrl/Alt/Meta — as teclas especiais (setas, Delete,
+    // Tab etc.) têm nomes com mais de um caractere e já ficam de fora sozinhas.
+    if (selectedCell && !readOnly && ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      ev.preventDefault();
+      abrirEdicaoCelula(selectedCell, ev.key);
     }
   };
 
@@ -1763,11 +1836,35 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
           'inset 1px 0 0 0 var(--brand)',
           'inset -1px 0 0 0 var(--brand)',
         ].filter(Boolean).join(', ') } : null;
-    const styled = { ...(cell.props.style || {}), ...(fmtStyle || {}), ...(colMultiSelStyle || {}), ...(selStyle || {}) };
+    // Alcinha de preenchimento: só na ponta inferior-direita de uma seleção de UMA coluna
+    // só (rangeEdgeMap só marca `edges.b` na última linha), e só em coluna preenchível.
+    const singleColSel = selectedCell && (!selAnchor || selAnchor.colId === selectedCell.colId);
+    const fillSpec = cellSpec(colId);
+    const showFillHandle = !readOnly && singleColSel && edges?.b
+      && fillSpec && (fillSpec.kind === 'text' || fillSpec.kind === 'number') && !FILL_EXCLUDED_COLS.has(colId);
+    const inFillPreview = fillPreview?.colId === colId && fillPreview.ids.has(taskId);
+    const fillPreviewStyle = inFillPreview ? { outline: '1px dashed var(--brand)', outlineOffset: '-1px' } : null;
+    const styled = {
+      ...(cell.props.style || {}), ...(fmtStyle || {}), ...(colMultiSelStyle || {}), ...(selStyle || {}),
+      ...(fillPreviewStyle || {}),
+      ...(showFillHandle ? { position: (cell.props.style || {}).position || 'relative' } : {}),
+    };
     // Colunas-pegada (se houver) não participam da seleção de célula
     if (ROW_DRAG_COLS.has(colId)) {
       return React.cloneElement(cell, { className: cls || undefined, style: styled });
     }
+    const fillHandleEl = showFillHandle ? (
+      <span
+        key="fill-handle"
+        onMouseDown={(ev) => startFillDrag(ev, colId)}
+        title="Arraste para preencher em sequência"
+        style={{
+          position: 'absolute', right: -1, bottom: -1, width: 7, height: 7,
+          background: 'var(--brand)', border: '1px solid var(--surface)',
+          cursor: 'crosshair', zIndex: 5,
+        }}
+      />
+    ) : null;
     const prevMd = cell.props.onMouseDown;
     return React.cloneElement(cell, {
       className: cls || undefined,
@@ -1793,6 +1890,16 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
           listaScrollRef.current?.focus?.({ preventScroll: true });
           return;
         }
+        // Shift+clique: seleciona o retângulo entre a âncora atual e esta célula, sem trocar
+        // a âncora — mesmo resultado de segurar Shift+seta várias vezes, só que num clique só
+        // (estilo Excel: Shift+clique estende o intervalo a partir da última célula ativa).
+        if (ev.shiftKey && selAnchor) {
+          ev.preventDefault();
+          setSelectedCell({ taskId, colId });
+          rowClickHandledRef.current = true;
+          listaScrollRef.current?.focus?.({ preventScroll: true });
+          return;
+        }
         setSelectedCell({ taskId, colId });
         setSelAnchor({ taskId, colId });
         isSelectingRef.current = true; // inicia possível arraste de intervalo
@@ -1813,7 +1920,7 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
         // Estende o intervalo enquanto arrasta com o botão pressionado
         if (isSelectingRef.current) setSelectedCell({ taskId, colId });
       },
-    });
+    }, cell.props.children, fillHandleEl);
   };
 
   // Limpa seleção se o item selecionado for excluído
@@ -2020,7 +2127,7 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
         if (ed.field !== undefined) {
           if (ed.field === 'succ') succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue });
           else {
-            ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas);
+            ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, filtrada);
             if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
           }
         }
@@ -2033,8 +2140,87 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
       if (fmtChanged) ne = { ...ne, fmt };
       return ne;
     });
-    if (succEdits.length) { novas = applySuccEdits(novas, succEdits); reschedule = true; }
+    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, filtrada); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
+  };
+
+  // Arraste da alcinha de preenchimento (estilo Excel): a partir da célula (ou intervalo
+  // de célula, mesma coluna) selecionada, estende os valores para baixo continuando a série
+  // detectada (ver autofillSeries.js). Aplica tudo via applyBlockEdits — mesmo commit único
+  // que o colar em bloco usa, então Ctrl+Z desfaz o preenchimento inteiro de uma vez.
+  const startFillDrag = (ev, colId) => {
+    if (ev.button !== 0 || readOnly || !selectedCell) return;
+    const spec = cellSpec(colId);
+    if (!spec) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const rows = filtrada.map(x => x.id);
+    const a = selAnchor || selectedCell;
+    let r1 = rows.indexOf(a.taskId), r2 = rows.indexOf(selectedCell.taskId);
+    if (r1 < 0 || r2 < 0) return;
+    if (r1 > r2) [r1, r2] = [r2, r1];
+    const sourceValues = rows.slice(r1, r2 + 1).map(id => {
+      const e = filtrada.find(x => x.id === id);
+      return e ? spec.get(e) : '';
+    });
+    const drag = { colId, field: spec.field, sourceValues, endRowIdx: r2, rows };
+    fillDragRef.current = drag;
+    document.body.style.cursor = 'crosshair';
+    let ptr = { x: ev.clientX, y: ev.clientY };
+    let rafId = null;
+
+    // Alvo sob o ponteiro por coordenada (elementFromPoint), não por onMouseEnter: linha
+    // fora da janela virtualizada não tem nó no DOM pra disparar mouseenter — mesma razão do
+    // arraste de seleção de intervalo (ver useEffect "Arraste de seleção" logo acima).
+    const targetRange = () => {
+      const sc = listaScrollRef.current;
+      if (!sc) return null;
+      const tr = document.elementFromPoint(ptr.x, ptr.y)?.closest?.('tr[data-taskid]');
+      const hoverId = (tr && sc.contains(tr)) ? tr.getAttribute('data-taskid') : null;
+      const hoverIdx = hoverId != null ? drag.rows.indexOf(hoverId) : -1;
+      if (hoverIdx <= drag.endRowIdx) return null; // só estende pra baixo
+      return drag.rows.slice(drag.endRowIdx + 1, hoverIdx + 1);
+    };
+    const atualizarPreview = () => {
+      const targets = targetRange();
+      setFillPreview(targets ? { colId: drag.colId, ids: new Set(targets) } : null);
+    };
+    const quadro = () => {
+      rafId = null;
+      if (fillDragRef.current !== drag) return;
+      const sc = listaScrollRef.current;
+      if (!sc) return;
+      const passo = passoDeRolagem(ptr.y, sc.getBoundingClientRect(), sc.scrollTop, sc.scrollHeight - sc.clientHeight);
+      if (passo) sc.scrollTop += passo;
+      atualizarPreview();
+      if (passo) rafId = requestAnimationFrame(quadro);
+    };
+    const onMove = (moveEv) => {
+      ptr = { x: moveEv.clientX, y: moveEv.clientY };
+      atualizarPreview();
+      if (rafId == null) rafId = requestAnimationFrame(quadro);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (rafId != null) cancelAnimationFrame(rafId);
+      document.body.style.cursor = '';
+      fillDragRef.current = null;
+      setFillPreview(null);
+      const targetIds = targetRange();
+      if (!targetIds || !targetIds.length) return;
+      const values = computeAutofillSeries(drag.sourceValues, targetIds.length);
+      const groupBlocked = GROUP_BLOCKED_FIELDS.has(drag.field);
+      const edits = [];
+      targetIds.forEach((id, i) => {
+        const e = filtrada.find(x => x.id === id);
+        if (groupBlocked && e?.isGroup) return; // preserva o rollup do grupo
+        edits.push({ taskId: id, colId: drag.colId, field: drag.field, rawValue: values[i] });
+      });
+      if (edits.length) applyBlockEdits(edits);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   };
 
   // Avisa quando algum número digitado em Predecessora/Sucessora não corresponde a
@@ -2043,7 +2229,9 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
   const avisarTokensNaoResolvidos = (rawValue) => {
     const tokens = String(rawValue ?? '').split(/[;,]/).map(s => s.trim()).filter(Boolean);
     if (!tokens.length) return;
-    const resolvidos = parseDep(rawValue, etapas).length;
+    // Resolve contra `filtrada` (a mesma lista que numera a calha) — "3" tem que
+    // significar a 3ª linha que aparece na grade, não a 3ª da lista inteira.
+    const resolvidos = parseDep(rawValue, filtrada).length;
     if (resolvidos < tokens.length) {
       const naoResolvidos = tokens.length - resolvidos;
       toast(
@@ -2089,10 +2277,10 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
     // e o Ctrl+Z "desfaz" para um estado igual (parece que não faz nada).
     const cur = etapas.find(e => e.id === id);
     if (cur) {
-      const next = applyFieldToEtapa(cur, field, rawValue, etapas);
+      const next = applyFieldToEtapa(cur, field, rawValue, etapas, filtrada);
       if (JSON.stringify(cur) === JSON.stringify(next)) return;
     }
-    onCommit(commitFieldChange(etapas, id, field, rawValue), { silent: true });
+    onCommit(commitFieldChange(etapas, id, field, rawValue, filtrada), { silent: true });
   };
 
   // Sucessora exibida como texto (estilo Project): displayId + tipo(≠TI) + lag,
@@ -2131,8 +2319,8 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
   // cada edição, em sequência, recalculando o mapa de sucessoras a cada passo (uma edição pode
   // afetar o que a próxima considera "antiga"). Mesma regra usada por handleSuccSave (uma linha
   // só) — aqui generalizada para N linhas no mesmo commit.
-  const applySuccEdits = (base, succEdits) => succEdits.reduce((acc, { taskId, rawValue }) => {
-    const alvos   = parseDep(rawValue, acc);
+  const applySuccEdits = (base, succEdits, resolveList) => succEdits.reduce((acc, { taskId, rawValue }) => {
+    const alvos   = parseDep(rawValue, resolveList || acc);
     const novoSet = new Map(alvos.filter(a => a.id !== taskId).map(a => [a.id, a]));
     const antigos = new Set(computeSuccessors(acc)[taskId] || []);
     return acc.map(e => {
@@ -2149,7 +2337,7 @@ export const ListaInterativa = ({ etapas, rowNumberMap = {}, onCommit, customCol
   // Edita a Sucessora escrevendo o vínculo reverso (predecessora) nas outras tarefas.
   const handleSuccSave = (taskId, raw) => {
     avisarTokensNaoResolvidos(raw);
-    const reprog = autoScheduleFromDeps(applySuccEdits(etapas, [{ taskId, rawValue: raw }]));
+    const reprog = autoScheduleFromDeps(applySuccEdits(etapas, [{ taskId, rawValue: raw }], filtrada));
     if (JSON.stringify(reprog) === JSON.stringify(etapas)) return; // sem mudança real
     onCommit(reprog);
   };

@@ -3234,7 +3234,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               {view === 'lista' && (
                 <ListaInterativa
                   etapas={etapas}
-                  rowNumberMap={rowNumberMap}
                   onCommit={commit}
                   customCols={customCols}
                   onCustomColsChange={handleCustomColsChange}

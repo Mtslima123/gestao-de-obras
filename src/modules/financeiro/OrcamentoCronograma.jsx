@@ -1267,6 +1267,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
             <ResumoVinculos
               vinculos={vinculos}
               etapas={etapas}
+              rowNumberMap={rowNumberMap}
               onEditarVinculos={setEditandoEtapaId}
               onDistribuir={setDistribuirEtapaId}
             />
@@ -1502,7 +1503,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
 };
 
 // ─── ResumoVinculos ───────────────────────────────────────────────────────────
-const ResumoVinculos = React.memo(({ vinculos, etapas, onEditarVinculos, onDistribuir }) => {
+const ResumoVinculos = React.memo(({ vinculos, etapas, rowNumberMap = {}, onEditarVinculos, onDistribuir }) => {
   const [filtroResumo, setFiltroResumo] = React.useState('');
   const porEtapa = {};
   vinculos.forEach(v => {
