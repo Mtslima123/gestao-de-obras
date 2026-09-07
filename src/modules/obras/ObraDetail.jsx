@@ -1676,6 +1676,12 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
               <div className="value num" style={{ color: 'var(--brand)' }}>{heroStats.avancoFisico.toFixed(2)}%</div>
               <div className="meta">vs planejado {heroStats.planejadoHoje.toFixed(2)}%</div>
             </div>
+            {/* Financeiro (%): mesmo indicador informado à mão no modal Editar do Delta/
+                Tendência — não é calculado pelo sistema. */}
+            <div className="hero-stat">
+              <div className="label">Financeiro</div>
+              <div className="value num">{o.avancoFinanceiro != null ? `${Number(o.avancoFinanceiro).toFixed(2)}%` : '—'}</div>
+            </div>
             <div className="hero-stat">
               <div className="label">Fim do cronograma</div>
               <div className="value num">{cronFinalISO ? cronFinalISO.split('-').reverse().join('/') : '—'}</div>
