@@ -311,7 +311,8 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     endereco:     obra?.endereco    || '',
     dataPrevista: obra?.previsto    || '',
     dataFimObra:  obra?.dataFimObra || '',
-    // Indicadores digitados à mão (o sistema não calcula nenhum dos dois hoje)
+    // Indicadores digitados à mão (o sistema não calcula nenhum deles hoje)
+    avancoFinanceiro:      obra?.avancoFinanceiro ?? '',
     deltaFisicoFinanceiro: obra?.deltaFisicoFinanceiro ?? '',
     tendenciaFechamento:   obra?.tendenciaFechamento ?? '',
     // Campos futuros: cliente, tipo, area, orcamento, risco, observacoes
@@ -338,6 +339,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         endereco:    form.endereco,
         previsto:    form.dataPrevista || obra.previsto,
         dataFimObra: form.dataFimObra || null,
+        avancoFinanceiro:      numOuNull(form.avancoFinanceiro),
         deltaFisicoFinanceiro: numOuNull(form.deltaFisicoFinanceiro),
         tendenciaFechamento:   numOuNull(form.tendenciaFechamento),
         // id não é sobrescrito — permanece imutável
@@ -436,6 +438,14 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
             type="date"
             value={form.dataFimObra}
             onChange={e => set('dataFimObra', e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Financeiro (%)</label>
+          <input
+            type="number" step="any" placeholder="ex.: 60,5"
+            value={form.avancoFinanceiro}
+            onChange={e => set('avancoFinanceiro', e.target.value)}
           />
         </div>
         <div className="field">

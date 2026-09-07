@@ -68,7 +68,7 @@ const USO_COL_LABELS  = ['ID', 'EAP', 'Nome da Tarefa', 'Início', 'Término', '
 const USO_COL_DEFAULT = { id: 44, wbs: 52, nome: 208, inicio: 88, fim: 88, dur: 56, avanco: 52 };
 const USO_COL_ALIGN   = { id: 'right', wbs: 'left', nome: 'left', inicio: 'left', fim: 'left', dur: 'right', avanco: 'right' };
 
-const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap = {}, custoOrcadoMap = {}, wbsMap = {} }) => {
+const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap = {}, custoOrcadoMap = {}, wbsMap = {}, rowNumberMap = {} }) => {
   const [selectedId, setSelectedId] = React.useState(null);
   const leftRef  = React.useRef(null);
   const rightRef = React.useRef(null);
@@ -2748,6 +2748,15 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     }, 800);
   };
 
+  // Leva o % medido da Medição Mensal até o avanço oficial das tarefas — mesmo caminho de
+  // gravação de Lista/Gantt/Fluxo (commit, um único slot de undo/redo pro lote inteiro),
+  // sem persistência paralela.
+  const aplicarMedicaoNoAvanco = (pares) => {
+    if (readOnly || !pares.length) return;
+    const porId = new Map(pares.map(p => [p.id, p.percMedido]));
+    commit(etapas.map(e => (porId.has(e.id) ? { ...e, avanco: porId.get(e.id) } : e)));
+  };
+
   const undo = () => {
     if (hidxRef.current <= 0) { toast('Nada para desfazer', { tone: 'neutral', icon: 'alert' }); return; }
     const prev = histRef.current[hidxRef.current];
@@ -2914,13 +2923,24 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   view === 'curva' ? (
                   <div className="kpi-grid">
                     <div className="kpi" style={{ padding: '18px 20px' }}>
-                      <div className="kpi-label">Avanço realizado</div>
+                      <div className="kpi-label">Avanço físico</div>
+                      {/* Mesma ressalva do card "Avanço físico": previstoPct vem do cronograma
+                          vivo, não de linha de base — só faz sentido comparar com baseline salva. */}
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
                         <div className="kpi-value num" style={{ fontSize: 30 }}>{avancoTotal.toFixed(2)}<span className="unit">%</span></div>
-                        <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600, fontSize: 12 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp.toFixed(2)} pp vs previsto</span>
+                        {baselines.length > 0 && (
+                          <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600, fontSize: 12 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp.toFixed(2)} pp vs previsto</span>
+                        )}
                       </div>
-                      <div className="kpi-bar"><span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} /><span className="kpi-bar-target" style={{ left: previstoPct + '%' }} /></div>
-                      <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">realizado × previsto ({previstoPct.toFixed(2)}%)</span></div>
+                      <div className="kpi-bar">
+                        <span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} />
+                        {baselines.length > 0 && <span className="kpi-bar-target" style={{ left: previstoPct + '%' }} />}
+                      </div>
+                      <div className="kpi-foot" style={{ marginTop: 6 }}>
+                        <span className="kpi-foot-text">
+                          {baselines.length > 0 ? `realizado × previsto (${previstoPct.toFixed(2)}%)` : 'sem linha de base salva'}
+                        </span>
+                      </div>
                     </div>
                     <div className="kpi" style={{ padding: '18px 20px' }}>
                       <div className="kpi-label">Produção do mês</div>
@@ -2944,26 +2964,32 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                     </div>
                   </div>
                   ) : view === 'medicao' ? null : (
-                <div className="kpi-grid cols-3" style={view === 'uso' ? { position: 'sticky', top: topbarH + 32, zIndex: 2 } : undefined}>
+                <div className="kpi-grid cols-2" style={view === 'uso' ? { position: 'sticky', top: topbarH + 32, zIndex: 2 } : undefined}>
                   <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Avanço físico</div>
                     <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{avancoTotal.toFixed(2)}<span className="unit">%</span></div>
-                    <div className="kpi-bar"><span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} /><span className="kpi-bar-target" style={{ left: plannedPct + '%' }} /></div>
+                    {/* "Previsto" aqui vem do próprio cronograma vivo (plannedPct), não de uma
+                        linha de base congelada — sem baseline salva, comparar com isso não é
+                        "vs previsto" de verdade, é só "vs o que está agendado agora". */}
+                    <div className="kpi-bar">
+                      <span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} />
+                      {baselines.length > 0 && <span className="kpi-bar-target" style={{ left: plannedPct + '%' }} />}
+                    </div>
                     <div className="kpi-foot" style={{ marginTop: 6 }}>
-                      <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp.toFixed(2)} pp</span>
-                      <span className="kpi-foot-text"> vs previsto ({plannedPct.toFixed(2)}%)</span>
+                      {baselines.length > 0 ? (
+                        <>
+                          <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp.toFixed(2)} pp</span>
+                          <span className="kpi-foot-text"> vs previsto ({plannedPct.toFixed(2)}%)</span>
+                        </>
+                      ) : (
+                        <span className="kpi-foot-text">sem linha de base salva</span>
+                      )}
                     </div>
                   </div>
                   <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Término projetado</div>
                     <div className="kpi-value num" style={{ fontSize: 26, marginTop: 4, textTransform: 'capitalize' }}>{termino}</div>
                     {/* TODO: comparar com a linha de base (delta de dias) quando houver baseline selecionada */}
-                  </div>
-                  <div className="kpi" style={{ padding: '18px 20px' }}>
-                    <div className="kpi-label">Folga total</div>
-                    {/* TODO: calcular folga/caminho crítico (CPM) — não há esse cálculo no pipeline hoje */}
-                    <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4, color: 'var(--text-faint)' }}>—</div>
-                    <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text">requer cálculo de caminho crítico</span></div>
                   </div>
                 </div>
                   )
@@ -3280,7 +3306,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               )}
 
               {view === 'uso' && (
-                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} valorVinculadoMap={valorVinculadoMapFull} custoOrcadoMap={custoOrcadoMap} wbsMap={wbsMap} />
+                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} valorVinculadoMap={valorVinculadoMapFull} custoOrcadoMap={custoOrcadoMap} wbsMap={wbsMap} rowNumberMap={rowNumberMap} />
               )}
 
               {view === 'medicao' && (
@@ -3288,6 +3314,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   etapas={etapas} months={months} monthlyDist={monthlyDist} monthlyTotals={monthlyTotals}
                   valorVinculadoMap={valorVinculadoMapFull} obraId={obraSel} readOnly={readOnly}
                   currentUser={currentUser} onAtualizarDados={recarregarCronograma}
+                  onEnviarAvanco={aplicarMedicaoNoAvanco} wbsMap={wbsMap}
                 />
               )}
 

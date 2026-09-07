@@ -70,6 +70,14 @@ const noMes = (e, monthlyDist, mesRefKey) => !!(monthlyDist[e.id] && mesRefKey i
 // orçamento + custo real, somados sempre (mesmo peso usado pelo Avanço Físico).
 const valorCheio = (e, valorVinculadoMap) => (valorVinculadoMap?.[e.id] || 0) + (e.custoRealizado || 0);
 
+// Tarefa tem alguma fatia DEPOIS do mês de referência? "Fora do mês" existe pra trazer
+// trabalho feito ADIANTADO (ver nota no topo do arquivo) — tarefa cuja fatia é toda no
+// passado não é adiantada, é atrasada, e não deve aparecer como opção de inclusão manual.
+const temFatiaFutura = (e, monthlyDist, mesRefKey) => {
+  const dist = monthlyDist[e.id];
+  return !!dist && Object.keys(dist).some(k => k > mesRefKey);
+};
+
 // Itens do cronograma agendados no mês de referência, mais as folhas escolhidas
 // manualmente em `idsExtras` (tarefas sem fatia no mês, trazidas para medir trabalho
 // feito adiantado — ver nota no topo do arquivo).
@@ -114,7 +122,7 @@ export function buildItensMedicao(etapas, mesRefKey, {
 // para a medição (ver buildItensMedicao/idsExtras).
 export function listarTarefasForaDoMes(etapas, mesRefKey, { monthlyDist, wbsMap, disciplinaInfo, valorVinculadoMap = null }) {
   return etapas
-    .filter(e => !e.isGroup && !noMes(e, monthlyDist, mesRefKey))
+    .filter(e => !e.isGroup && !noMes(e, monthlyDist, mesRefKey) && temFatiaFutura(e, monthlyDist, mesRefKey))
     .map(e => {
       const info = disciplinaInfo[e.id] || { disciplina: '—', disciplinaCodigo: '0' };
       return {
@@ -127,6 +135,28 @@ export function listarTarefasForaDoMes(etapas, mesRefKey, { monthlyDist, wbsMap,
       };
     })
     .sort((a, b) => a.wbs.localeCompare(b.wbs, 'pt-BR', { numeric: true }));
+}
+
+// Injeta as linhas de grupo ancestrais das candidatas de "Incluir tarefa fora do mês" —
+// mesma ideia de computeArvoreMedicao (grupo só aparece se tiver folha candidata dentro),
+// sem a agregação financeira dela: aqui é só pra mostrar a hierarquia no modal de seleção.
+export function computeArvoreForaDoMes(candidatas, etapas) {
+  const mapaEtapas = new Map(etapas.map(e => [e.id, e]));
+  const porId = new Map(candidatas.map(c => [c.id, c]));
+  const folhasDoGrupo = new Set();
+  candidatas.forEach(c => {
+    cadeiaAncestrais(c.id, mapaEtapas).forEach(g => folhasDoGrupo.add(g.id));
+  });
+  const linhas = [];
+  etapas.forEach(e => {
+    if (folhasDoGrupo.has(e.id)) {
+      linhas.push({ tipo: 'grupo', id: e.id, nivel: e.nivel || 0, descricao: e.etapa || '' });
+      return;
+    }
+    const c = porId.get(e.id);
+    if (c) linhas.push({ tipo: 'item', nivel: e.nivel || 0, ...c });
+  });
+  return linhas;
 }
 
 // Parse do input "% medido": aceita vírgula ou ponto, remove lixo, clamp 0-100.
@@ -234,16 +264,24 @@ export function computeTotaisMedicao(itensFiltrados, valorTotalBase) {
 }
 
 // Resumo financeiro/físico do mês: meta programada (% do valor da obra que este mês
-// representa), previsto e executado acumulados (% do valor da obra até o fim do mês).
-export function computeResumo({ monthlyTotals, realizedTotalsAte, mesRefKey }) {
+// representa), previsto acumulado (% do valor da obra até o fim do mês), executado do mês
+// (`executadoMesPct`, o que foi medido nesta tela em R$ como fração da OBRA INTEIRA — não do
+// valor deste mês; por isso o card "Executado do mês" nunca passa do "Previsto do mês", que
+// é a mesma escala) e executado acumulado (soma direta, sem dividir de novo: previsto
+// acumulado recalculado com corte no MÊS ANTERIOR + executadoMesPct).
+export function computeResumo({ monthlyTotals, mesRefKey, valorMedidoMes = 0 }) {
   const totalPlan = Object.values(monthlyTotals).reduce((s, v) => s + v, 0);
   const planAteMes = Object.entries(monthlyTotals).reduce((s, [k, v]) => (k <= mesRefKey ? s + v : s), 0);
-  const realAteMes = Object.values(realizedTotalsAte).reduce((s, v) => s + v, 0);
+  const planAteMesAnterior = Object.entries(monthlyTotals).reduce((s, [k, v]) => (k < mesRefKey ? s + v : s), 0);
+  const previstoAcumuladoMesAnterior = totalPlan > 0 ? (planAteMesAnterior / totalPlan) * 100 : 0;
+  const executadoMesPct = totalPlan > 0 ? (valorMedidoMes / totalPlan) * 100 : 0;
   return {
     valorObra: totalPlan,
     metaProgramada: totalPlan > 0 ? ((monthlyTotals[mesRefKey] || 0) / totalPlan) * 100 : 0,
     previstoAcumulado: totalPlan > 0 ? (planAteMes / totalPlan) * 100 : 0,
-    executadoAcumulado: totalPlan > 0 ? (realAteMes / totalPlan) * 100 : 0,
+    executadoMesPct,
+    // Sem valor total da obra, não tem % de nada — nem o que o mês atual mediu sozinho.
+    executadoAcumulado: totalPlan > 0 ? previstoAcumuladoMesAnterior + executadoMesPct : 0,
   };
 }
 

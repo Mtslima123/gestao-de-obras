@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
+  computeArvoreForaDoMes, computeResumo,
 } from '../modules/cronograma/medicaoMensalPure';
 
 // Hierarquia: 1 ESTRUTURA > 1.1 TERREO > (folhas Forma, Concreto); 2 ESTACAS > folha pav1.
@@ -84,6 +85,16 @@ describe('listarTarefasForaDoMes', () => {
   it('valorVinculadoMap soma com o custo real (Custo Orçado)', () => {
     const [f] = listarTarefasForaDoMes(etapas, MES, { ...opts, valorVinculadoMap: { F: 2500 } });
     expect(f.valor).toBe(2500 + 800); // valor vinculado + custo real de F
+  });
+
+  it('exclui tarefa cuja fatia é toda no PASSADO (já devia ter sido medida, não é "adiantada")', () => {
+    const etapasComPassada = [
+      ...etapas,
+      { id: 'P', etapa: 'PASSADA', isGroup: false, nivel: 0, parentId: null, inicio: 1, dur: 5, avanco: 100, custo: 900 },
+    ];
+    const distComPassada = { ...monthlyDist, P: { '2026-01': 900 } }; // antes de MES ('2026-07')
+    const candidatas = listarTarefasForaDoMes(etapasComPassada, MES, { ...opts, monthlyDist: distComPassada });
+    expect(candidatas.map(c => c.id)).toEqual(['F']); // só a futura, não a passada
   });
 });
 
@@ -256,5 +267,73 @@ describe('hidratarSnapshot', () => {
   it('devolve vazio sem itens', () => {
     expect(hidratarSnapshot([], etapas)).toEqual([]);
     expect(hidratarSnapshot(null, etapas)).toEqual([]);
+  });
+});
+
+describe('computeResumo', () => {
+  const monthlyTotals = { '2026-06': 1000, '2026-07': 2000, '2026-08': 1000 }; // valorObra = 4000
+  const mesRefKey = '2026-07';
+
+  it('metaProgramada e previstoAcumulado vêm só de monthlyTotals', () => {
+    const r = computeResumo({ monthlyTotals, mesRefKey });
+    expect(r.valorObra).toBe(4000);
+    expect(r.metaProgramada).toBeCloseTo((2000 / 4000) * 100, 5); // só o mês de referência
+    expect(r.previstoAcumulado).toBeCloseTo((3000 / 4000) * 100, 5); // jun+jul, 75%
+  });
+
+  it('executadoAcumulado soma o previsto (mesma base do Uso da Tarefa) até o mês ANTERIOR, sem valorMedidoMes', () => {
+    const r = computeResumo({ monthlyTotals, mesRefKey });
+    expect(r.executadoMesPct).toBe(0);
+    expect(r.executadoAcumulado).toBeCloseTo((1000 / 4000) * 100, 5); // só jun, mês anterior a jul: 25%
+  });
+
+  it('executadoMesPct é o valor medido em R$ como fração da OBRA INTEIRA, não do mês', () => {
+    const r = computeResumo({ monthlyTotals, mesRefKey, valorMedidoMes: 1600 });
+    expect(r.executadoMesPct).toBeCloseTo((1600 / 4000) * 100, 5); // 40% da obra, não do mês (2000)
+  });
+
+  it('executadoAcumulado soma o previsto do mês anterior + executadoMesPct, sem dividir de novo', () => {
+    const r = computeResumo({ monthlyTotals, mesRefKey, valorMedidoMes: 1600 });
+    expect(r.executadoAcumulado).toBeCloseTo(25 + 40, 5); // 25% (mês anterior) + 40% (executado do mês)
+  });
+
+  it('no primeiro mês do cronograma (sem mês anterior), executadoAcumulado é só o executadoMesPct', () => {
+    const r = computeResumo({ monthlyTotals, mesRefKey: '2026-06', valorMedidoMes: 1200 });
+    expect(r.executadoAcumulado).toBeCloseTo(r.executadoMesPct, 5);
+  });
+
+  it('sem valor total da obra, tudo fica zero mesmo com valorMedidoMes preenchido (sem dividir por zero)', () => {
+    const r = computeResumo({ monthlyTotals: {}, mesRefKey, valorMedidoMes: 500 });
+    expect(r).toEqual({ valorObra: 0, metaProgramada: 0, previstoAcumulado: 0, executadoMesPct: 0, executadoAcumulado: 0 });
+  });
+});
+
+describe('computeArvoreForaDoMes', () => {
+  it('injeta só os grupos ancestrais das candidatas, na ordem do cronograma', () => {
+    const candidatas = listarTarefasForaDoMes(etapas, MES, opts); // só F, sob ESTACAS
+    const linhas = computeArvoreForaDoMes(candidatas, etapas);
+    expect(linhas.map(l => `${l.tipo}:${l.descricao}`)).toEqual(['grupo:ESTACAS', 'item:FUTURA']);
+  });
+
+  it('sobe por mais de um nível de grupo', () => {
+    const etapasAninhadas = [
+      { id: 'P1', etapa: 'TORRE', isGroup: true, nivel: 0, parentId: null },
+      { id: 'P2', etapa: 'PAV 2', isGroup: true, nivel: 1, parentId: 'P1' },
+      { id: 'L1', etapa: 'Alvenaria', isGroup: false, nivel: 2, parentId: 'P2' },
+    ];
+    const candidatas = [{ id: 'L1', wbs: '1.1.1', descricao: 'Alvenaria', disciplina: 'TORRE', pavimento: '—', valor: 100 }];
+    const linhas = computeArvoreForaDoMes(candidatas, etapasAninhadas);
+    expect(linhas.map(l => `${l.tipo}:${l.descricao}:${l.nivel}`)).toEqual([
+      'grupo:TORRE:0', 'grupo:PAV 2:1', 'item:Alvenaria:2',
+    ]);
+  });
+
+  it('omite grupo sem nenhuma candidata dentro', () => {
+    const candidatas = listarTarefasForaDoMes(etapas, MES, opts).filter(c => c.id !== 'F');
+    expect(computeArvoreForaDoMes(candidatas, etapas)).toEqual([]);
+  });
+
+  it('devolve vazio sem candidatas', () => {
+    expect(computeArvoreForaDoMes([], etapas)).toEqual([]);
   });
 });
