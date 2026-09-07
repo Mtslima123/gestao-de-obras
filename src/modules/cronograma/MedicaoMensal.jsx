@@ -1023,13 +1023,8 @@ export default function MedicaoMensal({
               )}
             </div>
           )}
-          {qtdForaDoMes > 0 && (
-            <span className="badge warning" style={{ marginLeft: 'auto' }}>
-              {qtdForaDoMes} {qtdForaDoMes === 1 ? 'item fora do mês' : 'itens fora do mês'} · somam ao realizado, não ao previsto
-            </span>
-          )}
           {fechada && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: qtdForaDoMes > 0 ? 0 : 'auto' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
               <span className="badge success"><span className="dot" />Medição fechada</span>
               {!readOnly && (
                 <button type="button" className="btn btn-ghost" onClick={() => setMostrarConfirmReabrir(true)}>
@@ -1055,6 +1050,16 @@ export default function MedicaoMensal({
             </svg>
           </button>
         </div>
+
+        {/* Fora da barra de filtros/ações de propósito — fica visível mesmo com os
+            filtros recolhidos, e não disputa espaço com os botões. */}
+        {qtdForaDoMes > 0 && (
+          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+            <span className="badge warning">
+              {qtdForaDoMes} {qtdForaDoMes === 1 ? 'item fora do mês' : 'itens fora do mês'} · somam ao realizado, não ao previsto
+            </span>
+          </div>
+        )}
 
         {/* flex:1 + minHeight:0 dá a rolagem por dentro do card; sem o minHeight o
             flex item não encolhe e o scroll vaza para a página. */}
