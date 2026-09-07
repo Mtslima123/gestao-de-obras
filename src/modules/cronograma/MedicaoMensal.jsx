@@ -1206,7 +1206,7 @@ export default function MedicaoMensal({
                       </span>
                     </td>
                     <td className="right num">{formatBRL(l.valor, 2)}</td>
-                    <td className="right num" style={{ fontWeight: 600 }}>{formatBRL((l.valor * l.percMedido) / 100, 2)}</td>
+                    <td className="right num">{formatBRL((l.valor * l.percMedido) / 100, 2)}</td>
                   </tr>
                 );
               })}
