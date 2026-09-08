@@ -1033,7 +1033,9 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
     };
     // O menu é posicionado em pixels fixos no momento de abrir e não acompanha o
     // scroll da página — em vez de deixar flutuando no lugar errado, fecha ao rolar.
-    const onWheel = () => setOpen(false);
+    // Mas rolar a própria lista (que tem scroll interno) não conta como "rolar a
+    // página": sem essa exceção, girar o mouse sobre as opções fechava o menu na hora.
+    const onWheel = (e) => { if (!menuRef.current?.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('wheel', onWheel, { passive: true });
     return () => {
@@ -1049,7 +1051,12 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <input ref={inputRef} placeholder="Selecione ou digite" value={value}
         onChange={e => { onChange(e.target.value); abrir(); }}
-        onFocus={abrir} style={{ width: '100%' }} />
+        onFocus={abrir}
+        // Clicar de novo no campo já focado (ex.: depois de fechar clicando fora, sem
+        // perder o foco) não disparava onFocus — o campo "não abria" até o usuário
+        // digitar ou trocar de campo e voltar. onClick garante que o clique sempre reabre.
+        onClick={abrir}
+        style={{ width: '100%' }} />
       {open && rect && filtered.length > 0 && createPortal(
         <div ref={menuRef} style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 300, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: rect.maxHeight, overflowY: 'auto', boxShadow: '0 10px 30px rgba(0,0,0,0.14)' }}>
           {filtered.map(o => (
