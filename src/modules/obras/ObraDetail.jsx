@@ -128,19 +128,20 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
         <div className="gantt-head">
           <div style={{ padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>ETAPA</span>
+            {/* Select em vez de um botão por nível: com EAPs profundas (N1..N9+) a fileira de
+                botões passava da coluna de 220px reservada pra "ETAPA" e vazava visualmente
+                sobre a coluna de meses. O select tem largura fixa, não importa quantos níveis
+                existam — mesmo padrão "Estrutura…" já usado na Lista/Gantt/Uso da Tarefa/Medição. */}
             {!resumoOnly && rows.some(e => e.isGroup) && (
-              <span style={{ display: 'flex', gap: 2 }}>
+              <select defaultValue="" title="Expandir ou recolher a estrutura por nível"
+                onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') collapseToLevel(Number(v)); }}
+                style={{ height: 20, fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', borderRadius: 4, background: 'var(--surface)', color: 'var(--text)', padding: '0 3px', cursor: 'pointer' }}>
+                <option value="" disabled>Nível…</option>
+                <option value="-1">Expandir tudo</option>
                 {Array.from({ length: maxGroupNivel + 1 }, (_, nivel) => (
-                  <button key={nivel} className="orca-row-btn" title={`Mostrar até nível ${nivel + 1}`}
-                    style={{ width: 22, height: 20, fontSize: 10, fontWeight: 600 }}
-                    onClick={() => collapseToLevel(nivel)}>
-                    N{nivel + 1}
-                  </button>
+                  <option key={nivel} value={nivel}>Nível {nivel + 1}</option>
                 ))}
-                <button className="orca-row-btn" title="Expandir tudo"
-                  style={{ width: 22, height: 20, fontSize: 10, fontWeight: 600 }}
-                  onClick={() => collapseToLevel(-1)}>≡</button>
-              </span>
+              </select>
             )}
           </div>
           <div className="gantt-month-row" style={{ gridTemplateColumns: janelaMesesDias.map(d => `${d}fr`).join(' ') }}>

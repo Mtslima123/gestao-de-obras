@@ -1394,7 +1394,9 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                     borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
                     borderLeft: '3px solid transparent',
                     display: 'flex', alignItems: 'center', gap: 6,
-                    fontSize: 12.5, fontWeight: isSel ? 600 : (e.isGroup ? 600 : 500),
+                    // Mesma convenção da Lista/Medição: grupo em negrito (700), folha com
+                    // peso normal (400) — antes as folhas usavam 500, um negrito sutil indevido.
+                    fontSize: 12.5, fontWeight: isSel ? 600 : (e.isGroup ? 700 : 400),
                     color: isSel ? 'var(--brand)' : 'var(--text)',
                     position: 'sticky', left: 0, zIndex: 11,
                     backgroundColor: lblBase, backgroundImage: lblTint,

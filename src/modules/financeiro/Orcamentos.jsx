@@ -7,6 +7,7 @@ import { logger } from '../../services/logger';
 import { vinculoService } from './vinculoService';
 import { supabase } from '../../services/supabase';
 import { migrateEtapas } from '../cronograma/ganttUtils';
+import { isoToBR } from '../cronograma/cronogramaDateUtils';
 import { formatBRL } from '../../utils/formatters';
 import { moduloSomenteLeitura, isAdmin, obrasPermitidas } from '../../utils/permissions';
 
@@ -89,7 +90,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
                   <tr key={o.id} onClick={() => onOpen(o)}>
                     <td className="strong mono">{o.id}</td>
                     <td className="strong">{o.obra}</td>
-                    <td className="mono text-sm text-muted">{o.data}</td>
+                    <td className="mono text-sm text-muted">{isoToBR(o.data)}</td>
                     <td>
                       {isAdmin(userProfile) && (
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -1268,7 +1269,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
           <div className="row" style={{ gap: 10 }}>
             <h1 className="page-title">{orcamento.obra}</h1>
           </div>
-          <div className="page-subtitle">{[orcamento.cliente, `atualizado em ${dataAtualizada}`].filter(Boolean).join(' · ')}</div>
+          <div className="page-subtitle">{[orcamento.cliente, `atualizado em ${isoToBR(dataAtualizada)}`].filter(Boolean).join(' · ')}</div>
         </div>
         <div className="page-actions">
           {isAdmin(userProfile) && (

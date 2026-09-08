@@ -5,7 +5,7 @@
 
 import React from "react";
 import { Icon } from "../../components/Icons";
-import { isoToBR, taskEnd, offsetToISO } from "./cronogramaDateUtils";
+import { isoToBR, isoToBRWeekday, taskEnd, offsetToISO } from "./cronogramaDateUtils";
 import { effStatus, collectDescendantIds, computeSuccessors } from "./scheduleEngine";
 
 // ─── Constantes de timeline / layout ─────────────────────────────────────────
@@ -141,13 +141,15 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
 
   if (readOnly) {
     const raw     = value !== undefined && value !== null && value !== '' ? value : null;
-    const display = type === 'date' && raw ? isoToBR(raw) : raw;
+    // Estilo MS Project: mostra a inicial do dia da semana antes da data ("Qui 03/09/2026").
+    const display = type === 'date' && raw ? isoToBRWeekday(raw) : raw;
     return <span style={style}>{display ?? <span style={{ color: 'var(--text-faint)' }}>—</span>}</span>;
   }
 
   if (!editing) {
     const raw     = value !== undefined && value !== null && value !== '' ? value : null;
-    const display = type === 'date' && raw ? isoToBR(raw) : raw;
+    // Estilo MS Project: mostra a inicial do dia da semana antes da data ("Qui 03/09/2026").
+    const display = type === 'date' && raw ? isoToBRWeekday(raw) : raw;
     return (
       <span
         onDoubleClick={() => { setDraft(value); setEditing(true); }}
@@ -190,8 +192,9 @@ export const LISTA_COL_DEFS = {
   id:        { label: 'ID',            defWidth: 58,  frozen: true, band: 'etapa', type: 'text' },
   modo:      { label: 'Modo',          defWidth: 56,  align: 'center', band: 'etapa', type: 'enum' },
   etapa:     { label: 'Etapa / Tarefa',defWidth: 224, frozen: true, band: 'etapa', type: 'text' },
-  inicio:    { label: 'Início',        defWidth: 96,  band: 'prazo', type: 'date' },
-  fim:       { label: 'Término',       defWidth: 96,  band: 'prazo', type: 'date' },
+  // +22px em relação ao antigo (96): acomoda o prefixo do dia da semana ("Qui 02/09/2026").
+  inicio:    { label: 'Início',        defWidth: 118, band: 'prazo', type: 'date' },
+  fim:       { label: 'Término',       defWidth: 118, band: 'prazo', type: 'date' },
   duracao:   { label: 'Duração',       defWidth: 78,  band: 'prazo', type: 'number' },
   avanco:    { label: '% Concluída',   defWidth: 150, band: 'avanco', type: 'number' },
   peso:           { label: 'Peso %',          defWidth: 70,  align: 'right', band: 'fin', type: 'number' },
@@ -203,7 +206,7 @@ export const LISTA_COL_DEFS = {
   succ:      { label: 'Sucessora',     defWidth: 150, band: 'seq', type: 'text' },
   resp:      { label: 'Responsável',   defWidth: 152, band: 'seq', type: 'text' },
   pavimento: { label: 'Pavimento',     defWidth: 110, band: 'seq', type: 'text' },
-  restricao: { label: 'Restrição',     defWidth: 80,  band: 'seq', type: 'date' },
+  restricao: { label: 'Restrição',     defWidth: 100, band: 'seq', type: 'date' }, // idem, +20px pro prefixo do dia
   participa:  { label: 'Curva',         defWidth: 54, align: 'center', band: 'seq', type: 'boolean' },
 };
 
