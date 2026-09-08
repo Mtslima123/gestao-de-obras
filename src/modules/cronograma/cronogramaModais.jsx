@@ -1058,7 +1058,7 @@ export const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDupli
   const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
 
   return (
-    <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="md" draggable overlay={false} onClose={onClose}
+    <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="md" draggable resizable overlay={false} onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
     >
       {baselines.length === 0
@@ -1143,6 +1143,7 @@ export const FeriadosModal = ({ cfg, onChange, onClose }) => {
     onChange(next); setData(''); setDescricao('');
   };
   const remove = (d) => onChange({ ...cfg, dias: dias.filter(x => x.data !== d) });
+  const [confirmDel, setConfirmDel] = React.useState(null); // data aguardando 2ª confirmação
   const [editKey, setEditKey]   = React.useState(null); // data original em edição
   const [editDate, setEditDate] = React.useState('');
   const [editDesc, setEditDesc] = React.useState('');
@@ -1158,7 +1159,7 @@ export const FeriadosModal = ({ cfg, onChange, onClose }) => {
     <Modal
       title="Feriados / dias não trabalhados"
       subtitle="Domingos e feriados não são trabalhados; o sábado é configurável."
-      onClose={onClose} size="md" draggable overlay={false}
+      onClose={onClose} size="md" draggable resizable overlay={false}
       footer={<button className="btn btn-primary" onClick={onClose}>Concluir</button>}
     >
       <div className="stack" style={{ gap: 14 }}>
@@ -1209,8 +1210,24 @@ export const FeriadosModal = ({ cfg, onChange, onClose }) => {
                       <td className="mono">{isoToBR(d.data)}</td>
                       <td>{d.descricao || <span className="text-muted">—</span>}</td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <button className="btn btn-sm btn-ghost" onClick={() => startEdit(d)}>Editar</button>
-                        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => remove(d.data)}>Remover</button>
+                        {confirmDel === d.data ? (
+                          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                            <span style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              Excluir definitivamente?
+                            </span>
+                            <button className="btn btn-sm"
+                              style={{ background: 'var(--danger)', color: 'white', fontWeight: 700 }}
+                              onClick={() => { remove(d.data); setConfirmDel(null); }}>
+                              Sim, excluir
+                            </button>
+                            <button className="btn btn-sm btn-ghost" onClick={() => setConfirmDel(null)}>Cancelar</button>
+                          </span>
+                        ) : (
+                          <>
+                            <button className="btn btn-sm btn-ghost" onClick={() => startEdit(d)}>Editar</button>
+                            <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmDel(d.data)}>Excluir</button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   )
@@ -1279,7 +1296,7 @@ export const GerenciarReprogramacoesModal = ({ reprogramacoes, repVisivelId, onS
   const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
 
   return (
-    <Modal title="Gerenciar Reprogramações" subtitle={`${reprogramacoes.length} reprogramação${reprogramacoes.length !== 1 ? 'ões' : ''} salva${reprogramacoes.length !== 1 ? 's' : ''}`} size="md" draggable overlay={false} onClose={onClose}
+    <Modal title="Gerenciar Reprogramações" subtitle={`${reprogramacoes.length} reprogramação${reprogramacoes.length !== 1 ? 'ões' : ''} salva${reprogramacoes.length !== 1 ? 's' : ''}`} size="md" draggable resizable overlay={false} onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
     >
       {reprogramacoes.length === 0

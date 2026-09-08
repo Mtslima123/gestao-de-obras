@@ -2152,15 +2152,26 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // Mês de referência da Curva Física — persistido por obra pelo mesmo motivo de blVisivelId/
   // repVisivelId: a view "curva" é desmontada ao trocar de sub-aba, perdendo estado local.
   const [selMonKey,      setSelMonKey]      = React.useState(() => carregarMesRef(defaultObraId || '') || mesAtualKey());
-  const [showCriar,    setShowCriar]    = React.useState(false);
-  const [showCriarRep,     setShowCriarRep]     = React.useState(false);
-  const [showGerenciarRep, setShowGerenciarRep] = React.useState(false);
+  // Modais de cadastro (Criar/Gerenciar linha de base, reprogramação, feriados, info do
+  // projeto) são mutuamente exclusivos: um único estado guarda qual está aberto (ou null),
+  // então abrir um sempre fecha o anterior — antes cada um tinha seu próprio boolean e dava
+  // pra abrir vários ao mesmo tempo (bug relatado: telas empilhadas, Escape/scroll quebrados).
+  const [activeCadastroModal, setActiveCadastroModal] = React.useState(null);
+  const showCriar         = activeCadastroModal === 'criar';
+  const showCriarRep      = activeCadastroModal === 'criarRep';
+  const showGerenciarRep  = activeCadastroModal === 'gerenciarRep';
+  const showGerenciar     = activeCadastroModal === 'gerenciar';
+  const showFeriados      = activeCadastroModal === 'feriados';
+  const showProjInfo      = activeCadastroModal === 'projInfo';
+  const setShowCriar        = (v) => setActiveCadastroModal(v ? 'criar' : null);
+  const setShowCriarRep     = (v) => setActiveCadastroModal(v ? 'criarRep' : null);
+  const setShowGerenciarRep = (v) => setActiveCadastroModal(v ? 'gerenciarRep' : null);
+  const setShowGerenciar    = (v) => setActiveCadastroModal(v ? 'gerenciar' : null);
+  const setShowFeriados     = (v) => setActiveCadastroModal(v ? 'feriados' : null);
+  const setShowProjInfo     = (v) => setActiveCadastroModal(v ? 'projInfo' : null);
   // Cronograma iniciado mas ainda sem etapas: mostra o editor vazio sem gravar nada
   const [iniciando,    setIniciando]    = React.useState(false);
-  const [showGerenciar, setShowGerenciar] = React.useState(false);
   // Feriados por obra (dias não trabalhados) — persistidos por obra no navegador.
-  const [showFeriados, setShowFeriados] = React.useState(false);
-  const [showProjInfo, setShowProjInfo] = React.useState(false);
   const [feriadosCfg,  setFeriadosCfg]  = React.useState({ dias: [], sabadoUtil: false });
   React.useEffect(() => {
     try { const raw = localStorage.getItem('ls_crono_feriados_' + obraSel); setFeriadosCfg(raw ? JSON.parse(raw) : { dias: [], sabadoUtil: false }); }
@@ -2849,7 +2860,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
           <select className="input" value={obraSel || ''} onChange={e => setObraSel(e.target.value)} style={{ minWidth: 200 }}>
             {!obraSel && <option value="">Selecione uma obra</option>}
             {obras.map(o => (
-              <option key={o.id} value={o.id}>{o.nome} ({o.id})</option>
+              <option key={o.id} value={o.id}>{o.nome}</option>
             ))}
           </select>
           <div className="segmented">
