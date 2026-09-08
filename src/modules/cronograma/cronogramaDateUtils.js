@@ -33,6 +33,17 @@ export function isoToBR(iso) {
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 }
 
+const DIAS_ABREV = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+// Mesmo formato de isoToBR, com a inicial do dia da semana na frente — estilo MS Project
+// ("Qui 03/09/2026"). new Date(y, m-1, d) local (não new Date(iso), que parseia como UTC
+// e vira o dia anterior em fusos negativos) — mesma convenção de dateToOffset.
+export function isoToBRWeekday(iso) {
+  if (!iso || iso.length < 10) return iso || '';
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const wd = new Date(y, m - 1, d).getDay();
+  return `${DIAS_ABREV[wd]} ${isoToBR(iso)}`;
+}
+
 // Converte string ISO para offset em DIAS desde GM_REF
 export function dateToOffset(iso) {
   if (!iso) return 0;
@@ -99,3 +110,10 @@ export function workStart(fimExcl, dur) {
 }
 // Término universal: grupo = envelope (inicio+dur já é o envelope dos filhos); folha = dias úteis.
 export function taskEnd(e) { return e && e.isGroup ? (e.inicio + e.dur) : workEnd(e.inicio, e.dur); }
+
+// Data de TÉRMINO para o usuário ver: o último dia efetivamente trabalhado (inclusivo).
+// taskEnd/workEnd retornam o offset EXCLUSIVO (dia seguinte ao último dia trabalhado) —
+// necessário pro motor de dependências (sucessora começa exatamente aí) e pras janelas de
+// dias (computeMonthlyDist etc.). NUNCA usar isto em cálculo de agendamento ou de dias —
+// só na hora de formatar/exibir/exportar uma data de término pra gente.
+export function taskEndDisplay(e) { return taskEnd(e) - 1; }

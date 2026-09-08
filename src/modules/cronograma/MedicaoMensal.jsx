@@ -377,6 +377,11 @@ export default function MedicaoMensal({
 
   // Grupos recolhidos (ids). Local: recolher aqui não mexe no cronograma.
   const [collapsed, setCollapsed] = React.useState(() => new Set());
+  // Último nível escolhido no select "Estrutura", só para o select mostrar o que foi
+  // aplicado (em vez de sempre voltar a "Escolher…"). Some de novo assim que um chevron
+  // é clicado à mão, porque nesse momento deixa de ser verdade que a árvore inteira está
+  // naquele nível — ver alternarGrupo.
+  const [nivelEstrutura, setNivelEstrutura] = React.useState('');
 
   // Recolher a faixa de filtros/ações — mesma ideia do ribbon da Lista, só que aqui é um
   // toggle único (sem abas). Persistido por navegador (não por obra: é preferência de tela).
@@ -567,6 +572,7 @@ export default function MedicaoMensal({
   };
 
   const alternarGrupo = (id) => {
+    setNivelEstrutura(''); // o select deixa de valer: a árvore não está mais uniforme num nível só
     setCollapsed(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -576,7 +582,10 @@ export default function MedicaoMensal({
 
   // Mesma semântica de applyOutlineLevel do Cronograma (0 = expandir tudo), mas o
   // resultado é o Set local desta tela, sem gravar no cronograma.
-  const aplicarNivel = (nivel) => setCollapsed(gruposParaNivel(arvoreCompleta, nivel));
+  const aplicarNivel = (nivel) => {
+    setCollapsed(gruposParaNivel(arvoreCompleta, nivel));
+    setNivelEstrutura(String(nivel));
+  };
 
   // Grava a lista no rascunho. `itens` explícito porque a inclusão/remoção manual precisa
   // salvar a lista nova no mesmo tick, antes do state ter sido aplicado.
@@ -687,7 +696,7 @@ export default function MedicaoMensal({
         '  '.repeat(l.nivel || 0) + l.descricao + (l.foraDoMes ? ' (fora do mês)' : ''),
         grupo ? '' : l.pavimento,
         grupo ? null : offsetToDate(l.inicioOff),
-        grupo ? null : offsetToDate(l.terminoOff),
+        grupo ? null : offsetToDate(l.terminoOff - 1), // terminoOff é exclusivo; -1 pra exibir/exportar
         grupo ? '' : l.duracaoDias,
         (l.peso ?? ((l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100)) / 100,
         grupo ? null : l.percExecutado / 100,
@@ -968,14 +977,16 @@ export default function MedicaoMensal({
               {pavimentos.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
-          {/* Estrutura de tópicos por nível — mesmo menu da Lista e do Gantt. Volta ao
-              placeholder depois de escolher: o colapso também muda pelos chevrons de cada
-              linha, então o select não teria como refletir um "nível atual" confiável. */}
+          {/* Estrutura de tópicos por nível — mesmo menu da Lista e do Gantt, mas mostra o
+              nível aplicado (nivelEstrutura) em vez de sempre voltar a "Escolher…": sem
+              isso não havia confirmação nenhuma de que a escolha tinha feito efeito. Some
+              de novo se um chevron individual for clicado (alternarGrupo), porque aí a
+              árvore deixa de estar uniformemente naquele nível. */}
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={filtroLabelSt}>Estrutura</span>
-            <select className="input" defaultValue="" style={{ minWidth: 150 }}
+            <select className="input" value={nivelEstrutura} style={{ minWidth: 150 }}
               title="Expandir ou recolher a estrutura por nível"
-              onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') aplicarNivel(Number(v)); }}>
+              onChange={e => { const v = e.target.value; if (v !== '') aplicarNivel(Number(v)); }}>
               <option value="" disabled>Escolher…</option>
               <option value="0">Expandir tudo</option>
               <option value="1">Recolher tudo</option>

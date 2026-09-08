@@ -390,10 +390,13 @@ export function autoScheduleFromDeps(etapas) {
     if (tipo && e.restricaoData) {
       const cd = dateToOffset(e.restricaoData);
       // mfo/fnet miram um TÉRMINO (cd): o início é o reverso em dias úteis (workStart).
+      // cd é a data digitada (dia INCLUSIVO); workStart espera o offset EXCLUSIVO (dia
+      // seguinte) — daí o +1 só nesses dois ramos. snet/mso são restrições de INÍCIO,
+      // cd já está na convenção certa pra elas, sem ajuste.
       if (tipo === 'snet') minStart = Math.max(minStart, cd);
       if (tipo === 'mso')  minStart = cd;
-      if (tipo === 'mfo')  minStart = workStart(cd, e.dur);
-      if (tipo === 'fnet') minStart = Math.max(minStart, workStart(cd, e.dur));
+      if (tipo === 'mfo')  minStart = workStart(cd + 1, e.dur);
+      if (tipo === 'fnet') minStart = Math.max(minStart, workStart(cd + 1, e.dur));
     }
 
     const novoInicio = Math.max(0, minStart);
@@ -541,7 +544,9 @@ export const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restri
 // (a mesma numeração da calha), não a 3ª posição na lista inteira.
 export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   if (field === 'inicio')      { return { ...e, inicio: Math.round(dateToOffset(rawValue)) }; }
-  if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)); return { ...e, dur: workDur(e.inicio, offset) }; }
+  // +1: a data digitada é o último dia INCLUSIVO de trabalho, mas workDur espera o
+  // offset EXCLUSIVO (dia seguinte) — ver taskEndDisplay em cronogramaDateUtils.js.
+  if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)) + 1; return { ...e, dur: workDur(e.inicio, offset) }; }
   if (field === 'duracaoDias') { return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) }; }
   if (field === 'avanco')      { return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) }; }
   if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, resolveList || etapas) }; }

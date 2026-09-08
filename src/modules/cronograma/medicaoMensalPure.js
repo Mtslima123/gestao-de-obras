@@ -102,11 +102,13 @@ export function buildItensMedicao(etapas, mesRefKey, {
         disciplina: info.disciplina,
         disciplinaCodigo: info.disciplinaCodigo,
         // Offsets crus: o filtro por intervalo e a ordenação precisam deles — as strings
-        // dataInicio/dataTermino são só exibição.
+        // dataInicio/dataTermino são só exibição. terminoOff continua EXCLUSIVO (dia
+        // seguinte ao último dia trabalhado); dataTermino usa -1 pra mostrar o último
+        // dia de fato.
         inicioOff: e.inicio,
         terminoOff,
         dataInicio: fmtData(e.inicio),
-        dataTermino: fmtData(terminoOff),
+        dataTermino: fmtData(terminoOff - 1),
         duracaoDias: e.dur,
         valor: foraDoMes ? valorCheio(e, valorVinculadoMap) : (monthlyDist[e.id][mesRefKey] || 0),
         foraDoMes,
@@ -348,9 +350,9 @@ export function hidratarSnapshot(registroItens, etapas, { wbsMap = {}, disciplin
       disciplina: info.disciplina || '—',
       disciplinaCodigo: info.disciplinaCodigo || '0',
       inicioOff: e?.inicio,
-      terminoOff: e ? taskEnd(e) : undefined,
+      terminoOff: e ? taskEnd(e) : undefined, // exclusivo, ver buildItensMedicao
       dataInicio: i.dataInicio || (e ? fmtData(e.inicio) : ''),
-      dataTermino: i.dataTermino || (e ? fmtData(taskEnd(e)) : ''),
+      dataTermino: i.dataTermino || (e ? fmtData(taskEnd(e) - 1) : ''),
       duracaoDias: i.duracaoDias ?? e?.dur,
       valor: i.valor || 0,
       foraDoMes: !!i.foraDoMes,

@@ -6,7 +6,7 @@ import { Icon } from '../../components/Icons';
 import { useToast, Modal } from '../../components/Modals';
 import { buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
          buildCalendarWeeks, buildCalendarDays } from './ganttUtils';
-import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, todayOffset } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, taskEndDisplay, todayOffset } from './cronogramaDateUtils';
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
@@ -379,7 +379,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           rowNumberMap[e.id] ?? e.id,
           '  '.repeat(e.nivel || 0) + e.etapa,
           offsetToDate(ini),
-          offsetToDate(ini + dur),
+          offsetToDate(taskEndDisplay({ isGroup: e.isGroup, inicio: ini, dur })),
           dur,
           av / 100,
           e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura'),
@@ -1749,7 +1749,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: '5px 8px' }}>
             {[
               ['Início',   gmMonthLabel(tooltip.etapa.inicio)],
-              ['Término',  gmMonthLabel(tooltip.etapa.inicio + tooltip.etapa.dur)],
+              ['Término',  gmMonthLabel(taskEndDisplay(tooltip.etapa))],
               ['Duração',  `${tooltip.etapa.dur}d`],
             ].map(([label, val]) => (
               <React.Fragment key={label}>

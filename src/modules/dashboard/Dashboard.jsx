@@ -184,8 +184,12 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
           peso,
           valorVinculado,
           orcamento: orcPorObra[o.id] || 0,
+          // -1: (inicio+dur) é o offset EXCLUSIVO (dia seguinte ao término). Mantido em
+          // dias corridos (sem workEnd/taskEnd) de propósito: esta tela agrega várias
+          // obras de uma vez e WORK_CAL é um estado de módulo único — usar o calendário
+          // de feriados aqui misturaria a config de uma obra com a de outra.
           fimCronograma: etapas.length
-            ? offsetToISO(Math.max(...etapas.map(e => (e.inicio || 0) + (e.dur || 0))))
+            ? offsetToISO(Math.max(...etapas.map(e => (e.inicio || 0) + (e.dur || 0))) - 1)
             : null,
         };
       });

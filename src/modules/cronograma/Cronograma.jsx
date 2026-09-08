@@ -10,7 +10,7 @@ import { useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
 import { podeVerAba, moduloSomenteLeitura, abaSomenteLeitura, isAdmin } from '../../utils/permissions';
-import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay } from './cronogramaDateUtils';
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
@@ -319,7 +319,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       case 'wbs':    return wbsMap[e.id] || '';
       case 'nome':   return '  '.repeat(e.nivel || 0) + e.etapa;
       case 'inicio': return offsetToDate(e.inicio);
-      case 'fim':    return offsetToDate(e.inicio + e.dur);
+      case 'fim':    return offsetToDate(taskEndDisplay(e));
       case 'dur':    return e.dur;
       case 'avanco': return e.avanco / 100;
       default:       return '';
@@ -331,7 +331,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       case 'wbs':    return wbsMap[e.id] || '';
       case 'nome':   return '  '.repeat(e.nivel || 0) + e.etapa;
       case 'inicio': return isoToBR(offsetToISO(e.inicio));
-      case 'fim':    return isoToBR(offsetToISO(taskEnd(e)));
+      case 'fim':    return isoToBR(offsetToISO(taskEndDisplay(e)));
       case 'dur':    return e.dur + 'd';
       case 'avanco': return e.avanco + '%';
       default:       return '';
@@ -588,7 +588,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                 const idText   = String(rowNumberMap[e.id] ?? e.id);
                 const wbsText  = wbsMap[e.id] || '';
                 const iniText  = isoToBR(offsetToISO(e.inicio));
-                const fimText  = isoToBR(offsetToISO(taskEnd(e)));
+                const fimText  = isoToBR(offsetToISO(taskEndDisplay(e)));
                 const durText  = `${e.dur}d`;
                 const avText   = `${e.avanco}%`;
                 const cellMap = {
@@ -2903,7 +2903,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 const plannedPct = totalPlan > 0 ? planToDate / totalPlan * 100 : 0;
                 const deltaPp = avancoTotal - plannedPct;
                 // Término projetado = maior data de término das tarefas (real). Comparação com base = TODO.
-                const maxEnd = leaves.length ? Math.max(...leaves.map(e => taskEnd(e))) : 0;
+                // -1: taskEnd é o offset exclusivo (dia seguinte ao último dia trabalhado);
+                // aqui só serve pra exibir o mês/ano, então já entra ajustado.
+                const maxEnd = leaves.length ? Math.max(...leaves.map(e => taskEnd(e))) - 1 : 0;
                 const termino = leaves.length ? offsetToDate(maxEnd).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }) : '—';
                 // ── Derivações por-view da Curva Física (aba view === 'curva') ────────
                 const mesAtual     = todayKey; // "YYYY-MM" do mês corrente
@@ -3106,7 +3108,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 14px', marginBottom: 16 }}>
                                 {[
                                   ['Início', isoToBR(offsetToISO(detailTask.inicio))],
-                                  ['Término', isoToBR(offsetToISO(taskEnd(detailTask)))],
+                                  ['Término', isoToBR(offsetToISO(taskEndDisplay(detailTask)))],
                                   ['Duração', `${detailTask.dur} dias`],
                                   ['EAP', rowNumberMap[detailTask.id] ?? detailTask.id],
                                 ].map(([label, val]) => (
@@ -3376,7 +3378,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
           obraNome:      obra?.nome || '—',
           obraCodigo:    obra?.codigo || '',
           inicio:        temTarefas ? isoToBR(offsetToISO(inicioOff)) : '—',
-          termino:       temTarefas ? isoToBR(offsetToISO(fimOff)) : '—',
+          // -1 só aqui: fimOff continua exclusivo pro cálculo de durDias acima.
+          termino:       temTarefas ? isoToBR(offsetToISO(fimOff - 1)) : '—',
           duracao:       temTarefas ? `${durDias} dias corridos` : '—',
           dataStatus:    new Date().toLocaleDateString('pt-BR'),
           grupos:        String(grupos.length),

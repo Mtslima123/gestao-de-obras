@@ -4,7 +4,7 @@
 // Recursos nem "Controlada pelo empenho"/"Tipo de tarefa" (não existem neste sistema).
 import React from 'react';
 import { Icon } from '../../components/Icons';
-import { offsetToISO, taskEnd } from './cronogramaDateUtils';
+import { offsetToISO, taskEndDisplay } from './cronogramaDateUtils';
 import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors } from './scheduleEngine';
 
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
@@ -33,7 +33,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   const eInicio = gv ? gv.inicio : task.inicio;
   const eDur    = gv ? gv.dur    : task.dur;
   const eAvanco = gv ? gv.avanco : task.avanco;
-  const eFim    = offsetToISO(taskEnd({ ...task, inicio: eInicio, dur: eDur }));
+  const eFim    = offsetToISO(taskEndDisplay({ ...task, inicio: eInicio, dur: eDur }));
 
   const save = (field, value) => onCommit(commitFieldChange(etapas, task.id, field, value));
   const setDep = (novoDep) => onCommit(autoScheduleFromDeps(etapas.map(e => (e.id === task.id ? { ...e, dep: novoDep } : e))));

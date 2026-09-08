@@ -7,7 +7,7 @@ import { logger } from '../../services/logger';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura, isAdmin, abaSomenteLeitura } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
-import { isoToBR, taskEnd } from '../cronograma/cronogramaDateUtils';
+import { isoToBR, taskEnd, taskEndDisplay } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
 import { SCurveChart2 } from '../cronograma/SCurveChart2';
 
@@ -1576,7 +1576,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   }, [o.id]);
 
   const cronFinalISO = etapasObra.length
-    ? offsetToISO(Math.max(...etapasObra.map(e => (e.inicio || 0) + (e.dur || 0))))
+    ? offsetToISO(Math.max(...etapasObra.map(e => taskEndDisplay({ isGroup: e.isGroup, inicio: e.inicio || 0, dur: e.dur || 0 }))))
     : null;
 
   // Avanço físico real + planejado acumulado até hoje (para o cabeçalho da obra).
@@ -1801,13 +1801,16 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                         const rows = [];
                         if (etapasObra.length) {
                           const ini = Math.min(...etapasObra.map(e => e.inicio || 0));
-                          const fim = Math.max(...etapasObra.map(e => (e.inicio || 0) + (e.dur || 0)));
+                          // fim continua EXCLUSIVO (dia seguinte ao último trabalhado): alimenta
+                          // a duração "fim - ini" abaixo, que precisa do offset cru. O -1 entra
+                          // só na exibição da data (isoToBR mais abaixo).
+                          const fim = Math.max(...etapasObra.map(e => taskEnd({ isGroup: e.isGroup, inicio: e.inicio || 0, dur: e.dur || 0 })));
                           const av = Math.round(computeAvancoFisico(etapasObra, custoOrcadoMapObra));
                           rows.push(
                             <tr key="resumo-projeto" style={{ background: 'var(--brand-50)' }}>
                               <td style={{ ...tdS, fontWeight: 800, color: 'var(--brand)' }}>Resumo do projeto</td>
                               <td style={tdS}>{isoToBR(offsetToISO(ini))}</td>
-                              <td style={tdS}>{isoToBR(offsetToISO(fim))}</td>
+                              <td style={tdS}>{isoToBR(offsetToISO(fim - 1))}</td>
                               <td style={tdS}>{fim - ini}d</td>
                               <td style={tdS}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
@@ -1846,7 +1849,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                                 {e.etapa}
                               </td>
                               <td style={tdPai}>{isoToBR(offsetToISO(e.inicio))}</td>
-                              <td style={tdPai}>{isoToBR(offsetToISO((e.inicio || 0) + (e.dur || 0)))}</td>
+                              <td style={tdPai}>{isoToBR(offsetToISO(taskEndDisplay({ isGroup: e.isGroup, inicio: e.inicio || 0, dur: e.dur || 0 })))}</td>
                               <td style={tdPai}>{e.dur}d</td>
                               <td style={tdPai}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>

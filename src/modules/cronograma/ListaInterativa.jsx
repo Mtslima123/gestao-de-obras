@@ -12,7 +12,7 @@ const ehCampoDeEdicao = (el) =>
   !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
-import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, dateToOffset } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, taskEndDisplay, dateToOffset } from './cronogramaDateUtils';
 import {
   fmtBRL, indentTasks, outdentTasks,
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
@@ -347,7 +347,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'etapa': return { raw: e.etapa || '', label: e.etapa || '' };
       case 'modo':  { const v = e.isGroup ? '' : (e.modo === 'manual' ? 'Manual' : 'Automático'); return { raw: v, label: v }; }
       case 'inicio': { const d = offsetToDate(ini); return { raw: d, label: isoToBR(offsetToISO(ini)) }; }
-      case 'fim':    { const d = offsetToDate(ini + dur); return { raw: d, label: isoToBR(offsetToISO(ini + dur)) }; }
+      case 'fim':    { const off = taskEndDisplay({ isGroup: e.isGroup, inicio: ini, dur }); const d = offsetToDate(off); return { raw: d, label: isoToBR(offsetToISO(off)) }; }
       case 'restricao': return e.restricaoData
         ? { raw: offsetToDate(dateToOffset(e.restricaoData)), label: isoToBR(e.restricaoData) }
         : { raw: null, label: '' };
@@ -674,7 +674,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const COPY_COLS = {
     etapa:     { kind: 'text',   get: e => e.etapa || '',                    field: 'etapa' },
     inicio:    { kind: 'date',   get: e => offsetToISO(e.inicio),            field: 'inicio' },
-    fim:       { kind: 'date',   get: e => offsetToISO(taskEnd(e)),          field: 'fim' },
+    fim:       { kind: 'date',   get: e => offsetToISO(taskEndDisplay(e)),   field: 'fim' },
     duracao:   { kind: 'number', get: e => String(e.dur ?? ''),             field: 'duracaoDias' },
     avanco:    { kind: 'number', get: e => String(e.avanco ?? 0),           field: 'avanco' },
     custo:     { kind: 'number', get: e => String(e.custo ?? 0),            field: 'custo' },
@@ -2475,7 +2475,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'id')       return rowNumberMap[e.id] ?? e.id;
         if (cid === 'etapa')    return '  '.repeat(e.nivel || 0) + e.etapa;
         if (cid === 'inicio')   return offsetToDate(ini);
-        if (cid === 'fim')      return offsetToDate(ini + dur);
+        if (cid === 'fim')      return offsetToDate(taskEndDisplay({ isGroup: e.isGroup, inicio: ini, dur }));
         if (cid === 'duracao')  return dur;
         if (cid === 'avanco')   return av / 100;
         if (cid === 'custo')    return cst;
@@ -2553,7 +2553,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'id')        return String(rowNumberMap[e.id] ?? e.id);
         if (cid === 'etapa')     return '  '.repeat(e.nivel || 0) + e.etapa;
         if (cid === 'inicio')    return isoToBR(offsetToISO(ini));
-        if (cid === 'fim')       return isoToBR(offsetToISO(ini + dur));
+        if (cid === 'fim')       return isoToBR(offsetToISO(taskEndDisplay({ isGroup: e.isGroup, inicio: ini, dur })));
         if (cid === 'duracao')   return dur + 'd';
         if (cid === 'avanco')    return av + '%';
         if (cid === 'custo')     return fmtBRL(cst);
@@ -3338,7 +3338,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 id:    <td key="id" style={stick('id')} />,
                 etapa: <td key="etapa" style={stick('etapa', { fontWeight: 700, fontSize: 12.5, color: 'var(--brand)', boxShadow: '1px 0 0 var(--border)' })}><span style={{ paddingLeft: 10 }}>{obraNome}</span></td>,
                 inicio: <td key="inicio" className="mono text-sm">{leaves.length ? fmtDt(projInicio) : ''}</td>,
-                fim:    <td key="fim" className="mono text-sm">{leaves.length ? fmtDt(projFim) : ''}</td>,
+                // -1 só aqui na exibição: projFim continua exclusivo pro cálculo de projDur acima.
+                fim:    <td key="fim" className="mono text-sm">{leaves.length ? fmtDt(projFim - 1) : ''}</td>,
                 duracao: <td key="duracao" className="mono num" style={{ textAlign: 'center' }}><span className="mono" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{projDur}d</span></td>,
                 avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 50 }}><div className="progress groupbar"><span style={{ width: projAvanco + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{projAvanco.toFixed(2)}%</span></div></td>,
                 peso:   <td key="peso" className="num mono" style={num}>100%</td>,
@@ -3448,7 +3449,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 ),
                 fim: (
                   <td key="fim" className="mono text-sm" onClick={ev => ev.stopPropagation()}>
-                    <EditableCell type="date" value={offsetToISO(e.isGroup ? eInicio + eDur : workEnd(eInicio, eDur))}
+                    {/* -1: offset exclusivo (dia seguinte ao último dia trabalhado) → data
+                        que o usuário deve ver (o próprio último dia trabalhado). */}
+                    <EditableCell type="date" value={offsetToISO((e.isGroup ? eInicio + eDur : workEnd(eInicio, eDur)) - 1)}
                       onSave={v => handleCellSave(e.id, 'fim', v)} readOnly={readOnly || e.isGroup}
                       onExitEdit={exitEdit} />
                   </td>
@@ -4050,7 +4053,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 ? (leaves.length ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length) : 0)
                 : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp);
               const footSaldo = totalCustoEf - totalReal; // usa o mesmo custo efetivo do total (consistente com vínculos)
-              const footBg = 'var(--surface-muted)';
+              // Um tom mais forte que --surface-muted (quase branco), pra a barra de total se
+              // destacar de verdade das linhas normais em vez de se confundir com o fundo.
+              const footBg = 'var(--border-strong)';
               const stick = (cid, extra) => ({ position: 'sticky', left: frozenLeft[cid], background: footBg, zIndex: 1, isolation: 'isolate', ...extra });
               const num = { textAlign: 'right', fontWeight: 700, fontSize: 12 };
               const foot = {
