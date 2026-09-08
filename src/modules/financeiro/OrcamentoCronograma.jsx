@@ -71,15 +71,21 @@ const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style })
 };
 
 // ─── TarefaCronogramaSelect ───────────────────────────────────────────────────
-// Combobox com busca para a "Tarefa do Cronograma": abre a lista ao focar e filtra
-// conforme digita. Devolve o id da etapa (value/onChange). Desambigua nomes
-// repetidos (pavimentos) mostrando o EAP e a tarefa-pai.
-const TarefaCronogramaSelect = React.memo(({ etapas, rowNumberMap = {}, value, onChange, disabled }) => {
+// Lista de tarefas com busca para "Tarefa do Cronograma". Por padrão fica sempre
+// visível — mesmo padrão de ItensOrcamentoSelect (busca acima + lista com scroll
+// fixo) — para o painel principal "Adicionar vínculo". `dropdown` restaura o
+// combobox compacto (abre só com foco, fecha ao selecionar/clicar fora), usado no
+// "Mover para outra tarefa" dentro do modal — ali uma lista de 360px permanente
+// infla um trecho secundário e admin-only, então mantém o formato compacto.
+// Devolve o id da etapa (value/onChange). Desambigua nomes repetidos (pavimentos)
+// mostrando o EAP e a tarefa-pai.
+const TarefaCronogramaSelect = React.memo(({ etapas, rowNumberMap = {}, value, onChange, disabled, dropdown = false }) => {
   const [query,     setQuery]     = React.useState('');
   const [open,      setOpen]      = React.useState(false);
   const [highlight, setHighlight] = React.useState(0);
   const ref     = React.useRef(null);
   const listRef = React.useRef(null);
+  const listVisible = dropdown ? open : true;
 
   const norm = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const paiNome = React.useCallback(
@@ -97,84 +103,100 @@ const TarefaCronogramaSelect = React.memo(({ etapas, rowNumberMap = {}, value, o
     );
   }, [etapas, query, rowNumberMap]);
 
-  // Fecha ao clicar fora; limpa o texto digitado (volta a mostrar a seleção)
+  // Modo dropdown: fecha ao clicar fora; limpa o texto digitado (volta a mostrar a seleção)
   React.useEffect(() => {
-    if (!open) return;
+    if (!dropdown || !open) return;
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQuery(''); } };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  }, [dropdown, open]);
 
   // Mantém o item destacado visível ao navegar por teclado
   React.useEffect(() => {
-    if (!open || !listRef.current) return;
-    listRef.current.children[highlight]?.scrollIntoView({ block: 'nearest' });
-  }, [highlight, open]);
+    if (!listVisible) return;
+    listRef.current?.children[highlight]?.scrollIntoView({ block: 'nearest' });
+  }, [highlight, listVisible]);
 
-  const abrir      = () => { setOpen(true); setHighlight(Math.max(0, filtradas.findIndex(e => e.id === value))); };
-  const selecionar = (et) => { onChange(et.id); setQuery(''); setOpen(false); };
+  const abrir = () => { if (!dropdown) return; setOpen(true); setHighlight(Math.max(0, filtradas.findIndex(e => e.id === value))); };
+  const selecionar = (et) => { onChange(et.id); if (dropdown) { setQuery(''); setOpen(false); } };
 
   const onKeyDown = (e) => {
-    if (e.key === 'ArrowDown')      { e.preventDefault(); if (!open) return abrir(); setHighlight(h => Math.min(h + 1, filtradas.length - 1)); }
-    else if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)); }
-    else if (e.key === 'Enter')     { if (open && filtradas[highlight]) { e.preventDefault(); selecionar(filtradas[highlight]); } }
-    else if (e.key === 'Escape')    { setOpen(false); setQuery(''); }
+    if (disabled) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (dropdown && !open) return abrir();
+      setHighlight(h => Math.min(h + 1, filtradas.length - 1));
+    } else if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)); }
+    else if (e.key === 'Enter')       { if (filtradas[highlight]) { e.preventDefault(); selecionar(filtradas[highlight]); } }
+    else if (e.key === 'Escape' && dropdown) { setOpen(false); setQuery(''); }
   };
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={dropdown ? { position: 'relative' } : undefined}>
       <input
         className="input"
-        placeholder="— Selecione uma tarefa —"
-        value={open ? query : labelEtapa(etapaSel)}
+        placeholder={dropdown ? '— Selecione uma tarefa —' : 'Buscar tarefa...'}
+        value={dropdown ? (open ? query : labelEtapa(etapaSel)) : query}
         disabled={disabled}
-        onChange={e => { setQuery(e.target.value); setOpen(true); setHighlight(0); }}
-        onFocus={abrir}
+        onChange={e => { setQuery(e.target.value); if (dropdown) setOpen(true); setHighlight(0); }}
+        onFocus={dropdown ? abrir : undefined}
         onKeyDown={onKeyDown}
-        style={{ width: '100%' }}
+        style={{ width: '100%', marginBottom: dropdown ? 0 : 6 }}
       />
-      {open && (
-        <div ref={listRef} style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-          maxHeight: 260, overflowY: 'auto', marginTop: 2,
-        }}>
-          {filtradas.length === 0 && (
-            <div style={{ padding: '9px 12px', fontSize: 13, color: 'var(--text-faint)' }}>Nenhuma tarefa encontrada.</div>
-          )}
-          {filtradas.map((et, i) => {
-            const pai = paiNome(et);
-            const sel = et.id === value;
-            // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto (raiz da
-            // EAP), enfraquecendo a cada nível mais fundo — mesma escala usada no Gantt, na Lista,
-            // na Curva Física e na Medição Mensal.
-            const groupLvl = et.nivel || 0;
-            const groupTint = groupLvl <= 0 ? 'var(--brand-100)' : groupLvl === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
-            return (
-              <div
-                key={et.id}
-                onMouseDown={(e) => { e.preventDefault(); selecionar(et); }}
-                onMouseEnter={() => setHighlight(i)}
-                style={{
-                  padding: '7px 12px', cursor: 'pointer',
-                  borderBottom: '1px solid var(--border-subtle)',
-                  // Grupo entra depois de selecionado/destacado para não roubar esses estados; a barra
-                  // à esquerda é o sinal que sobrevive aos três casos (transparente nas folhas, para alinhar).
-                  background: sel ? 'var(--brand-tint)' : i === highlight ? 'var(--surface-muted)' : et.isGroup ? groupTint : 'transparent',
-                  borderLeft: et.isGroup ? '3px solid var(--brand)' : '3px solid transparent',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 34 }}>{rowNumberMap[et.id] ?? et.id}</span>
-                  <span style={{ paddingLeft: (et.nivel || 0) * 12, fontWeight: et.isGroup ? 700 : 400, color: et.isGroup ? 'var(--brand)' : undefined }}>{et.etapa}</span>
-                  {et.isGroup && <span style={{ fontSize: 10, color: 'var(--brand)', background: 'var(--brand-tint)', borderRadius: 4, padding: '0 5px' }}>grupo</span>}
-                </div>
-                {pai && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 1, paddingLeft: 40 }}>em {pai}</div>}
+      {listVisible && (
+      <div ref={listRef} style={dropdown ? {
+        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+        maxHeight: 260, overflowY: 'auto', marginTop: 2,
+      } : {
+        maxHeight: 360,
+        overflowY: 'auto',
+        border: '1px solid var(--border)',
+        borderRadius: 6,
+        background: 'var(--surface)',
+      }}>
+        {filtradas.length === 0 && (
+          <div style={{ padding: dropdown ? '9px 12px' : '10px 12px', fontSize: 13, color: 'var(--text-faint)' }}>
+            {!dropdown && !query && etapas.length === 0 ? 'Todas as tarefas já foram vinculadas.' : 'Nenhuma tarefa encontrada.'}
+          </div>
+        )}
+        {filtradas.map((et, i) => {
+          const pai = paiNome(et);
+          const sel = et.id === value;
+          // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto (raiz da
+          // EAP), enfraquecendo a cada nível mais fundo — mesma escala usada no Gantt, na Lista,
+          // na Curva Física e na Medição Mensal.
+          const groupLvl = et.nivel || 0;
+          const groupTint = groupLvl <= 0 ? 'var(--brand-100)' : groupLvl === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
+          return (
+            <div
+              key={et.id}
+              // No modo dropdown, preventDefault no mousedown evita que o input perca o foco
+              // antes do clique ser processado (a seleção acontece no onClick, como no modo lista).
+              onMouseDown={dropdown ? (e) => e.preventDefault() : undefined}
+              onClick={() => !disabled && selecionar(et)}
+              onMouseEnter={() => setHighlight(i)}
+              style={{
+                padding: '7px 12px', cursor: disabled ? 'not-allowed' : 'pointer',
+                borderBottom: '1px solid var(--border-subtle)',
+                // Grupo entra depois de selecionado/destacado para não roubar esses estados; a barra
+                // à esquerda é o sinal que sobrevive aos três casos (transparente nas folhas, para alinhar).
+                background: sel ? 'var(--brand-tint)' : i === highlight ? 'var(--surface-muted)' : et.isGroup ? groupTint : 'transparent',
+                borderLeft: et.isGroup ? '3px solid var(--brand)' : '3px solid transparent',
+                opacity: disabled ? 0.5 : 1,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 34 }}>{rowNumberMap[et.id] ?? et.id}</span>
+                <span style={{ paddingLeft: (et.nivel || 0) * 12, fontWeight: et.isGroup ? 700 : 400, color: et.isGroup ? 'var(--brand)' : undefined }}>{et.etapa}</span>
+                {et.isGroup && <span style={{ fontSize: 10, color: 'var(--brand)', background: 'var(--brand-tint)', borderRadius: 4, padding: '0 5px' }}>grupo</span>}
               </div>
-            );
-          })}
-        </div>
+              {pai && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 1, paddingLeft: 40 }}>em {pai}</div>}
+            </div>
+          );
+        })}
+      </div>
       )}
     </div>
   );
@@ -1301,6 +1323,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                     rowNumberMap={rowNumberMap}
                     value={novaTarefaId}
                     onChange={setNovaTarefaId}
+                    dropdown
                   />
                 </div>
                 <button className="btn btn-ghost" style={{ flexShrink: 0 }}
