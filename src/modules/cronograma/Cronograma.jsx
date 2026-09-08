@@ -6,7 +6,6 @@ import { pavimentosService } from '../../services/pavimentos.service';
 import { logger } from '../../services/logger';
 import { SCurveChart } from './SCurveChart';
 import { SCurveChart2 } from './SCurveChart2';
-import { FluxoExecutivo } from './FluxoExecutivo';
 import { useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
@@ -2136,7 +2135,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     { id: 'uso',   label: 'Uso da Tarefa' },
     { id: 'curva', label: 'Curva Física' },
     { id: 'medicao', label: 'Medição Mensal' },
-    { id: 'fluxo', label: 'Fluxo Executivo' },
   ].map(a => ({ ...a, locked: !podeVerAba(userProfile, 'cronograma', a.id) }));
   const abasCronogramaLiberadas = abasCronograma.filter(a => !a.locked);
 
@@ -3318,9 +3316,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 />
               )}
 
-              {view === 'fluxo' && (
-                <FluxoExecutivo etapas={etapas} onCommit={commit} obraId={obraSel} />
-              )}
             </>
           )
       }
