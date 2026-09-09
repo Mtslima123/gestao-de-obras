@@ -315,12 +315,15 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
     if (patch) setPesos(p => ({ ...p, ...patch }));
   };
 
-  // Peso só vai no payload de quem pode receber peso novo: concluída e cadeado ficam de
-  // fora. O estado do cadeado em si vai à parte, para todas as linhas.
+  // Peso só fica de fora do payload quando a regra de negócio bloqueia mesmo (concluída
+  // ou valor fixo): o cadeado do usuário só impede a redistribuição automática entre
+  // irmãos daqui pra frente, não o salvamento do que já está digitado na linha — excluir
+  // também as travadas aqui descartava silenciosamente uma edição feita antes de travar.
+  // O estado do cadeado em si vai à parte, para todas as linhas.
   const handleSalvar = () => onSave(
     Object.fromEntries(
       descendentes
-        .filter(n => !travado(n.etapa) && !travas.has(n.etapa.id))
+        .filter(n => !travado(n.etapa))
         .map(n => [n.etapa.id, pesos[n.etapa.id]])
     ),
     unidade,
