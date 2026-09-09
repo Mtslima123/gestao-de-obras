@@ -1106,11 +1106,13 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
   };
 
   const [erros, setErros] = React.useState({});
+  const hojeISO = new Date().toISOString().slice(0, 10);
 
   const handleSave = async () => {
     const novosErros = {};
     if (!files.length) novosErros.arquivo = 'Selecione ao menos uma foto.';
     if (!form.data) novosErros.data = 'Preencha a data.';
+    else if (form.data > hojeISO) novosErros.data = 'A data não pode ser no futuro.';
     if (!form.pavimento.trim()) novosErros.pavimento = 'Preencha o pavimento.';
     setErros(novosErros);
     if (Object.keys(novosErros).length) return;
@@ -1171,7 +1173,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
         <div className="form-grid">
           <div className="field">
             <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <input type="date" value={form.data} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
+            <input type="date" value={form.data} max={hojeISO} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
             {erros.data && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erros.data}</div>}
           </div>
           <div className="field">
@@ -1194,9 +1196,11 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
   const [form, setForm] = React.useState({ data: foto.data || '', pavimento: foto.pavimento || '', descricao: foto.descricao || '' });
   const [erros, setErros] = React.useState({});
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const hojeISO = new Date().toISOString().slice(0, 10);
   const handleSave = () => {
     const novosErros = {};
     if (!form.data) novosErros.data = 'Preencha a data.';
+    else if (form.data > hojeISO) novosErros.data = 'A data não pode ser no futuro.';
     if (!form.pavimento.trim()) novosErros.pavimento = 'Preencha o pavimento.';
     setErros(novosErros);
     if (Object.keys(novosErros).length) return;
@@ -1215,7 +1219,7 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
       <div className="form-grid">
         <div className="field">
           <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
-          <input type="date" value={form.data} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
+          <input type="date" value={form.data} max={hojeISO} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
           {erros.data && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erros.data}</div>}
         </div>
         <div className="field">
