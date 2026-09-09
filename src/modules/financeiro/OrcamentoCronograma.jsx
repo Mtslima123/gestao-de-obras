@@ -332,6 +332,7 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
       title={`Distribuir pesos — ${etapa.etapa}`}
       subtitle={`Valor do grupo: ${formatBRL(valorGrupo)} · ajuste o fator peso ou digite o valor de cada linha`}
       onClose={onClose}
+      draggable
       resizable
       overlay={false}
       footer={
@@ -653,23 +654,33 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   const [selItens, setSelItens] = React.useState([]);
   const [selEtapa, setSelEtapa] = React.useState('');
 
-  // Estado do modal de edição de vínculos por tarefa
-  const [editandoEtapaId,  setEditandoEtapaId]  = React.useState(null);
+  // Editar Itens Associados, Distribuir Pesos e a confirmação de remover vínculo (lixeira
+  // da tabela) são mutuamente exclusivos — mesmo bug do Cronograma.jsx: eram um boolean/ID
+  // independente cada, e como os dois primeiros usam overlay "bare" (deixa clicar por trás
+  // pra não travar o resto da tela), dava pra abrir um em cima do outro e ainda mexer no
+  // que estava por baixo. Um único estado garante que abrir um sempre fecha o anterior.
+  const [activeVinculoModal, setActiveVinculoModal] = React.useState(null); // { tipo: 'editar'|'distribuir'|'remover', ... } | null
+  const editandoEtapaId   = activeVinculoModal?.tipo === 'editar'     ? activeVinculoModal.etapaId : null;
+  const distribuirEtapaId = activeVinculoModal?.tipo === 'distribuir' ? activeVinculoModal.etapaId : null;
+  const pendingRemove     = activeVinculoModal?.tipo === 'remover'    ? activeVinculoModal.vinculo : null;
+  const setEditandoEtapaId  = (id) => setActiveVinculoModal(id ? { tipo: 'editar', etapaId: id } : null);
+  const setDistribuirEtapaId = (id) => setActiveVinculoModal(id ? { tipo: 'distribuir', etapaId: id } : null);
+  const setPendingRemove    = (v)  => setActiveVinculoModal(v ? { tipo: 'remover', vinculo: v } : null);
+
   const [buscaModalItem,   setBuscaModalItem]    = React.useState('');
   // Reatribuir os vínculos desta tarefa pra outra, caso o usuário tenha escolhido errado
   const [novaTarefaId,     setNovaTarefaId]     = React.useState('');
   const [movendoTarefa,    setMovendoTarefa]    = React.useState(false);
 
-  // Confirmação antes de remover vínculo. Na tabela é um modal; dentro do modal de edição
-  // é inline na própria linha (modal sobre modal quebra o Escape e o scroll do fundo).
-  const [pendingRemove,   setPendingRemove]   = React.useState(null);
+  // Confirmação antes de remover vínculo. Na tabela é o modal acima (pendingRemove); dentro
+  // do modal de edição é inline na própria linha (modal sobre modal quebra o Escape e o
+  // scroll do fundo).
   const [confirmRemoveId, setConfirmRemoveId] = React.useState(null);
   // Confirmação da remoção em lote — inline pelo mesmo motivo da individual
   const [confirmRemoveTodos, setConfirmRemoveTodos] = React.useState(false);
   const [removendoTodos,     setRemovendoTodos]     = React.useState(false);
 
   // Estado do modal de distribuição de pesos (fator_peso das subtarefas de um grupo)
-  const [distribuirEtapaId, setDistribuirEtapaId] = React.useState(null);
   const [salvandoPeso,      setSalvandoPeso]      = React.useState(false);
   // Baseline do bloqueio otimista ao gravar etapas (mesmo padrão de _cronSavedAt em Cronograma.jsx)
   const etapasUpdatedAtRef = React.useRef(null);
@@ -775,19 +786,25 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
 
   // ── Remover vínculo ────────────────────────────────────────────────────────
   const handleRemove = async (id) => {
+    const etapaId = vinculos.find(v => v.id === id)?.etapa_id;
     const { error } = await vinculoService.excluir(id);
     if (error) {
       toast('Erro ao remover vínculo: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
       return;
     }
-    setVinculos(v => v.filter(x => x.id !== id));
+    const restantes = vinculos.filter(x => x.id !== id);
+    setVinculos(restantes);
     if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = _ocCache[obraSel].vinculos.filter(x => x.id !== id);
     toast('Vínculo removido', { tone: 'neutral', icon: 'check' });
+    // Tarefa saiu do resumo (perdeu o último vínculo): zera a distribuição de pesos que
+    // ela guardava, senão religar itens depois trazia de volta o cadeado e o rateio antigo.
+    if (etapaId && !restantes.some(v => v.etapa_id === etapaId)) resetarPesosSubarvore(etapaId);
   };
 
   // ── Remover todos os vínculos da tarefa aberta no modal ────────────────────
   const handleRemoveTodos = async () => {
     const ids = vinculosEtapa.map(v => v.id);
+    const etapaId = editandoEtapaId;
     if (!ids.length) return;
     setRemovendoTodos(true);
     const { error } = await vinculoService.excluirVarios(ids);
@@ -802,6 +819,90 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     setConfirmRemoveTodos(false);
     setRemovendoTodos(false);
     toast(ids.length === 1 ? 'Vínculo removido' : `${ids.length} vínculos removidos`, { tone: 'neutral', icon: 'check' });
+    if (etapaId) resetarPesosSubarvore(etapaId);
+  };
+
+  // ── Grava um delta de pesos/travas no cronograma (RPC com fallback pro UPDATE completo,
+  // mesmo lock otimista do save normal) — extraído de handleSalvarPesos para ser reusado
+  // também no reset automático de pesos ao esvaziar os vínculos de uma tarefa.
+  const salvarPesosDelta = async (novasEtapas, pesosDelta, travasDelta, grupoId, unidade) => {
+    const expected = etapasUpdatedAtRef.current;
+    const t0 = performance.now();
+    let novoUpdatedAt = null;
+
+    const rpc = await supabase.rpc('atualizar_pesos_cronograma', {
+      p_obra_id: obraSel,
+      p_pesos: pesosDelta,
+      p_travas: travasDelta,
+      p_grupo_id: grupoId,
+      p_unidade: unidade || null,
+      p_expected_updated_at: expected || null,
+    });
+
+    // A função é deployada pelo TI à parte (migration 20260829000001). Enquanto não
+    // estiver no banco, o PostgREST devolve PGRST202 e o save cai no UPDATE antigo —
+    // lento, mas funcionando. Some quando a migration subir.
+    const rpcIndisponivel = rpc.error && (rpc.error.code === 'PGRST202' || /function .* does not exist/i.test(rpc.error.message || ''));
+
+    if (rpc.error && !rpcIndisponivel) {
+      toast('Erro ao salvar os pesos: ' + rpc.error.message, { tone: 'danger', icon: 'alert-triangle' });
+      return false;
+    }
+
+    if (!rpcIndisponivel) {
+      if (!rpc.data) {
+        // Outra sessão (ex.: a Lista) salvou o cronograma nesse meio-tempo — não sobrescreve.
+        toast('Este cronograma foi alterado em outra tela enquanto você editava. Recarregue e tente de novo.', { tone: 'warning', icon: 'alert-triangle' });
+        return false;
+      }
+      novoUpdatedAt = rpc.data;
+    } else {
+      const nowISO = new Date().toISOString();
+      const query = supabase.from('cronogramas').update({ etapas: novasEtapas, updated_at: nowISO }).eq('obra_id', obraSel);
+      const { data, error } = await (expected ? query.eq('updated_at', expected) : query).select('updated_at');
+      if (error) {
+        toast('Erro ao salvar os pesos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+        return false;
+      }
+      if (expected && (!data || !data.length)) {
+        toast('Este cronograma foi alterado em outra tela enquanto você editava. Recarregue e tente de novo.', { tone: 'warning', icon: 'alert-triangle' });
+        return false;
+      }
+      novoUpdatedAt = nowISO;
+    }
+
+    logger.debug('pesos do cronograma salvos', {
+      module: 'orcamento-cronograma',
+      via: rpcIndisponivel ? 'update-completo' : 'rpc',
+      ms: Math.round(performance.now() - t0),
+      etapasAlteradas: Object.keys(pesosDelta).length + Object.keys(travasDelta).length,
+      etapasTotal: etapas.length,
+    });
+
+    etapasUpdatedAtRef.current = novoUpdatedAt;
+    setEtapas(novasEtapas);
+    if (_ocCache[obraSel]) { _ocCache[obraSel].etapas = novasEtapas; _ocCache[obraSel].updatedAt = novoUpdatedAt; }
+    // Invalida o cache do Cronograma para a Lista reler os pesos novos do banco.
+    invalidateCronCache(obraSel);
+    return true;
+  };
+
+  // ── Reseta fator_peso/peso_travado da subárvore de uma tarefa que acabou de sair do
+  // resumo (perdeu o último vínculo) — silencioso, sem tela de "salvando".
+  const resetarPesosSubarvore = async (etapaId) => {
+    const childrenOf = buildChildrenMap(etapas);
+    const descendentes = flattenTree(etapaId, childrenOf).map(n => n.etapa);
+    if (!descendentes.length) return;
+    const alvo = new Set(descendentes.map(e => e.id));
+    const pesosDelta = {};
+    const travasDelta = {};
+    descendentes.forEach(e => {
+      if ((e.fator_peso ?? 1) !== 1) pesosDelta[e.id] = 1;
+      if (e.peso_travado) travasDelta[e.id] = false;
+    });
+    if (!Object.keys(pesosDelta).length && !Object.keys(travasDelta).length) return;
+    const novasEtapas = etapas.map(e => alvo.has(e.id) ? { ...e, fator_peso: 1, peso_travado: undefined } : e);
+    await salvarPesosDelta(novasEtapas, pesosDelta, travasDelta, null, null);
   };
 
   // ── Adicionar vínculo via modal "Editar Itens Associados" ─────────────────
@@ -883,70 +984,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
       return;
     }
 
-    const expected = etapasUpdatedAtRef.current;
-    const t0 = performance.now();
-    let novoUpdatedAt = null;
-
-    const rpc = await supabase.rpc('atualizar_pesos_cronograma', {
-      p_obra_id: obraSel,
-      p_pesos: pesosDelta,
-      p_travas: travasDelta,
-      p_grupo_id: unidadeMudou ? distribuirEtapaId : null,
-      p_unidade: unidade || null,
-      p_expected_updated_at: expected || null,
-    });
-
-    // A função é deployada pelo TI à parte (migration 20260829000001). Enquanto não
-    // estiver no banco, o PostgREST devolve PGRST202 e o save cai no UPDATE antigo —
-    // lento, mas funcionando. Some quando a migration subir.
-    const rpcIndisponivel = rpc.error && (rpc.error.code === 'PGRST202' || /function .* does not exist/i.test(rpc.error.message || ''));
-
-    if (rpc.error && !rpcIndisponivel) {
-      toast('Erro ao salvar os pesos: ' + rpc.error.message, { tone: 'danger', icon: 'alert-triangle' });
-      setSalvandoPeso(false);
-      return;
-    }
-
-    if (!rpcIndisponivel) {
-      if (!rpc.data) {
-        // Outra sessão (ex.: a Lista) salvou o cronograma nesse meio-tempo — não sobrescreve.
-        toast('Este cronograma foi alterado em outra tela enquanto você editava. Recarregue e tente de novo.', { tone: 'warning', icon: 'alert-triangle' });
-        setSalvandoPeso(false);
-        return;
-      }
-      novoUpdatedAt = rpc.data;
-    } else {
-      const nowISO = new Date().toISOString();
-      const query = supabase.from('cronogramas').update({ etapas: novasEtapas, updated_at: nowISO }).eq('obra_id', obraSel);
-      const { data, error } = await (expected ? query.eq('updated_at', expected) : query).select('updated_at');
-      if (error) {
-        toast('Erro ao salvar os pesos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
-        setSalvandoPeso(false);
-        return;
-      }
-      if (expected && (!data || !data.length)) {
-        toast('Este cronograma foi alterado em outra tela enquanto você editava. Recarregue e tente de novo.', { tone: 'warning', icon: 'alert-triangle' });
-        setSalvandoPeso(false);
-        return;
-      }
-      novoUpdatedAt = nowISO;
-    }
-
-    logger.debug('distribuir pesos salvo', {
-      module: 'orcamento-cronograma',
-      via: rpcIndisponivel ? 'update-completo' : 'rpc',
-      ms: Math.round(performance.now() - t0),
-      etapasAlteradas: Object.keys(pesosDelta).length + Object.keys(travasDelta).length,
-      etapasTotal: etapas.length,
-    });
-
-    etapasUpdatedAtRef.current = novoUpdatedAt;
-    setEtapas(novasEtapas);
-    if (_ocCache[obraSel]) { _ocCache[obraSel].etapas = novasEtapas; _ocCache[obraSel].updatedAt = novoUpdatedAt; }
-    // Invalida o cache do Cronograma para a Lista reler os pesos novos do banco.
-    invalidateCronCache(obraSel);
-    setDistribuirEtapaId(null);
+    const ok = await salvarPesosDelta(novasEtapas, pesosDelta, travasDelta, unidadeMudou ? distribuirEtapaId : null, unidade);
     setSalvandoPeso(false);
+    if (!ok) return;
+    setDistribuirEtapaId(null);
     toast('Distribuição de pesos salva', { tone: 'success', icon: 'check' });
   };
 
