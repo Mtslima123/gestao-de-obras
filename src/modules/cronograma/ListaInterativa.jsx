@@ -752,22 +752,41 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (r0 < 0 || c0 < 0) return;
     const edits = [];
     const destKeys = new Set();
-    clip.grid.forEach((gr, dr) => {
-      const taskId = rows[r0 + dr];
-      if (!taskId) return;
-      gr.forEach((cellData, dc) => {
-        const colId = cols[c0 + dc];
-        if (!colId) return;
+    // Copiou 1 célula só, mas o destino selecionado pra colar cobre várias (estilo Excel):
+    // repete o mesmo valor/formatação em toda a seleção, em vez de colar só na âncora e
+    // deixar o resto da seleção sem efeito nenhum.
+    const clipEhUmaCelula = clip.grid.length === 1 && clip.grid[0]?.length === 1;
+    const destinoAmplo = clipEhUmaCelula ? rangeCellList() : null;
+    if (destinoAmplo && destinoAmplo.length > 1) {
+      const cellData = clip.grid[0][0];
+      destinoAmplo.forEach(({ taskId, colId }) => {
         destKeys.add(`${taskId}|${colId}`);
         const spec = cellSpec(colId);
         const compat = spec && cellData.value != null && (spec.kind === 'text' || cellData.kind == null || cellData.kind === spec.kind);
         edits.push({
           taskId, colId,
           ...(mode !== 'format' && compat ? { field: spec.field, rawValue: cellData.value } : {}),
-          ...(mode !== 'values' ? { fmt: cellData.fmt || null } : {}), // cola a formatação da origem (limpa se origem não tinha)
+          ...(mode !== 'values' ? { fmt: cellData.fmt || null } : {}),
         });
       });
-    });
+    } else {
+      clip.grid.forEach((gr, dr) => {
+        const taskId = rows[r0 + dr];
+        if (!taskId) return;
+        gr.forEach((cellData, dc) => {
+          const colId = cols[c0 + dc];
+          if (!colId) return;
+          destKeys.add(`${taskId}|${colId}`);
+          const spec = cellSpec(colId);
+          const compat = spec && cellData.value != null && (spec.kind === 'text' || cellData.kind == null || cellData.kind === spec.kind);
+          edits.push({
+            taskId, colId,
+            ...(mode !== 'format' && compat ? { field: spec.field, rawValue: cellData.value } : {}),
+            ...(mode !== 'values' ? { fmt: cellData.fmt || null } : {}), // cola a formatação da origem (limpa se origem não tinha)
+          });
+        });
+      });
+    }
     // Recorte pendente (Ctrl+X): limpa as células de origem no MESMO commit, exceto as que
     // coincidem com o destino colado (evita apagar o que acabou de colar quando as duas áreas
     // se sobrepõem).
