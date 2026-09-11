@@ -1331,15 +1331,17 @@ export default function MedicaoMensal({
                 <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>Medições fechadas</div>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>valores congelados no fechamento</span>
               </div>
-              <div style={{ overflowX: 'auto' }}>
+              {/* Acima de 10 meses fechados a tabela vira scroll (10 linhas + cabeçalho ~ 290px),
+                  senão a página cresce sem fim conforme os fechamentos se acumulam. */}
+              <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: fechadas.length > 10 ? 290 : undefined }}>
                 <table className="tbl tbl-lista" style={{ '--lista-row-h': '26px' }}>
                   <thead>
                     <tr>
-                      <th>MÊS</th>
-                      <th className="center">FECHADA EM</th>
-                      <th>FECHADA POR</th>
-                      <th className="center">% MEDIDO</th>
-                      <th className="right">VALOR MEDIDO</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 1 }}>MÊS</th>
+                      <th className="center" style={{ position: 'sticky', top: 0, zIndex: 1 }}>FECHADA EM</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 1 }}>FECHADA POR</th>
+                      <th className="center" style={{ position: 'sticky', top: 0, zIndex: 1 }}>% MEDIDO</th>
+                      <th className="right" style={{ position: 'sticky', top: 0, zIndex: 1 }}>VALOR MEDIDO</th>
                     </tr>
                   </thead>
                   <tbody>
