@@ -232,6 +232,9 @@ const AppInner = () => {
 
   const handleOpenCronograma = (obraId) => {
     setCronogramaObraId(obraId);
+    // "Ir para Cronograma" sempre quer dizer o Gantt/Lista, não a sub-aba que ficou
+    // selecionada de uma visita anterior (ex.: Orçamento x Cronograma).
+    setCronogramaTab('gantt');
     handleNavigate('cronograma');
   };
 
