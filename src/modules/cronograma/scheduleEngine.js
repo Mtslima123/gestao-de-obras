@@ -568,12 +568,31 @@ export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   return { ...e, [field]: rawValue };
 }
 
-// Aplica um campo e já decide se reprograma (mesma regra de RESCHEDULE_FIELDS) — usado
-// diretamente pelo Formulário de Tarefa; a Lista usa applyFieldToEtapa por célula/lote
-// e decide o reagendamento ela mesma (autoScheduleFromDeps sobre o array inteiro).
+// Só reprogramar quando o valor de fato mudou — decidir por NOME de campo (estar em
+// RESCHEDULE_FIELDS) disparava autoScheduleFromDeps sobre o cronograma INTEIRO mesmo
+// colando/editando um valor idêntico ao que já estava lá (ex.: mesma duração), uma
+// reprogramação à toa que podia mover datas de tarefas dependentes sem edição real.
+export function etapaMudouParaAgendamento(antes, depois) {
+  return antes.dur !== depois.dur
+    || antes.inicio !== depois.inicio
+    || antes.modo !== depois.modo
+    || antes.restricaoTipo !== depois.restricaoTipo
+    || antes.restricaoData !== depois.restricaoData
+    || JSON.stringify(antes.dep || []) !== JSON.stringify(depois.dep || []);
+}
+
+// Aplica um campo e já decide se reprograma — usado diretamente pelo Formulário de
+// Tarefa; a Lista usa applyFieldToEtapa por célula/lote e decide o reagendamento ela
+// mesma (autoScheduleFromDeps sobre o array inteiro).
 export function commitFieldChange(etapas, id, field, rawValue, resolveList) {
-  const novas = etapas.map(e => (e.id !== id ? e : applyFieldToEtapa(e, field, rawValue, etapas, resolveList)));
-  return RESCHEDULE_FIELDS.includes(field) ? autoScheduleFromDeps(novas) : novas;
+  let mudou = false;
+  const novas = etapas.map(e => {
+    if (e.id !== id) return e;
+    const ne = applyFieldToEtapa(e, field, rawValue, etapas, resolveList);
+    if (RESCHEDULE_FIELDS.includes(field) && etapaMudouParaAgendamento(e, ne)) mudou = true;
+    return ne;
+  });
+  return mudou ? autoScheduleFromDeps(novas) : novas;
 }
 
 // ─── Utilitários de formatação ───────────────────────────────────────────────

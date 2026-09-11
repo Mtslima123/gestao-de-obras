@@ -17,7 +17,7 @@ import {
   fmtBRL, indentTasks, outdentTasks,
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
   createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
-  moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange,
+  moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento,
   reprogramarRestante, computeSuccessors, computeRowNumberMap,
 } from './scheduleEngine';
 import { computeAutofillSeries } from './autofillSeries';
@@ -848,8 +848,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       let ne = e;
       list.forEach(ed => {
         if (ed.field === 'succ') { succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue }); return; }
+        const antes = ne;
         ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, filtrada);
-        if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
+        if (RESCHEDULE_FIELDS.includes(ed.field) && etapaMudouParaAgendamento(antes, ne)) reschedule = true;
       });
       return ne;
     });
@@ -2127,8 +2128,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (ed.field !== undefined) {
           if (ed.field === 'succ') succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue });
           else {
+            const antes = ne;
             ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, filtrada);
-            if (RESCHEDULE_FIELDS.includes(ed.field)) reschedule = true;
+            if (RESCHEDULE_FIELDS.includes(ed.field) && etapaMudouParaAgendamento(antes, ne)) reschedule = true;
           }
         }
         if ('fmt' in ed) {

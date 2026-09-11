@@ -3,7 +3,7 @@
 //   off0=Sex, off1=Sáb, off2=Dom, off3=Seg, off4=Ter, off5=Qua, off6=Qui, off7=Sex...
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setWorkCal, workEnd, workStart, workDur, taskEnd, taskEndDisplay, offsetToISO, isoToBRWeekday } from '../modules/cronograma/cronogramaDateUtils';
-import { autoScheduleFromDeps, applyFieldToEtapa } from '../modules/cronograma/scheduleEngine';
+import { autoScheduleFromDeps, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento, formatDepList } from '../modules/cronograma/scheduleEngine';
 
 beforeEach(() => setWorkCal({ dias: [], sabadoUtil: false }));
 
@@ -183,5 +183,79 @@ describe('isoToBRWeekday', () => {
   it('vazio/nulo devolve vazio, igual a isoToBR', () => {
     expect(isoToBRWeekday('')).toBe('');
     expect(isoToBRWeekday(null)).toBe('');
+  });
+});
+
+// Bug relatado: colar/editar uma célula "sensível" (duracaoDias etc.) com o MESMO valor
+// que já estava lá reprogramava o cronograma inteiro à toa (decisão de reagendar era só
+// "o campo está em RESCHEDULE_FIELDS?", nunca "o valor mudou de verdade?") — isso podia
+// empurrar o início de tarefas dependentes sem nenhuma edição real ter acontecido.
+describe('etapaMudouParaAgendamento — só reprogramar quando o valor de fato mudou', () => {
+  it('mesma duração: não indica mudança', () => {
+    const antes = { id: 'A', dur: 5, inicio: 0 };
+    const depois = { ...antes };
+    expect(etapaMudouParaAgendamento(antes, depois)).toBe(false);
+  });
+
+  it('duração diferente: indica mudança', () => {
+    const antes = { id: 'A', dur: 5, inicio: 0 };
+    const depois = { ...antes, dur: 8 };
+    expect(etapaMudouParaAgendamento(antes, depois)).toBe(true);
+  });
+
+  it('dep equivalente por conteúdo (arrays diferentes, mesmo conteúdo): não indica mudança', () => {
+    const antes = { id: 'A', dur: 5, inicio: 0, dep: [{ id: 'X', tipo: 'TT', lag: 0 }] };
+    const depois = { ...antes, dep: [{ id: 'X', tipo: 'TT', lag: 0 }] };
+    expect(etapaMudouParaAgendamento(antes, depois)).toBe(false);
+  });
+});
+
+describe('commitFieldChange — colar/editar o mesmo valor não reprograma o cronograma', () => {
+  // A (5 dias, sextaoff0) -> B depende de A por TT, dur 2. B começa em workStart(taskEnd(A),2).
+  const cenario = () => [
+    { id: 'A', inicio: 0, dur: 5, dep: [], restricaoTipo: 'asap' },
+    { id: 'B', inicio: 5, dur: 2, dep: [{ id: 'A', tipo: 'TT', lag: 0 }], restricaoTipo: 'asap' },
+  ];
+
+  it('reescrever a duração de A com o MESMO valor (5) não move o início de B', () => {
+    const etapas = autoScheduleFromDeps(cenario()); // estado já agendado, como viria do banco
+    const inicioBAntes = etapas.find(e => e.id === 'B').inicio;
+    const out = commitFieldChange(etapas, 'A', 'duracaoDias', '5', etapas);
+    expect(out.find(e => e.id === 'B').inicio).toBe(inicioBAntes);
+  });
+
+  it('mudar a duração de A de verdade (5 -> 8) continua reprogramando B', () => {
+    const etapas = autoScheduleFromDeps(cenario());
+    const inicioBAntes = etapas.find(e => e.id === 'B').inicio;
+    const out = commitFieldChange(etapas, 'A', 'duracaoDias', '8', etapas);
+    expect(out.find(e => e.id === 'B').inicio).not.toBe(inicioBAntes);
+  });
+});
+
+// Bug relatado: Predecessora/Sucessora mostrava o id interno cru ("TSK-018") em vez de um
+// número — acontece quando o rowNumberMap não numera a predecessora (grupo recolhido ou
+// filtro escondendo a linha na Lista, ver ListaInterativa.jsx). Tentativa 1 (revertida):
+// caiu pro NOME da tarefa — o usuário não quis, queria continuar vendo só numeração.
+// Fix definitivo: cai pra uma numeração completa (ignora colapso/filtro, todas as etapas),
+// nunca pro id cru nem pro nome.
+describe('formatDepList — predecessora fora do rowNumberMap cai pra numeração completa', () => {
+  const etapas = [
+    { id: 'TSK-001', etapa: 'Estrutura - Tipo 1' },
+    { id: 'TSK-002', etapa: 'Piso - Tipo 1' },
+  ];
+
+  it('resolve pelo número quando o rowNumberMap conhece o id', () => {
+    const rowNumberMap = { 'TSK-001': 1, 'TSK-002': 2 };
+    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], etapas, rowNumberMap)).toBe('1');
+  });
+
+  it('cai pra numeração completa (posição em todas as etapas) quando o rowNumberMap não tem a entrada', () => {
+    const rowNumberMapSemTSK001 = { 'TSK-002': 2 }; // TSK-001 "escondida" (grupo recolhido/filtro)
+    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], etapas, rowNumberMapSemTSK001))
+      .toBe('1'); // TSK-001 é a 1ª de `etapas`, mesmo fora do rowNumberMap passado
+  });
+
+  it('sem etapas pra calcular a numeração completa, cai pro id cru mesmo (não tem outra opção)', () => {
+    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], null, {})).toBe('TSK-001');
   });
 });
