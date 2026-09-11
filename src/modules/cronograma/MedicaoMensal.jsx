@@ -548,6 +548,18 @@ export default function MedicaoMensal({
     ? months.slice(mesIdxAtual + 1).find(m => statusPorMes[m.key] === 'fechada')
     : undefined;
   const existePosteriorFechada = !!proximaFechadaPosterior;
+  // Excluir também segue a ordem, mas ao contrário de abrir: é a operação inversa de
+  // abrir/fechar, então desfazer precisa ir do mês mais recente pro mais antigo (mesma
+  // direção de reabrir) — só dá pra excluir o mês mais NOVO já criado, senão abre um
+  // buraco no meio da sequência (o posterior fica criado, este alvo fica sem nada).
+  const proximaCriadaPosterior = mesIdxAtual >= 0
+    ? months.slice(mesIdxAtual + 1).find(m => !!statusPorMes[m.key])
+    : undefined;
+  const existePosteriorCriada = !!proximaCriadaPosterior;
+  // Excluir apaga tudo sem deixar rastro (ao contrário de Limpar) — com % já preenchido
+  // isso é perda de dado real, então força passar por "Limpar" primeiro (que ao menos
+  // mantém o registro) em vez de deixar excluir de uma tacada só.
+  const temPercMedidoPreenchido = itensTrabalho.some(i => (i.percMedido || 0) > 0);
 
   const pavimentos = React.useMemo(
     () => ['Todos', ...Array.from(new Set(itensTrabalho.map(i => i.pavimento))).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }))],
@@ -767,6 +779,7 @@ export default function MedicaoMensal({
   // Apaga o boletim inteiro — ao contrário de limparMedicao, não deixa nada para trás: volta
   // ao estado "sem medição aberta" pro mês, como se "Abrir medição" nunca tivesse rodado.
   const excluirMedicao = async () => {
+    if (existePosteriorCriada || temPercMedidoPreenchido) return;
     setSalvando(true);
     const { data, error } = await medicaoMensalService.excluir(obraId, mesRefKey);
     setSalvando(false);
@@ -1121,7 +1134,14 @@ export default function MedicaoMensal({
                   </button>
                   <div style={{ borderTop: '1px solid var(--border)', margin: '2px 0' }} />
                   <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', color: 'var(--danger)' }}
-                    onClick={() => { setAcoesOpen(false); setMostrarConfirmExcluir(true); }}>
+                    onClick={() => {
+                      setAcoesOpen(false);
+                      if (existePosteriorCriada) { toast(`Exclua primeiro a medição de ${mesLabel(proximaCriadaPosterior.key)}`, { tone: 'danger', icon: 'alert-triangle' }); return; }
+                      if (temPercMedidoPreenchido) { toast('Esta medição já tem % medido preenchido — use "Limpar medição" antes de excluir.', { tone: 'danger', icon: 'alert-triangle' }); return; }
+                      setMostrarConfirmExcluir(true);
+                    }}
+                    title={existePosteriorCriada ? `Exclua primeiro a medição de ${mesLabel(proximaCriadaPosterior.key)}`
+                      : temPercMedidoPreenchido ? 'Use "Limpar medição" antes de excluir' : undefined}>
                     <Icon name="trash" size={15} />Excluir medição
                   </button>
                 </div>
@@ -1132,8 +1152,11 @@ export default function MedicaoMensal({
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
               <span className="badge success"><span className="dot" />Medição fechada</span>
               {!readOnly && (
-                <button type="button" className="btn btn-ghost" onClick={() => setMostrarConfirmReabrir(true)}
-                  disabled={existePosteriorFechada}
+                <button type="button" className="btn btn-ghost"
+                  onClick={() => {
+                    if (existePosteriorFechada) { toast(`Reabra primeiro a medição de ${mesLabel(proximaFechadaPosterior.key)}`, { tone: 'danger', icon: 'alert-triangle' }); return; }
+                    setMostrarConfirmReabrir(true);
+                  }}
                   title={existePosteriorFechada ? `Reabra primeiro a medição de ${mesLabel(proximaFechadaPosterior.key)}` : undefined}>
                   <Icon name="refresh-cw" size={15} />Reabrir medição
                 </button>
