@@ -538,6 +538,17 @@ export default function MedicaoMensal({
   // Antes a ausência de registro deixava a tela livre, indistinguível de um rascunho.
   const bloqueado = readOnly || fechada || !registro;
 
+  // Ciclo de abertura/fechamento precisa seguir a ordem dos meses: não dá pra abrir um mês
+  // enquanto o anterior ainda está em rascunho, nem reabrir um mês enquanto algum posterior
+  // já foi fechado (senão os dois documentos fechados deixam de bater com a ordem real).
+  const mesIdxAtual = months.findIndex(m => m.key === mesRefKey);
+  const mesAnterior = mesIdxAtual > 0 ? months[mesIdxAtual - 1] : null;
+  const anteriorAberta = !!mesAnterior && statusPorMes[mesAnterior.key] === 'rascunho';
+  const proximaFechadaPosterior = mesIdxAtual >= 0
+    ? months.slice(mesIdxAtual + 1).find(m => statusPorMes[m.key] === 'fechada')
+    : undefined;
+  const existePosteriorFechada = !!proximaFechadaPosterior;
+
   const pavimentos = React.useMemo(
     () => ['Todos', ...Array.from(new Set(itensTrabalho.map(i => i.pavimento))).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }))],
     [itensTrabalho]
@@ -670,7 +681,7 @@ export default function MedicaoMensal({
   // "eu abro a medição para ela ser criada" — antes a linha nascia por efeito colateral
   // do primeiro salvamento, e um mês sem registro já vinha editável.
   const abrirMedicao = async () => {
-    if (readOnly || registro) return;
+    if (readOnly || registro || anteriorAberta) return;
     const { ok, pendentes } = validarAbertura(etapas, mesRefKey, wbsMap);
     if (!ok) { setPendenciasAbertura(pendentes); return; }
     setSalvando(true);
@@ -728,6 +739,7 @@ export default function MedicaoMensal({
   };
 
   const reabrirMedicao = async () => {
+    if (existePosteriorFechada) return;
     setSalvando(true);
     const { data, error } = await medicaoMensalService.reabrir(obraId, mesRefKey);
     setSalvando(false);
@@ -1120,7 +1132,9 @@ export default function MedicaoMensal({
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
               <span className="badge success"><span className="dot" />Medição fechada</span>
               {!readOnly && (
-                <button type="button" className="btn btn-ghost" onClick={() => setMostrarConfirmReabrir(true)}>
+                <button type="button" className="btn btn-ghost" onClick={() => setMostrarConfirmReabrir(true)}
+                  disabled={existePosteriorFechada}
+                  title={existePosteriorFechada ? `Reabra primeiro a medição de ${mesLabel(proximaFechadaPosterior.key)}` : undefined}>
                   <Icon name="refresh-cw" size={15} />Reabrir medição
                 </button>
               )}
@@ -1201,6 +1215,10 @@ export default function MedicaoMensal({
                         </div>
                         {readOnly ? (
                           <div style={{ fontSize: 12.5 }}>Você não tem permissão para abrir medições.</div>
+                        ) : anteriorAberta ? (
+                          <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
+                            Feche primeiro a medição de {mesLabel(mesAnterior.key)} para poder abrir esta.
+                          </div>
                         ) : (
                           <button type="button" className="btn btn-dark" onClick={abrirMedicao} disabled={salvando}>
                             <Icon name="plus" size={15} />{salvando ? 'Abrindo…' : 'Abrir medição'}
