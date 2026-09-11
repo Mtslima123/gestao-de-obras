@@ -138,6 +138,13 @@ body {
 }
 button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 input, select, textarea { font-family: inherit; color: inherit; }
+/* As setinhas nativas de input[type=number] tomam espaço de dentro da própria caixa —
+   numa célula estreita (ex.: coluna Duração da Lista) isso "espreme" o número digitado
+   visualmente. Removidas em toda a aplicação; incremento/decremento continua com o
+   teclado (setas ↑/↓). */
+input[type="number"] { -moz-appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 a { color: var(--brand); text-decoration: none; }
 a:hover { color: var(--brand-600); }
 .mono { font-family: var(--font-mono); }
