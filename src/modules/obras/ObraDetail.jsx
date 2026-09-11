@@ -1778,9 +1778,13 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                             color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em',
                             position: 'sticky', top: 0, zIndex: 1, background: 'var(--brand)' };
               const tdS = { padding: '10px 12px', fontSize: 13, borderBottom: '1px solid var(--border-subtle)' };
+              // Fora da área com scroll de propósito: fica dentro do próprio scroll (horizontal
+              // e vertical) ela rolava junto com a tabela, escondendo o filtro de nível.
+              const temGrupo = etapasObra.some(e => e.isGroup);
+              const NIVEL_ROW_H = 34;
               return (
-                <div style={{ overflowX: 'auto', maxHeight: cronoBodyMaxH || undefined, overflowY: 'auto' }}>
-                  {etapasObra.some(e => e.isGroup) && (
+                <>
+                  {temGrupo && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
                       <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nível:</span>
                       <span style={{ display: 'flex', gap: 2 }}>
@@ -1797,6 +1801,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                       </span>
                     </div>
                   )}
+                  <div style={{ overflowX: 'auto', maxHeight: cronoBodyMaxH ? cronoBodyMaxH - (temGrupo ? NIVEL_ROW_H : 0) : undefined, overflowY: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border)' }}>
@@ -1878,7 +1883,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                       })()}
                     </tbody>
                   </table>
-                </div>
+                  </div>
+                </>
               );
             })()}
           </div>
