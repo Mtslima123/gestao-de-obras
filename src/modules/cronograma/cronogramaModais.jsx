@@ -4,7 +4,7 @@
 import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
-import { isoToBR, todayOffset } from "./cronogramaDateUtils";
+import { isoToBR, todayOffset, workEnd } from "./cronogramaDateUtils";
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds } from "./scheduleEngine";
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
@@ -255,17 +255,23 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
         if (isDesc) insertIdx = i; else break;
       }
 
-      // Cria subtarefas para cada pavimento
+      // Cria subtarefas para cada pavimento, uma seguindo a outra em dias úteis (o pavimento
+      // seguinte começa exatamente onde o anterior termina, via workEnd — mesma função usada
+      // no encadeamento de dependências) — soma dos raw `inicio + fi*subDur` antes ignorava
+      // fins de semana/feriados, então os pavimentos ficavam todos espremidos em poucos dias
+      // corridos (às vezes até começando num sábado/domingo) em vez de um atrás do outro.
       const subDur = Math.max(1, Math.round(task.dur / paraInserir.length));
+      let cursor = task.inicio;
       const toInsert = paraInserir.map((nome, fi) => {
-        const allSoFar = [...novas, ...paraInserir.slice(0, fi).map((_, j) => ({ id: `_tmp${j}` }))];
+        const inicio = cursor;
+        cursor = workEnd(inicio, subDur);
         return {
           id:         nextEtapaId([...novas, ...paraInserir.slice(0, fi).map((_, j) => ({ id: `E${9000 + j}` }))]),
           etapa:      `${task.etapa} - ${nome}`,
           nivel:      (task.nivel || 0) + 1,
           parentId:   taskId,
           isGroup:    false, collapsed: false,
-          inicio:     task.inicio + fi * subDur,
+          inicio,
           dur:        subDur,
           avanco:     0, status: 'upcoming',
           dep:        [], milestone: false, responsavel: '',
@@ -290,6 +296,10 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
       ];
     });
 
+    // A tarefa virou grupo, mas seu próprio inicio/dur (o envelope) ainda é o que ela tinha
+    // como folha — sem isso o total geral (fim/duração da linha-pai) fica desatualizado em
+    // relação aos pavimentos recém-criados (o arredondamento de subDur raramente fecha exato).
+    novas = updateParentBounds(recomputeHierarchy(novas));
     onCommit(novas);
     onPavimentosCriados?.(validFloors);
     if (puladas > 0) toast(`${puladas} pavimento${puladas !== 1 ? 's' : ''} já existia${puladas !== 1 ? 'm' : ''} nas tarefas selecionadas e ${puladas !== 1 ? 'foram ignorados' : 'foi ignorado'}`, { tone: 'neutral' });
