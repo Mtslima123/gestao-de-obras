@@ -121,7 +121,15 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
   // dispara um onBlur reentrante que chamaria save() de novo (2 entradas iguais no undo).
   const doneRef = React.useRef(false);
 
-  React.useEffect(() => {
+  // useLayoutEffect (não useEffect): precisa rodar de forma síncrona, ANTES do próximo
+  // paint/rAF. "Digitar direto" pra abrir a célula (abrirEdicaoCelula em ListaInterativa.jsx)
+  // dispara este duplo-clique sintético e, no rAF seguinte, injeta o caractere digitado no
+  // input via um hack de setter nativo. Com useEffect (que só roda DEPOIS do paint), esse
+  // select() competia com as próprias teclas que o usuário já tinha digitado nesse meio
+  // tempo — selecionava o que ele acabou de escrever, e a tecla seguinte apagava tudo.
+  // Rodando antes do rAF, o select() sempre acontece só sobre o valor ANTIGO, e a injeção
+  // do caractere digitado (que roda depois) sobrescreve a seleção sem disputa nenhuma.
+  React.useLayoutEffect(() => {
     if (editing && inputRef.current) { doneRef.current = false; inputRef.current.focus(); inputRef.current.select(); }
   }, [editing]);
 
