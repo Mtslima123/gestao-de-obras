@@ -315,6 +315,7 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
       subtitle={step === 1 ? 'Passo 1 de 2 — Definir pavimentos' : 'Passo 2 de 2 — Selecionar tarefas'}
       onClose={onClose}
       draggable
+      resizable
       overlay={false}
       footer={
         <>
@@ -1223,10 +1224,10 @@ export const FeriadosModal = ({ cfg, onChange, onClose }) => {
                             <button className="btn btn-sm btn-ghost" onClick={() => setConfirmDel(null)}>Cancelar</button>
                           </span>
                         ) : (
-                          <>
+                          <span style={{ display: 'inline-flex', gap: 6 }}>
                             <button className="btn btn-sm btn-ghost" onClick={() => startEdit(d)}>Editar</button>
                             <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmDel(d.data)}>Excluir</button>
-                          </>
+                          </span>
                         )}
                       </td>
                     </tr>

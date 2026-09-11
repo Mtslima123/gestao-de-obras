@@ -107,4 +107,23 @@ export const medicaoMensalService = {
     }
     return { data, error: null };
   },
+
+  // Apaga o boletim inteiro (a linha da tabela) — diferente de salvarRascunho com itens
+  // vazios, que continuaria contando como "medição aberta". Sem policy própria por status:
+  // a RESTRICTIVE de DELETE (medicoes_mensais_ro_del) só olha pro modo somente-leitura do
+  // módulo, então isso apaga tanto rascunho quanto fechada — a tela só oferece o botão pra
+  // medição em rascunho (ver `bloqueado` em MedicaoMensal.jsx).
+  async excluir(obraId, mesReferencia) {
+    const { data, error } = await supabase
+      .from('medicoes_mensais')
+      .delete()
+      .eq('obra_id', obraId)
+      .eq('mes_referencia', mesReferencia)
+      .select();
+    if (error) {
+      logger.error('falha ao excluir medição mensal', { module: 'medicaoMensal', action: 'excluir', obraId, mesReferencia, err: error });
+      return { data: null, error };
+    }
+    return { data, error: null };
+  },
 };

@@ -7,8 +7,8 @@ import { medicaoMensalService } from './medicaoMensal.service';
 import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
-  computeResumo, validarFechamento, mergePercMedido, buildSnapshotFechamento, hidratarSnapshot,
-  computeArvoreForaDoMes,
+  computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
+  hidratarSnapshot, computeArvoreForaDoMes,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -100,6 +100,70 @@ function ModalLimparMedicao({ mesRefKey, qtd, salvando, onClose, onConfirmar }) 
         recomeçar o preenchimento do zero. Não mexe no avanço da Lista nem em meses já
         fechados. Deseja continuar?
       </p>
+    </Modal>
+  );
+}
+
+function ModalExcluirMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
+  return (
+    <Modal
+      title="Excluir medição"
+      subtitle={mesLabel(mesRefKey)}
+      onClose={onClose}
+      overlay={false}
+      footer={
+        <>
+          <div className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button
+            className="btn"
+            style={{ background: 'var(--danger)', color: '#fff' }}
+            disabled={salvando}
+            onClick={onConfirmar}
+          >
+            <Icon name="trash" size={14} />{salvando ? 'Excluindo…' : 'Excluir medição'}
+          </button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--text-soft)' }}>
+        Isso apaga a medição de {mesLabel(mesRefKey)} por completo, junto com todo o % medido
+        preenchido nela — diferente de "Limpar", não deixa o registro para trás. Não tem como
+        desfazer. Deseja continuar?
+      </p>
+    </Modal>
+  );
+}
+
+// Só informativo — sem botão de "abrir mesmo assim": a única saída é reprogramar a(s)
+// tarefa(s) listada(s) na Lista/Gantt e tentar abrir de novo.
+function ModalPendenciasAbertura({ mesRefKey, pendentes, onClose }) {
+  return (
+    <Modal
+      title="Não é possível abrir a medição"
+      subtitle={mesLabel(mesRefKey)}
+      onClose={onClose}
+      overlay={false}
+      draggable
+      resizable
+      footer={
+        <>
+          <div className="spacer" />
+          <button className="btn btn-primary" onClick={onClose}>Entendi</button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--danger)', fontWeight: 600, marginBottom: 8 }}>
+        {pendentes.length} tarefa(s) com término antes de {mesLabel(mesRefKey)} ainda não está(ão) em 100% de avanço.
+      </p>
+      <p style={{ fontSize: 13, color: 'var(--text-soft)', marginBottom: 8 }}>
+        Reprograme a(s) data(s) na Lista ou no Gantt antes de abrir esta medição:
+      </p>
+      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-soft)' }}>
+        {pendentes.map(p => (
+          <li key={p.id}>{p.wbs} — {p.descricao}: {fmtPct100(p.avanco)} (término {mesLabel(p.terminoMes)})</li>
+        ))}
+      </ul>
     </Modal>
   );
 }
@@ -342,6 +406,8 @@ export default function MedicaoMensal({
   const [mostrarConfirmFechar, setMostrarConfirmFechar] = React.useState(false);
   const [mostrarConfirmReabrir, setMostrarConfirmReabrir] = React.useState(false);
   const [mostrarConfirmLimpar, setMostrarConfirmLimpar] = React.useState(false);
+  const [mostrarConfirmExcluir, setMostrarConfirmExcluir] = React.useState(false);
+  const [pendenciasAbertura, setPendenciasAbertura] = React.useState(null);
 
   // Largura das colunas da tabela principal — mesmo padrão de ListaInterativa.jsx.
   const [colWidths, setColWidths] = React.useState(() => {
@@ -605,6 +671,8 @@ export default function MedicaoMensal({
   // do primeiro salvamento, e um mês sem registro já vinha editável.
   const abrirMedicao = async () => {
     if (readOnly || registro) return;
+    const { ok, pendentes } = validarAbertura(etapas, mesRefKey, wbsMap);
+    if (!ok) { setPendenciasAbertura(pendentes); return; }
     setSalvando(true);
     const itens = montarDoCronograma(new Set());
     const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens);
@@ -682,6 +750,20 @@ export default function MedicaoMensal({
     setSalvando(false);
     setMostrarConfirmLimpar(false);
     toast('Medição limpa', { tone: 'success', icon: 'check' });
+  };
+
+  // Apaga o boletim inteiro — ao contrário de limparMedicao, não deixa nada para trás: volta
+  // ao estado "sem medição aberta" pro mês, como se "Abrir medição" nunca tivesse rodado.
+  const excluirMedicao = async () => {
+    setSalvando(true);
+    const { data, error } = await medicaoMensalService.excluir(obraId, mesRefKey);
+    setSalvando(false);
+    if (error || !data || data.length === 0) { toast('Não foi possível excluir a medição.', { tone: 'danger' }); return; }
+    setRegistro(null);
+    setItensTrabalho([]);
+    setIdsManuais(new Set());
+    setMostrarConfirmExcluir(false);
+    toast(`Medição de ${mesLabel(mesRefKey)} excluída`, { tone: 'success', icon: 'check' });
   };
 
   // ── Exportação ────────────────────────────────────────────────────────────
@@ -928,11 +1010,6 @@ export default function MedicaoMensal({
               </div>
             )}
           </div>
-          {!registro && !readOnly && (
-            <button type="button" className="btn btn-dark" onClick={abrirMedicao} disabled={carregando || salvando}>
-              <Icon name="plus" size={15} />{salvando ? 'Abrindo…' : 'Abrir medição'}
-            </button>
-          )}
         </div>
       </div>
 
@@ -1029,6 +1106,11 @@ export default function MedicaoMensal({
                     onClick={() => { setAcoesOpen(false); setMostrarConfirmFechar(true); }}
                   >
                     <Icon name="check" size={15} />Fechar medição
+                  </button>
+                  <div style={{ borderTop: '1px solid var(--border)', margin: '2px 0' }} />
+                  <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', color: 'var(--danger)' }}
+                    onClick={() => { setAcoesOpen(false); setMostrarConfirmExcluir(true); }}>
+                    <Icon name="trash" size={15} />Excluir medição
                   </button>
                 </div>
               )}
@@ -1309,6 +1391,23 @@ export default function MedicaoMensal({
           salvando={salvando}
           onClose={() => setMostrarConfirmLimpar(false)}
           onConfirmar={limparMedicao}
+        />
+      )}
+
+      {mostrarConfirmExcluir && (
+        <ModalExcluirMedicao
+          mesRefKey={mesRefKey}
+          salvando={salvando}
+          onClose={() => setMostrarConfirmExcluir(false)}
+          onConfirmar={excluirMedicao}
+        />
+      )}
+
+      {pendenciasAbertura && (
+        <ModalPendenciasAbertura
+          mesRefKey={mesRefKey}
+          pendentes={pendenciasAbertura}
+          onClose={() => setPendenciasAbertura(null)}
         />
       )}
 

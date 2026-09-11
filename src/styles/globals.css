@@ -1234,11 +1234,11 @@ a:hover { color: var(--brand-600); }
 .uso-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .uso-hide-scrollbar::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
-/* Modo modeless: sem escurecer/borrar, deixando interagir com o conteúdo atrás */
+/* Modo modeless: sem escurecer/borrar o fundo, mas o backdrop (tela inteira) continua
+   capturando o clique — sem isso ele "vazava" pra qualquer coisa clicável atrás da modal. */
 .modal-backdrop-bare {
   background: transparent;
   backdrop-filter: none;
-  pointer-events: none;
   animation: none;
 }
 .modal-backdrop-bare .modal { pointer-events: auto; box-shadow: 0 18px 48px rgba(8, 14, 28, 0.28); }

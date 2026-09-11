@@ -293,6 +293,24 @@ export function validarFechamento(itens) {
   return { ok: violacoes.length === 0, violacoes };
 }
 
+// Bloqueia a abertura se alguma folha com término num mês anterior a mesRefKey ainda não
+// chegou a 100% de avanço — abrir o mês seguinte com pendência do passado escondia que a
+// tarefa precisa ser reprogramada. Só folhas (grupo é média dos filhos, não é reprogramável)
+// e só olha pro passado: término no próprio mesRefKey (ou depois) ainda está em andamento,
+// não é atraso.
+export function validarAbertura(etapas, mesRefKey, wbsMap) {
+  const pendentes = etapas
+    .filter(e => !e.isGroup && (e.avanco || 0) < 100)
+    .map(e => ({ e, terminoMes: offsetToISO(taskEnd(e) - 1).slice(0, 7) }))
+    .filter(({ terminoMes }) => terminoMes < mesRefKey)
+    .map(({ e, terminoMes }) => ({
+      id: e.id, wbs: wbsMap[e.id] || '', descricao: e.etapa || '',
+      avanco: e.avanco || 0, terminoMes,
+    }))
+    .sort((a, b) => a.wbs.localeCompare(b.wbs, 'pt-BR', { numeric: true }));
+  return { ok: pendentes.length === 0, pendentes };
+}
+
 // Aplica o %medido salvo (registro do banco) por id; itens sem registro salvo mantêm
 // o default (percExecutado) já aplicado em buildItensMedicao.
 export function mergePercMedido(itensBase, registroItens) {

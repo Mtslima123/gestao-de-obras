@@ -4,8 +4,9 @@ import { describe, it, expect } from 'vitest';
 import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
-  computeArvoreForaDoMes, computeResumo,
+  computeArvoreForaDoMes, computeResumo, validarAbertura,
 } from '../modules/cronograma/medicaoMensalPure';
+import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
 // Hierarquia: 1 ESTRUTURA > 1.1 TERREO > (folhas Forma, Concreto); 2 ESTACAS > folha pav1.
 // A folha "FUTURA" não tem fatia no mês de referência — é o caso "fora do mês".
@@ -95,6 +96,31 @@ describe('listarTarefasForaDoMes', () => {
     const distComPassada = { ...monthlyDist, P: { '2026-01': 900 } }; // antes de MES ('2026-07')
     const candidatas = listarTarefasForaDoMes(etapasComPassada, MES, { ...opts, monthlyDist: distComPassada });
     expect(candidatas.map(c => c.id)).toEqual(['F']); // só a futura, não a passada
+  });
+});
+
+describe('validarAbertura', () => {
+  const wbsAbertura = { P: '9', Q: '9.1', R: '9.2', G: '9.3' };
+  // dur: 0 faz taskEnd = inicio (sem caminhar por dias úteis) — isola o teste do
+  // calendário de trabalho (feriados/fim de semana), que é estado de módulo mutável.
+  const etapasAbertura = [
+    { id: 'P', etapa: 'Atrasada',       isGroup: false, nivel: 0, parentId: null, inicio: dateToOffset('2026-05-15'), dur: 0, avanco: 40 },
+    { id: 'Q', etapa: 'AtrasadaMas100', isGroup: false, nivel: 0, parentId: null, inicio: dateToOffset('2026-05-15'), dur: 0, avanco: 100 },
+    { id: 'R', etapa: 'DesteMes',       isGroup: false, nivel: 0, parentId: null, inicio: dateToOffset('2026-07-15'), dur: 0, avanco: 30 },
+    { id: 'G', etapa: 'GrupoAtrasado',  isGroup: true,  nivel: 0, parentId: null, inicio: dateToOffset('2026-05-15'), dur: 0, avanco: 20 },
+  ];
+
+  it('bloqueia e lista só a folha com término num mês anterior e avanço < 100', () => {
+    const { ok, pendentes } = validarAbertura(etapasAbertura, MES, wbsAbertura);
+    expect(ok).toBe(false);
+    expect(pendentes.map(p => p.id)).toEqual(['P']);
+    expect(pendentes[0]).toMatchObject({ wbs: '9', descricao: 'Atrasada', avanco: 40, terminoMes: '2026-05' });
+  });
+
+  it('não bloqueia com avanço 100, término do próprio mês/futuro, ou grupo', () => {
+    const { ok, pendentes } = validarAbertura(etapasAbertura.filter(e => e.id !== 'P'), MES, wbsAbertura);
+    expect(ok).toBe(true);
+    expect(pendentes).toEqual([]);
   });
 });
 
