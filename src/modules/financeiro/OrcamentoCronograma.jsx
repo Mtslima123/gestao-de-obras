@@ -658,10 +658,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   const [selEtapa, setSelEtapa] = React.useState('');
 
   // Editar Itens Associados, Distribuir Pesos e a confirmação de remover vínculo (lixeira
-  // da tabela) são mutuamente exclusivos — mesmo bug do Cronograma.jsx: eram um boolean/ID
-  // independente cada, e como os dois primeiros usam overlay "bare" (deixa clicar por trás
-  // pra não travar o resto da tela), dava pra abrir um em cima do outro e ainda mexer no
-  // que estava por baixo. Um único estado garante que abrir um sempre fecha o anterior.
+  // da tabela) são mutuamente exclusivos — mesmo ajuste do Cronograma.jsx: eram um
+  // boolean/ID independente cada, e dava pra abrir um em cima do outro (dois modais
+  // empilhados, cada um com seu próprio Escape/z-index). Um único estado garante que
+  // abrir um sempre fecha o anterior.
   const [activeVinculoModal, setActiveVinculoModal] = React.useState(null); // { tipo: 'editar'|'distribuir'|'remover', ... } | null
   const editandoEtapaId   = activeVinculoModal?.tipo === 'editar'     ? activeVinculoModal.etapaId : null;
   const distribuirEtapaId = activeVinculoModal?.tipo === 'distribuir' ? activeVinculoModal.etapaId : null;
