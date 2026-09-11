@@ -503,9 +503,20 @@ export function reprogramarRestante(etapaId, etapas) {
 // quente da grade, ex.: TaskFormPanel, não precisam se preocupar em pré-calcular).
 export function formatDepList(dep, etapas, rowNumberMap) {
   const map = rowNumberMap || (etapas ? computeRowNumberMap(etapas) : {});
+  // `rowNumberMap` só numera o que está VISÍVEL na grade agora (respeita grupo recolhido e
+  // filtro de busca/coluna — ver ListaInterativa.jsx): uma predecessora escondida atrás de
+  // um grupo recolhido não tem número aí. Fallback: numeração completa (ignora colapso/
+  // filtro, computada em cima de TODAS as etapas), calculada uma vez só e só se precisar —
+  // mantém a célula sempre com um NÚMERO (nunca o id interno cru nem o nome da tarefa).
+  let mapCompleto = null;
+  const numeroCompleto = (id) => {
+    if (!etapas) return undefined;
+    if (!mapCompleto) mapCompleto = computeRowNumberMap(etapas);
+    return mapCompleto[id];
+  };
   return (dep || []).map(d => {
-    if (typeof d === 'string') return map[d] ?? d;
-    const disp = map[d.id] ?? d.id;
+    if (typeof d === 'string') return map[d] ?? numeroCompleto(d) ?? d;
+    const disp = map[d.id] ?? numeroCompleto(d.id) ?? d.id;
     const t = (d.tipo && d.tipo !== 'TI') ? d.tipo : '';
     const l = d.lag ? ((d.lag > 0 ? '+' : '') + d.lag + 'd') : '';
     return disp + t + l;
