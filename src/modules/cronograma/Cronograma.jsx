@@ -2184,6 +2184,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     try { setHiddenCols(new Set(JSON.parse(localStorage.getItem('ls_hidden_' + obraSel) || '[]'))); }
     catch { setHiddenCols(new Set()); }
   }, [obraSel]);
+  // Alturas de linha por tarefa (diálogo "Altura da linha", aplicado às linhas selecionadas)
+  // — por obra, no histórico de undo/redo (ver commit/undo/redo abaixo), igual a hiddenCols.
+  const [rowHeights, setRowHeights] = React.useState(() => ({}));
+  React.useEffect(() => {
+    try { setRowHeights(JSON.parse(localStorage.getItem('ls_crono_rowheights_' + obraSel) || '{}') || {}); }
+    catch { setRowHeights({}); }
+  }, [obraSel]);
 
   // Altura real da topbar (mesmo padrão de ListaInterativa.jsx) — usada para congelar o card
   // do Gantt exatamente abaixo dela, sem corte, ao rolar a página.
@@ -2327,6 +2334,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // Histórico paralelo das colunas ocultas da Lista, alinhado por índice a histRef —
   // permite que undo/redo restaure também exibir/ocultar coluna.
   const histHiddenColsRef = React.useRef([[...hiddenCols]]);
+  // Histórico paralelo das alturas de linha por tarefa, alinhado por índice a histRef —
+  // permite que undo/redo restaure também a altura aplicada pelo diálogo "Altura da linha".
+  const histRowHeightsRef = React.useRef([rowHeights]);
   const hidxRef = React.useRef(0);
   const undoRef        = React.useRef(null);
   const redoRef        = React.useRef(null);
@@ -2375,6 +2385,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       try { return JSON.parse(localStorage.getItem('ls_hidden_' + obraId) || '[]'); }
       catch { return []; }
     };
+    // Idem para alturas de linha por tarefa — puramente local/navegador, não vem do banco.
+    const lerRowHeightsLS = (obraId) => {
+      try { return JSON.parse(localStorage.getItem('ls_crono_rowheights_' + obraId) || '{}') || {}; }
+      catch { return {}; }
+    };
     async function carregar() {
       if (!obraSel) { setLoadedObraId(null); return; }
       // Pavimentos salvos (tabela própria) — não faz parte do cache de etapas/baselines,
@@ -2393,6 +2408,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         histColsRef.current = [cached.customCols];
         histFeriadosRef.current = [lerFeriadosLS(obraSel)];
         histHiddenColsRef.current = [lerHiddenColsLS(obraSel)];
+        histRowHeightsRef.current = [lerRowHeightsLS(obraSel)];
         hidxRef.current = 0;
         setBlVisivelId(carregarBlVisivel(obraSel));
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(cached.reprogramacoes || []));
@@ -2422,6 +2438,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         histColsRef.current = [db.custom_cols?.length ? db.custom_cols : customCols];
         histFeriadosRef.current = [lerFeriadosLS(obraSel)];
         histHiddenColsRef.current = [lerHiddenColsLS(obraSel)];
+        histRowHeightsRef.current = [lerRowHeightsLS(obraSel)];
         hidxRef.current = 0;
         if (db.custom_cols?.length) {
           setCustomCols(db.custom_cols);
@@ -2457,6 +2474,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         histColsRef.current = [customCols];
         histFeriadosRef.current = [lerFeriadosLS(obraSel)];
         histHiddenColsRef.current = [lerHiddenColsLS(obraSel)];
+        histRowHeightsRef.current = [lerRowHeightsLS(obraSel)];
         hidxRef.current = 0;
         setBaselines(carregarBaselines(obraSel));
         const reps = carregarReprogramacoes(obraSel);
@@ -2628,6 +2646,14 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     commit(etapas, { silent: true, hiddenCols: nextArr });
   };
 
+  // Altura de linha aplicada pelo diálogo "Altura da linha" — entra no histórico de
+  // undo/redo (ver commit acima). Aceita um objeto direto ou uma função atualizadora.
+  const onRowHeightsChange = (updater) => {
+    const next = typeof updater === 'function' ? updater(rowHeights) : updater;
+    if (JSON.stringify(next) === JSON.stringify(rowHeights)) return; // sem mudança real
+    commit(etapas, { silent: true, rowHeights: next });
+  };
+
   // Etapas da baseline visível (null = nenhuma)
   const baselineEtapas = blVisivelId
     ? ((baselines.find(b => b.id === blVisivelId)?.etapas) || (reprogramacoes.find(r => r.id === blVisivelId)?.etapas) || null)
@@ -2721,6 +2747,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       setHiddenCols(new Set(opts.hiddenCols));
       try { localStorage.setItem('ls_hidden_' + obraSel, JSON.stringify(opts.hiddenCols)); } catch { /* ignore */ }
     }
+    // rowHeights (altura de linha por tarefa) também entra no histórico — aplicar uma nova
+    // altura pelo diálogo "Altura da linha" vira um passo de Ctrl+Z de verdade.
+    const rowHeightsSnap = opts.rowHeights !== undefined ? opts.rowHeights : rowHeights;
+    if (opts.rowHeights !== undefined) {
+      setRowHeights(opts.rowHeights);
+      try { localStorage.setItem('ls_crono_rowheights_' + obraSel, JSON.stringify(opts.rowHeights)); } catch { /* ignore */ }
+    }
     // skipHistory: usado por ações que não são "edições" de verdade (ex.: expandir/recolher
     // grupo) — aplica e salva normalmente, mas não ocupa um slot de undo/redo. Sem isso, cada
     // toggle de collapse entraria no mesmo histórico linear das edições reais, fazendo o
@@ -2734,10 +2767,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       hf.push(feriadosSnap);
       const hh = histHiddenColsRef.current.slice(0, hidxRef.current + 1);
       hh.push(hiddenColsSnap);
+      const hr = histRowHeightsRef.current.slice(0, hidxRef.current + 1);
+      hr.push(rowHeightsSnap);
       histRef.current = h;
       histColsRef.current = hc;
       histFeriadosRef.current = hf;
       histHiddenColsRef.current = hh;
+      histRowHeightsRef.current = hr;
       hidxRef.current = h.length - 1;
     }
     setEtapas(clean);
@@ -2774,12 +2810,15 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const colsSnap = histColsRef.current[hidxRef.current] ?? customCols;
     const feriadosSnap = histFeriadosRef.current[hidxRef.current] ?? feriadosCfg;
     const hiddenColsSnap = histHiddenColsRef.current[hidxRef.current] ?? [...hiddenCols];
+    const rowHeightsSnap = histRowHeightsRef.current[hidxRef.current] ?? rowHeights;
     setEtapas(snap);
     setCustomCols(colsSnap);
     setFeriadosCfg(feriadosSnap);
     setHiddenCols(new Set(hiddenColsSnap));
+    setRowHeights(rowHeightsSnap);
     try { localStorage.setItem('ls_crono_feriados_' + obraSel, JSON.stringify(feriadosSnap)); } catch { /* ignore */ }
     try { localStorage.setItem('ls_hidden_' + obraSel, JSON.stringify(hiddenColsSnap)); } catch { /* ignore */ }
+    try { localStorage.setItem('ls_crono_rowheights_' + obraSel, JSON.stringify(rowHeightsSnap)); } catch { /* ignore */ }
     D.cronograma[obraSel] = snap;
     D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
@@ -2798,12 +2837,15 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     const colsSnap = histColsRef.current[hidxRef.current] ?? customCols;
     const feriadosSnap = histFeriadosRef.current[hidxRef.current] ?? feriadosCfg;
     const hiddenColsSnap = histHiddenColsRef.current[hidxRef.current] ?? [...hiddenCols];
+    const rowHeightsSnap = histRowHeightsRef.current[hidxRef.current] ?? rowHeights;
     setEtapas(snap);
     setCustomCols(colsSnap);
     setFeriadosCfg(feriadosSnap);
     setHiddenCols(new Set(hiddenColsSnap));
+    setRowHeights(rowHeightsSnap);
     try { localStorage.setItem('ls_crono_feriados_' + obraSel, JSON.stringify(feriadosSnap)); } catch { /* ignore */ }
     try { localStorage.setItem('ls_hidden_' + obraSel, JSON.stringify(hiddenColsSnap)); } catch { /* ignore */ }
+    try { localStorage.setItem('ls_crono_rowheights_' + obraSel, JSON.stringify(rowHeightsSnap)); } catch { /* ignore */ }
     D.cronograma[obraSel] = snap;
     D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
@@ -3276,6 +3318,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   onCustomColsChange={handleCustomColsChange}
                   hiddenCols={hiddenCols}
                   onHiddenColsChange={onHiddenColsChange}
+                  rowHeights={rowHeights}
+                  onRowHeightsChange={onRowHeightsChange}
                   obraId={obraSel}
                   undo={undo}
                   redo={redo}

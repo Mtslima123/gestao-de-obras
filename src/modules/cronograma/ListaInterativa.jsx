@@ -35,6 +35,8 @@ import {
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
 const EMPTY_HIDDEN_COLS = new Set();
+// Idem para `rowHeights`.
+const EMPTY_ROW_HEIGHTS = {};
 
 // ── Alça de preenchimento (fill handle) ─────────────────────────────────────────
 // Colunas de cellSpec que fazem sentido arrastar em sequência: dep/succ guardam
@@ -45,7 +47,7 @@ const FILL_EXCLUDED_COLS = new Set(['dep', 'succ']);
 // partir dos filhos) — preenchimento pula essas linhas nesses campos.
 const GROUP_BLOCKED_FIELDS = new Set(['inicio', 'fim', 'avanco', 'custo', 'custoRealizado', 'duracaoDias']);
 
-export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, isAdmin = false,
+export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, rowHeights: rowHeightsProp = EMPTY_ROW_HEIGHTS, onRowHeightsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, isAdmin = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
@@ -228,14 +230,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   React.useEffect(() => {
     try { localStorage.setItem('ls_crono_row_h_v2', String(rowH)); } catch { /* ignore */ }
   }, [rowH]);
-  // Alturas por linha (override só das linhas selecionadas), persistidas por obra.
-  const [rowHeights, setRowHeights] = React.useState(() => {
-    try { return JSON.parse(localStorage.getItem(`ls_crono_rowheights_${obraId}`) || '{}') || {}; }
-    catch { return {}; }
-  });
-  React.useEffect(() => {
-    try { localStorage.setItem(`ls_crono_rowheights_${obraId}`, JSON.stringify(rowHeights)); } catch { /* ignore */ }
-  }, [rowHeights, obraId]);
+  // Alturas por linha (override só das linhas selecionadas) — vêm do Cronograma via prop
+  // (persistidas por obra e no histórico de undo/redo, ver onRowHeightsChange). Durante um
+  // arraste da borda da linha, `dragRowH` sobrepõe visualmente uma altura "ao vivo" sem
+  // gerar um passo de undo a cada pixel — só ao soltar o mouse é que vira commit de verdade.
+  const [dragRowH, setDragRowH] = React.useState(null); // { taskId, h } | null
+  const rowHeights = dragRowH ? { ...rowHeightsProp, [dragRowH.taskId]: dragRowH.h } : rowHeightsProp;
 
   const visible     = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
   // Número de linha "cedo" (baseado só em `visible`, sem os filtros de busca/coluna) —
@@ -504,12 +504,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     document.addEventListener('mouseup', onUp);
   };
   // Arraste da borda inferior da calha (estilo Excel): redimensiona a altura só desta linha.
+  // Só vira commit (undo/redo) uma vez, ao soltar o mouse — não a cada pixel arrastado.
   const startRowResize = (ev, taskId) => {
     ev.preventDefault(); ev.stopPropagation();
     const startY = ev.clientY;
     const startH = rowHeights[taskId] ?? rowH;
-    const onMove = (e2) => setRowHeights(prev => ({ ...prev, [taskId]: Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, startH + e2.clientY - startY)) }));
-    const onUp   = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    let liveH = startH;
+    const onMove = (e2) => {
+      liveH = Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, startH + e2.clientY - startY));
+      setDragRowH({ taskId, h: liveH });
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
+      setDragRowH(null);
+      if (liveH !== startH) onRowHeightsChange?.(prev => ({ ...prev, [taskId]: liveH }));
+    };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   };
@@ -4163,7 +4172,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           value={rowHeights[rowHDialogTargets[0]] ?? rowH}
           min={ROW_H_MIN} max={ROW_H_MAX}
           count={rowHDialogTargets.length}
-          onApply={(v) => setRowHeights(prev => {
+          onApply={(v) => onRowHeightsChange?.(prev => {
             const next = { ...prev };
             rowHDialogTargets.forEach(id => { next[id] = v; });
             return next;
