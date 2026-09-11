@@ -491,6 +491,10 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
   const [predSelected, setPredSelected] = React.useState([...initialPredIds]);
   const [succSelected, setSuccSelected] = React.useState([]);
   const [links, setLinks] = React.useState({}); // succId -> predId ('' = "Nenhuma")
+  // Grupos recolhidos em cada lista (independentes uma da outra) — reduz a rolagem em
+  // EAPs grandes, escondendo as folhas de um grupo que já foi todo marcado/descartado.
+  const [predCollapsed, setPredCollapsed] = React.useState(() => new Set());
+  const [succCollapsed, setSuccCollapsed] = React.useState(() => new Set());
 
   const normBusca = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   // Nem toda tarefa-pai desta base tem `isGroup` marcado (dado legado/importado) — mesma
@@ -593,32 +597,40 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
   const groupTintDoNivel = (nivel) =>
     (nivel || 0) <= 0 ? 'var(--brand-100)' : nivel === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
 
-  const listaTarefas = (itens, selecionados, toggle) => (
-    <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
-      {itens.map(e => {
+  const listaTarefas = (itens, selecionados, toggle, collapsed, setCollapsed) => (
+    <div style={{ maxHeight: 340, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+      {itens.filter(e => !ancestraisDe(e).some(aid => collapsed.has(aid))).map(e => {
         if (ehGrupo(e)) {
           const folhas = folhasDaSubarvore(e, itens);
           const marcadas = folhas.filter(f => selecionados.includes(f.id)).length;
           const checked = folhas.length > 0 && marcadas === folhas.length;
           const parcial = marcadas > 0 && marcadas < folhas.length;
           const inerte = folhas.length === 0;
+          const recolhido = collapsed.has(e.id);
           return (
-            <label key={e.id}
-              title={inerte ? 'Grupo sem tarefas-folha disponíveis nesta lista'
-                : 'Tarefa-pai: marca ou desmarca todas as folhas listadas (o grupo em si não recebe vínculo)'}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px',
-                cursor: inerte ? 'not-allowed' : 'pointer', borderBottom: '1px solid var(--border)',
-                background: groupTintDoNivel(e.nivel), opacity: inerte ? 0.6 : 1 }}>
-              <input type="checkbox" checked={checked} disabled={inerte}
-                ref={el => { if (el) el.indeterminate = parcial; }}
-                onChange={ev => !inerte && toggle(folhas.map(f => f.id), ev.target.checked)} />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 28 }}>
-                {rowNumberMap[e.id] ?? e.id}
-              </span>
-              <span style={{ paddingLeft: (e.nivel || 0) * 12, fontSize: 12.5, fontWeight: 700, color: 'var(--brand)' }}>
-                {e.etapa}
-              </span>
-            </label>
+            <div key={e.id} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)',
+              background: groupTintDoNivel(e.nivel), opacity: inerte ? 0.6 : 1 }}>
+              <button type="button" title={recolhido ? 'Expandir' : 'Recolher'}
+                onClick={() => setCollapsed(s => { const n = new Set(s); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; })}
+                style={{ display: 'flex', padding: '7px 4px 7px 8px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand)' }}>
+                <Icon name={recolhido ? 'chevron-right' : 'chevron-down'} size={13} />
+              </button>
+              <label
+                title={inerte ? 'Grupo sem tarefas-folha disponíveis nesta lista'
+                  : 'Tarefa-pai: marca ou desmarca todas as folhas listadas (o grupo em si não recebe vínculo)'}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px 7px 0', flex: 1, minWidth: 0,
+                  cursor: inerte ? 'not-allowed' : 'pointer' }}>
+                <input type="checkbox" checked={checked} disabled={inerte}
+                  ref={el => { if (el) el.indeterminate = parcial; }}
+                  onChange={ev => !inerte && toggle(folhas.map(f => f.id), ev.target.checked)} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 28 }}>
+                  {rowNumberMap[e.id] ?? e.id}
+                </span>
+                <span style={{ paddingLeft: (e.nivel || 0) * 12, fontSize: 12.5, fontWeight: 700, color: 'var(--brand)' }}>
+                  {e.etapa}
+                </span>
+              </label>
+            </div>
           );
         }
         return (
@@ -643,6 +655,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
       subtitle="Marque as predecessoras e sucessoras, depois escolha o vínculo de cada sucessora"
       size="xl"
       draggable
+      resizable
       overlay={false}
       onClose={onClose}
       footer={
@@ -661,7 +674,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
           </div>
           <input className="input" placeholder="Buscar tarefa…" value={buscaPred}
             onChange={e => setBuscaPred(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
-          {listaTarefas(predFiltradas, predSelected, togglePred)}
+          {listaTarefas(predFiltradas, predSelected, togglePred, predCollapsed, setPredCollapsed)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
@@ -669,7 +682,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
           </div>
           <input className="input" placeholder="Buscar tarefa…" value={buscaSucc}
             onChange={e => setBuscaSucc(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
-          {listaTarefas(succFiltradas, succSelected, toggleSucc)}
+          {listaTarefas(succFiltradas, succSelected, toggleSucc, succCollapsed, setSuccCollapsed)}
         </div>
       </div>
 
