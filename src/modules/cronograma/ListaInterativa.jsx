@@ -2136,7 +2136,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const busca = localizarTermo.trim();
     if (!busca) return;
     const buscaLower = busca.toLowerCase();
-    const alvoIds = new Set(filtrada.filter(e => (e.etapa || '').toLowerCase().includes(buscaLower)).map(e => e.id));
+    // Com células/linhas selecionadas na grade, restringe a troca só a elas (estilo Excel
+    // "substituir na seleção") — sem seleção, continua valendo pra todas as tarefas visíveis.
+    const selecao = selectedRowIds();
+    const escopo = selecao.size ? filtrada.filter(e => selecao.has(e.id)) : filtrada;
+    const alvoIds = new Set(escopo.filter(e => (e.etapa || '').toLowerCase().includes(buscaLower)).map(e => e.id));
     if (!alvoIds.size) { toast('Nenhuma ocorrência encontrada no nome das tarefas', { tone: 'neutral', icon: 'search' }); return; }
     const regex = new RegExp(busca.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
     let count = 0;
@@ -4441,7 +4445,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               <button className="btn btn-ghost" onClick={() => setShowLocalizar(false)}>Fechar</button>
               {!readOnly && (
                 <>
-                  <button className="btn btn-ghost" onClick={substituirTodos} disabled={!localizarTermo.trim()}>Substituir todos</button>
+                  <button className="btn btn-ghost" onClick={substituirTodos} disabled={!localizarTermo.trim()}>
+                    {selectedRowIds().size ? 'Substituir todos (seleção)' : 'Substituir todos'}
+                  </button>
                   <button className="btn btn-ghost" onClick={substituirAtual} disabled={!localizarTermo.trim()}>Substituir</button>
                 </>
               )}
@@ -4466,7 +4472,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           )}
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
             Enter ou "Localizar próxima" percorre os resultados; a tarefa encontrada é selecionada e rolada até a vista.
-            {!readOnly && ' "Substituir" troca a ocorrência atual no nome; "Substituir todos" troca em todas as tarefas visíveis de uma vez (1 passo de desfazer).'}
+            {!readOnly && (selectedRowIds().size
+              ? ' "Substituir" troca a ocorrência atual no nome; "Substituir todos" troca só nas tarefas selecionadas na grade (1 passo de desfazer).'
+              : ' "Substituir" troca a ocorrência atual no nome; "Substituir todos" troca em todas as tarefas visíveis de uma vez (1 passo de desfazer). Selecione células/linhas antes de abrir pra restringir a troca a elas.')}
           </div>
         </Modal>
       )}
