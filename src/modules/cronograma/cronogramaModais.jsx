@@ -233,8 +233,10 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
     let puladas = 0;
 
     selectedTasks.forEach(taskId => {
-      // Converter tarefa em grupo se ainda não for
-      novas = novas.map(e => e.id === taskId ? { ...e, isGroup: true } : e);
+      // Converter tarefa em grupo se ainda não for. Só zera a Predecessora/Sucessora própria
+      // na PRIMEIRA vez (folha virando grupo agora) — se já era grupo (ex.: inserindo mais
+      // pavimentos depois), preserva o dep como estava (ver recomputeHierarchy).
+      novas = novas.map(e => e.id === taskId ? { ...e, isGroup: true, dep: e.isGroup ? e.dep : [] } : e);
       const task = novas.find(e => e.id === taskId);
       if (!task) return;
 

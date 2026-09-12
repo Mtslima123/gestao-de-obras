@@ -29,7 +29,7 @@ import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, VIRT_MIN,
   ColumnHeaderFilterMenu, resolveColType, FILTER_BLANK_KEY,
-  buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter,
+  buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter, gmConflicts,
 } from './cronogramaShared';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
@@ -83,6 +83,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   React.useEffect(() => {
     try { localStorage.setItem('ls_crono_ribbon_tab', activeTab); } catch { /* ignore */ }
   }, [activeTab]);
+  // Popover do badge "conflitos" da faixa — mesmo indicador já mostrado no Gantt
+  // (GanttInterativo.jsx), pra não precisar trocar de aba pra ver os pares em violação.
+  const [showConflitos, setShowConflitos] = React.useState(false);
+  const conflitosMenuRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!showConflitos) return;
+    const onDoc = ev => { if (conflitosMenuRef.current && !conflitosMenuRef.current.contains(ev.target)) setShowConflitos(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [showConflitos]);
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
   const [multiSelCols,   setMultiSelCols]   = React.useState([]);   // colunas selecionadas via Ctrl+clique no cabeçalho
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
@@ -92,6 +102,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [showLocalizar,  setShowLocalizar]  = React.useState(false); // modal Localizar (Ctrl+L)
   const [showOrtografia, setShowOrtografia] = React.useState(false); // modal Ortografia (F7)
   const [localizarTermo, setLocalizarTermo] = React.useState('');
+  const [substituirTermo, setSubstituirTermo] = React.useState(''); // "Substituir por" do modal Localizar
   const localizarIdxRef = React.useRef(-1);
   const [openModoMenu,   setOpenModoMenu]   = React.useState(null); // id da tarefa com o menu de Modo aberto
   const modoMenuRef = React.useRef(null);
@@ -651,6 +662,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const rowNumberMap = React.useMemo(() => computeRowNumberMap(filtrada), [filtrada]);
   const idToDisplayId = rowNumberMap;
 
+  // Conflitos de precedência (mesmo indicador do Gantt) — mantém a lista bruta pra
+  // alimentar o popover que detalha cada par pred/suces em violação.
+  const conflitosList = React.useMemo(() => gmConflicts(etapas), [etapas]);
+
   // Virtualização (windowing) da Lista — ativa só acima de VIRT_MIN. Abaixo, renderiza
   // todas as linhas (comportamento atual). Altura variável (rowH + overrides por linha)
   // é MEDIDA de verdade via measureElement (o height do <td> funciona como min-height).
@@ -690,10 +705,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     custoReal: { kind: 'number', get: e => String(e.custoRealizado ?? 0),   field: 'custoRealizado' },
     resp:      { kind: 'text',   get: e => e.responsavel || '',              field: 'responsavel' },
     restricao: { kind: 'date',   get: e => e.restricaoData || '',            field: 'restricao' },
-    dep:       { kind: 'text',   get: e => formatDepList(e.dep, etapas, rowNumberMap), field: 'dep' },
+    // e.isGroup ? '' : ...: mesmo branco que a célula já mostra pra grupo em todo canto da
+    // Lista (duplo-clique, F2, colFilterValue) — sem isso, Ctrl+C numa linha de grupo
+    // copiava o texto do vínculo antigo mesmo a célula aparecendo vazia na tela.
+    dep:       { kind: 'text',   get: e => e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap), field: 'dep' },
     // Sucessora é derivada (vínculo reverso, gravado no `dep` de OUTRAS tarefas) — colar aqui
     // não usa applyFieldToEtapa como as demais colunas; ver applySuccEdits/applyBlockEdits.
-    succ:      { kind: 'text',   get: e => formatSucc(e.id),                  field: 'succ' },
+    succ:      { kind: 'text',   get: e => e.isGroup ? '' : formatSucc(e.id),                  field: 'succ' },
   };
   const cellSpec = (colId) => {
     if (colId?.startsWith('cc_')) return { kind: 'text', get: e => (e.customCols || {})[colId] ?? '', field: colId };
@@ -1021,7 +1039,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (!e) return;
     rowClipRef.current = [JSON.parse(JSON.stringify(e))]; // array (uma linha)
   };
-  const pasteRow = (idOverride) => {
+  // position: 'above' (padrão, atalho Ctrl++ normal) ou 'below' (usado pelo Ctrl++ na linha
+  // em branco do rodapé, pra colar/inserir depois da última tarefa real).
+  const pasteRow = (idOverride, position = 'above') => {
     const id = idOverride ?? selectedId;
     if (readOnly || !id) return;
     const idx = etapas.findIndex(x => x.id === id);
@@ -1045,16 +1065,20 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           .map(e => ({ ...e, nivel: ref.nivel, parentId: ref.parentId }));
         const rest = etapas.filter(e => !cutIds.has(e.id));
         const restIdx = rest.findIndex(e => e.id === id);
-        const novas = [...rest.slice(0, restIdx), ...moving, ...rest.slice(restIdx)];
+        const cutOff = position === 'below' ? restIdx + 1 : restIdx;
+        const novas = [...rest.slice(0, cutOff), ...moving, ...rest.slice(cutOff)];
         onCommit(novas, { silent: true });
+        // Limpa a seleção de célula/intervalo antiga (ver mesmo ajuste em insertBlankRows) —
+        // senão ela soma com a linha nova em selectedRowIds() e o próximo Ctrl++ mexe em 2 linhas.
+        setSelectedCell(null); setSelAnchor(null); setMultiSel([]);
         setSelectedId(moving[0]?.id ?? id);
         rowClipRef.current = null;
         cutPendingRef.current = null;
         return;
       }
-      // Copiar+colar: insere N CÓPIAS (uma por linha copiada) ACIMA da linha selecionada,
-      // estilo Excel — id/displayId novos e dep zerado (a cópia não deve arrastar sozinha
-      // a mesma predecessora do original sem o usuário decidir isso).
+      // Copiar+colar: insere N CÓPIAS (uma por linha copiada) acima (ou abaixo) da linha
+      // selecionada, estilo Excel — id/displayId novos e dep zerado (a cópia não deve
+      // arrastar sozinha a mesma predecessora do original sem o usuário decidir isso).
       let base = [...etapas];
       const clones = clips.map(src => {
         const clone = {
@@ -1072,14 +1096,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         return clone;
       });
       let novas = [...etapas];
-      novas.splice(idx, 0, ...clones);
+      novas.splice(position === 'below' ? idx + 1 : idx, 0, ...clones);
       onCommit(novas, { silent: true });
+      // Limpa a seleção de célula/intervalo antiga (ver mesmo ajuste em insertBlankRows) —
+      // senão ela soma com a linha nova em selectedRowIds() e o próximo Ctrl++ mexe em 2 linhas.
+      setSelectedCell(null); setSelAnchor(null); setMultiSel([]);
       setSelectedId(clones[0].id);
       rowClipRef.current = null; // cópia de uso único
     } else {
       // Nada copiado: insere N linhas em branco (N = nº de linhas do intervalo, ou 1)
       const n = Math.max(1, new Set(rangeCellList().map(x => x.taskId)).size);
-      insertBlankRows(id, 'above', n);
+      insertBlankRows(id, position, n);
     }
   };
   // Recortar (Ctrl+X): marca a origem para ser limpa/removida no PRÓXIMO colar bem-sucedido
@@ -1996,6 +2023,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const novas = [...etapas];
     novas.splice(position === 'above' ? refIdx : refIdx + 1, 0, ...blanks);
     onCommit(novas, { silent: true });
+    // Limpa a seleção de célula/intervalo antes de marcar a linha nova: sem isso,
+    // selectedRowIds() somava a linha antiga (via selectedCell, que ficava intacta)
+    // com a linha nova (via selectedId) — o próximo Ctrl++ via 2 linhas "selecionadas"
+    // e inseria 2 de uma vez em vez de 1.
+    setSelectedCell(null); setSelAnchor(null); setMultiSel([]);
     setSelectedId(blanks[0].id);
   };
   // Insere uma nova tarefa (ou marco, se milestone=true) acima ou abaixo da tarefa de referência
@@ -2056,6 +2088,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return () => document.removeEventListener('keydown', handler);
   }, [readOnly]);
 
+  // Abre (seleciona/rola até) a sucessora de um par em conflito, a partir do popover
+  // de conflitos da faixa — mesma ação do badge equivalente no Gantt.
+  const focarTarefaConflito = (taskId) => {
+    setShowConflitos(false);
+    const alvo = filtrada.find(e => e.id === taskId);
+    if (!alvo) return; // fora do filtro/grupo recolhido atual — mesma limitação de Localizar
+    const cell = { taskId: alvo.id, colId: 'etapa' };
+    setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
+    scrollRowIntoView(alvo.id);
+  };
+
   // Navega para a próxima tarefa que casa com o termo (nome, WBS ou ID), em ciclo.
   const norm2 = (s) => String(s ?? '').toLowerCase();
   const localizarProximo = () => {
@@ -2070,6 +2113,43 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const cell = { taskId: alvo.id, colId: 'etapa' };
     setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
     scrollRowIntoView(alvo.id);
+  };
+
+  // ── Substituir (Localizar e substituir, estilo Excel) ────────────────────────
+  // Só age sobre o NOME da tarefa: WBS e ID (que "Localizar" também casa) são campos
+  // derivados, não dá pra "substituir" texto neles.
+  const substituirAtual = () => {
+    if (readOnly) return;
+    const busca = localizarTermo.trim();
+    if (!busca) return;
+    const buscaLower = busca.toLowerCase();
+    const alvo = filtrada.find(e => (e.etapa || '').toLowerCase().includes(buscaLower));
+    if (!alvo) { toast('Nenhuma ocorrência encontrada no nome das tarefas', { tone: 'neutral', icon: 'search' }); return; }
+    const regex = new RegExp(busca.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    handleCellSave(alvo.id, 'etapa', alvo.etapa.replace(regex, substituirTermo));
+    const cell = { taskId: alvo.id, colId: 'etapa' };
+    setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
+    scrollRowIntoView(alvo.id);
+  };
+  const substituirTodos = () => {
+    if (readOnly) return;
+    const busca = localizarTermo.trim();
+    if (!busca) return;
+    const buscaLower = busca.toLowerCase();
+    const alvoIds = new Set(filtrada.filter(e => (e.etapa || '').toLowerCase().includes(buscaLower)).map(e => e.id));
+    if (!alvoIds.size) { toast('Nenhuma ocorrência encontrada no nome das tarefas', { tone: 'neutral', icon: 'search' }); return; }
+    const regex = new RegExp(busca.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    let count = 0;
+    const novas = etapas.map(e => {
+      if (!alvoIds.has(e.id)) return e;
+      const novoNome = (e.etapa || '').replace(regex, substituirTermo);
+      if (novoNome === e.etapa) return e;
+      count++;
+      return { ...e, etapa: novoNome };
+    });
+    if (!count) { toast('Nenhuma ocorrência encontrada no nome das tarefas', { tone: 'neutral', icon: 'search' }); return; }
+    onCommit(novas); // um único passo de undo pro lote inteiro, como o resto do app
+    toast(`${count} tarefa${count === 1 ? '' : 's'} atualizada${count === 1 ? '' : 's'}`, { tone: 'success', icon: 'check' });
   };
 
   // ── Verificador ortográfico (F7) ─────────────────────────────────────────────
@@ -2350,6 +2430,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // afetar o que a próxima considera "antiga"). Mesma regra usada por handleSuccSave (uma linha
   // só) — aqui generalizada para N linhas no mesmo commit.
   const applySuccEdits = (base, succEdits, resolveList) => succEdits.reduce((acc, { taskId, rawValue }) => {
+    // Sucessora de uma tarefa-resumo não existe pra edição (a coluna já vem em branco pra
+    // grupo em toda a Lista). Sem esta guarda, "nenhuma sucessora digitada" (ex.: Delete na
+    // célula em branco) era interpretado como "remover todas as sucessoras atuais" — e
+    // apagava, na tarefa de OUTRA pessoa, um vínculo real e válido (leaf que aguarda o fim
+    // da fase inteira, apontando pro grupo como predecessora).
+    const alvoTask = acc.find(e => e.id === taskId);
+    if (alvoTask?.isGroup) return acc;
     const alvos   = parseDep(rawValue, resolveList || acc);
     const novoSet = new Map(alvos.filter(a => a.id !== taskId).map(a => [a.id, a]));
     const antigos = new Set(computeSuccessors(acc)[taskId] || []);
@@ -2730,6 +2817,48 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               {selectedId && !multiSel.length && (
                 <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{selectedId} selecionado</span>
               )}
+              {conflitosList.length > 0 && (() => {
+                const TIPO_LABEL = { TI: 'término → início', TT: 'término → término', II: 'início → início', IT: 'início → término' };
+                return (
+                  <div ref={conflitosMenuRef} style={{ position: 'relative', marginLeft: 6 }}>
+                    <button type="button" onClick={() => setShowConflitos(v => !v)}
+                      title="Ver os pares de tarefas em conflito de precedência"
+                      style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', border: 'none', borderRadius: 20, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="alert-triangle" size={11} /> {conflitosList.length} conflito{conflitosList.length !== 1 ? 's' : ''}
+                    </button>
+                    {showConflitos && (
+                      <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 360, maxHeight: 320, overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-lg)', zIndex: 50, padding: 4 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-faint)', padding: '6px 10px 4px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                          Conflitos de precedência — clique pra abrir a tarefa
+                        </div>
+                        {conflitosList.map((c, i) => {
+                          const pred = etapas.find(x => x.id === c.pred);
+                          const succ = etapas.find(x => x.id === c.succ);
+                          return (
+                            <button key={i} type="button"
+                              onClick={() => focarTarefaConflito(c.succ)}
+                              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px', borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer' }}
+                              onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--surface-muted)'; }}
+                              onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', flexShrink: 0 }}>{rowNumberMap[c.pred] ?? c.pred}</span>
+                                <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pred?.etapa ?? '(tarefa removida)'}</span>
+                              </div>
+                              <div style={{ fontSize: 10.5, color: 'var(--text-faint)', margin: '2px 0 2px 2px' }}>
+                                ↳ {TIPO_LABEL[c.tipo] || c.tipo}{c.lag ? `, lag ${c.lag > 0 ? '+' : ''}${c.lag}d` : ''}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#b45309', flexShrink: 0 }}>{rowNumberMap[c.succ] ?? c.succ}</span>
+                                <span style={{ fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{succ?.etapa ?? '(tarefa removida)'}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <span style={{ fontSize: 11.5, color: 'var(--text-faint)', marginLeft: 8 }}>{visible.length} de {etapas.length} tarefas</span>
               <button
                 onClick={() => setRibbonCollapsed(v => !v)}
@@ -4042,6 +4171,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             placeholder={k === 0 ? 'Nova tarefa…' : ''}
                             onFocus={() => setBlankSelectedIdx(k)}
                             onKeyDown={(ev) => {
+                              // Ctrl++ com o foco numa linha em branco (ainda sem nome digitado):
+                              // não existe uma tarefa aqui pra servir de âncora do atalho normal
+                              // (baseado em selectedRowIds/etapas), então cola/insere logo depois
+                              // da ÚLTIMA tarefa real — sem isso, colar um grupo copiado "no fim
+                              // da lista" não tinha como funcionar clicando na linha em branco.
+                              if ((ev.ctrlKey || ev.metaKey) && !ev.currentTarget.value.trim() &&
+                                  (ev.key === '+' || ev.key === '=' || ev.code === 'NumpadAdd')) {
+                                ev.preventDefault();
+                                if (!readOnly && filtrada.length) {
+                                  const lastId = filtrada[filtrada.length - 1].id;
+                                  if (rowClipRef.current && rowClipRef.current.length) pasteRow(lastId, 'below');
+                                  else insertTask(lastId, 'below');
+                                }
+                                return;
+                              }
                               // Só "selecionada" (sem digitar ainda): qualquer tecla de verdade vira
                               // edição normal — as setas continuam navegando entre linhas, não contam.
                               if (blankSelectedIdx === k && ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') {
@@ -4287,23 +4431,42 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         />
       )}
 
-      {/* Localizar (Ctrl+L) — navega pelas tarefas por nome, WBS ou ID */}
+      {/* Localizar e substituir (Ctrl+L) — estilo Excel. Localizar navega por nome, WBS ou
+          ID; Substituir age só no nome (WBS/ID são campos derivados, não texto livre). */}
       {showLocalizar && (
-        <Modal title="Localizar" subtitle="Buscar tarefa por nome, WBS ou ID" size="sm" draggable overlay={false}
+        <Modal title="Localizar e substituir" subtitle="Buscar tarefa por nome, WBS ou ID" size="sm" draggable overlay={false}
           onClose={() => setShowLocalizar(false)}
           footer={
             <>
               <button className="btn btn-ghost" onClick={() => setShowLocalizar(false)}>Fechar</button>
+              {!readOnly && (
+                <>
+                  <button className="btn btn-ghost" onClick={substituirTodos} disabled={!localizarTermo.trim()}>Substituir todos</button>
+                  <button className="btn btn-ghost" onClick={substituirAtual} disabled={!localizarTermo.trim()}>Substituir</button>
+                </>
+              )}
               <button className="btn btn-primary" onClick={localizarProximo} disabled={!localizarTermo.trim()}>Localizar próxima</button>
             </>
           }>
+          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Localizar</label>
           <input autoFocus className="input" placeholder="Digite e pressione Enter…"
             value={localizarTermo}
             onChange={e => { setLocalizarTermo(e.target.value); localizarIdxRef.current = -1; }}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); localizarProximo(); } }}
             style={{ width: '100%' }} />
+          {!readOnly && (
+            <>
+              <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', margin: '10px 0 4px' }}>Substituir por</label>
+              <input className="input" placeholder="Novo texto (nome da tarefa)…"
+                value={substituirTermo}
+                onChange={e => setSubstituirTermo(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); substituirAtual(); } }}
+                style={{ width: '100%' }} />
+            </>
+          )}
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
             Enter ou "Localizar próxima" percorre os resultados; a tarefa encontrada é selecionada e rolada até a vista.
+            {!readOnly && ' "Substituir" troca a ocorrência atual no nome; "Substituir todos" troca em todas as tarefas visíveis de uma vez (1 passo de desfazer).'}
           </div>
         </Modal>
       )}

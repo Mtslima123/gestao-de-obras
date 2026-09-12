@@ -72,6 +72,20 @@ describe('reprogramarRestante', () => {
     });
   });
 
+  it('o grupo criado (T1) fica sem Predecessora própria — quem carrega o vínculo herdado são as folhas', () => {
+    // autoScheduleFromDeps nunca reagenda um grupo pelo próprio dep (ele só olha e.isGroup
+    // e pula), então essa Predecessora original em T1 viraria dado morto — só serviria pra
+    // acusar um "conflito" fantasma no Gantt/Lista sem nunca poder ser resolvido de verdade.
+    const etapas = [
+      baseTarefa({ id: 'P', etapa: 'Predecessora', dur: 5, avanco: 100, dep: [] }),
+      baseTarefa({ dep: [{ id: 'P', tipo: 'TI', lag: 0 }] }),
+    ];
+    const out = reprogramarRestante('T1', etapas);
+    const grupo = out.find(e => e.id === 'T1');
+    expect(grupo.isGroup).toBe(true);
+    expect(grupo.dep).toEqual([]);
+  });
+
   it('sucessora que dependia da tarefa original é empurrada pro fim do grupo (que cobre até o restante)', () => {
     const etapas = [
       baseTarefa(),

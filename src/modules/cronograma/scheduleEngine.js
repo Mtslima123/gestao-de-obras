@@ -62,11 +62,17 @@ export function recomputeHierarchy(arr) {
     if (e.parentId) childCount.set(e.parentId, (childCount.get(e.parentId) || 0) + 1);
   });
 
-  const rebuilt = arr.map(e => ({
-    ...e,
-    nivel: getNivel(e.id),
-    isGroup: (childCount.get(e.id) || 0) > 0,
-  }));
+  const rebuilt = arr.map(e => {
+    const isGroup = (childCount.get(e.id) || 0) > 0;
+    // Vira grupo AGORA (era folha até este recálculo, ex.: Recuar): a Predecessora/
+    // Sucessora própria que ela carregava fica morta (autoScheduleFromDeps nunca reagenda
+    // pelo dep de um grupo) — zera aqui, na hora exata da conversão. Uma tarefa que JÁ era
+    // grupo antes desta chamada mantém o dep como estava (o Fluxo Executivo liga
+    // tarefas-resumo entre si de propósito — FluxoExecutivo.jsx — essa passagem não pode
+    // apagar aquele vínculo).
+    const viraGrupoAgora = isGroup && !e.isGroup;
+    return { ...e, nivel: getNivel(e.id), isGroup, dep: viraGrupoAgora ? [] : e.dep };
+  });
 
   // Para tarefas resumo, recalcula avanco/inicio/dur a partir dos filhos diretos
   return rebuilt.map(e => {
@@ -487,7 +493,10 @@ export function reprogramarRestante(etapaId, etapas) {
     customCols: { ...(target.customCols || {}) },
   };
 
-  const grupo = { ...target, isGroup: true, collapsed: false };
+  // target.isGroup é sempre false aqui (guarda na linha 441) — dep próprio zera de vez; o
+  // predecessor real da tarefa original já foi clonado pro "restante" acima (cloneDep()),
+  // que continua o trabalho pendente.
+  const grupo = { ...target, isGroup: true, collapsed: false, dep: [] };
   const spliced = [...etapas.slice(0, idx), grupo, fechado, restante, ...etapas.slice(idx + 1)];
 
   let novas = recomputeHierarchy(spliced);
@@ -563,7 +572,11 @@ export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   // .filter(d => d.id !== e.id): nunca deixa a tarefa virar predecessora dela mesma (digitar
   // o próprio número na coluna Predecessora) — mesma guarda que applySuccEdits já tem pro
   // lado da Sucessora.
-  if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, resolveList || etapas).filter(d => d.id !== e.id) }; }
+  // Tarefa-resumo: dep próprio nunca é usado pra agendar (autoScheduleFromDeps pula grupo
+  // de propósito) — no-op aqui fecha o caminho de Delete/colar em bloco (ListaInterativa.jsx,
+  // applyBlockEdits/pasteExternalText), que sem isso ainda conseguia escrever na célula em
+  // branco de Predecessora de um grupo mesmo com duplo-clique/F2 já bloqueados pra ela.
+  if (field === 'dep')         { return e.isGroup ? e : { ...e, dep: parseDep(rawValue, resolveList || etapas).filter(d => d.id !== e.id) }; }
   if (field === 'restricao') {
     // Campo virtual da coluna simplificada (estilo Project): só uma data, sem tipo à escolha.
     // Preenchida = "não iniciar antes de" (snet); vazia = sem restrição (asap).

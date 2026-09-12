@@ -95,6 +95,14 @@ export const gmConflicts = (etapas, overrides) => {
   });
   const out = [];
   Object.values(map).forEach(e => {
+    // Tarefa-resumo (isGroup): a Predecessora/Sucessora PRÓPRIA dela é dado morto —
+    // autoScheduleFromDeps nunca reagenda um grupo pelo próprio dep (scheduleEngine.js),
+    // e Lista/Gantt já escondem essas colunas pra grupo em todo canto (colFilterValue,
+    // duplo-clique, F2). Sem esta guarda o badge acusava um vínculo que some da tela em
+    // qualquer outro ponto do app assim que a tarefa vira grupo (ex.: Recuar). Só pula
+    // pelo lado DEPENDENTE (e) — uma folha que depende de um grupo como predecessor (d)
+    // continua sendo checada normalmente, é um padrão válido e usado.
+    if (e.isGroup) return;
     (e.dep || []).forEach(depObj => {
       const dId = typeof depObj === 'string' ? depObj : depObj.id;
       const tipo = typeof depObj === 'string' ? 'TI' : (depObj.tipo || 'TI');
@@ -180,6 +188,16 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
       onChange={e => setDraft(e.target.value)}
       onBlur={() => save('blur')}
       onKeyDown={e => {
+        // Ctrl+Z não pode cair no stopPropagation abaixo: senão o atalho global de desfazer
+        // (Cronograma.jsx) nunca vê a tecla enquanto este campo está focado. Cancela a edição
+        // em curso, como Escape — o Ctrl+Z seguinte (já sem foco no input) desfaz de verdade
+        // pelo atalho global. Mesmo ajuste já feito nos editores inline de Predecessora/
+        // Sucessora/Custo/Fator Peso/Custo Real (ListaInterativa.jsx), que não passam por
+        // este componente compartilhado.
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+          cancel();
+          return;
+        }
         if (e.key === 'Enter') { e.preventDefault(); save('enter'); }
         if (e.key === 'Escape') cancel();
         e.stopPropagation();
