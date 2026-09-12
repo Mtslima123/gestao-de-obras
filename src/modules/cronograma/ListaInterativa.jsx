@@ -4170,9 +4170,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const val = { color: 'var(--text)', fontWeight: 700 };
         return (
           <div style={{
-            flexShrink: 0, height: 24, borderTop: '1px solid var(--border)', background: 'var(--surface)',
+            flexShrink: 0, height: 32, borderTop: '1px solid var(--border)', background: 'var(--surface)',
             color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            gap: 20, padding: '0 16px', fontSize: 11.5, fontVariantNumeric: 'tabular-nums',
+            gap: 24, padding: '0 18px', fontSize: 13, fontVariantNumeric: 'tabular-nums',
           }}>
             <span style={item}>Contagem:<span style={val}>{st.count}</span></span>
             <span style={item}>Soma:<span style={val}>{st.soma}</span></span>
