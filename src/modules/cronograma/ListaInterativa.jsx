@@ -3538,6 +3538,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => {
+                          // Ctrl+Z cancela a edição em vez de ser engolido (ver comentário na coluna
+                          // Predecessora) — senão o atalho global de desfazer fica mudo aqui.
+                          if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.key.toLowerCase() === 'z') {
+                            setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true });
+                            return;
+                          }
                           ev.stopPropagation();
                           if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
@@ -3577,6 +3583,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         style={{ width: 72, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'fator_peso', ev.target.value); setEditingFatorPeso(null); }}
                         onKeyDown={ev => {
+                          // Ctrl+Z cancela a edição em vez de ser engolido (ver comentário na coluna
+                          // Predecessora) — senão o atalho global de desfazer fica mudo aqui.
+                          if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.key.toLowerCase() === 'z') {
+                            setEditingFatorPeso(null); listaScrollRef.current?.focus?.({ preventScroll: true });
+                            return;
+                          }
                           ev.stopPropagation();
                           if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingFatorPeso(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
@@ -3613,6 +3625,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => {
+                          // Ctrl+Z cancela a edição em vez de ser engolido (ver comentário na coluna
+                          // Predecessora) — senão o atalho global de desfazer fica mudo aqui.
+                          if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.key.toLowerCase() === 'z') {
+                            setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true });
+                            return;
+                          }
                           ev.stopPropagation();
                           if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
@@ -3665,6 +3683,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         style={{ width: '100%', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); }}
                         onKeyDown={ev => {
+                          // Ctrl+Z não pode cair no stopPropagation abaixo: senão o atalho global de
+                          // desfazer (Cronograma.jsx) nunca vê a tecla enquanto este campo está
+                          // focado, e o undo nativo do input não ajuda (o valor anterior veio de
+                          // defaultValue, não de digitação, então não está no histórico do campo).
+                          // Aqui cancela a edição em curso, como Escape — o Ctrl+Z seguinte (já sem
+                          // foco no input) desfaz de verdade pelo atalho global.
+                          if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.key.toLowerCase() === 'z') {
+                            setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true });
+                            return;
+                          }
                           ev.stopPropagation();
                           if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
@@ -3686,6 +3714,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         style={{ width: '100%', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleSuccSave(e.id, ev.target.value); setEditingSucc(null); }}
                         onKeyDown={ev => {
+                          // Ctrl+Z cancela a edição em vez de ser engolido (ver comentário na coluna
+                          // Predecessora, acima) — senão o atalho global de desfazer fica mudo aqui.
+                          if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.key.toLowerCase() === 'z') {
+                            setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true });
+                            return;
+                          }
                           ev.stopPropagation();
                           if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
                           if (ev.key === 'Escape') { setEditingSucc(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }

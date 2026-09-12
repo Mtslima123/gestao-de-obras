@@ -192,6 +192,9 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
   const [selectedTasks, setSelectedTasks] = React.useState([]);
   const [selectedFloors, setSelectedFloors] = React.useState([]);
   const [buscaTarefa,   setBuscaTarefa]   = React.useState('');
+  // Recolhe a faixa de seleção de pavimentos no passo 2 — sobra mais altura pra lista de
+  // tarefas, que já cresce com o redimensionamento do modal (ver flex abaixo).
+  const [pavimentosCollapsed, setPavimentosCollapsed] = React.useState(false);
   const floorInputRefs = React.useRef([]);
   const prevFloorsLenRef = React.useRef(floors.length);
 
@@ -413,28 +416,44 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
       )}
 
       {step === 2 && (
-        <div>
-          <p style={{ marginBottom: 8, fontSize: 13, color: 'var(--text-muted)' }}>
-            Escolha quais pavimentos serão criados:
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-            {validFloors.map(nome => {
-              const marcado = selectedFloors.includes(nome);
-              return (
-                <label key={nome} className="btn btn-ghost"
-                  style={{ fontSize: 12.5, padding: '4px 10px 4px 6px', height: 28, borderRadius: 14, cursor: 'pointer',
-                           display: 'inline-flex', alignItems: 'center', gap: 5,
-                           background: marcado ? 'var(--brand-tint)' : undefined,
-                           borderColor: marcado ? 'var(--brand)' : undefined,
-                           color: marcado ? 'var(--brand)' : undefined }}>
-                  <input type="checkbox" checked={marcado}
-                    onChange={ev => setSelectedFloors(sf => ev.target.checked ? [...sf, nome] : sf.filter(n => n !== nome))} />
-                  {nome}
-                </label>
-              );
-            })}
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginBottom: pavimentosCollapsed ? 10 : 8 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+              {pavimentosCollapsed
+                ? `${selectedFloors.length} de ${validFloors.length} pavimento${validFloors.length !== 1 ? 's' : ''} selecionado${selectedFloors.length !== 1 ? 's' : ''}`
+                : 'Escolha quais pavimentos serão criados:'}
+            </p>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setPavimentosCollapsed(v => !v)}
+              title={pavimentosCollapsed ? 'Expandir pavimentos' : 'Recolher pavimentos'}
+              style={{ marginLeft: 'auto', width: 24, height: 24, padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Icon name="chevron-down" size={13} stroke={2.5}
+                style={{ transform: pavimentosCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .12s' }} />
+            </button>
           </div>
-          <p style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+          {!pavimentosCollapsed && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14, flexShrink: 0 }}>
+              {validFloors.map(nome => {
+                const marcado = selectedFloors.includes(nome);
+                return (
+                  <label key={nome} className="btn btn-ghost"
+                    style={{ fontSize: 12.5, padding: '4px 10px 4px 6px', height: 28, borderRadius: 14, cursor: 'pointer',
+                             display: 'inline-flex', alignItems: 'center', gap: 5,
+                             background: marcado ? 'var(--brand-tint)' : undefined,
+                             borderColor: marcado ? 'var(--brand)' : undefined,
+                             color: marcado ? 'var(--brand)' : undefined }}>
+                    <input type="checkbox" checked={marcado}
+                      onChange={ev => setSelectedFloors(sf => ev.target.checked ? [...sf, nome] : sf.filter(n => n !== nome))} />
+                    {nome}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <p style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-muted)', flexShrink: 0 }}>
             Selecione as tarefas que receberão os pavimentos como subtarefas.
           </p>
           <input
@@ -442,9 +461,12 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
             placeholder="Buscar tarefa…"
             value={buscaTarefa}
             onChange={ev => setBuscaTarefa(ev.target.value)}
-            style={{ width: '100%', marginBottom: 8 }}
+            style={{ width: '100%', marginBottom: 8, flexShrink: 0 }}
           />
-          <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+          {/* flex-basis (não 0%) garante uma altura padrão de ~320/400px quando o modal ainda
+              não foi redimensionado (altura indefinida); flex-grow é o que faz essa área
+              crescer de verdade ao arrastar o canto do modal — ver <Modal resizable>. */}
+          <div style={{ flex: `1 1 ${pavimentosCollapsed ? 400 : 320}px`, minHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             {etapasFiltradas.length === 0 && (
               <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>
                 Nenhuma tarefa encontrada para essa busca.
