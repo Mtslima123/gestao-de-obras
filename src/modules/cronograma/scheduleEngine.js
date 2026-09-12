@@ -560,7 +560,10 @@ export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)) + 1; return { ...e, dur: workDur(e.inicio, offset) }; }
   if (field === 'duracaoDias') { return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) }; }
   if (field === 'avanco')      { return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) }; }
-  if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, resolveList || etapas) }; }
+  // .filter(d => d.id !== e.id): nunca deixa a tarefa virar predecessora dela mesma (digitar
+  // o próprio número na coluna Predecessora) — mesma guarda que applySuccEdits já tem pro
+  // lado da Sucessora.
+  if (field === 'dep')         { return { ...e, dep: parseDep(rawValue, resolveList || etapas).filter(d => d.id !== e.id) }; }
   if (field === 'restricao') {
     // Campo virtual da coluna simplificada (estilo Project): só uma data, sem tipo à escolha.
     // Preenchida = "não iniciar antes de" (snet); vazia = sem restrição (asap).

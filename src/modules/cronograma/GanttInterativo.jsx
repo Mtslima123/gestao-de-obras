@@ -95,6 +95,15 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   React.useEffect(() => { try { localStorage.setItem('ls_crono_ribbon_collapsed', ribbonCollapsed ? '1' : '0'); } catch { /* ignore */ } }, [ribbonCollapsed]);
   const [showPavimentos, setShowPavimentos] = React.useState(false);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id do alvo de exclusão
+  // Popover do badge "Conflito" da faixa — lista os pares pred/suces em violação de precedência.
+  const [showConflitos, setShowConflitos] = React.useState(false);
+  const conflitosMenuRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!showConflitos) return;
+    const onDoc = ev => { if (conflitosMenuRef.current && !conflitosMenuRef.current.contains(ev.target)) setShowConflitos(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [showConflitos]);
   // Ref para uso em event handlers — sincronizado no render
   const zoomDayWRef = React.useRef(GM_DAY_W);
 
@@ -132,11 +141,10 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   // gmCalcToday usa mês fixo de 30 dias e desalinha da grade real com o tempo (linha HOJE atrasada).
   const today = React.useMemo(() => dateToOffset(new Date().toISOString().slice(0, 10)), []);
 
-  // Conflitos derivados da prop (atualiza após cada commit)
-  const conflictIds = React.useMemo(() => {
-    const cfls = gmConflicts(etapas);
-    return new Set(cfls.flatMap(c => [c.pred, c.succ]));
-  }, [etapas]);
+  // Conflitos derivados da prop (atualiza após cada commit) — mantém a lista bruta (não só os
+  // ids) pra alimentar o popover que detalha cada par pred/suces em violação.
+  const conflitosList = React.useMemo(() => gmConflicts(etapas), [etapas]);
+  const conflictIds = React.useMemo(() => new Set(conflitosList.flatMap(c => [c.pred, c.succ])), [conflitosList]);
 
   // Mapa de etapas da linha de base por ID
   const blMap = React.useMemo(() => {
@@ -812,11 +820,48 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
               {selected.size} selecionada{selected.size > 1 ? 's' : ''}
             </span>
           )}
-          {conflictIds.size > 0 && (
-            <span style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6 }}>
-              <Icon name="alert-triangle" size={11} /> Conflito
-            </span>
-          )}
+          {conflitosList.length > 0 && (() => {
+            const TIPO_LABEL = { TI: 'término → início', TT: 'término → término', II: 'início → início', IT: 'início → término' };
+            return (
+              <div ref={conflitosMenuRef} style={{ position: 'relative', marginLeft: 6 }}>
+                <button type="button" onClick={() => setShowConflitos(v => !v)}
+                  title="Ver os pares de tarefas em conflito de precedência"
+                  style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', border: 'none', borderRadius: 20, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="alert-triangle" size={11} /> {conflitosList.length} conflito{conflitosList.length !== 1 ? 's' : ''}
+                </button>
+                {showConflitos && (
+                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 360, maxHeight: 320, overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-lg)', zIndex: 50, padding: 4 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-faint)', padding: '6px 10px 4px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                      Conflitos de precedência — clique pra abrir a tarefa
+                    </div>
+                    {conflitosList.map((c, i) => {
+                      const pred = etapas.find(x => x.id === c.pred);
+                      const succ = etapas.find(x => x.id === c.succ);
+                      return (
+                        <button key={i} type="button"
+                          onClick={() => { setShowConflitos(false); setSel(new Set([c.succ])); onTaskSelect?.(c.succ); }}
+                          style={{ display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px', borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer' }}
+                          onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--surface-muted)'; }}
+                          onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', flexShrink: 0 }}>{rowNumberMap[c.pred] ?? c.pred}</span>
+                            <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pred?.etapa ?? '(tarefa removida)'}</span>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: 'var(--text-faint)', margin: '2px 0 2px 2px' }}>
+                            ↳ {TIPO_LABEL[c.tipo] || c.tipo}{c.lag ? `, lag ${c.lag > 0 ? '+' : ''}${c.lag}d` : ''}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#b45309', flexShrink: 0 }}>{rowNumberMap[c.succ] ?? c.succ}</span>
+                            <span style={{ fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{succ?.etapa ?? '(tarefa removida)'}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <button onClick={() => setRibbonCollapsed(v => !v)} title={ribbonCollapsed ? 'Mostrar menu' : 'Ocultar menu'}
             style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: ribbonCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .12s' }}><polyline points="6 9 12 15 18 9"/></svg>

@@ -7,6 +7,7 @@ import { logger } from '../../services/logger';
 import { vinculoService } from './vinculoService';
 import { supabase } from '../../services/supabase';
 import { migrateEtapas } from '../cronograma/ganttUtils';
+import { invalidateOcCache } from '../cronograma/cronogramaCache';
 import { isoToBR } from '../cronograma/cronogramaDateUtils';
 import { formatBRL } from '../../utils/formatters';
 import { moduloSomenteLeitura, isAdmin, obrasPermitidas } from '../../utils/permissions';
@@ -27,7 +28,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
   const handleDeleteConfirm = () => {
     if (!deleteOrc) return;
     if (deleteStep === 1) { setDeleteStep(2); return; }
-    onDelete(deleteOrc.id);
+    onDelete(deleteOrc.id, deleteOrc.obra_id);
     setDeleteOrc(null);
     setDeleteStep(1);
   };
@@ -1019,6 +1020,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       setItems(loaded);
       setDeletedIds([]);
       setDirty(false);
+      invalidateOcCache(orcamento.obra_id);
 
       // 4) Atualiza o valor total no cabeçalho do orçamento
       const grandTotal = calcTotals(loaded)
@@ -1110,6 +1112,10 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       if (data && data.length > 0) { _itensCache[orcamento.id] = data; setItems(data); }
       else { delete _itensCache[orcamento.id]; setItems(prev => prev.map(({ _new, _dirty, ...rest }) => rest)); }
 
+      // Itens deste orçamento mudaram: a tela Orçamento × Cronograma tem seu próprio
+      // cache em memória por obra (_ocCache) e não reage a gravações feitas aqui.
+      invalidateOcCache(orcamento.obra_id);
+
       setDirty(false);
       toast('Itens salvos com sucesso', { tone: 'success', icon: 'check' });
     } catch (e) {
@@ -1144,6 +1150,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
       else setDataAtualizada(hoje);
 
       delete _itensCache[orcamento.id];
+      invalidateOcCache(orcamento.obra_id);
       setItems([]);
       setDeletedIds([]);
       setDirty(false);
@@ -1491,7 +1498,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
                               value={it.nome || ''}
                               placeholder={hasKids ? 'Nome do grupo…' : 'Nome do item…'}
                               onChange={e => editCell(it.id, 'nome', e.target.value)}
-                              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+                              onKeyDown={e => {
+                                if (e.key !== 'Enter') return;
+                                e.preventDefault();
+                                const nextInput = e.currentTarget.closest('tr')?.nextElementSibling?.querySelector('td:nth-child(2) input.orca-cell-input');
+                                if (nextInput) nextInput.focus();
+                                else e.currentTarget.blur();
+                              }}
                             />
                           )}
                         </td>
@@ -1735,7 +1748,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
     if (refreshKey !== prevRefreshKeyRef.current) { prevRefreshKeyRef.current = refreshKey; setPagina(1); }
   }, [refreshKey]);
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, obraId) => {
     // Bloqueia a exclusão se o orçamento já tem itens cadastrados na composição —
     // apagar de uma vez perderia a composição inteira sem aviso explícito; o usuário
     // precisa esvaziar os itens primeiro (na tela de composição) antes de excluir.
@@ -1773,6 +1786,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
       return;
     }
     toast('Orçamento excluído', { tone: 'success', icon: 'check' });
+    invalidateOcCache(obraId);
     setSelected(null);
     refetch();
     refetchTodos();

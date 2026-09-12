@@ -608,10 +608,18 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
       });
     });
     onCommit(autoScheduleFromDeps(novas));
+    const criados = pairs.length - jaExistiam;
+    if (criados > 0) toast(`${criados} vínculo${criados !== 1 ? 's' : ''} criado${criados !== 1 ? 's' : ''}`, { tone: 'success', icon: 'check' });
     if (jaExistiam > 0) {
       toast(`${jaExistiam} vínculo${jaExistiam !== 1 ? 's' : ''} já exist${jaExistiam !== 1 ? 'iam' : 'ia'} e ${jaExistiam !== 1 ? 'foram ignorados' : 'foi ignorado'}`, { tone: 'neutral' });
     }
-    onClose();
+    // Não fecha o modal: fica fácil encadear outro grupo de vínculos na mesma sessão (ex.:
+    // IMPERMEABILIZAÇÃO→REVESTIMENTO e, na sequência, PISO→TETO) sem reabrir o modal a cada
+    // vez — só limpa a seleção e os pares montados, senão a seleção antiga (de um grupo já
+    // vinculado) ficava arrastando pro próximo par e confundia qual tarefa pertencia a qual.
+    setPredSelected([]);
+    setSuccSelected([]);
+    setLinks({});
   };
 
   // Mesma escala de cor por nível de aninhamento usada na Lista/Gantt/Curva Física pras
@@ -682,7 +690,12 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-ghost" onClick={onClose}>Fechar</button>
+          <button className="btn btn-ghost" disabled={!predSelected.length && !succSelected.length}
+            onClick={() => { setPredSelected([]); setSuccSelected([]); setLinks({}); }}>
+            Limpar seleção
+          </button>
+          <div className="spacer"></div>
           <button className="btn btn-primary" disabled={qtdLinks === 0} onClick={handleConfirm}>
             Criar {qtdLinks} vínculo{qtdLinks !== 1 ? 's' : ''}
           </button>
@@ -722,22 +735,39 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                 </tr>
               </thead>
               <tbody>
-                {succRows.map(s => (
-                  <tr key={s.id} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '6px 12px' }}>{s.etapa}</td>
-                    <td style={{ padding: '6px 12px' }}>
-                      <select className="input" value={links[s.id] || ''}
-                        onChange={ev => setLinks(l => ({ ...l, [s.id]: ev.target.value }))}
-                        style={{ width: '100%' }}>
-                        <option value="">Nenhuma</option>
-                        {predSelected.map(pid => {
-                          const p = etapas.find(e => e.id === pid);
-                          return <option key={pid} value={pid}>{p?.etapa ?? pid}</option>;
-                        })}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
+                {succRows.map(s => {
+                  // Histórico de vínculos que a tarefa já tem (fora deste modal) — o usuário
+                  // precisa ver isso antes de decidir se vale adicionar mais uma predecessora.
+                  const existentes = (s.dep || []).map(d => {
+                    const id = typeof d === 'string' ? d : d.id;
+                    return etapas.find(e => e.id === id)?.etapa || id;
+                  }).filter(Boolean);
+                  return (
+                    <tr key={s.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '6px 12px' }}>
+                        {s.etapa}
+                        {existentes.length > 0 && (
+                          <div style={{ fontSize: 10.5, color: 'var(--text-faint)', marginTop: 2 }}>
+                            já vinculada a: {existentes.join(', ')}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '6px 12px' }}>
+                        <select className="input" value={links[s.id] || ''}
+                          onChange={ev => setLinks(l => ({ ...l, [s.id]: ev.target.value }))}
+                          style={{ width: '100%' }}>
+                          <option value="">Nenhuma</option>
+                          {/* Nunca lista a própria tarefa — evita vincular uma tarefa a ela mesma
+                              quando ela também está marcada do lado das predecessoras. */}
+                          {predSelected.filter(pid => pid !== s.id).map(pid => {
+                            const p = etapas.find(e => e.id === pid);
+                            return <option key={pid} value={pid}>{p?.etapa ?? pid}</option>;
+                          })}
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
