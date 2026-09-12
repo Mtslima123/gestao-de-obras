@@ -21,11 +21,24 @@ export const vinculoService = {
       .select('*, orcamento_itens(id, codigo, nome, valor_total, quantidade, valor_unitario, orcamento_id)')
       .in('obra_id', obraIds),
 
-  // Cria um vínculo entre um item do orçamento e uma etapa do cronograma
+  // Cria um vínculo entre um item do orçamento e uma etapa do cronograma. `.select(...)`
+  // devolve a linha já criada (com o item aninhado) na mesma viagem ao banco — sem isso,
+  // quem chama precisava de um 2º round-trip (listarPorObra) só pra saber o que foi criado.
   criar: (dados, userId) =>
     supabase
       .from('orcamento_cronograma_vinculos')
-      .insert([{ ...dados, user_id: userId }]),
+      .insert([{ ...dados, user_id: userId }])
+      .select('*, orcamento_itens(id, codigo, nome, valor_total, quantidade, valor_unitario, orcamento_id)'),
+
+  // Cria vários vínculos em uma única viagem ao banco (um só INSERT com N linhas) em vez
+  // de um round-trip por item — é o que a tela "Adicionar vínculo" usa ao selecionar vários
+  // itens de uma vez, que antes serializava um INSERT por item e ainda recarregava todos os
+  // vínculos da obra no final.
+  criarVarios: (linhas) =>
+    supabase
+      .from('orcamento_cronograma_vinculos')
+      .insert(linhas)
+      .select('*, orcamento_itens(id, codigo, nome, valor_total, quantidade, valor_unitario, orcamento_id)'),
 
   // Remove um vínculo pelo id
   excluir: (id) =>

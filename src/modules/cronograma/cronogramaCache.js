@@ -22,3 +22,15 @@ export const _ocCache = {}; // { [obraId]: { vinculos, itens, etapas, updatedAt 
 export function invalidateOcCache(obraId) {
   delete _ocCache[obraId];
 }
+
+// Cache de "quais obras já têm cronograma criado" (dropdown de obra do Orçamento ×
+// Cronograma) — sem isto, a tela buscava o `etapas` inteiro (até ~500 KB por obra) de
+// TODAS as obras toda vez que montava, só para saber se cada uma tem etapas ou não.
+// Chave: ids das obras ordenados e unidos — o resultado depende do conjunto inteiro, não
+// de uma obra isolada. Invalidado ao salvar um cronograma, que é o único jeito de uma obra
+// mudar de "sem cronograma" para "com cronograma" (ou vice-versa).
+export const _obrasComCronCache = {}; // { [idsOrdenadosJuntos]: Set<obraId> }
+
+export function invalidateObrasComCronCache() {
+  for (const k of Object.keys(_obrasComCronCache)) delete _obrasComCronCache[k];
+}

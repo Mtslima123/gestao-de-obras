@@ -637,7 +637,12 @@ export function getMonthRange(etapas) {
     const s = offsetToDate(e.inicio);
     const f = offsetToDate(distEndOffset(e));
     let cur = new Date(s.getFullYear(), s.getMonth(), 1);
-    while (cur <= f) {
+    // f é o fim EXCLUSIVO (dia seguinte ao último dia trabalhado, ver distEndOffset acima):
+    // `cur < f`, não `<=` — senão, toda vez que o último dia de trabalho cai no fim de um
+    // mês (fim exclusivo vira o dia 1 do mês seguinte), essa comparação inclusiva soma mais
+    // um mês vazio no fim da lista (computeMonthlyDist usa a mesma fronteira exclusiva:
+    // `days > 0` com `mEnd = min(...)`, então esse mês fantasma nunca teria custo real).
+    while (cur < f) {
       set.add(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`);
       cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
     }

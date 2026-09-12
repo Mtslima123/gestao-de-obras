@@ -4,7 +4,7 @@
 // Roda em node (sem browser/Supabase). Executar: npm test
 import { describe, it, expect, beforeEach } from 'vitest';
 import { computeMonthlyDist, getMonthRange } from '../modules/cronograma/scheduleEngine';
-import { setWorkCal, dateToOffset, taskEnd } from '../modules/cronograma/cronogramaDateUtils';
+import { setWorkCal, dateToOffset, taskEnd, offsetToDate } from '../modules/cronograma/cronogramaDateUtils';
 
 // Calendário padrão do projeto: seg-sex, sem sábado útil, sem feriados.
 beforeEach(() => setWorkCal({ sabadoUtil: false, holidays: [] }));
@@ -34,6 +34,24 @@ describe('computeMonthlyDist — janela até o término real', () => {
 
   it('getMonthRange inclui o mês final, senão ele não apareceria no seletor', () => {
     expect(getMonthRange([tarefa]).map(m => m.key)).toContain('2027-01');
+  });
+
+  it('getMonthRange não inclui um mês fantasma quando o fim exclusivo cai no dia 1', () => {
+    // Fim exclusivo (taskEnd) é o dia seguinte ao último dia útil. Quando esse dia seguinte
+    // cai bem no dia 1 de um mês, esse mês não tem nenhum dia útil de verdade — computeMonthlyDist
+    // já não gera fatia nele (days > 0), mas getMonthRange chegou a incluí-lo mesmo assim
+    // (comparação `cur <= f` em vez de `cur < f`), criando uma coluna vazia no fim da tabela.
+    const inicio = dateToOffset('2027-05-03');
+    let achou = false;
+    for (let dur = 1; dur < 60 && !achou; dur++) {
+      const t = { id: 'X', isGroup: false, inicio, dur, custo: 1000 };
+      const fimDate = offsetToDate(taskEnd(t));
+      if (fimDate.getDate() !== 1) continue;
+      achou = true;
+      const mesFantasma = `${fimDate.getFullYear()}-${String(fimDate.getMonth() + 1).padStart(2, '0')}`;
+      expect(getMonthRange([t]).map(m => m.key)).not.toContain(mesFantasma);
+    }
+    expect(achou).toBe(true); // sanidade: o cenário do teste precisa ter ocorrido
   });
 
   it('as fatias são proporcionais aos dias corridos dentro da janela', () => {

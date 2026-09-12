@@ -22,7 +22,7 @@ import {
   CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal,
 } from './cronogramaModais';
 import { GM_TOTAL, gmConflicts } from './cronogramaShared';
-import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache } from './cronogramaCache';
+import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa } from './etapasPatch';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
@@ -2041,6 +2041,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
         _cronSavedAt[obraId] = data;
         _cronSavedSnap[obraId] = snapshotEtapas(etapas, outros);
         invalidateOcCache(obraId);
+        invalidateObrasComCronCache();
         logger.debug('cronograma salvo por patch', {
           module: 'cronograma', obraId, ms: Math.round(performance.now() - t0),
           upserts: patch.upserts.length, reordenou: patch.ordem != null, etapasTotal: etapas.length,
@@ -2058,6 +2059,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
     _cronSavedAt[obraId] = nowISO;
     _cronSavedSnap[obraId] = snapshotEtapas(etapas, outros);
     invalidateOcCache(obraId);
+    invalidateObrasComCronCache();
     return { error: null };
   }
 
@@ -2069,6 +2071,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
     _cronSavedAt[obraId] = nowISO;
     _cronSavedSnap[obraId] = snapshotEtapas(etapas, outros);
     invalidateOcCache(obraId);
+    invalidateObrasComCronCache();
     return { error: null };
   }
 
@@ -2081,6 +2084,7 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
     _cronSavedAt[obraId] = nowISO;
     _cronSavedSnap[obraId] = snapshotEtapas(etapas, outros);
     invalidateOcCache(obraId);
+    invalidateObrasComCronCache();
     return { error: null };
   }
   // Conflito: mantém expected inalterado para os próximos saves seguirem barrando até recarregar.
@@ -2970,8 +2974,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 const desvioPp     = totalPlan > 0 ? (Math.round(realAcum / totalPlan * 100) - Math.round(previstoPct)) : 0;
                 const nowCurva     = new Date();
                 const mesLabel     = nowCurva.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '/' + String(nowCurva.getFullYear()).slice(2);
-                // TODO: delta de dias do término projetado vs linha de base — sem baseline no pipeline (mock).
-                const terminoDeltaDias = 22;
                 return (
                   view === 'curva' ? (
                   <div className="kpi-grid">
@@ -3012,8 +3014,12 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                     <div className="kpi" style={{ padding: '18px 20px' }}>
                       <div className="kpi-label">Término projetado</div>
                       <div className="kpi-value num" style={{ fontSize: 26, marginTop: 4, textTransform: 'capitalize' }}>{termino}</div>
-                      {/* TODO: delta de dias vs linha de base — sem baseline no pipeline; valor mockado */}
-                      <div className="kpi-foot" style={{ marginTop: 6 }}><span style={{ color: '#d97706', fontWeight: 600 }}>+{terminoDeltaDias} dias</span><span className="kpi-foot-text"> vs planejado</span></div>
+                      {/* TODO: comparar com a linha de base (delta de dias) quando houver baseline selecionada */}
+                      {baselines.length === 0 && (
+                        <div className="kpi-foot" style={{ marginTop: 6 }}>
+                          <span className="kpi-foot-text">sem linha de base salva</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   ) : view === 'medicao' ? null : (

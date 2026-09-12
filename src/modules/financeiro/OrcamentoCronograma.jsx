@@ -8,7 +8,7 @@ import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtil
 import { parseBRL, computeRowNumberMap } from '../cronograma/scheduleEngine';
 import { buildChildrenMap, flattenTree, noTravado, redistribuirPorValor } from './distribuirPesos';
 import { filtrarComSubarvore, folhasDaSubarvore, ancestraisDe } from './itensHierarquia';
-import { invalidateCronCache, _ocCache } from '../cronograma/cronogramaCache';
+import { invalidateCronCache, _ocCache, _obrasComCronCache } from '../cronograma/cronogramaCache';
 import { isAdmin } from '../../utils/permissions';
 import { logger } from '../../services/logger';
 
@@ -632,11 +632,15 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   React.useEffect(() => {
     const ids = obras.map(o => o.id);
     if (ids.length === 0) { setObrasComCronograma(new Set()); return; }
+    const cacheKey = [...ids].sort().join(',');
+    const cached = _obrasComCronCache[cacheKey];
+    if (cached) { setObrasComCronograma(cached); return; }
     let cancelled = false;
     supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids).then(({ data }) => {
       if (cancelled) return;
       const set = new Set();
       (data || []).forEach(row => { if (migrateEtapas(row.etapas || []).length > 0) set.add(row.obra_id); });
+      _obrasComCronCache[cacheKey] = set;
       setObrasComCronograma(set);
     });
     return () => { cancelled = true; };
@@ -761,26 +765,28 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   const handleAdd = async () => {
     if (!selItens.length || !selEtapa) return;
     setSaving(true);
-    let criados = 0, erros = 0;
 
-    for (const itemId of selItens) {
-      const numId = Number(itemId);
-      if (vinculos.some(v => v.orcamento_item_id === numId && v.etapa_id === selEtapa)) continue;
-      const { error } = await vinculoService.criar({
-        obra_id: obraSel, orcamento_item_id: numId, etapa_id: selEtapa,
-      }, user?.id);
-      if (error) erros++;
-      else criados++;
-    }
+    // Um INSERT só com todas as linhas, em vez de um round-trip por item selecionado —
+    // com vários itens marcados, a versão anterior serializava um INSERT por item e ainda
+    // recarregava todos os vínculos da obra no final, o que fazia o "Salvando..." demorar
+    // visivelmente mais que o necessário.
+    const linhas = selItens
+      .map(Number)
+      .filter(numId => !vinculos.some(v => v.orcamento_item_id === numId && v.etapa_id === selEtapa))
+      .map(numId => ({ obra_id: obraSel, orcamento_item_id: numId, etapa_id: selEtapa, user_id: user?.id }));
 
-    if (erros > 0) toast(`${erros} vínculo(s) falharam ao salvar`, { tone: 'danger', icon: 'alert-triangle' });
-    if (criados > 0) {
-      const { data } = await vinculoService.listarPorObra(obraSel);
-      setVinculos(data || []);
-      if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = data || [];
+    if (!linhas.length) { setSaving(false); return; }
+
+    const { data, error } = await vinculoService.criarVarios(linhas);
+    if (error) {
+      toast('Erro ao salvar vínculo(s): ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+    } else {
+      const novos = data || [];
+      setVinculos(prev => [...prev, ...novos]);
+      if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = [..._ocCache[obraSel].vinculos, ...novos];
       setSelItens([]); setSelEtapa('');
       toast(
-        criados === 1 ? 'Vínculo criado com sucesso' : `${criados} vínculos criados`,
+        novos.length === 1 ? 'Vínculo criado com sucesso' : `${novos.length} vínculos criados`,
         { tone: 'success', icon: 'check' }
       );
     }
@@ -914,15 +920,15 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     const numId = Number(itemId);
     if (vinculos.some(v => v.orcamento_item_id === numId && v.etapa_id === editandoEtapaId)) return;
     setSaving(true);
-    const { error } = await vinculoService.criar({
+    const { data, error } = await vinculoService.criar({
       obra_id: obraSel, orcamento_item_id: numId, etapa_id: editandoEtapaId,
     }, user?.id);
     if (error) {
       toast('Erro ao criar vínculo: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
     } else {
-      const { data } = await vinculoService.listarPorObra(obraSel);
-      setVinculos(data || []);
-      if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = data || [];
+      const novos = data || [];
+      setVinculos(prev => [...prev, ...novos]);
+      if (_ocCache[obraSel]) _ocCache[obraSel].vinculos = [..._ocCache[obraSel].vinculos, ...novos];
       toast('Item associado com sucesso', { tone: 'success', icon: 'check' });
     }
     setSaving(false);
