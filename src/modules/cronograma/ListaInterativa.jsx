@@ -2668,7 +2668,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       const BRAND = [1, 67, 134];
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
-      doc.setFontSize(13); doc.text('Lista de Tarefas', 14, 14);
+      doc.setFontSize(13); doc.text(`Lista de Tarefas · ${obraNome}`, 14, 14);
       doc.setFontSize(8);  doc.setTextColor(130);
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);

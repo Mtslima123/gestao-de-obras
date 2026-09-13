@@ -410,7 +410,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       const BRAND = [28, 69, 132];
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
-      doc.setFontSize(13); doc.text('Uso da Tarefa', 14, 14);
+      doc.setFontSize(13); doc.text(`Uso da Tarefa · ${obra?.nome || 'Projeto'}`, 14, 14);
       doc.setFontSize(8);  doc.setTextColor(130);
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
@@ -1000,7 +1000,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         doc.text(`Página ${pageNumber}`, W - 20, H - 6);
         doc.setTextColor(0);
       };
-      doc.setFontSize(13); doc.text('Curva Física', 14, 14);
+      doc.setFontSize(13); doc.text(`Curva Física · ${obra?.nome || 'Projeto'}`, 14, 14);
       doc.setFontSize(8);  doc.setTextColor(130);
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
@@ -2636,7 +2636,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   };
 
   // Handlers de reprogramação (retrato imutável — sem sobrescrever/duplicar)
-  const criarReprogramacao = (nome) => {
+  // mesRef ("AAAA-MM"): amarra a reprogramação a um mês do cronograma, pra tela de
+  // criação saber quais meses ainda não têm reprogramação (ver CriarReprogramacaoModal).
+  const criarReprogramacao = (nome, mesRef) => {
     if (nomesUsados.includes(nome.trim().toLowerCase())) {
       toast('Já existe uma linha de base ou reprogramação com esse nome.', { tone: 'danger' });
       return;
@@ -2645,6 +2647,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       id: 'RP-' + Date.now(),
       nome,
       criadaEm: new Date().toISOString().slice(0, 10),
+      ...(mesRef ? { mesRef } : {}),
       etapas: etapas.map(e => ({ ...e })),
     };
     const novas = [...reprogramacoes, nova];
@@ -2998,12 +3001,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 const mesAtual     = todayKey; // "YYYY-MM" do mês corrente
                 const realAcum     = Object.entries(realizedTotals).reduce((s, [k, v]) => k <= mesAtual ? s + v : s, 0);
                 const previstoPct  = plannedPct; // planToDate / totalPlan (%)
-                const prodMesPct   = totalPlan > 0 ? (realizedTotals[mesAtual] || 0) / totalPlan * 100 : 0;
-                const planMesPct   = totalPlan > 0 ? (monthlyTotals[mesAtual] || 0) / totalPlan * 100 : 0;
-                const deltaMesPp   = prodMesPct - planMesPct;
                 const desvioPp     = totalPlan > 0 ? (Math.round(realAcum / totalPlan * 100) - Math.round(previstoPct)) : 0;
-                const nowCurva     = new Date();
-                const mesLabel     = nowCurva.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '/' + String(nowCurva.getFullYear()).slice(2);
                 return (
                   view === 'curva' ? (
                   <div className="kpi-grid">
@@ -3026,15 +3024,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           {baselines.length > 0 ? `realizado × previsto (${previstoPct.toFixed(2)}%)` : 'sem linha de base salva'}
                         </span>
                       </div>
-                    </div>
-                    <div className="kpi" style={{ padding: '18px 20px' }}>
-                      <div className="kpi-label">Produção do mês</div>
-                      <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{prodMesPct.toFixed(2)}<span className="unit">%</span></div>
-                      <div className="kpi-foot" style={{ marginTop: 6 }}>
-                        <span style={{ color: '#d97706', fontWeight: 600 }}>{deltaMesPp >= 0 ? '+' : ''}{deltaMesPp.toFixed(2)} pp</span>
-                        <span className="kpi-foot-text"> vs planejado ({planMesPct.toFixed(2)}%)</span>
-                      </div>
-                      <div className="kpi-foot" style={{ marginTop: 2, textTransform: 'capitalize' }}><span className="kpi-foot-text">{mesLabel} · mês corrente</span></div>
                     </div>
                     <div className="kpi risk" style={{ padding: '18px 20px' }}>
                       <div className="kpi-label">Desvio acumulado</div>
@@ -3406,6 +3395,8 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   valorVinculadoMap={valorVinculadoMapFull} obraId={obraSel} readOnly={readOnly}
                   currentUser={currentUser} onAtualizarDados={recarregarCronograma}
                   onEnviarAvanco={aplicarMedicaoNoAvanco} wbsMap={wbsMap}
+                  reprogramacoes={reprogramacoes}
+                  obraNome={obra?.nome || 'Projeto'}
                 />
               )}
 
@@ -3440,6 +3431,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
           totalEtapas={etapas.length}
           nomesUsados={nomesUsados}
           months={months}
+          reprogramacoes={reprogramacoes}
           onClose={() => setShowCriarRep(false)}
           onCreate={criarReprogramacao}
         />

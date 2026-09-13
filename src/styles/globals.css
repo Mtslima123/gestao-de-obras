@@ -2059,6 +2059,13 @@ a:hover { color: var(--brand-600); }
 .tbl-lista {
   font-size: 11px;
 }
+/* .tbl (regra genérica, mais acima) anima background 0.1s nas linhas — pensada pro
+   hover de tabelas simples. Na Lista, virtualizada, isso faz uma linha que acabou de
+   MONTAR (rolar pra cima insere linha nova por cima das já montadas) animar da cor
+   herdada/default até a cor real dela (grupo, selecionada etc.) em vez de já nascer
+   com a cor certa — um flash de ~100ms que parece "outra coluna/cor aparecendo por
+   baixo". Desliga só aqui; tabelas simples fora da Lista mantêm o fade de hover. */
+.tbl-lista tbody tr { transition: none; }
 .tbl-lista thead th {
   font-size: 10.5px;
   font-weight: 700;

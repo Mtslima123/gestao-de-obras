@@ -23,8 +23,6 @@
 import { formatNum } from '../../utils/formatters';
 import { offsetToISO, isoToBR, taskEnd } from './cronogramaDateUtils';
 
-export const PREVISTO_MES_PCT = 100;
-
 // dd/mm/aaaa — isoToBR já é o formato de exibição padrão do projeto.
 const fmtData = (off) => isoToBR(offsetToISO(off));
 
@@ -231,6 +229,12 @@ export function computeArvoreMedicao(itens, etapas, valorTotalBase, collapsed = 
         descricao: e.etapa || '',
         temFilhos: true,
         colapsado: collapsed.has(e.id),
+        // Prazo/duração do grupo vêm do próprio envelope da tarefa-resumo no cronograma
+        // (inicio/dur já rolam pra cima a partir dos filhos — mesmo dado que a Lista e o
+        // Gantt mostram), não de agregar(): esse só soma valor/exec/med das folhas.
+        dataInicio: fmtData(e.inicio),
+        dataTermino: fmtData(taskEnd(e) - 1),
+        duracaoDias: e.dur,
         ...agregar(folhasDoGrupo.get(e.id), valorTotalBase),
       });
       return;
@@ -349,11 +353,16 @@ export function mergePercMedido(itensBase, registroItens) {
 // Snapshot gravado no fechamento: congela o que foi medido para que o histórico não
 // mude quando o cronograma mudar depois (custo, datas, vínculo de orçamento). Sem isso
 // os R$ de uma medição "fechada" seriam recalculados na releitura.
-export function buildSnapshotFechamento(itens, totais) {
+//
+// `previstoCongelado` ({ percPrevisto, percPrevistoAcumulado }) já vem congelado desde
+// a ABERTURA do mês (ver abrirMedicao/MedicaoMensal.jsx) — só é recalculado aqui como
+// último recurso, para uma medição aberta antes desse campo existir e fechada só agora.
+export function buildSnapshotFechamento(itens, totais, previstoCongelado = {}) {
   return {
     valorTotalMedido: totais.valorAMedir,
     percMedido: totais.med,
-    percPrevisto: PREVISTO_MES_PCT,
+    percPrevisto: previstoCongelado.percPrevisto,
+    percPrevistoAcumulado: previstoCongelado.percPrevistoAcumulado,
     itens: itens.map(i => ({
       id: i.id,
       wbs: i.wbs,

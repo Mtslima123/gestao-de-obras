@@ -5,7 +5,7 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, workEnd } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, mesAtualOuUltimo } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, mesAtualOuUltimo, mesesComReprogramacao } from "./scheduleEngine";
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
 export const AddColModal = ({ onClose, onAdd }) => {
@@ -1338,47 +1338,140 @@ export const FeriadosModal = ({ cfg, onChange, onClose }) => {
 };
 
 // ─── Modal: Salvar Reprogramação ─────────────────────────────────────────────
-export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], months = [], onClose, onCreate }) => {
+export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], months = [], reprogramacoes = [], onClose, onCreate }) => {
   const toast = useToast();
   // Sugere o mês real de hoje só se a obra realmente o tiver no cronograma; senão o
   // último mês do cronograma — mesma regra que a Medição Mensal usa pra abrir o mês
   // (ver mesAtualOuUltimo, scheduleEngine.js), pra não sugerir um mês que a obra nem tem.
-  const [ano, mes] = mesAtualOuUltimo(months).split('-');
-  const mesLabel = mes ? `${mes}/${ano}` : '';
-  const [nome, setNome] = React.useState(`Reprogramação ${mesLabel}`);
+  const mesSugeridoKey = mesAtualOuUltimo(months);
+
+  const mesesCobertos = React.useMemo(() => mesesComReprogramacao(reprogramacoes), [reprogramacoes]);
+  const mesesPendentes = React.useMemo(
+    () => months.filter(m => !mesesCobertos.has(m.key)),
+    [months, mesesCobertos]
+  );
+  // Mesmo salvando com nome personalizado, a reprogramação precisa ficar amarrada a um
+  // mês do cronograma — e só a um que AINDA não tem reprogramação, senão o seletor abre
+  // mostrando um mês que já saiu da lista de pendentes logo acima (confuso: parece que
+  // o mês "sumiu" sozinho). Prefere o mês sugerido se ele estiver pendente; senão o
+  // primeiro pendente; sem nenhum pendente, sobra o sugerido mesmo (não há o que evitar).
+  const mesCustomPadrao = mesesPendentes.some(m => m.key === mesSugeridoKey)
+    ? mesSugeridoKey
+    : (mesesPendentes[0]?.key || mesSugeridoKey);
+  const [mesCustom, setMesCustom] = React.useState(mesCustomPadrao);
+  // Se o mês escolhido aqui sair da lista de pendentes (ex.: acabou de ser criado pelo
+  // botão "Criar" da lista acima, com o modal ainda aberto), troca sozinho pro próximo
+  // pendente — o seletor só pode oferecer mês que ainda não tem reprogramação. Reaproveita
+  // trocarMesCustom pra também re-sugerir o nome (mesma regra: só se não foi editado à mão).
+  React.useEffect(() => {
+    if (mesesPendentes.length && !mesesPendentes.some(m => m.key === mesCustom)) {
+      trocarMesCustom(mesesPendentes[0].key);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesesPendentes, mesCustom]);
+  // Nome sugerido pra um mês: se já existe uma reprogramação/linha de base com esse nome
+  // (ex.: já salvou uma "Reprogramação 09/2026" antes, no mesmo mês), sugere direto um
+  // nome livre — sem isso o campo abria/trocava para um nome já usado, disparando o
+  // aviso de duplicidade na hora. Mesma função tanto pro nome inicial quanto pro botão
+  // "Criar" de cada mês da lista.
+  const nomeParaMes = (key) => {
+    const [y, m] = key.split('-');
+    const base = `Reprogramação ${m}/${y}`;
+    if (!nomesUsados.includes(base.toLowerCase())) return base;
+    let i = 2;
+    while (nomesUsados.includes(`${base} (${i})`.toLowerCase())) i++;
+    return `${base} (${i})`;
+  };
+  const [nome, setNome] = React.useState(() => nomeParaMes(mesCustomPadrao));
   const nomeDup = !!nome.trim() && nomesUsados.includes(nome.trim().toLowerCase());
+  // Nome personalizado começa recolhido — a lista de meses pendentes é o caminho
+  // principal (um clique por mês); isso fica escondido até quem precisar clicar pra abrir.
+  const [nomeAberto, setNomeAberto] = React.useState(false);
+  // Troca de mês no seletor abaixo: só re-sugere o nome se o campo ainda estiver com a
+  // sugestão automática do mês anterior — se o usuário já digitou algo próprio, mantém
+  // (não atropela o que ele escreveu).
+  const trocarMesCustom = (novoMes) => {
+    setNome(prev => (prev === nomeParaMes(mesCustom) ? nomeParaMes(novoMes) : prev));
+    setMesCustom(novoMes);
+  };
+  // Cria direto (sem passar pelo campo Nome) e fecha o modal.
+  const criarParaMes = (key) => { onCreate(nomeParaMes(key), key); onClose(); };
 
   const handleConfirm = () => {
     if (!nome.trim()) return;
     if (nomeDup) { toast('Já existe uma linha de base ou reprogramação com esse nome.', { tone: 'danger' }); return; }
-    onCreate(nome.trim()); onClose();
+    onCreate(nome.trim(), mesCustom || undefined); onClose();
   };
 
   return (
-    <Modal title="Salvar Reprogramação" size="sm" draggable overlay={false} onClose={onClose}
+    <Modal title="Salvar Reprogramação" size="sm" draggable resizable overlay={false} onClose={onClose}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-primary" disabled={!nome.trim()} onClick={handleConfirm}>
-            <Icon name="check" size={14} />Salvar
-          </button>
+          <button className="btn btn-ghost" onClick={onClose}>Fechar</button>
+          {nomeAberto && (
+            <button className="btn btn-primary" disabled={!nome.trim()} onClick={handleConfirm}>
+              <Icon name="check" size={14} />Salvar com esse nome
+            </button>
+          )}
         </>
       }
     >
       <div className="stack" style={{ gap: 14 }}>
+        {months.length > 0 && (
+          <div>
+            <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)', display: 'block', marginBottom: 6 }}>
+              Meses do cronograma sem reprogramação
+            </label>
+            {mesesPendentes.length === 0 ? (
+              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>
+                Todos os meses do cronograma já têm uma reprogramação salva.
+              </p>
+            ) : (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto' }}>
+                {mesesPendentes.map(m => (
+                  <div key={m.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <span style={{ fontSize: 12 }}>{m.label}</span>
+                    <button className="btn btn-primary" onClick={() => criarParaMes(m.key)}
+                      style={{ height: 22, padding: '0 8px', fontSize: 11, gap: 4 }}>
+                      <Icon name="check" size={10} />Criar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div>
-          <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)', display: 'block', marginBottom: 6 }}>
-            Nome
-          </label>
-          <input className="input" value={nome} autoFocus
-            onChange={e => setNome(e.target.value)}
-            placeholder="Ex: Reprogramação 07/2026"
-            style={{ width: '100%' }}
-          />
-          {nomeDup && (
-            <p style={{ fontSize: 12, color: 'var(--danger, #dc2626)', margin: '6px 0 0' }}>
-              Já existe uma linha de base ou reprogramação com esse nome.
-            </p>
+          <button type="button" onClick={() => setNomeAberto(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}>
+            <Icon name={nomeAberto ? 'chevron-down' : 'chevron-right'} size={14} style={{ color: 'var(--text-muted)' }} />
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-soft)' }}>Ou com um nome personalizado</span>
+          </button>
+          {nomeAberto && (
+            <div style={{ marginTop: 8 }}>
+              <input className="input" value={nome} autoFocus
+                onChange={e => setNome(e.target.value)}
+                placeholder="Ex: Reprogramação 07/2026"
+                style={{ width: '100%', marginBottom: 8 }}
+              />
+              {mesesPendentes.length > 0 && (
+                <>
+                  <label style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                    Mês do cronograma que essa reprogramação representa
+                  </label>
+                  {/* Só meses ainda sem reprogramação — assim que este é criado, some daqui
+                     e da lista acima junto (as duas vêm da mesma mesesPendentes). */}
+                  <select className="input" value={mesCustom} onChange={e => trocarMesCustom(e.target.value)} style={{ width: '100%' }}>
+                    {mesesPendentes.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                  </select>
+                </>
+              )}
+              {nomeDup && (
+                <p style={{ fontSize: 12, color: 'var(--danger, #dc2626)', margin: '6px 0 0' }}>
+                  Já existe uma linha de base ou reprogramação com esse nome.
+                </p>
+              )}
+            </div>
           )}
         </div>
         <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>

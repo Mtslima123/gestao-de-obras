@@ -4,6 +4,27 @@ import { logger } from '../../services/logger';
 // Boletins de medição mensal (tabela medicoes_mensais), por obra + mês de referência.
 // Se a tabela ainda não existir (migration não aplicada pelo TI), as chamadas
 // retornam erro e a tela continua funcionando só em memória, sem persistir.
+
+// perc_previsto_acumulado (migration 20260913000001) pode ainda não existir em produção
+// (aplicada pelo TI à parte) — PostgREST devolve PGRST204 ("column ... not found in the
+// schema cache") pra uma coluna desconhecida no payload. Mesmo padrão de degradação
+// graciosa já usado noutro lugar do app pra RPC ainda não migrada (PGRST202).
+const colunaAusente = (error) =>
+  !!error && (error.code === 'PGRST204' || /column .* (of .* )?(does not exist|not found)/i.test(error.message || ''));
+
+// Tenta o upsert com o payload cheio; se a coluna nova ainda não existir no banco,
+// tenta de novo sem `camposNovos` — assim abrir/fechar medição continua funcionando
+// (só sem congelar o previsto) até a migration ser aplicada, em vez de quebrar de vez.
+async function upsertComFallback(payloadCompleto, camposNovos) {
+  let resp = await supabase.from('medicoes_mensais').upsert(payloadCompleto, { onConflict: 'obra_id,mes_referencia' }).select().maybeSingle();
+  if (resp.error && colunaAusente(resp.error) && camposNovos.length) {
+    const payloadReduzido = { ...payloadCompleto };
+    camposNovos.forEach(k => delete payloadReduzido[k]);
+    resp = await supabase.from('medicoes_mensais').upsert(payloadReduzido, { onConflict: 'obra_id,mes_referencia' }).select().maybeSingle();
+  }
+  return resp;
+}
+
 export const medicaoMensalService = {
   async buscarPorMes(obraId, mesReferencia) {
     if (!obraId || !mesReferencia) return null;
@@ -38,19 +59,23 @@ export const medicaoMensalService = {
     return data || [];
   },
 
-  async salvarRascunho(obraId, mesReferencia, itens) {
+  // `previstoCongelado` ({ percPrevisto, percPrevistoAcumulado }) só vem preenchido na
+  // ABERTURA do mês (ver abrirMedicao/MedicaoMensal.jsx) — os autosaves seguintes
+  // (editar % medido etc.) chamam sem esse argumento, então essas duas colunas ficam
+  // de fora do upsert e o valor congelado na abertura nunca é sobrescrito depois.
+  async salvarRascunho(obraId, mesReferencia, itens, previstoCongelado) {
     const payload = {
       obra_id: obraId,
       mes_referencia: mesReferencia,
       status: 'rascunho',
       itens: itens.map(i => ({ id: i.id, percMedido: i.percMedido, ...(i.foraDoMes ? { manual: true } : {}) })),
+      ...(previstoCongelado ? {
+        perc_previsto: previstoCongelado.percPrevisto,
+        perc_previsto_acumulado: previstoCongelado.percPrevistoAcumulado,
+      } : {}),
       updated_at: new Date().toISOString(),
     };
-    const { data, error } = await supabase
-      .from('medicoes_mensais')
-      .upsert(payload, { onConflict: 'obra_id,mes_referencia' })
-      .select()
-      .maybeSingle();
+    const { data, error } = await upsertComFallback(payload, ['perc_previsto', 'perc_previsto_acumulado']);
     if (error) {
       logger.error('falha ao salvar rascunho de medição', { module: 'medicaoMensal', action: 'salvarRascunho', obraId, mesReferencia, err: error });
       return { data: null, error };
@@ -69,15 +94,12 @@ export const medicaoMensalService = {
       valor_total_medido: snapshot.valorTotalMedido,
       perc_medido: snapshot.percMedido,
       perc_previsto: snapshot.percPrevisto,
+      perc_previsto_acumulado: snapshot.percPrevistoAcumulado,
       fechada_em: new Date().toISOString(),
       fechada_por: fechadaPor || null,
       updated_at: new Date().toISOString(),
     };
-    const { data, error } = await supabase
-      .from('medicoes_mensais')
-      .upsert(payload, { onConflict: 'obra_id,mes_referencia' })
-      .select()
-      .maybeSingle();
+    const { data, error } = await upsertComFallback(payload, ['perc_previsto_acumulado']);
     if (error) {
       logger.error('falha ao fechar medição mensal', { module: 'medicaoMensal', action: 'fechar', obraId, mesReferencia, err: error });
       return { data: null, error };

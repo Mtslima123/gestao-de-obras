@@ -319,13 +319,14 @@ describe('computeTotaisMedicao', () => {
 });
 
 describe('buildSnapshotFechamento', () => {
-  it('congela totais e os campos de cada item', () => {
+  it('congela totais, o previsto (mes e acumulado) já vindo da abertura, e os campos de cada item', () => {
     const itens = buildItensMedicao(etapas, MES, opts);
     const totais = computeTotaisMedicao(itens, 2500);
-    const snap = buildSnapshotFechamento(itens, totais);
+    const snap = buildSnapshotFechamento(itens, totais, { percPrevisto: 12.5, percPrevistoAcumulado: 40 });
     expect(snap.valorTotalMedido).toBe(totais.valorAMedir);
     expect(snap.percMedido).toBe(totais.med);
-    expect(snap.percPrevisto).toBe(100);
+    expect(snap.percPrevisto).toBe(12.5);
+    expect(snap.percPrevistoAcumulado).toBe(40);
     expect(snap.itens).toHaveLength(3);
     // Congela também os campos de exibição, senão a tela de uma medição fechada
     // precisaria voltar ao cronograma para montar a árvore e as datas.

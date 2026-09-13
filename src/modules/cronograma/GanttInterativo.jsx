@@ -507,7 +507,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
         if (pageIdx > 0) doc.addPage();
         // Título e data
         doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(20);
-        doc.text('Cronograma de Obras', ML, 12);
+        doc.text(`Cronograma de Obras · ${obraNome}`, ML, 12);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7); doc.setTextColor(130);
         doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, ML, 17);

@@ -3,7 +3,7 @@ import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
 import { formatBRL, formatNum } from '../../utils/formatters';
 import { offsetToDate } from './cronogramaDateUtils';
-import { mesAtualOuUltimo } from './scheduleEngine';
+import { mesAtualOuUltimo, mesesComReprogramacao } from './scheduleEngine';
 import { medicaoMensalService } from './medicaoMensal.service';
 import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
@@ -409,6 +409,7 @@ function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar }) {
 export default function MedicaoMensal({
   etapas, months, monthlyDist, monthlyTotals, valorVinculadoMap = {}, wbsMap,
   obraId, readOnly, currentUser, onAtualizarDados, onEnviarAvanco,
+  reprogramacoes = [], obraNome = 'Projeto',
 }) {
   const toast = useToast();
   const hasVinc = Object.keys(valorVinculadoMap).length > 0;
@@ -574,6 +575,12 @@ export default function MedicaoMensal({
   const mesIdxAtual = months.findIndex(m => m.key === mesRefKey);
   const mesAnterior = mesIdxAtual > 0 ? months[mesIdxAtual - 1] : null;
   const anteriorAberta = !!mesAnterior && statusPorMes[mesAnterior.key] === 'rascunho';
+  // Cada mês só abre depois que o anterior já tem uma Reprogramação salva (o retrato do
+  // cronograma antes de reprogramar pra frente) — sem isso, o previsto congelado na
+  // abertura deste mês partiria de um cronograma que ainda não foi "fechado" pra trás.
+  // Primeiro mês do cronograma (sem mesAnterior) não exige nada.
+  const mesesComRep = React.useMemo(() => mesesComReprogramacao(reprogramacoes), [reprogramacoes]);
+  const anteriorSemReprogramacao = !!mesAnterior && !mesesComRep.has(mesAnterior.key);
   const proximaFechadaPosterior = mesIdxAtual >= 0
     ? months.slice(mesIdxAtual + 1).find(m => statusPorMes[m.key] === 'fechada')
     : undefined;
@@ -644,7 +651,15 @@ export default function MedicaoMensal({
   // do mês" — mesma regra já usada pro peso/PESO% da tabela) como fração do valor total do
   // projeto (resumo.valorObra). Tarefa trazida manualmente não estava no previsto do mês, então
   // não pode inflar essa conta — ela só entra no realizado (Executado do mês/acumulado).
-  const previstoMesPct = resumo.valorObra > 0 ? (valorTotalBase / resumo.valorObra) * 100 : 0;
+  //
+  // Uma vez aberta a medição, esse previsto CONGELA (registro.perc_previsto, gravado na
+  // abertura — ver abrirMedicao): reprogramar uma tarefa depois não pode fazer a meta
+  // "perseguir" o que já foi executado. Sem registro (ainda não abriu) continua ao vivo,
+  // como prévia. Registros abertos antes desse campo existir (perc_previsto null) também
+  // caem no cálculo ao vivo — não tem o que congelar retroativamente.
+  const previstoMesPctAoVivo = resumo.valorObra > 0 ? (valorTotalBase / resumo.valorObra) * 100 : 0;
+  const previstoMesPct = registro?.perc_previsto != null ? registro.perc_previsto : previstoMesPctAoVivo;
+  const previstoAcumuladoExibido = registro?.perc_previsto_acumulado != null ? registro.perc_previsto_acumulado : resumo.previstoAcumulado;
 
   // "Executado do mês" (KPI) usa resumo.executadoMesPct — o que foi medido nesta tela em R$
   // como fração da OBRA INTEIRA, não do valor deste mês (totais.med, que só mostra "quanto do
@@ -723,12 +738,22 @@ export default function MedicaoMensal({
   // "eu abro a medição para ela ser criada" — antes a linha nascia por efeito colateral
   // do primeiro salvamento, e um mês sem registro já vinha editável.
   const abrirMedicao = async () => {
-    if (readOnly || registro || anteriorAberta) return;
+    if (readOnly || registro || anteriorAberta || anteriorSemReprogramacao) return;
     const { ok, pendentes } = validarAbertura(etapas, mesRefKey, wbsMap);
     if (!ok) { setPendenciasAbertura(pendentes); return; }
     setSalvando(true);
     const itens = montarDoCronograma(new Set());
-    const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens);
+    // Congela o previsto (mês e acumulado) neste exato momento — antes de qualquer
+    // reprogramação futura, é isso que a meta deste mês vai continuar sendo. O previsto
+    // do mês usa `itens` (acabou de montar, sempre atual), NÃO `valorTotalBase`/
+    // `itensTrabalho` (estado da tela — podia ainda estar vazio/da tela anterior no
+    // instante exato do clique, congelando 0 por engano).
+    const valorTotalBaseFresco = itens.reduce((s, i) => s + (i.foraDoMes ? 0 : i.valor), 0);
+    const previstoCongelado = {
+      percPrevisto: resumo.valorObra > 0 ? (valorTotalBaseFresco / resumo.valorObra) * 100 : 0,
+      percPrevistoAcumulado: resumo.previstoAcumulado,
+    };
+    const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens, previstoCongelado);
     setSalvando(false);
     if (error) { toast('Não foi possível abrir a medição (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
     setRegistro(data);
@@ -769,7 +794,14 @@ export default function MedicaoMensal({
 
   const confirmarFechamento = async () => {
     setSalvando(true);
-    const snapshot = buildSnapshotFechamento(itensTrabalho, totais);
+    // Carrega adiante o previsto já congelado na abertura — não recalcula aqui (senão o
+    // fechamento reintroduziria o mesmo problema que a abertura resolveu). Só recai no
+    // cálculo ao vivo se o mês foi aberto antes desses campos existirem.
+    const previstoCongelado = {
+      percPrevisto: registro?.perc_previsto != null ? registro.perc_previsto : previstoMesPctAoVivo,
+      percPrevistoAcumulado: registro?.perc_previsto_acumulado != null ? registro.perc_previsto_acumulado : resumo.previstoAcumulado,
+    };
+    const snapshot = buildSnapshotFechamento(itensTrabalho, totais, previstoCongelado);
     const { data, error } = await medicaoMensalService.fechar(obraId, mesRefKey, snapshot, currentUser?.nome || currentUser?.email);
     setSalvando(false);
     // !data sem error acontece se o RLS filtrar a linha silenciosamente (0 linhas
@@ -887,7 +919,7 @@ export default function MedicaoMensal({
       const BRAND = [28, 69, 132]; // #1C4584 (identidade Soter)
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
-      doc.setFontSize(13); doc.text(`Medição Mensal · ${mesLabel(mesRefKey)}`, 14, 14);
+      doc.setFontSize(13); doc.text(`Medição Mensal · ${obraNome} · ${mesLabel(mesRefKey)}`, 14, 14);
       doc.setFontSize(8); doc.setTextColor(130);
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
@@ -1077,7 +1109,7 @@ export default function MedicaoMensal({
           foot={`${gapExecutado >= 0 ? '▼' : '▲'} ${formatNum(Math.abs(gapExecutado), 2)} pp vs previsto`}
           footColor={gapExecutado >= 0 ? 'var(--danger)' : 'var(--success)'}
         />
-        <KpiCard label="Previsto acumulado" value={resumo.previstoAcumulado} barColor="var(--brand)" />
+        <KpiCard label="Previsto acumulado" value={previstoAcumuladoExibido} barColor="var(--brand)" />
         <KpiCard label="Executado acumulado" value={resumo.executadoAcumulado} barColor="var(--success)" />
       </div>
 
@@ -1246,7 +1278,7 @@ export default function MedicaoMensal({
                 <th className="center" style={{ ...thSticky, minWidth: getColW('termino') }}>TÉRMINO{resizeHandle('termino')}</th>
                 <th className="center" style={{ ...thSticky, minWidth: getColW('dur') }}>DUR.{resizeHandle('dur')}</th>
                 <th className="center" style={{ ...thSticky, minWidth: getColW('peso') }}>PESO %{resizeHandle('peso')}</th>
-                <th style={{ ...thSticky, minWidth: getColW('executado') }}>% EXECUTADO{resizeHandle('executado')}</th>
+                <th className="center" style={{ ...thSticky, minWidth: getColW('executado') }}>% EXECUTADO{resizeHandle('executado')}</th>
                 <th className="center" style={{ ...thSticky, minWidth: getColW('medido') }}>% MEDIDO{resizeHandle('medido')}</th>
                 <th className="right" style={{ ...thSticky, minWidth: getColW('valorAMedir') }}>VALOR A MEDIR{resizeHandle('valorAMedir')}</th>
                 <th className="right" style={{ ...thSticky, minWidth: getColW('valorMedido') }}>VALOR MEDIDO{resizeHandle('valorMedido')}</th>
@@ -1273,6 +1305,11 @@ export default function MedicaoMensal({
                         ) : anteriorAberta ? (
                           <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
                             Feche primeiro a medição de {mesLabel(mesAnterior.key)} para poder abrir esta.
+                          </div>
+                        ) : anteriorSemReprogramacao ? (
+                          <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
+                            Salve a reprogramação de {mesLabel(mesAnterior.key)} (Cadastro → Salvar
+                            reprogramação) antes de abrir esta medição.
                           </div>
                         ) : (
                           <button type="button" className="btn btn-dark" onClick={abrirMedicao} disabled={salvando}>
@@ -1306,10 +1343,13 @@ export default function MedicaoMensal({
                           <span style={{ fontWeight: 700 }}>{l.descricao}</span>
                         </div>
                       </td>
-                      <td /><td /><td /><td />
+                      <td />
+                      <td className="center num">{l.dataInicio}</td>
+                      <td className="center num">{l.dataTermino}</td>
+                      <td className="center num">{l.duracaoDias}</td>
                       <td className="center num">{fmtPct100(l.peso)}</td>
-                      <td />
-                      <td />
+                      <td className="right num">{fmtPct100(l.exec)}</td>
+                      <td className="center num">{fmtPct100(l.med)}</td>
                       <td className="right num">{formatBRL(l.valor, 2)}</td>
                       <td className="right num">{formatBRL((l.valor * l.med) / 100, 2)}</td>
                     </tr>

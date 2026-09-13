@@ -707,6 +707,15 @@ export function mesAtualOuUltimo(months) {
   return months[months.length - 1]?.key || atual;
 }
 
+// Meses ("AAAA-MM") que já têm uma reprogramação salva: pelo `mesRef` gravado nela, ou
+// (reprogramações antigas, salvas antes desse campo existir) pela data de criação —
+// aproximação já usada em "Salvar Reprogramação" pra achar os meses pendentes. Um lugar
+// só, reaproveitado ali e por qualquer regra que precise saber "esse mês já foi
+// reprogramado?" (ex.: bloquear abrir a Medição Mensal sem isso).
+export function mesesComReprogramacao(reprogramacoes) {
+  return new Set(reprogramacoes.map(r => r.mesRef || (r.criadaEm || '').slice(0, 7)));
+}
+
 // Distribui o custo de cada tarefa folha proporcionalmente pelos dias em cada mês.
 // weightOverride: { [etapaId]: valor } — quando há vínculos, substitui e.custo (peso do orçamento).
 export function computeMonthlyDist(etapas, weightOverride = null) {

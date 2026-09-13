@@ -1774,10 +1774,10 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
           <div className="card-body" style={{ padding: '4px 0 0' }}>
             {cronoView === 'gantt' && <Gantt etapas={etapasObra} maxHeight={cronoBodyMaxH} />}
             {cronoView === 'lista' && (() => {
-              const thS = { padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600,
+              const thS = { padding: '6px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600,
                             color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em',
                             position: 'sticky', top: 0, zIndex: 1, background: 'var(--brand)' };
-              const tdS = { padding: '10px 12px', fontSize: 13, borderBottom: '1px solid var(--border-subtle)' };
+              const tdS = { padding: '5px 12px', fontSize: 13, borderBottom: '1px solid var(--border-subtle)' };
               // Fora da área com scroll de propósito: fica dentro do próprio scroll (horizontal
               // e vertical) ela rolava junto com a tabela, escondendo o filtro de nível.
               const temGrupo = etapasObra.some(e => e.isGroup);
