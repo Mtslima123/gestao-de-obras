@@ -694,6 +694,19 @@ export function getMonthRange(etapas) {
   });
 }
 
+// Mês "atual" pra pré-selecionar/sugerir entre os meses que a obra REALMENTE tem
+// (`months`, de getMonthRange acima): o mês real de hoje, se ele cair dentro do
+// cronograma, senão o último mês do cronograma — nunca sugere um mês que a obra
+// nem chegou a ter (obra já terminada, ou que só começa no futuro). Usado pela
+// Medição Mensal (qual mês abre por padrão) e por "Salvar Reprogramação" (nome
+// sugerido), pra as duas telas concordarem sobre o que é "agora" na obra.
+export function mesAtualOuUltimo(months) {
+  const hoje = new Date();
+  const atual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+  if (months.some(m => m.key === atual)) return atual;
+  return months[months.length - 1]?.key || atual;
+}
+
 // Distribui o custo de cada tarefa folha proporcionalmente pelos dias em cada mês.
 // weightOverride: { [etapaId]: valor } — quando há vínculos, substitui e.custo (peso do orçamento).
 export function computeMonthlyDist(etapas, weightOverride = null) {

@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
 import { formatBRL, formatNum } from '../../utils/formatters';
 import { offsetToDate } from './cronogramaDateUtils';
+import { mesAtualOuUltimo } from './scheduleEngine';
 import { medicaoMensalService } from './medicaoMensal.service';
 import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
@@ -33,10 +34,6 @@ const MES_NOMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set'
 const mesLabel = (key) => {
   const [y, m] = (key || '').split('-');
   return m ? `${MES_NOMES[Number(m) - 1]} / ${y}` : '—';
-};
-const mesAtualKeyLocal = () => {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
 };
 function carregarMesRefMedicao(obraId) {
   try { return localStorage.getItem('crono_medicao_mesref_' + obraId) || null; } catch { return null; }
@@ -420,9 +417,7 @@ export default function MedicaoMensal({
   const [mesRefKey, setMesRefKey] = React.useState(() => {
     const salvo = carregarMesRefMedicao(obraId);
     if (salvo && months.some(m => m.key === salvo)) return salvo;
-    const atual = mesAtualKeyLocal();
-    if (months.some(m => m.key === atual)) return atual;
-    return months[months.length - 1]?.key || '';
+    return mesAtualOuUltimo(months);
   });
   React.useEffect(() => { if (obraId && mesRefKey) salvarMesRefMedicao(obraId, mesRefKey); }, [obraId, mesRefKey]);
   React.useEffect(() => {

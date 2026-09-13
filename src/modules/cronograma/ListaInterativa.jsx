@@ -616,7 +616,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         style={{
           width: w, minWidth: w,
           position: 'sticky', top: bandTop, zIndex: isFrozen ? 6 : 3,
-          ...(isFrozen ? { left: frozenLeft[colId] } : {}),
+          // Mesma promoção de camada das células congeladas do corpo (ver stickyStyle),
+          // pro cabeçalho não sofrer o mesmo flash ao rolar.
+          ...(isFrozen ? { left: frozenLeft[colId], willChange: 'transform', transform: 'translateZ(0)' } : {}),
           cursor: !isFrozen ? 'grab' : undefined,
           userSelect: 'none',
           textAlign: 'left',
@@ -3583,6 +3585,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               const stickyStyle = (colId) => ({
                 position: 'sticky', left: frozenLeft[colId], zIndex: 1, background: frozenBg,
                 isolation: 'isolate',
+                // Promove a célula pra sua própria camada de composição: sem isso, um <tr>
+                // recém-inserido ANTES dos já montados (rolar pra CIMA empurra linha nova por
+                // insertBefore, diferente de rolar pra baixo) pode pintar por um quadro na
+                // posição estática antes do navegador recalcular o sticky — um flash rápido
+                // como se outra coluna aparecesse por baixo. will-change/transform faz o
+                // sticky ser resolvido na thread de rolagem (compositor), sem esperar layout.
+                willChange: 'transform', transform: 'translateZ(0)',
               });
 
               // Mapa de células por colId — renderizadas na ordem de colOrder

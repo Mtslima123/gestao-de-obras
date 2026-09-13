@@ -5,7 +5,7 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, workEnd } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, mesAtualOuUltimo } from "./scheduleEngine";
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
 export const AddColModal = ({ onClose, onAdd }) => {
@@ -1154,7 +1154,7 @@ export const GerenciarLinhasModal = ({ baselines, blVisivelId, onSelect, onDupli
   const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
 
   return (
-    <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="md" draggable resizable overlay={false} onClose={onClose}
+    <Modal title="Gerenciar Linhas de Base" subtitle={`${baselines.length} linha${baselines.length !== 1 ? 's' : ''} de base`} size="xl" draggable resizable overlay={false} onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
     >
       {baselines.length === 0
@@ -1338,10 +1338,13 @@ export const FeriadosModal = ({ cfg, onChange, onClose }) => {
 };
 
 // ─── Modal: Salvar Reprogramação ─────────────────────────────────────────────
-export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], onClose, onCreate }) => {
+export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], months = [], onClose, onCreate }) => {
   const toast = useToast();
-  const hoje = new Date();
-  const mesLabel = hoje.toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }).replace('/', '/');
+  // Sugere o mês real de hoje só se a obra realmente o tiver no cronograma; senão o
+  // último mês do cronograma — mesma regra que a Medição Mensal usa pra abrir o mês
+  // (ver mesAtualOuUltimo, scheduleEngine.js), pra não sugerir um mês que a obra nem tem.
+  const [ano, mes] = mesAtualOuUltimo(months).split('-');
+  const mesLabel = mes ? `${mes}/${ano}` : '';
   const [nome, setNome] = React.useState(`Reprogramação ${mesLabel}`);
   const nomeDup = !!nome.trim() && nomesUsados.includes(nome.trim().toLowerCase());
 
@@ -1392,7 +1395,7 @@ export const GerenciarReprogramacoesModal = ({ reprogramacoes, repVisivelId, onS
   const [confirmId, setConfirmId] = React.useState(null); // id aguardando 2ª confirmação
 
   return (
-    <Modal title="Gerenciar Reprogramações" subtitle={`${reprogramacoes.length} reprogramação${reprogramacoes.length !== 1 ? 'ões' : ''} salva${reprogramacoes.length !== 1 ? 's' : ''}`} size="md" draggable resizable overlay={false} onClose={onClose}
+    <Modal title="Gerenciar Reprogramações" subtitle={`${reprogramacoes.length} reprogramação${reprogramacoes.length !== 1 ? 'ões' : ''} salva${reprogramacoes.length !== 1 ? 's' : ''}`} size="xl" draggable resizable overlay={false} onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Fechar</button>}
     >
       {reprogramacoes.length === 0

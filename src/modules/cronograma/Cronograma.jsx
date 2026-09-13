@@ -3439,6 +3439,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         <CriarReprogramacaoModal
           totalEtapas={etapas.length}
           nomesUsados={nomesUsados}
+          months={months}
           onClose={() => setShowCriarRep(false)}
           onCreate={criarReprogramacao}
         />
