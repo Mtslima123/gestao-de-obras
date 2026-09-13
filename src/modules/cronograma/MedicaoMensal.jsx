@@ -232,8 +232,25 @@ function ModalFecharMedicao({ mesRefKey, violacoes, salvando, onClose, onConfirm
                   {v.atravessaMes && (
                     <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>
                       Essa tarefa começa num mês e termina em outro — mesmo com o % batendo, o mês só
-                      pode fechar com ela inteira contida nele. Na Lista, botão direito na tarefa →
-                      "Reprogramar restante" separa o que já foi feito do que falta, e libera o fechamento.
+                      pode fechar com ela inteira contida nele.{' '}
+                      {v.percExecutado <= 0 ? (
+                        // Nada foi executado ainda: não há "o que já foi feito" pra separar —
+                        // "Reprogramar restante" não faz nada nesse caso (exige avanço entre 1 e 99).
+                        // A saída aqui é mover a tarefa inteira, não dividi-la.
+                        <>Como ela ainda não começou de verdade (0% executado), não é caso de
+                        "Reprogramar restante" — edite o início dela na Lista (ou arraste no Gantt)
+                        pra empurrar a tarefa inteira pro mês em que ela vai rodar de fato.</>
+                      ) : v.percExecutado >= 100 ? (
+                        // 100% executado mas ainda atravessa o mês: já terminou, as datas é que
+                        // ficaram desalinhadas (ex.: marcaram 100% sem ajustar o término) —
+                        // "Reprogramar restante" também não se aplica (não sobra restante).
+                        <>Como ela já está 100% executada, não é caso de "Reprogramar restante" —
+                        as datas é que ficaram maiores que o trabalho real. Ajuste o término dela
+                        na Lista pra ele caber dentro do mês.</>
+                      ) : (
+                        <>Na Lista, botão direito na tarefa → "Reprogramar restante" separa o que já
+                        foi feito do que falta, e libera o fechamento.</>
+                      )}
                     </div>
                   )}
                 </li>

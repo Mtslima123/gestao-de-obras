@@ -1406,7 +1406,10 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
             // "PRODUÇÃO" da coluna Produção exige >=65px. 38px nunca foi suficiente — só não
             // dava pra notar antes porque a tabela sem colgroup/width deixava o navegador
             // "esticar" as colunas por conta própria (mascarando o problema).
-            const ACT_W = 130, MON_W = 58, PROD_W = 68;
+            // ACT_W alargado de 130 pra caber sem cortar os rótulos mais longos da faixa
+            // "Diferenças" ("Dif. em relação à Linha de Base — Acumulado"), que antes só
+            // apareciam com reticências (o <span> interno tem overflow:hidden — ver tdAct).
+            const ACT_W = 300, MON_W = 58, PROD_W = 68;
 
             const thBase = {
               padding: '6px 4px', fontSize: 10, fontWeight: 700,
