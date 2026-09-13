@@ -63,14 +63,17 @@ export const SCurveChart2 = ({ months = [], selIdx = 0,
         <g key={'bs' + s.key}>
           {months.map((m, i) => {
             const v = (s.data || [])[i];
-            if (v == null || v <= 0.3) return null;
+            if (v == null || v <= 0) return null;
             // Série "período": cor por barra (verde até o corte, azul depois).
             const isExec = i <= cut;
             const fill    = s.perColor ? (isExec ? '#74c99a' : '#9bb8e0') : s.color;
             const lblCol  = s.perColor ? (isExec ? '#15803d' : 'var(--brand)') : s.label;
             const nm      = s.perColor ? (isExec ? 'Executado' : 'Replanejado') : s.name;
             const x = xC(i) - groupW / 2 + si * subW;
-            const y = yBar(v);
+            // % muito pequeno (ex.: resíduo do último mês) rende uma barra quase
+            // invisível — mantém uma lasca mínima (2px) pra sempre dar pra ver que
+            // existe algo ali, com o rótulo do % de qualquer jeito.
+            const y = Math.min(yBar(v), (pT + chartH) - 2);
             const bw = Math.max(subW * 0.82, 1);
             const cx = x + bw / 2;
             const tip = `${nm} · ${months[i]?.label || ''}: ${fmtPct(v)}`;

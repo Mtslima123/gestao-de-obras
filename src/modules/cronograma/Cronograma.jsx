@@ -950,7 +950,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       // Sheet 2 — Distribuição por Tarefa
       if (expSel.dist) {
       const groupValsExp = computeGroupValues(etapas, custoOrcadoMap);
-      const distRows = etapas.filter(e => e.isGroup || e.showInDist === true);
+      const distRows = etapas.filter(e => (e.isGroup && !(e.nivel > 0)) || e.showInDist === true);
       const folhas = etapas.filter(e => !e.isGroup);
       const totalCusto = folhas.reduce((s, e) => s + custoEf(e), 0);
       // Conc. % geral (rodapé) = acumulado da distribuição mensal até o mês de referência,
@@ -1077,7 +1077,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       // ── Tabela 2: Distribuição por Tarefa ──────────────────────────────
       if (expSel.dist) {
       const groupValsExp = computeGroupValues(etapas, custoOrcadoMap);
-      const distRows     = etapas.filter(e => e.isGroup || e.showInDist === true);
+      const distRows     = etapas.filter(e => (e.isGroup && !(e.nivel > 0)) || e.showInDist === true);
       const folhas       = etapas.filter(e => !e.isGroup);
       const totCusto     = folhas.reduce((s, e) => s + custoEf(e), 0);
       const selColIdx    = 4 + selIdx; // coluna do mês selecionado
@@ -1699,7 +1699,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
           while (p) { if (collapsedCurva.has(p)) return true; p = visibleRows.find(x => x.id === p)?.parentId; }
           return false;
         };
-        const distRows    = visibleRows.filter(e => (e.isGroup || liveShown.has(e.id) || e.showInDist === true) && !isHiddenCurva(e));
+        const distRows    = visibleRows.filter(e => ((e.isGroup && !(e.nivel > 0)) || liveShown.has(e.id) || e.showInDist === true) && !isHiddenCurva(e));
         const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 58, TOT_W = 68;
         // Colunas congeladas: Atividade, Valor, Peso e Conc. ficam fixas à esquerda ao
         // rolar horizontal (mesma técnica das colunas congeladas da Lista) — só os meses

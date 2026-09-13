@@ -319,9 +319,9 @@ export function propagateDrag(etapas, endDeltaMap, startDeltaMap = {}) {
   );
 }
 
-// Agenda tarefas automaticamente com base nas dependências (tipo MS Project)
-// Só empurra para frente; respeita restrições fixas (mso, mfo, snet, snlt, fnet, fnlt)
-export function autoScheduleFromDeps(etapas) {
+// Uma passada de agendamento por dependências (usada por autoScheduleFromDeps, que
+// roda isto duas vezes intercalado com updateParentBounds — ver comentário lá).
+function schedulePass(etapas) {
   const map = {};
   etapas.forEach(e => { map[e.id] = e; });
 
@@ -412,6 +412,29 @@ export function autoScheduleFromDeps(etapas) {
   });
 
   return etapas.map(e => upd[e.id] || e);
+}
+
+// Agenda tarefas automaticamente com base nas dependências (tipo MS Project)
+// Só empurra para frente; respeita restrições fixas (mso, mfo, snet, snlt, fnet, fnlt)
+//
+// `dep`/sucessora de uma tarefa que virou GRUPO (ex.: depois de "Reprogramar Restante")
+// continua apontando pro ID do grupo, mas o laço de agendamento pula grupos de propósito
+// (nunca reagenda um pelo próprio dep/restrição — ver schedulePass). O envelope do grupo só
+// vem de `updateParentBounds`, a partir dos filhos. Isso cria uma ordem de duas etapas: se
+// uma folha (ex.: "restante") muda de posição NESTA MESMA chamada (por causa de uma
+// restrição só agora editada), uma sucessora do GRUPO precisa que o envelope já esteja
+// atualizado antes dela ser processada — o que só acontece se `updateParentBounds` rodar
+// DEPOIS da folha se mover e ANTES da sucessora ser calculada. Uma passada só não garante
+// essa ordem (grupo e sucessora não têm uma aresta de dependência entre si), por isso duas
+// passadas completas, com updateParentBounds intercalado: a 1ª agenda as folhas (inclusive
+// a que acabou de ganhar/mudar uma restrição), a 2ª agenda as sucessoras do grupo já com o
+// envelope correto.
+export function autoScheduleFromDeps(etapas) {
+  let out = updateParentBounds(etapas);
+  out = schedulePass(out);
+  out = updateParentBounds(out);
+  out = schedulePass(out);
+  return updateParentBounds(out);
 }
 
 // Recalcula inicio/dur dos grupos com base nos filhos diretos (de baixo para cima)

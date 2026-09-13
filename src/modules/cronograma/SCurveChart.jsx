@@ -54,9 +54,12 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
             <g key={'bs' + si}>
               {months.map((m, i) => {
                 const v = (s.data || [])[i];
-                if (v == null || v <= 0.3) return null;
+                if (v == null || v <= 0) return null;
                 const x = xC(i) - groupW / 2 + si * subW;
-                const y = yBar(v);
+                // % muito pequeno (ex.: resíduo do último mês) rende uma barra quase
+                // invisível — mantém uma lasca mínima (2px) pra sempre dar pra ver que
+                // existe algo ali, com o rótulo do % de qualquer jeito.
+                const y = Math.min(yBar(v), (pT + chartH) - 2);
                 const bw = Math.max(subW * 0.82, 1);
                 const cx = x + bw / 2;
                 const tip = `${s.name} · ${months[i]?.label || ''}: ${fmtPct(v)}`;

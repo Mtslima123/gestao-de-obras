@@ -3,8 +3,8 @@
 // dia 1 do mês seguinte ao término do fragmento já executado, com data fixa).
 // Funções puras, rodam em node.
 import { describe, it, expect, beforeEach } from 'vitest';
-import { setWorkCal, dateToOffset, taskEnd } from '../modules/cronograma/cronogramaDateUtils';
-import { reprogramarRestante } from '../modules/cronograma/scheduleEngine';
+import { setWorkCal, dateToOffset, offsetToISO, taskEnd } from '../modules/cronograma/cronogramaDateUtils';
+import { reprogramarRestante, commitFieldChange } from '../modules/cronograma/scheduleEngine';
 import { computeValorVinculadoMap } from '../modules/cronograma/ganttUtils';
 
 beforeEach(() => {
@@ -110,6 +110,26 @@ describe('reprogramarRestante', () => {
     expect(sucessora.inicio).toBe(taskEnd(grupo));
     // o grupo se estende pelo menos até o início do restante (empurrado pro mês seguinte)
     expect(taskEnd(grupo)).toBeGreaterThanOrEqual(restante.inicio);
+  });
+
+  it('editar a Restrição da folha "restante" depois (via commitFieldChange, mesmo caminho da célula da Lista) também reagenda a sucessora', () => {
+    const etapas = [
+      baseTarefa(),
+      baseTarefa({ id: 'S', etapa: 'Sucessora', avanco: 0, dep: [{ id: 'T1', tipo: 'TI', lag: 0 }] }),
+    ];
+    const depoisDoBotao = reprogramarRestante('T1', etapas);
+    const restanteAntes = depoisDoBotao.find(e => e.parentId === 'T1' && e.avanco === 0);
+    const inicioSAntes  = depoisDoBotao.find(e => e.id === 'S').inicio;
+
+    // Empurra a restrição da folha "restante" mais alguns dias pra frente, direto pelo
+    // mesmo caminho que a célula "Restrição" da Lista usa (commitFieldChange).
+    const novaData = offsetToISO(dateToOffset(restanteAntes.restricaoData) + 10);
+    const out = commitFieldChange(depoisDoBotao, restanteAntes.id, 'restricao', novaData, depoisDoBotao);
+
+    const grupoDepois = out.find(e => e.id === 'T1');
+    const sucessoraDepois = out.find(e => e.id === 'S');
+    expect(sucessoraDepois.inicio).toBeGreaterThan(inicioSAntes);
+    expect(sucessoraDepois.inicio).toBe(taskEnd(grupoDepois));
   });
 
   it('não faz nada quando avanço está fora de [1,99] ou a tarefa já é grupo', () => {

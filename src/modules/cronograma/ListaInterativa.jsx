@@ -393,7 +393,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => rowNumberMapEarly[id] ?? id).join('; '); return { raw: v, label: v }; }
       case 'resp': { const v = e.isGroup ? '' : (e.responsavel || ''); return { raw: v, label: v }; }
       case 'pavimento': { const v = e.isGroup ? '' : (e.pavimento || ''); return { raw: v, label: v }; }
-      case 'participa': { if (e.isGroup) return { raw: null, label: '' }; const v = e.showInDist ? 'Sim' : 'Não'; return { raw: v, label: v }; }
+      case 'participa': { if (e.isGroup && !(e.nivel > 0)) return { raw: null, label: '' }; const v = e.showInDist ? 'Sim' : 'Não'; return { raw: v, label: v }; }
       default: {
         const cc = customCols.find(c => c.id === colId);
         const raw = (e.customCols || {})[colId] ?? '';
@@ -3932,7 +3932,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 ),
                 participa: (
                   <td key="participa" onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center' }}>
-                    {!e.isGroup && (
+                    {/* Tarefa-resumo de nível 0 (as grandes fases, ex.: FUNDAÇÃO/ESTRUTURA)
+                       sempre entra na curva — só ela não precisa marcar. Sub-grupos (BL2 etc.)
+                       e folhas podem ligar/desligar normalmente. */}
+                    {(!e.isGroup || e.nivel > 0) && (
                       <input type="checkbox"
                         checked={e.showInDist === true}
                         style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--brand)' }}
