@@ -623,10 +623,10 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                       {nomeText}
                     </td>
                   ),
-                  inicio: <td key="inicio" style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }} title={iniText}>{iniText}</td>,
-                  fim:    <td key="fim" style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12 }} title={fimText}>{fimText}</td>,
-                  dur:    <td key="dur" style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)' }} title={durText}>{durText}</td>,
-                  avanco: <td key="avanco" style={{ ...tdSt, textAlign: 'right' }} title={avText}>{avText}</td>,
+                  inicio: <td key="inicio" style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12, fontWeight: e.isGroup ? 600 : 400 }} title={iniText}>{iniText}</td>,
+                  fim:    <td key="fim" style={{ ...tdSt, color: 'var(--text-soft)', fontSize: 12, fontWeight: e.isGroup ? 600 : 400 }} title={fimText}>{fimText}</td>,
+                  dur:    <td key="dur" style={{ ...tdSt, textAlign: 'right', color: 'var(--text-soft)', fontWeight: e.isGroup ? 600 : 400 }} title={durText}>{durText}</td>,
+                  avanco: <td key="avanco" style={{ ...tdSt, textAlign: 'right', fontWeight: e.isGroup ? 600 : 400 }} title={avText}>{avText}</td>,
                 };
                 return (
                   <tr key={e.id}
