@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
-  computeArvoreForaDoMes, computeResumo, validarAbertura,
+  computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
@@ -142,6 +142,39 @@ describe('validarAbertura', () => {
     const { ok, pendentes } = validarAbertura(etapasZeradas, MES, { Z2: '9.5' });
     expect(ok).toBe(true);
     expect(pendentes).toEqual([]);
+  });
+});
+
+describe('validarFechamento', () => {
+  it('bloqueia item com % medido acima do % executado e marca atravessaMes quando início/término caem em meses diferentes', () => {
+    const itens = [{
+      id: 'BL2', wbs: '1.2', descricao: 'BL2', percMedido: 100, percExecutado: 46,
+      inicioOff: dateToOffset('2026-09-25'), terminoOff: dateToOffset('2026-10-09'), // término (offset exclusivo -1) cai em outubro
+    }];
+    const { ok, violacoes } = validarFechamento(itens);
+    expect(ok).toBe(false);
+    expect(violacoes).toHaveLength(1);
+    expect(violacoes[0]).toMatchObject({ id: 'BL2', atravessaMes: true });
+  });
+
+  it('bloqueia mas NÃO marca atravessaMes quando a tarefa fica dentro de um único mês', () => {
+    const itens = [{
+      id: 'BL1', wbs: '1.1', descricao: 'BL1', percMedido: 80, percExecutado: 50,
+      inicioOff: dateToOffset('2026-09-11'), terminoOff: dateToOffset('2026-09-24'),
+    }];
+    const { ok, violacoes } = validarFechamento(itens);
+    expect(ok).toBe(false);
+    expect(violacoes[0]).toMatchObject({ id: 'BL1', atravessaMes: false });
+  });
+
+  it('não bloqueia quando % medido está dentro do % executado', () => {
+    const itens = [{
+      id: 'OK', wbs: '1.3', descricao: 'OK', percMedido: 50, percExecutado: 50,
+      inicioOff: dateToOffset('2026-09-11'), terminoOff: dateToOffset('2026-09-24'),
+    }];
+    const { ok, violacoes } = validarFechamento(itens);
+    expect(ok).toBe(true);
+    expect(violacoes).toEqual([]);
   });
 });
 

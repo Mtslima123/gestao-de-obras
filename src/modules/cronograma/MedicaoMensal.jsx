@@ -224,7 +224,16 @@ function ModalFecharMedicao({ mesRefKey, violacoes, salvando, onClose, onConfirm
           </p>
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-soft)' }}>
             {violacoes.map(v => (
-              <li key={v.id}>{v.wbs} — {v.descricao}: medido {fmtPct100(v.percMedido)} &gt; executado {fmtPct100(v.percExecutado)}</li>
+              <li key={v.id}>
+                {v.wbs} — {v.descricao}: medido {fmtPct100(v.percMedido)} &gt; executado {fmtPct100(v.percExecutado)}
+                {v.atravessaMes && (
+                  <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>
+                    Essa tarefa começa num mês e termina em outro — o % executado ainda conta o
+                    trabalho pendente no mês seguinte. Na Lista, botão direito na tarefa →
+                    "Reprogramar restante" separa o que já foi feito do que falta, e libera o fechamento.
+                  </div>
+                )}
+              </li>
             ))}
           </ul>
         </div>
@@ -1008,7 +1017,9 @@ export default function MedicaoMensal({
           {/* Este botão nunca criou nada: é o mesmo carregamento, relendo o cronograma.
               O nome agora diz isso, e ele só aparece com a medição aberta. */}
           {aberta && !readOnly && (
-            <button type="button" className="btn btn-ghost" onClick={gerarMedicao} disabled={carregando}
+            <button type="button" className="btn btn-ghost"
+              onClick={async () => { await gerarMedicao(); toast('Recalculado a partir do cronograma', { tone: 'success', icon: 'check' }); }}
+              disabled={carregando}
               title="Relê o cronograma e recalcula as linhas, mantendo os % já medidos">
               <Icon name="refresh-cw" size={15} />{carregando ? 'Recalculando…' : 'Recalcular do cronograma'}
             </button>

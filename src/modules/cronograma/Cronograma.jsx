@@ -2315,6 +2315,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   // Bloqueio otimista: conflito quando outra sessão salvou o mesmo cronograma
   const [conflito,     setConflito]     = React.useState(false);
   const [reloadKey,    setReloadKey]    = React.useState(0);
+  // Sinaliza que o próximo carregamento veio de um "Atualizar dados" explícito (não de
+  // trocar de obra) — só nesse caso mostra um toast confirmando que releu do banco.
+  const reloadToastRef = React.useRef(false);
   // Painel lateral de detalhes da tarefa selecionada
   const [detailId,     setDetailId]    = React.useState(null);
   const [detailTab,    setDetailTab]   = React.useState('detalhes');
@@ -2507,6 +2510,10 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
       setBlVisivelId(carregarBlVisivel(obraSel));
       setSelMonKey(carregarMesRef(obraSel) || mesAtualKey());
       setLoadedObraId(obraSel); // marca carga concluída — isLoading vira false
+      if (reloadToastRef.current) {
+        reloadToastRef.current = false;
+        toast('Dados atualizados', { tone: 'success', icon: 'check' });
+      }
     }
     setConflito(false);   // recarregou do banco: baseline atualizada, conflito resolvido
     carregar();
@@ -2563,6 +2570,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     delete _cronCache[obraSel];
     delete _cronSavedAt[obraSel];
     setConflito(false);
+    reloadToastRef.current = true;
     setReloadKey(k => k + 1);
   };
 
