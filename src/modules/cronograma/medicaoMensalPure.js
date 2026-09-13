@@ -299,14 +299,28 @@ export function validarFechamento(itens) {
 // e só olha pro passado: término no próprio mesRefKey (ou depois) ainda está em andamento,
 // não é atraso.
 export function validarAbertura(etapas, mesRefKey, wbsMap) {
-  const pendentes = etapas
+  const porTermino = etapas
     .filter(e => !e.isGroup && (e.avanco || 0) < 100)
     .map(e => ({ e, terminoMes: offsetToISO(taskEnd(e) - 1).slice(0, 7) }))
     .filter(({ terminoMes }) => terminoMes < mesRefKey)
     .map(({ e, terminoMes }) => ({
       id: e.id, wbs: wbsMap[e.id] || '', descricao: e.etapa || '',
-      avanco: e.avanco || 0, terminoMes,
-    }))
+      avanco: e.avanco || 0, motivo: 'termino', terminoMes,
+    }));
+  const jaListados = new Set(porTermino.map(p => p.id));
+  // Tarefa que já devia estar em andamento (início num mês anterior ao que está sendo
+  // aberto) mas segue em 0% — mesmo com término ainda no próprio mês ou depois, passar o
+  // mês inteiro sem nenhuma execução registrada também tem que travar a abertura do
+  // próximo mês (senão o mês fica "fechado" com a tarefa intocada, escondendo o atraso).
+  const porInicioZerado = etapas
+    .filter(e => !e.isGroup && (e.avanco || 0) === 0 && !jaListados.has(e.id))
+    .map(e => ({ e, inicioMes: offsetToISO(e.inicio).slice(0, 7) }))
+    .filter(({ inicioMes }) => inicioMes < mesRefKey)
+    .map(({ e, inicioMes }) => ({
+      id: e.id, wbs: wbsMap[e.id] || '', descricao: e.etapa || '',
+      avanco: 0, motivo: 'zerada', inicioMes,
+    }));
+  const pendentes = [...porTermino, ...porInicioZerado]
     .sort((a, b) => a.wbs.localeCompare(b.wbs, 'pt-BR', { numeric: true }));
   return { ok: pendentes.length === 0, pendentes };
 }

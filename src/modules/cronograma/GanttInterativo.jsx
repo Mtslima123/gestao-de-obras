@@ -94,6 +94,11 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   const [ribbonCollapsed, setRibbonCollapsed] = React.useState(() => localStorage.getItem('ls_crono_ribbon_collapsed') === '1');
   React.useEffect(() => { try { localStorage.setItem('ls_crono_ribbon_collapsed', ribbonCollapsed ? '1' : '0'); } catch { /* ignore */ } }, [ribbonCollapsed]);
   const [showPavimentos, setShowPavimentos] = React.useState(false);
+  // Rótulo do último nível aplicado no combo "Estrutura" — o próprio <select> volta pro
+  // placeholder a cada escolha (de propósito: reaplicar o MESMO nível depois de expandir/
+  // recolher tarefas manualmente precisa continuar disparando onChange), então sem isto não
+  // dava pra ver qual nível estava selecionado depois de escolher.
+  const [nivelEstruturaLabel, setNivelEstruturaLabel] = React.useState(null);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id do alvo de exclusão
   // Popover do badge "Conflito" da faixa — lista os pares pred/suces em violação de precedência.
   const [showConflitos, setShowConflitos] = React.useState(false);
@@ -429,9 +434,24 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
       const HDR_H    = 14;   // 7mm trimestres + 7mm meses
       const BAR_H    = 3.5;
       const tlX      = ML + LABEL_W;
+      // O PDF tem página de tamanho fixo — não faz sentido herdar as folgas de
+      // calTotalDays (+3 meses de manobra e "preenche a largura da janela", pensadas só
+      // pra tela interativa). Aqui o fim da linha do tempo é o fim real da última barra
+      // desenhada (mesmo ini/dur que drawGanttPage usa por linha, abaixo), sem sobra.
+      const pdfMaxEnd = visible.length
+        ? Math.max(...visible.map(e => {
+            const gv  = e.isGroup ? groupVals[e.id] : null;
+            const ini = (gv ? gv.inicio : e.inicio) ?? 0;
+            const dur = Math.max((gv ? gv.dur : e.dur) ?? 1, 1);
+            return ini + dur;
+          }))
+        : tlStartOffset + 30;
+      const pdfTotalDays = Math.max(30, pdfMaxEnd - tlStartOffset);
+      const pdfMonths    = buildCalendarMonths(tlStartDate, pdfTotalDays);
+      const pdfQuarters  = buildCalendarQuarters(pdfMonths);
       // Timeline em calendário real (mesmos meses do eixo da aba): do 1º ao último mês,
       // ancorado em tlStartOffset (perto da 1ª tarefa), sem o vazio do epoch 2024.
-      const mpd      = TL_W / calTotalDays;  // mm por dia
+      const mpd      = TL_W / pdfTotalDays;  // mm por dia
 
       const availH      = H - MT - MB - HDR_H;
       const rowsPerPage = Math.max(1, Math.floor(availH / ROW_H));
@@ -448,7 +468,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
       const drawGanttHeader = (startY) => {
         // Trimestres (calendário real)
         let x = tlX;
-        calQuarters.forEach((q, qi) => {
+        pdfQuarters.forEach((q, qi) => {
           const qW = q.days * mpd;
           doc.setFillColor(qi % 2 === 0 ? 244 : 250, 246, 251);
           doc.rect(x, startY, qW, 7, 'F');
@@ -463,7 +483,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
         doc.line(ML, startY + 7, W - MR, startY + 7);
         // Meses (calendário real — dias corretos por mês)
         x = tlX;
-        calMonths.forEach((m) => {
+        pdfMonths.forEach((m) => {
           const mW = m.days * mpd;
           doc.setFontSize(6);
           doc.setFont('helvetica', m.isQ ? 'bold' : 'normal');
@@ -1109,7 +1129,12 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                   <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
                       <select defaultValue="" title="Expandir/recolher a estrutura por nível"
-                        onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') onOutlineLevel?.(Number(v)); }}
+                        onChange={e => {
+                          const v = e.target.value; e.target.value = '';
+                          if (v === '') return;
+                          onOutlineLevel?.(Number(v));
+                          setNivelEstruturaLabel(v === '0' ? 'Tudo expandido' : v === '1' ? 'Tudo recolhido' : `Nível ${v}`);
+                        }}
                         style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
                         <option value="" disabled>Estrutura…</option>
                         <option value="0">Expandir tudo</option>
@@ -1118,7 +1143,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                       </select>
                     </div>
                   </div>
-                  <div style={caption}>Estrutura</div>
+                  <div style={caption}>{nivelEstruturaLabel ? `Estrutura · ${nivelEstruturaLabel}` : 'Estrutura'}</div>
                 </div>
 
                 {/* Mostrar/Ocultar (estilo MS Project) */}

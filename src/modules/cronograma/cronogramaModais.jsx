@@ -508,17 +508,22 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
 // predecessoras marcadas ela recebe. Sem casamento automático por nome/posição — o
 // mapeamento entre os dois grupos pode ter deslocamento (ex.: Alvenaria Tipo 1 depende
 // de Estrutura Tipo 2), então quem decide cada par é o usuário.
-export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onClose, initialPredIds = [] }) => {
+export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onClose }) => {
   const toast = useToast();
   const [buscaPred, setBuscaPred] = React.useState('');
   const [buscaSucc, setBuscaSucc] = React.useState('');
-  const [predSelected, setPredSelected] = React.useState([...initialPredIds]);
+  // Sempre começa vazio, mesmo que a Lista já tivesse uma tarefa selecionada ao abrir o
+  // modal — o usuário escolhe as predecessoras/sucessoras aqui, não herda a seleção da grade.
+  const [predSelected, setPredSelected] = React.useState([]);
   const [succSelected, setSuccSelected] = React.useState([]);
   const [links, setLinks] = React.useState({}); // succId -> predId ('' = "Nenhuma")
   // Grupos recolhidos em cada lista (independentes uma da outra) — reduz a rolagem em
   // EAPs grandes, escondendo as folhas de um grupo que já foi todo marcado/descartado.
   const [predCollapsed, setPredCollapsed] = React.useState(() => new Set());
   const [succCollapsed, setSuccCollapsed] = React.useState(() => new Set());
+  // Recolhe as duas listas de seleção (Predecessoras/Sucessoras) depois de escolhidas, pra
+  // sobrar mais espaço na tela pra ver "Vínculos a criar" sem precisar rolar o modal inteiro.
+  const [pickersCollapsed, setPickersCollapsed] = React.useState(false);
 
   const normBusca = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   // Nem toda tarefa-pai desta base tem `isGroup` marcado (dado legado/importado) — mesma
@@ -704,6 +709,18 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
         </>
       }
     >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: pickersCollapsed ? 12 : 8 }}>
+        <button type="button" onClick={() => setPickersCollapsed(v => !v)}
+          title={pickersCollapsed ? 'Expandir a seleção de predecessoras/sucessoras' : 'Recolher a seleção pra ver melhor os vínculos a criar'}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: 20, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+          <Icon name={pickersCollapsed ? 'chevron-right' : 'chevron-down'} size={12} />
+          {pickersCollapsed
+            ? `Predecessoras (${predSelected.length}) · Sucessoras (${succSelected.length})`
+            : 'Recolher seleção'}
+        </button>
+      </div>
+
+      {!pickersCollapsed && (
       <div style={{ display: 'flex', gap: 14, marginBottom: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
@@ -722,13 +739,14 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
           {listaTarefas(succFiltradas, succSelected, toggleSucc, succCollapsed, setSuccCollapsed)}
         </div>
       </div>
+      )}
 
       {succRows.length > 0 && (
         <div>
           <div style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>
             Vínculos a criar
           </div>
-          <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ maxHeight: pickersCollapsed ? 460 : 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
                 <tr>

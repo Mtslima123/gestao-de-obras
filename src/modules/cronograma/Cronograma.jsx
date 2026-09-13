@@ -160,11 +160,28 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   React.useEffect(() => {
     const L = leftRef.current, R = rightRef.current;
     if (!L || !R) return;
-    const sl = () => { if (!syncing.current) { syncing.current = true; R.scrollTop = L.scrollTop; syncing.current = false; } };
-    const sr = () => { if (!syncing.current) { syncing.current = true; L.scrollTop = R.scrollTop; syncing.current = false; } };
-    L.addEventListener('scroll', sl);
-    R.addEventListener('scroll', sr);
-    return () => { L.removeEventListener('scroll', sl); R.removeEventListener('scroll', sr); };
+    // Arrastar a barra de rolagem do painel direito dispara 'scroll' em taxa altíssima (um
+    // evento por pixel), e cada um escrevia scrollTop no painel esquerdo na hora — o
+    // navegador não consegue desenhar a posição da própria barra tão rápido quanto isso
+    // roda, e o resultado visual é a barra "tremendo" durante o arraste. Agrupar as escritas
+    // num requestAnimationFrame (no máximo uma por frame) resolve, sem mudar o resultado
+    // final do sincronismo.
+    let raf = null;
+    const sl = () => {
+      if (syncing.current || raf) return;
+      raf = requestAnimationFrame(() => { raf = null; syncing.current = true; R.scrollTop = L.scrollTop; syncing.current = false; });
+    };
+    const sr = () => {
+      if (syncing.current || raf) return;
+      raf = requestAnimationFrame(() => { raf = null; syncing.current = true; L.scrollTop = R.scrollTop; syncing.current = false; });
+    };
+    L.addEventListener('scroll', sl, { passive: true });
+    R.addEventListener('scroll', sr, { passive: true });
+    return () => {
+      L.removeEventListener('scroll', sl);
+      R.removeEventListener('scroll', sr);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   // Mede a barra de rolagem horizontal do painel direito e reflete no espaçador do esquerdo.
@@ -524,6 +541,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                       <option value="a3">A3</option>
                       <option value="a2">A2</option>
                       <option value="a1">A1</option>
+                      <option value="a0">A0</option>
                     </select>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
@@ -1234,6 +1252,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
                   <option value="a3">A3</option>
                   <option value="a2">A2</option>
                   <option value="a1">A1</option>
+                  <option value="a0">A0</option>
                 </select>
               </div>
               <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>

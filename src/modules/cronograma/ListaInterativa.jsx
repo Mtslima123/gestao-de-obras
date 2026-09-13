@@ -65,8 +65,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [showAddCol,     setShowAddCol]     = React.useState(false);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // array de ids a excluir (ou null)
   const [showPavimentos, setShowPavimentos] = React.useState(false);
+  // Rótulo do último nível aplicado no combo "Estrutura" — o próprio <select> volta pro
+  // placeholder a cada escolha (de propósito: reaplicar o MESMO nível depois de expandir/
+  // recolher tarefas manualmente precisa continuar disparando onChange), então sem isto não
+  // dava pra ver qual nível estava selecionado depois de escolher.
+  const [nivelEstruturaLabel, setNivelEstruturaLabel] = React.useState(null);
   const [showVincularTarefas, setShowVincularTarefas] = React.useState(false);
-  const [vincularPredIds, setVincularPredIds] = React.useState([]); // seleção da grade capturada ao abrir o modal
   const [showImportEAP, setShowImportEAP] = React.useState(false);
   const [showRowHDialog, setShowRowHDialog] = React.useState(false); // caixa "Altura da linha"
   const [rowHDialogTargets, setRowHDialogTargets] = React.useState([]); // linhas alvo da altura
@@ -104,6 +108,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [localizarTermo, setLocalizarTermo] = React.useState('');
   const [substituirTermo, setSubstituirTermo] = React.useState(''); // "Substituir por" do modal Localizar
   const localizarIdxRef = React.useRef(-1);
+  // Trocar de aba do ribbon (Tarefa/Inserir/Exibir/...) limpa o que ficou digitado em
+  // Localizar/Substituir — o modal continua aberto entre trocas de aba (não desmonta como
+  // ao trocar de VIEW do Cronograma, que reseta tudo sozinho), então sem isto o termo da
+  // busca/troca anterior ficava preso lá até o usuário apagar na mão.
+  React.useEffect(() => {
+    setLocalizarTermo('');
+    setSubstituirTermo('');
+    localizarIdxRef.current = -1;
+  }, [activeTab]);
   const [openModoMenu,   setOpenModoMenu]   = React.useState(null); // id da tarefa com o menu de Modo aberto
   const modoMenuRef = React.useRef(null);
   React.useEffect(() => {
@@ -3083,7 +3096,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={{ ...rowStyle, justifyContent: 'center' }}>
                           <button style={iconBtn}
-                            onClick={() => { setVincularPredIds([...selectedRowIds()]); setShowVincularTarefas(true); }}
+                            onClick={() => setShowVincularTarefas(true)}
                             title="Vincular predecessoras e sucessoras em lote">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.5 7.5 15.5 16.5"/></svg>
                           </button>
@@ -3202,7 +3215,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={rowStyle}>
                           <select defaultValue="" title="Expandir/recolher a estrutura por nível"
-                            onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') onOutlineLevel?.(Number(v)); }}
+                            onChange={e => {
+                              const v = e.target.value; e.target.value = '';
+                              if (v === '') return;
+                              onOutlineLevel?.(Number(v));
+                              setNivelEstruturaLabel(v === '0' ? 'Tudo expandido' : v === '1' ? 'Tudo recolhido' : `Nível ${v}`);
+                            }}
                             style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
                             <option value="" disabled>Estrutura…</option>
                             <option value="0">Expandir tudo</option>
@@ -3211,7 +3229,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           </select>
                         </div>
                       </div>
-                      <div style={caption}>Estrutura</div>
+                      <div style={caption}>{nivelEstruturaLabel ? `Estrutura · ${nivelEstruturaLabel}` : 'Estrutura'}</div>
                     </div>
 
                     {/* Mostrar/Ocultar (estilo MS Project) */}
@@ -3319,6 +3337,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           <option value="a3">A3</option>
                           <option value="a2">A2</option>
                           <option value="a1">A1</option>
+                          <option value="a0">A0</option>
                         </select>
                         <button style={{ ...cmdBtn, minWidth: 70 }} onClick={exportPDFLista} disabled={exportingPDF} title="Exportar para PDF">
                           <Icon name="download" size={13} /> {exportingPDF ? 'Gerando…' : 'PDF'}
@@ -4420,7 +4439,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           etapas={etapas}
           rowNumberMap={rowNumberMap}
           onCommit={onCommit}
-          initialPredIds={vincularPredIds}
           onClose={() => setShowVincularTarefas(false)}
         />
       )}

@@ -122,6 +122,27 @@ describe('validarAbertura', () => {
     expect(ok).toBe(true);
     expect(pendentes).toEqual([]);
   });
+
+  it('bloqueia tarefa que começou num mês anterior e segue em 0%, mesmo com término no mês atual/futuro', () => {
+    // dur: 30 (dias úteis) garante término bem depois do início — cai em julho (MES) ou
+    // depois, então quem pega esta tarefa é só a branch nova (início zerado), não a de término.
+    const etapasZeradas = [
+      { id: 'Z', etapa: 'NuncaComecou', isGroup: false, nivel: 0, parentId: null, inicio: dateToOffset('2026-06-10'), dur: 30, avanco: 0 },
+    ];
+    const { ok, pendentes } = validarAbertura(etapasZeradas, MES, { Z: '9.4' });
+    expect(ok).toBe(false);
+    expect(pendentes.map(p => p.id)).toEqual(['Z']);
+    expect(pendentes[0]).toMatchObject({ motivo: 'zerada', inicioMes: '2026-06', avanco: 0 });
+  });
+
+  it('não bloqueia tarefa em 0% que começa no próprio mês sendo aberto (ou depois)', () => {
+    const etapasZeradas = [
+      { id: 'Z2', etapa: 'ComecaEsteMes', isGroup: false, nivel: 0, parentId: null, inicio: dateToOffset('2026-07-20'), dur: 0, avanco: 0 },
+    ];
+    const { ok, pendentes } = validarAbertura(etapasZeradas, MES, { Z2: '9.5' });
+    expect(ok).toBe(true);
+    expect(pendentes).toEqual([]);
+  });
 });
 
 describe('computeArvoreMedicao', () => {

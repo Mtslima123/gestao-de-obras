@@ -45,7 +45,7 @@ function salvarMesRefMedicao(obraId, key) {
   try { localStorage.setItem('crono_medicao_mesref_' + obraId, key); } catch { /* ignore */ }
 }
 
-const PDF_FORMATOS = ['a4', 'a3', 'a2', 'a1'];
+const PDF_FORMATOS = ['a4', 'a3', 'a2', 'a1', 'a0'];
 
 function ModalReabrirMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
   return (
@@ -154,14 +154,19 @@ function ModalPendenciasAbertura({ mesRefKey, pendentes, onClose }) {
       }
     >
       <p style={{ fontSize: 13.5, color: 'var(--danger)', fontWeight: 600, marginBottom: 8 }}>
-        {pendentes.length} tarefa(s) com término antes de {mesLabel(mesRefKey)} ainda não está(ão) em 100% de avanço.
+        {pendentes.length} tarefa(s) impedem abrir a medição de {mesLabel(mesRefKey)}:
       </p>
       <p style={{ fontSize: 13, color: 'var(--text-soft)', marginBottom: 8 }}>
-        Reprograme a(s) data(s) na Lista ou no Gantt antes de abrir esta medição:
+        Reprograme a(s) data(s) ou registre o avanço na Lista ou no Gantt antes de abrir esta medição:
       </p>
       <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-soft)' }}>
         {pendentes.map(p => (
-          <li key={p.id}>{p.wbs} — {p.descricao}: {fmtPct100(p.avanco)} (término {mesLabel(p.terminoMes)})</li>
+          <li key={p.id}>
+            {p.wbs} — {p.descricao}: {fmtPct100(p.avanco)}
+            {p.motivo === 'termino'
+              ? ` (término ${mesLabel(p.terminoMes)})`
+              : ` (sem execução desde ${mesLabel(p.inicioMes)})`}
+          </li>
         ))}
       </ul>
     </Modal>
