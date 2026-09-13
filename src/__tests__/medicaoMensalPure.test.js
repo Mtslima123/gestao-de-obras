@@ -176,6 +176,26 @@ describe('validarFechamento', () => {
     expect(ok).toBe(true);
     expect(violacoes).toEqual([]);
   });
+
+  it('bloqueia tarefa que atravessa mês MESMO com % medido = % executado (marcada 100% sem ajustar as datas)', () => {
+    const itens = [{
+      id: 'BL2', wbs: '1.2', descricao: 'BL2', percMedido: 100, percExecutado: 100,
+      inicioOff: dateToOffset('2026-09-25'), terminoOff: dateToOffset('2026-10-09'),
+    }];
+    const { ok, violacoes } = validarFechamento(itens);
+    expect(ok).toBe(false);
+    expect(violacoes[0]).toMatchObject({ id: 'BL2', atravessaMes: true });
+  });
+
+  it('não bloqueia tarefa que atravessa mês quando é item "fora do mês" (registro manual de avanço adiantado)', () => {
+    const itens = [{
+      id: 'ADIANTADO', wbs: '1.4', descricao: 'Adiantada', percMedido: 30, percExecutado: 30, foraDoMes: true,
+      inicioOff: dateToOffset('2026-09-25'), terminoOff: dateToOffset('2026-10-09'),
+    }];
+    const { ok, violacoes } = validarFechamento(itens);
+    expect(ok).toBe(true);
+    expect(violacoes).toEqual([]);
+  });
 });
 
 describe('computeArvoreMedicao', () => {

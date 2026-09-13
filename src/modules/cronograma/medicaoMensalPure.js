@@ -287,17 +287,22 @@ export function computeResumo({ monthlyTotals, mesRefKey, valorMedidoMes = 0 }) 
   };
 }
 
-// Bloqueia o fechamento se algum item tiver %medido acima do %executado da tarefa.
-// `atravessaMes`: início e término em meses diferentes — explica pro usuário POR QUE
-// o %executado (avanço geral da tarefa) fica abaixo do %medido do mês: ele ainda conta
-// o trabalho pendente no(s) mês(es) seguinte(s). Ver ModalFecharMedicao em MedicaoMensal.jsx.
+// Bloqueia o fechamento se algum item tiver %medido acima do %executado da tarefa OU
+// atravessar o mês (início e término em meses diferentes) — mesmo com %medido = %executado
+// (ex.: alguém marcou a tarefa em 100% sem ajustar as datas dela), fechar o mês com uma
+// tarefa cujo cronograma ainda se estende pro mês seguinte é inconsistente: a tarefa
+// precisa ser separada primeiro ("Reprogramar restante" na Lista, ver ModalFecharMedicao em
+// MedicaoMensal.jsx) pra só então cada pedaço ficar contido no mês em que é medido.
+// Item "fora do mês" (foraDoMes) é registro manual de avanço adiantado — não representa a
+// tarefa tomando o mês inteiro, então fica de fora da regra de atravessar mês (só continua
+// valendo a checagem de %medido/%executado).
 export function validarFechamento(itens) {
   const violacoes = itens
-    .filter(i => i.percMedido > i.percExecutado)
     .map(i => ({
       ...i,
-      atravessaMes: offsetToISO(i.inicioOff).slice(0, 7) !== offsetToISO(i.terminoOff - 1).slice(0, 7),
-    }));
+      atravessaMes: !i.foraDoMes && offsetToISO(i.inicioOff).slice(0, 7) !== offsetToISO(i.terminoOff - 1).slice(0, 7),
+    }))
+    .filter(i => i.percMedido > i.percExecutado || i.atravessaMes);
   return { ok: violacoes.length === 0, violacoes };
 }
 

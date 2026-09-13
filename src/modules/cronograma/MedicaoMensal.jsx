@@ -220,21 +220,25 @@ function ModalFecharMedicao({ mesRefKey, violacoes, salvando, onClose, onConfirm
       {bloqueadoPorViolacao ? (
         <div>
           <p style={{ color: 'var(--danger)', fontWeight: 600, marginBottom: 8, fontSize: 13.5 }}>
-            {violacoes.length} item(ns) com % medido maior que % executado. Corrija antes de fechar:
+            {violacoes.length} tarefa(s) impedem o fechamento de {mesLabel(mesRefKey)}:
           </p>
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-soft)' }}>
-            {violacoes.map(v => (
-              <li key={v.id}>
-                {v.wbs} — {v.descricao}: medido {fmtPct100(v.percMedido)} &gt; executado {fmtPct100(v.percExecutado)}
-                {v.atravessaMes && (
-                  <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>
-                    Essa tarefa começa num mês e termina em outro — o % executado ainda conta o
-                    trabalho pendente no mês seguinte. Na Lista, botão direito na tarefa →
-                    "Reprogramar restante" separa o que já foi feito do que falta, e libera o fechamento.
-                  </div>
-                )}
-              </li>
-            ))}
+            {violacoes.map(v => {
+              const percProblema = v.percMedido > v.percExecutado;
+              return (
+                <li key={v.id}>
+                  {v.wbs} — {v.descricao}
+                  {percProblema && <>: medido {fmtPct100(v.percMedido)} &gt; executado {fmtPct100(v.percExecutado)}</>}
+                  {v.atravessaMes && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>
+                      Essa tarefa começa num mês e termina em outro — mesmo com o % batendo, o mês só
+                      pode fechar com ela inteira contida nele. Na Lista, botão direito na tarefa →
+                      "Reprogramar restante" separa o que já foi feito do que falta, e libera o fechamento.
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : (
