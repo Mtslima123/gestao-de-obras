@@ -457,8 +457,12 @@ export function reprogramarRestante(etapaId, etapas) {
   const restanteCusto = Math.max(0, custo - fechadoCusto);
   const fechadoCustoRealizado  = Math.round(custoRealizado * perc / 100);
   const restanteCustoRealizado = Math.max(0, custoRealizado - fechadoCustoRealizado);
-  const fechadoFim = taskEnd({ isGroup: false, inicio: target.inicio, dur: fechadoDur });
-  const proxMes    = nextMonthStartOffset(fechadoFim);
+  // O mês do "restante" vem do início ORIGINAL da tarefa, não de quanto foi executado —
+  // calcular a partir do fim do pedaço executado (offset exclusivo) fazia o mês mudar
+  // dependendo do %, e travava especificamente quando o último dia trabalhado caía no
+  // fim do mês (esse offset virava dia 1, e nextMonthStartOffset somava mais um mês em
+  // cima, pulando pra 2 meses à frente do que devia).
+  const proxMes    = nextMonthStartOffset(target.inicio);
   const proxMesISO = offsetToISO(proxMes);
   const cloneDep   = () => (target.dep || []).map(d => ({ ...d }));
 

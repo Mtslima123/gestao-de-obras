@@ -59,6 +59,18 @@ describe('reprogramarRestante', () => {
     expect(restante.inicio).toBe(dateToOffset('2024-04-01'));
   });
 
+  it('o restante cai no mês seguinte ao INÍCIO da tarefa, mesmo quando o executado termina no último dia útil do mês (caso que pulava um mês)', () => {
+    // Reproduz o caso real (BL2): início 25/09/2026 (sexta), dur 10, avanço 40% ->
+    // fechadoDur 4 dias úteis -> último dia trabalhado 30/09 (quarta), fim exclusivo
+    // 01/10 (cai bem no dia 1). Calcular o "próximo mês" a partir desse fim exclusivo
+    // saltava pra novembro; a partir do início da tarefa (setembro) dá outubro, certo.
+    const t = baseTarefa({ inicio: dateToOffset('2026-09-25'), dur: 10, avanco: 40 });
+    const out = reprogramarRestante('T1', [t]);
+    const restante = out.find(e => e.parentId === 'T1' && e.avanco === 0);
+    expect(restante.restricaoData).toBe('2026-10-01');
+    expect(restante.inicio).toBe(dateToOffset('2026-10-01'));
+  });
+
   it('as duas folhas novas herdam as predecessoras da tarefa original', () => {
     const etapas = [
       baseTarefa({ id: 'P', etapa: 'Predecessora', dur: 5, avanco: 100, dep: [] }),
