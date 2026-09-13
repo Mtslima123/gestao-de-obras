@@ -408,7 +408,7 @@ function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar }) {
 
 export default function MedicaoMensal({
   etapas, months, monthlyDist, monthlyTotals, valorVinculadoMap = {}, wbsMap,
-  obraId, readOnly, currentUser, onAtualizarDados, onEnviarAvanco,
+  obraId, readOnly, currentUser, onEnviarAvanco,
   reprogramacoes = [], obraNome = 'Projeto',
 }) {
   const toast = useToast();
@@ -1058,20 +1058,6 @@ export default function MedicaoMensal({
               return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;
             })}
           </select>
-          <button type="button" className="btn btn-ghost" onClick={onAtualizarDados} disabled={carregando}
-            title="Busca o cronograma de novo no banco — use se alguém mudou a obra em outra aba/computador enquanto você media">
-            <Icon name="refresh-cw" size={15} />Atualizar dados
-          </button>
-          {/* Este botão nunca criou nada: é o mesmo carregamento, relendo o cronograma.
-              O nome agora diz isso, e ele só aparece com a medição aberta. */}
-          {aberta && !readOnly && (
-            <button type="button" className="btn btn-ghost"
-              onClick={async () => { await gerarMedicao(); toast('Recalculado a partir do cronograma', { tone: 'success', icon: 'check' }); }}
-              disabled={carregando}
-              title="Relê o cronograma e recalcula as linhas, mantendo os % já medidos">
-              <Icon name="refresh-cw" size={15} />{carregando ? 'Recalculando…' : 'Recalcular do cronograma'}
-            </button>
-          )}
           <div ref={exportRef} style={{ position: 'relative' }}>
             <button type="button" className="btn btn-ghost" onClick={() => setExportOpen(o => !o)} disabled={exportando}>
               <Icon name="download" size={15} />{exportando ? 'Exportando…' : 'Exportar'}<Icon name="chevron-down" size={13} />

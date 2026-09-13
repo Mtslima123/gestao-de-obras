@@ -221,17 +221,29 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
     return set;
   }, [etapas]);
 
-  const alternarGrupoUso = (id) => setCollapsedUso(prev => {
-    const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
+  // Nível aplicado pelo combo "Estrutura" abaixo — mostrado no próprio select (mesmo
+  // padrão do Medição Mensal) em vez de sempre voltar pro placeholder, senão não havia
+  // confirmação nenhuma de que a escolha tinha feito efeito. Some de novo se um chevron
+  // individual for clicado, porque aí a árvore deixa de estar uniformemente naquele nível.
+  const [nivelUso, setNivelUso] = React.useState('');
+
+  const alternarGrupoUso = (id) => {
+    setNivelUso('');
+    setCollapsedUso(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   // Mesma semantica de applyOutlineLevel (0 = expandir tudo, N recolhe de nivel >= N-1),
   // mas preenchendo o Set local em vez de dar commit no cronograma.
-  const aplicarNivelUso = (nivel) => setCollapsedUso(
-    nivel > 0 ? new Set(etapas.filter(e => e.isGroup && (e.nivel || 0) >= nivel - 1).map(e => e.id)) : new Set()
-  );
+  const aplicarNivelUso = (nivel) => {
+    setNivelUso(String(nivel));
+    setCollapsedUso(
+      nivel > 0 ? new Set(etapas.filter(e => e.isGroup && (e.nivel || 0) >= nivel - 1).map(e => e.id)) : new Set()
+    );
+  };
 
   // wbsMap e custoOrcadoMap vêm por prop, calculados uma única vez em CronogramaFull
   // (que nunca desmonta ao trocar de aba) — evita recalcular sobre todas as etapas
@@ -516,9 +528,11 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
                 </div>
               )}
             </div>
-            {/* Recolher/expandir por nivel — mesmo select da Lista e do Gantt, mas local. */}
-            <select defaultValue="" title="Expandir/recolher a estrutura por nivel"
-              onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') aplicarNivelUso(Number(v)); }}
+            {/* Recolher/expandir por nivel — mesmo select da Lista e do Gantt, mas local.
+               Controlado (value={nivelUso}) pra mostrar o nível aplicado, em vez de sempre
+               voltar pro placeholder "Estrutura…" sem confirmar se a escolha fez efeito. */}
+            <select value={nivelUso} title="Expandir/recolher a estrutura por nivel"
+              onChange={e => { const v = e.target.value; if (v !== '') aplicarNivelUso(Number(v)); }}
               style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
               <option value="" disabled>Estrutura…</option>
               <option value="0">Expandir tudo</option>
@@ -3017,7 +3031,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                       </div>
                       <div className="kpi-bar">
                         <span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} />
-                        {baselines.length > 0 && <span className="kpi-bar-target" style={{ left: previstoPct + '%' }} />}
                       </div>
                       <div className="kpi-foot" style={{ marginTop: 6 }}>
                         <span className="kpi-foot-text">
@@ -3051,7 +3064,6 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                         "vs previsto" de verdade, é só "vs o que está agendado agora". */}
                     <div className="kpi-bar">
                       <span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} />
-                      {baselines.length > 0 && <span className="kpi-bar-target" style={{ left: plannedPct + '%' }} />}
                     </div>
                     <div className="kpi-foot" style={{ marginTop: 6 }}>
                       {baselines.length > 0 ? (
@@ -3393,7 +3405,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                 <MedicaoMensal
                   etapas={etapas} months={months} monthlyDist={monthlyDist} monthlyTotals={monthlyTotals}
                   valorVinculadoMap={valorVinculadoMapFull} obraId={obraSel} readOnly={readOnly}
-                  currentUser={currentUser} onAtualizarDados={recarregarCronograma}
+                  currentUser={currentUser}
                   onEnviarAvanco={aplicarMedicaoNoAvanco} wbsMap={wbsMap}
                   reprogramacoes={reprogramacoes}
                   obraNome={obra?.nome || 'Projeto'}
