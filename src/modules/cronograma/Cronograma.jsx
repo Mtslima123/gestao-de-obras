@@ -12,7 +12,7 @@ import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
 import { podeVerAba, moduloSomenteLeitura, abaSomenteLeitura, isAdmin } from '../../utils/permissions';
 import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay } from './cronogramaDateUtils';
 import {
-  migrateEtapas, fmtBRL, computeAllWBS, effStatus, autoScheduleFromDeps,
+  migrateEtapas, fmtBRL, computeAllWBS, effStatus, statusAposAvanco, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
   computeGroupValues, computeSuccessors, computeAvancoFisico, computeRowNumberMap,
 } from './scheduleEngine';
@@ -2850,7 +2850,11 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const aplicarMedicaoNoAvanco = (pares) => {
     if (readOnly || !pares.length) return;
     const porId = new Map(pares.map(p => [p.id, p.percMedido]));
-    commit(etapas.map(e => (porId.has(e.id) ? { ...e, avanco: porId.get(e.id) } : e)));
+    commit(etapas.map(e => {
+      if (!porId.has(e.id)) return e;
+      const avanco = porId.get(e.id);
+      return { ...e, avanco, status: statusAposAvanco(e.status, avanco) };
+    }));
   };
 
   const undo = () => {

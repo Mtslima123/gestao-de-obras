@@ -3,7 +3,7 @@
 //   off0=Sex, off1=Sáb, off2=Dom, off3=Seg, off4=Ter, off5=Qua, off6=Qui, off7=Sex...
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setWorkCal, workEnd, workStart, workDur, taskEnd, taskEndDisplay, offsetToISO, isoToBRWeekday } from '../modules/cronograma/cronogramaDateUtils';
-import { autoScheduleFromDeps, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento, formatDepList } from '../modules/cronograma/scheduleEngine';
+import { autoScheduleFromDeps, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento, formatDepList, effStatus, statusAposAvanco } from '../modules/cronograma/scheduleEngine';
 
 beforeEach(() => setWorkCal({ dias: [], sabadoUtil: false }));
 
@@ -257,5 +257,41 @@ describe('formatDepList — predecessora fora do rowNumberMap cai pra numeraçã
 
   it('sem etapas pra calcular a numeração completa, cai pro id cru mesmo (não tem outra opção)', () => {
     expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], null, {})).toBe('TSK-001');
+  });
+});
+
+// Bug relatado: painel de detalhes mostrava STATUS "Concluída" com Progresso físico 0% —
+// effStatus só corrigia numa direção (avanco>=100 -> 'done'), nunca desfazia um
+// status:'done' salvo quando o avanço caía de volta abaixo de 100 (ex.: fatia "(executado)"
+// do Reprogramar restante, que nasce com avanco:100/status:'done' fixos).
+describe('statusAposAvanco / effStatus — status "fantasma" não sobrevive a um avanço baixo', () => {
+  it('statusAposAvanco: avanco < 100 com status done vira ongoing', () => {
+    expect(statusAposAvanco('done', 0)).toBe('ongoing');
+    expect(statusAposAvanco('done', 99)).toBe('ongoing');
+  });
+
+  it('statusAposAvanco: avanco >= 100 ou status != done não mexe', () => {
+    expect(statusAposAvanco('done', 100)).toBe('done');
+    expect(statusAposAvanco('late', 0)).toBe('late');
+    expect(statusAposAvanco('upcoming', 0)).toBe('upcoming');
+  });
+
+  it('effStatus: folha com status done "fantasma" (avanco baixo) não mostra done', () => {
+    expect(effStatus({ isGroup: false, avanco: 0, status: 'done' })).toBe('ongoing');
+  });
+
+  it('effStatus: avanco >= 100 continua done, mesmo com status salvo diferente', () => {
+    expect(effStatus({ isGroup: false, avanco: 100, status: 'upcoming' })).toBe('done');
+  });
+
+  it('effStatus: grupo não entra nessa lógica, devolve o status cru', () => {
+    expect(effStatus({ isGroup: true, avanco: 0, status: 'done' })).toBe('done');
+  });
+
+  it('applyFieldToEtapa: editar avanço pra baixo de 100 limpa o status done salvo', () => {
+    const e = { id: 'A', avanco: 100, status: 'done' };
+    const out = applyFieldToEtapa(e, 'avanco', '0', [e]);
+    expect(out.avanco).toBe(0);
+    expect(out.status).toBe('ongoing');
   });
 });

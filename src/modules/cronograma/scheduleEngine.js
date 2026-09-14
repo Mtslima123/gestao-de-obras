@@ -162,10 +162,22 @@ export function computeRowNumberMap(etapas) {
   return map;
 }
 
+// Corrige o status "fantasma": uma tarefa não pode ficar mostrando/salvando 'done'
+// (Concluída) enquanto o avanço é menor que 100 — acontecia com a fatia "(executado)"
+// do Reprogramar restante (nasce com avanco:100/status:'done' fixos) ou com qualquer
+// edição de avanço que não re-sincronizava o status junto.
+export function statusAposAvanco(status, avanco) {
+  return (avanco < 100 && status === 'done') ? 'ongoing' : status;
+}
+
 // Status efetivo para EXIBIÇÃO/contagem: tarefa em 100% conta como concluída (verde),
 // mesmo que o status salvo ainda seja outro. Não altera o dado persistido.
 // Grupos não flipam aqui (o avanço do grupo é calculado à parte, não vive em e.avanco).
-export const effStatus = (e) => (!e?.isGroup && (e?.avanco ?? 0) >= 100 ? 'done' : e?.status);
+export const effStatus = (e) => {
+  if (e?.isGroup) return e?.status;
+  const avanco = e?.avanco ?? 0;
+  return avanco >= 100 ? 'done' : statusAposAvanco(e?.status, avanco);
+};
 
 export function getVisibleEtapas(etapas) {
   const collapsed = new Set(etapas.filter(e => e.isGroup && e.collapsed).map(e => e.id));
@@ -595,7 +607,10 @@ export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   // offset EXCLUSIVO (dia seguinte) — ver taskEndDisplay em cronogramaDateUtils.js.
   if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)) + 1; return { ...e, dur: workDur(e.inicio, offset) }; }
   if (field === 'duracaoDias') { return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) }; }
-  if (field === 'avanco')      { return { ...e, avanco: Math.min(100, Math.max(0, parseInt(rawValue) || 0)) }; }
+  if (field === 'avanco') {
+    const avanco = Math.min(100, Math.max(0, parseInt(rawValue) || 0));
+    return { ...e, avanco, status: statusAposAvanco(e.status, avanco) };
+  }
   // .filter(d => d.id !== e.id): nunca deixa a tarefa virar predecessora dela mesma (digitar
   // o próprio número na coluna Predecessora) — mesma guarda que applySuccEdits já tem pro
   // lado da Sucessora.
