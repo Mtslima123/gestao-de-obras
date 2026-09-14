@@ -1226,30 +1226,64 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
     if (!withTotals.length) { toast('Nada para exportar', { tone: 'neutral', icon: 'alert' }); return; }
     setExportingExcel(true);
     try {
-      const XLSX = await import('xlsx');
+      const mod  = await import('xlsx-js-style');
+      const XLSX = mod.utils ? mod : mod.default; // interop: xlsx-js-style não expõe named exports estáticos como o `xlsx`
+      const BRAND_RGB = '1C4584'; // mesma cor do PDF (BRAND = [28, 69, 132])
+      const HEADER_STYLE = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: BRAND_RGB } }, alignment: { horizontal: 'center', vertical: 'center' } };
+      const GROUP_STYLE  = { font: { bold: true }, fill: { fgColor: { rgb: 'E8F0FC' } } }; // mesma cor do didParseCell do PDF
+      const TOTAL_STYLE  = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: BRAND_RGB } } }; // mesma cor do footStyles do PDF
+      const TITLE_STYLE    = { font: { bold: true, sz: 13 } };
+      const SUBTITLE_STYLE = { font: { sz: 9, color: { rgb: '808080' } } };
+      const aplicarEstiloLinha = (rowIdx0, numCols, style) => {
+        for (let c = 0; c < numCols; c++) {
+          const addr = XLSX.utils.encode_cell({ r: rowIdx0, c });
+          if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+          ws[addr].s = { ...style };
+        }
+      };
       const grupo = (it) => parentSet.has(it.codigo);
-      const rows = [
-        ['Código', 'Nome', 'Quant.', 'Un.', 'Valor Unit.', 'Valor Total'],
-        ...withTotals.map(it => ([
+      const HEADER_ROW  = 3;
+      const cabecalho   = ['Código', 'Nome', 'Quant.', 'Un.', 'Valor Unit.', 'Valor Total'];
+      const groupRowIdx = [];
+      const dataRows = withTotals.map((it, i) => {
+        if (grupo(it)) groupRowIdx.push(HEADER_ROW + 1 + i);
+        return [
           '  '.repeat(getNivel(it.codigo)) + it.codigo,
           it.nome || '',
           grupo(it) ? '' : (Number(it.quantidade) || 0),
           grupo(it) ? '' : (it.unidade || ''),
           grupo(it) ? '' : (Number(it.valor_unitario) || 0),
           Number(it.valor_total) || 0,
-        ])),
+        ];
+      });
+      const totalRowIdx = HEADER_ROW + 1 + dataRows.length;
+      const rows = [
+        [`Orçamento ${orcamento.id}`],
+        [`${orcamento.obra || orcamento.cliente || ''} · Gerado em ${new Date().toLocaleDateString('pt-BR')}`],
+        [],
+        cabecalho,
+        ...dataRows,
         ['', 'Total', '', '', '', grandTotal],
       ];
       const ws = XLSX.utils.aoa_to_sheet(rows);
       // Formato de número nas colunas Quant.(2), Valor Unit.(4), Valor Total(5)
       const rng = XLSX.utils.decode_range(ws['!ref']);
-      for (let R = 1; R <= rng.e.r; R++) {
+      for (let R = HEADER_ROW + 1; R <= rng.e.r; R++) {
         [2, 4, 5].forEach(C => {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (ws[addr] && typeof ws[addr].v === 'number') ws[addr].z = '#,##0.00';
         });
       }
       ws['!cols'] = [{ wch: 18 }, { wch: 44 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 16 }];
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: cabecalho.length - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: cabecalho.length - 1 } },
+      ];
+      ws['A1'].s = { ...TITLE_STYLE };
+      ws['A2'].s = { ...SUBTITLE_STYLE };
+      aplicarEstiloLinha(HEADER_ROW, cabecalho.length, HEADER_STYLE);
+      groupRowIdx.forEach(r => aplicarEstiloLinha(r, cabecalho.length, GROUP_STYLE));
+      aplicarEstiloLinha(totalRowIdx, cabecalho.length, TOTAL_STYLE);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Orçamento');
       XLSX.writeFile(wb, `orcamento-${orcamento.id}.xlsx`);
