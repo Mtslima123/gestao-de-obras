@@ -69,9 +69,16 @@ function computeJanela(etapasAll) {
 }
 
 const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
-  const rows = resumoOnly && etapas.some(e => e.isGroup)
-    ? etapas.filter(e => e.isGroup)
-    : etapas; // sem grupos definidos: mostra tudo, evita card vazio
+  // "Cronograma resumido" mostra só o Nível 1 (grupos de topo, nivel 0) — antes pegava
+  // TODOS os grupos (isGroup), inclusive subgrupos aninhados (ex.: "BL2" dentro de
+  // "FUNDAÇÃO", "CHAPISCO EXTERNO" dentro de "REVESTIMENTO EXTERNO"), fugindo do resumo.
+  // Cai pra "todo grupo" ou "tudo" se a EAP não tiver nenhum grupo de nivel 0, pra nunca
+  // deixar o card vazio.
+  const gruposTopo = etapas.filter(e => e.isGroup && (e.nivel || 0) === 0);
+  const gruposTodos = etapas.filter(e => e.isGroup);
+  const rows = resumoOnly
+    ? (gruposTopo.length ? gruposTopo : gruposTodos.length ? gruposTodos : etapas)
+    : etapas;
 
   // Recolher grupos (só faz sentido na visão completa — resumoOnly já mostra só os grupos).
   const [collapsed, setCollapsed] = React.useState(() => new Set());
@@ -79,7 +86,12 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
     () => rows.filter(e => e.isGroup).reduce((m, e) => Math.max(m, e.nivel || 0), 0),
     [rows]
   );
+  // Último nível escolhido no select — só para o select mostrar o que foi aplicado (em vez
+  // de sempre voltar a "Nível…"). Some de novo assim que um chevron é clicado à mão, porque
+  // nesse momento deixa de ser verdade que a árvore inteira está naquele nível só.
+  const [nivelSelecionado, setNivelSelecionado] = React.useState('');
   const collapseToLevel = (maxNivel) => {
+    setNivelSelecionado(String(maxNivel));
     if (maxNivel < 0) { setCollapsed(new Set()); return; }
     setCollapsed(new Set(rows.filter(e => e.isGroup && (e.nivel || 0) === maxNivel).map(e => e.id)));
   };
@@ -133,8 +145,8 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
                 sobre a coluna de meses. O select tem largura fixa, não importa quantos níveis
                 existam — mesmo padrão "Estrutura…" já usado na Lista/Gantt/Uso da Tarefa/Medição. */}
             {!resumoOnly && rows.some(e => e.isGroup) && (
-              <select defaultValue="" title="Expandir ou recolher a estrutura por nível"
-                onChange={e => { const v = e.target.value; e.target.value = ''; if (v !== '') collapseToLevel(Number(v)); }}
+              <select value={nivelSelecionado} title="Expandir ou recolher a estrutura por nível"
+                onChange={e => collapseToLevel(Number(e.target.value))}
                 style={{ height: 20, fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', borderRadius: 4, background: 'var(--surface)', color: 'var(--text)', padding: '0 3px', cursor: 'pointer' }}>
                 <option value="" disabled>Nível…</option>
                 <option value="-1">Expandir tudo</option>
@@ -154,7 +166,7 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
             <div className="gantt-row" key={i}>
               <div className="gantt-label" style={{ paddingLeft: 14 + (e.nivel || 0) * 14, fontWeight: e.isGroup ? 700 : 400 }}>
                 {e.isGroup && !resumoOnly && (
-                  <span onClick={() => setCollapsed(prev => { const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; })}
+                  <span onClick={() => { setNivelSelecionado(''); setCollapsed(prev => { const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; }); }}
                     title={collapsed.has(e.id) ? 'Expandir' : 'Recolher'}
                     style={{ color: 'var(--text-muted)', marginRight: 5, fontSize: 10, cursor: 'pointer', userSelect: 'none' }}>
                     {collapsed.has(e.id) ? '▸' : '▾'}
@@ -201,6 +213,14 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
   // topbar 60px + 32px de respiro. O corpo (mini-Gantt) ganha scroll próprio limitado
   // ao espaço restante da viewport, pro cabeçalho do card ficar sempre visível.
   const RESUMO_STICKY_TOP = 92;
+  // Contagem exibida no subtítulo do card — mesma regra de fallback do componente Gantt
+  // (resumoOnly): grupos de nível 1 (topo); sem nenhum, todo grupo; sem grupo nenhum, tudo.
+  const etapasPrincipaisCount = React.useMemo(() => {
+    const topo = etapas.filter(e => e.isGroup && (e.nivel || 0) === 0).length;
+    if (topo) return topo;
+    const todosGrupos = etapas.filter(e => e.isGroup).length;
+    return todosGrupos || etapas.length;
+  }, [etapas]);
   const resumoHeaderRef = React.useRef(null);
   const [resumoBodyMaxH, setResumoBodyMaxH] = React.useState(null);
   React.useLayoutEffect(() => {
@@ -298,7 +318,7 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
           <div className="card-header" ref={resumoHeaderRef}>
             <div>
               <div className="card-title">Cronograma resumido</div>
-              <div className="card-subtitle">10 etapas principais</div>
+              <div className="card-subtitle">{etapasPrincipaisCount} etapa{etapasPrincipaisCount === 1 ? '' : 's'} principa{etapasPrincipaisCount === 1 ? 'l' : 'is'}</div>
             </div>
           </div>
           <div className="card-body" style={{ padding: '4px 0 0' }}>
@@ -738,12 +758,15 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
 
   // Upload em lote: metadados (data/pavimento/descrição) compartilhados por todas as fotos
   // selecionadas de uma vez; insere tudo num único insert e recarrega a galeria uma só vez.
+  // Processa o lote inteiro em paralelo (comprimir + 2 uploads por foto) em vez de um
+  // arquivo de cada vez — sequencial fazia N fotos esperarem 2×N idas e voltas ao
+  // Storage em série, bem mais lento do que precisava ser. Seguro porque o lote já é
+  // limitado a MAX_FOTOS (ver onFileChange) — não dispara dezenas de uploads de uma vez.
   const salvarFotos = async (metadados, files) => {
-    const rows = [];
-    for (const file of files) {
+    const resultados = await Promise.all(files.map(async (file) => {
       if (file.size > 5 * 1024 * 1024) {
         toast(`"${file.name}" muito grande (máx. 5 MB) — não foi enviada`, { tone: 'danger' });
-        continue;
+        return null;
       }
       // Sufixo aleatório além do timestamp: evita colisão de path quando várias fotos
       // do mesmo lote caem no mesmo milissegundo.
@@ -754,7 +777,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
         compressImagem(file, 600, 0.82),
       ]);
       const { error: upErr } = await supabase.storage.from('obras-images').upload(path, blob, { contentType: 'image/jpeg' });
-      if (upErr) { toast(`Erro no upload de "${file.name}": ${upErr.message}`, { tone: 'danger' }); continue; }
+      if (upErr) { toast(`Erro no upload de "${file.name}": ${upErr.message}`, { tone: 'danger' }); return null; }
       // Thumbnail é "best effort": se falhar, a foto ainda é salva (thumbnail_path nulo
       // cai no fallback pra imagem original, em carregarPagina) — não vale a pena
       // descartar o upload inteiro por causa só da miniatura.
@@ -764,8 +787,9 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
       else logger.error('falha ao subir thumbnail, segue só com a original', { module: 'obra', action: 'salvarFotos', err: thumbErr });
       // Bucket privado: a exibição é por URL assinada gerada do storage_path. A coluna
       // `url` é legada e NOT NULL — guardamos o próprio path (não geramos mais URL pública).
-      rows.push({ obra_id: obra.id, url: path, storage_path: path, thumbnail_path: thumbnailPath, ...metadados });
-    }
+      return { obra_id: obra.id, url: path, storage_path: path, thumbnail_path: thumbnailPath, ...metadados };
+    }));
+    const rows = resultados.filter(Boolean);
     if (rows.length === 0) return;
     const { error: dbErr } = await supabase.from('fotos_obra').insert(rows);
     if (dbErr) { toast('Erro ao salvar fotos', { tone: 'danger' }); return; }
@@ -1075,7 +1099,10 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
 };
 
 // ----- Modal: Upload de Foto -----
+const MAX_FOTOS = 7;
+
 const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
+  const toast = useToast();
   const [files,   setFiles]   = React.useState([]); // [{ file, preview }]
   const [saving,  setSaving]  = React.useState(false);
   const [form,    setForm]    = React.useState({ data: '', pavimento: '', descricao: '' });
@@ -1092,7 +1119,17 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
   const onFileChange = (e) => {
     const picked = Array.from(e.target.files || []);
     if (!picked.length) return;
-    const novos = picked.map(f => ({ file: f, preview: URL.createObjectURL(f) }));
+    const espacoRestante = MAX_FOTOS - filesRef.current.length;
+    if (espacoRestante <= 0) {
+      toast(`Máximo de ${MAX_FOTOS} fotos por envio.`, { tone: 'danger', icon: 'alert' });
+      e.target.value = '';
+      return;
+    }
+    const aceitos = picked.slice(0, espacoRestante);
+    if (picked.length > aceitos.length) {
+      toast(`Só ${aceitos.length} foto(s) foram adicionadas — máximo de ${MAX_FOTOS} por envio.`, { tone: 'danger', icon: 'alert' });
+    }
+    const novos = aceitos.map(f => ({ file: f, preview: URL.createObjectURL(f) }));
     setFiles(prev => [...prev, ...novos]);
     e.target.value = ''; // permite reselecionar o mesmo arquivo depois de removido
   };
@@ -1158,14 +1195,16 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
                     </button>
                   </div>
                 ))}
-                <label style={{ width: 72, height: 72, border: '2px dashed var(--border)', borderRadius: 8,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}>
-                  <Icon name="plus" size={18} />
-                  <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={onFileChange} />
-                </label>
+                {files.length < MAX_FOTOS && (
+                  <label style={{ width: 72, height: 72, border: '2px dashed var(--border)', borderRadius: 8,
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                    <Icon name="plus" size={18} />
+                    <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={onFileChange} />
+                  </label>
+                )}
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                {files.length} foto{files.length !== 1 ? 's' : ''} selecionada{files.length !== 1 ? 's' : ''} — mesma descrição e pavimento serão aplicados a todas.
+                {files.length} de {MAX_FOTOS} foto{MAX_FOTOS !== 1 ? 's' : ''} selecionada{files.length !== 1 ? 's' : ''} — mesma descrição e pavimento serão aplicados a todas.
               </div>
             </div>
           )
@@ -1711,17 +1750,22 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
             </div>
             {/* Indicadores informados no modal Editar — o sistema não calcula nenhum dos dois:
                 não há avanço financeiro acumulado real nem projeção de fechamento.
-                Cor pelo sinal: positivo verde, negativo vermelho, zero neutro. */}
-            <div className="hero-stat">
-              <div className="label">Delta (%) Físico × Financeiro</div>
-              <div className="value num" style={{ color: corPorSinal(o.deltaFisicoFinanceiro) }}>
-                {fmtPctSinal(o.deltaFisicoFinanceiro)}
+                Cor pelo sinal: positivo verde, negativo vermelho, zero neutro.
+                Os dois juntos numa única célula do grid (não uma célula cada): assim o grid
+                sempre os quebra de linha JUNTOS quando a tela aperta, nunca um sozinho longe
+                do outro — independente da largura da tela. */}
+            <div className="hero-stat" style={{ display: 'flex', gap: 20 }}>
+              <div>
+                <div className="label" style={{ whiteSpace: 'normal' }}>Delta (%) Físico × Financeiro</div>
+                <div className="value num" style={{ color: corPorSinal(o.deltaFisicoFinanceiro) }}>
+                  {fmtPctSinal(o.deltaFisicoFinanceiro)}
+                </div>
               </div>
-            </div>
-            <div className="hero-stat">
-              <div className="label">Tendência de fechamento</div>
-              <div className="value num" style={{ color: corPorSinal(o.tendenciaFechamento) }}>
-                {fmtPctSinal(o.tendenciaFechamento)}
+              <div>
+                <div className="label" style={{ whiteSpace: 'normal' }}>Tendência de fechamento</div>
+                <div className="value num" style={{ color: corPorSinal(o.tendenciaFechamento) }}>
+                  {fmtPctSinal(o.tendenciaFechamento)}
+                </div>
               </div>
             </div>
           </div>
