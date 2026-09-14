@@ -59,33 +59,27 @@ export const SCurveChart2 = ({ months = [], selIdx = 0,
           {showBarras && <text x={pL + chartW + 6} y={yS(pct) + 4} textAnchor="start" fontSize="9" fill="var(--text-muted)" fontFamily="var(--font-mono)">{(barMax * pct / 100).toFixed(1).replace('.', ',')}%</text>}
         </g>
       ))}
+      {/* Barras: só os retângulos aqui — os rótulos de % ficam num passe à parte, desenhado
+          DEPOIS das linhas/pontos (mais abaixo), pra ficarem sempre por cima e legíveis em
+          vez de passarem por baixo do traço quando a linha cruza a barra. */}
       {showBarras && barSeries.map((s, si) => (
         <g key={'bs' + s.key}>
           {months.map((m, i) => {
             const v = (s.data || [])[i];
             if (v == null || v <= 0) return null;
-            // Série "período": cor por barra (verde até o corte, azul depois).
             const isExec = i <= cut;
-            const fill    = s.perColor ? (isExec ? '#74c99a' : '#9bb8e0') : s.color;
-            const lblCol  = s.perColor ? (isExec ? '#15803d' : 'var(--brand)') : s.label;
-            const nm      = s.perColor ? (isExec ? 'Executado' : 'Replanejado') : s.name;
+            const fill = s.perColor ? (isExec ? '#74c99a' : '#9bb8e0') : s.color;
+            const nm   = s.perColor ? (isExec ? 'Executado' : 'Replanejado') : s.name;
             const x = xC(i) - groupW / 2 + si * subW;
-            // % muito pequeno (ex.: resíduo do último mês) rende uma barra quase
-            // invisível — mantém uma lasca mínima (2px) pra sempre dar pra ver que
-            // existe algo ali, com o rótulo do % de qualquer jeito.
             const y = Math.min(yBar(v), (pT + chartH) - 2);
             const bw = Math.max(subW * 0.82, 1);
             const cx = x + bw / 2;
             const tip = `${nm} · ${months[i]?.label || ''}: ${fmtPct(v)}`;
             return (
-              <g key={i}>
-                <rect x={x} y={y} width={bw} height={(pT + chartH) - y} fill={fill} rx="1"
-                  style={{ cursor: 'pointer' }}
-                  onMouseEnter={() => setHover({ cx, cy: y, text: tip, color: fill, kind: 'bar' })}
-                  onMouseLeave={() => setHover(null)} />
-                <text transform={`rotate(-90 ${cx.toFixed(1)} ${(y - 3).toFixed(1)})`} x={cx.toFixed(1)} y={(y - 3).toFixed(1)}
-                  textAnchor="start" fontSize="8.5" fontWeight="600" fill={lblCol} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
-              </g>
+              <rect key={i} x={x} y={y} width={bw} height={(pT + chartH) - y} fill={fill} rx="1"
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={() => setHover({ cx, cy: y, text: tip, color: fill, kind: 'bar' })}
+                onMouseLeave={() => setHover(null)} />
             );
           })}
         </g>
@@ -111,6 +105,26 @@ export const SCurveChart2 = ({ months = [], selIdx = 0,
           <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'pointer' }}
             onMouseEnter={() => setHover({ cx: xC(i), cy: yS(v), text: 'Executado · ' + (months[i]?.label ? months[i].label + ': ' : '') + fmtPct(v), color: execColor, kind: 'dot' })}
             onMouseLeave={() => setHover(null)} />
+        </g>
+      ))}
+      {/* Rótulos de % das barras — por cima das linhas/pontos (ver comentário acima, junto
+          dos <rect>), pra não ficarem ilegíveis quando uma linha passa sobre a barra. */}
+      {showBarras && barSeries.map((s, si) => (
+        <g key={'bl' + s.key} pointerEvents="none">
+          {months.map((m, i) => {
+            const v = (s.data || [])[i];
+            if (v == null || v <= 0) return null;
+            const isExec = i <= cut;
+            const lblCol = s.perColor ? (isExec ? '#15803d' : 'var(--brand)') : s.label;
+            const x = xC(i) - groupW / 2 + si * subW;
+            const y = Math.min(yBar(v), (pT + chartH) - 2);
+            const bw = Math.max(subW * 0.82, 1);
+            const cx = x + bw / 2;
+            return (
+              <text key={i} transform={`rotate(-90 ${cx.toFixed(1)} ${(y - 3).toFixed(1)})`} x={cx.toFixed(1)} y={(y - 3).toFixed(1)}
+                textAnchor="start" fontSize="8.5" fontWeight="600" fill={lblCol} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
+            );
+          })}
         </g>
       ))}
       {months.map((m, i) => {

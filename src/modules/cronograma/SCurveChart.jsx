@@ -50,6 +50,9 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
           {showBarras && <text x={pL + chartW + 6} y={yS(pct) + 4} textAnchor="start" fontSize="9" fill="var(--text-muted)" fontFamily="var(--font-mono)">{(barMax * pct / 100).toFixed(1).replace('.', ',')}%</text>}
         </g>
       ))}
+      {/* Barras: só os retângulos aqui — os rótulos de % ficam num passe à parte, desenhado
+          DEPOIS das linhas/pontos (mais abaixo), pra ficarem sempre por cima e legíveis em
+          vez de passarem por baixo do traço quando a linha cruza a barra. */}
       {showBarras && barSeries.map((s, si) => (
             <g key={'bs' + si}>
               {months.map((m, i) => {
@@ -64,14 +67,10 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
                 const cx = x + bw / 2;
                 const tip = `${s.name} · ${months[i]?.label || ''}: ${fmtPct(v)}`;
                 return (
-                  <g key={i}>
-                    <rect x={x} y={y} width={bw} height={(pT + chartH) - y} fill={s.color} rx="1"
-                      style={{ cursor: 'pointer' }}
-                      onMouseEnter={() => setHover({ cx, cy: y, text: tip, color: s.color, kind: 'bar' })}
-                      onMouseLeave={() => setHover(null)} />
-                    <text transform={`rotate(-90 ${cx.toFixed(1)} ${(y - 3).toFixed(1)})`} x={cx.toFixed(1)} y={(y - 3).toFixed(1)}
-                      textAnchor="start" fontSize="8.5" fontWeight="600" fill={s.label} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
-                  </g>
+                  <rect key={i} x={x} y={y} width={bw} height={(pT + chartH) - y} fill={s.color} rx="1"
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={() => setHover({ cx, cy: y, text: tip, color: s.color, kind: 'bar' })}
+                    onMouseLeave={() => setHover(null)} />
                 );
               })}
             </g>
@@ -97,6 +96,24 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
           <circle cx={xC(i)} cy={yS(v)} r="10" fill="transparent" style={{ cursor: 'pointer' }}
             onMouseEnter={() => setHover({ cx: xC(i), cy: yS(v), text: (months[i]?.label ? months[i].label + ': ' : '') + fmtPct(v), color: '#16a34a', kind: 'dot' })}
             onMouseLeave={() => setHover(null)} />
+        </g>
+      ))}
+      {/* Rótulos de % das barras — por cima das linhas/pontos (ver comentário acima, junto
+          dos <rect>), pra não ficarem ilegíveis quando uma linha passa sobre a barra. */}
+      {showBarras && barSeries.map((s, si) => (
+        <g key={'bl' + si} pointerEvents="none">
+          {months.map((m, i) => {
+            const v = (s.data || [])[i];
+            if (v == null || v <= 0) return null;
+            const x = xC(i) - groupW / 2 + si * subW;
+            const y = Math.min(yBar(v), (pT + chartH) - 2);
+            const bw = Math.max(subW * 0.82, 1);
+            const cx = x + bw / 2;
+            return (
+              <text key={i} transform={`rotate(-90 ${cx.toFixed(1)} ${(y - 3).toFixed(1)})`} x={cx.toFixed(1)} y={(y - 3).toFixed(1)}
+                textAnchor="start" fontSize="8.5" fontWeight="600" fill={s.label} fontFamily="var(--font-mono)">{fmtPct(v)}</text>
+            );
+          })}
         </g>
       ))}
       {months.map((m, i) => {
