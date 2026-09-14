@@ -17,7 +17,9 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_ROW_ANO, GM_ROW_TRI, GM_ROW_MES, GM_ROW_FINE, ZOOM_PX_DIA,
          GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN,
-         buildTaskFilterPredicate } from './cronogramaShared';
+         buildTaskFilterPredicate,
+         XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE,
+         aplicarEstiloLinha } from './cronogramaShared';
 
 // Dropdown de linha de base com lista rolável (altura máxima + barra de rolagem),
 // para não crescer demais quando há muitas reprogramações salvas.
@@ -94,10 +96,12 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   const [ribbonCollapsed, setRibbonCollapsed] = React.useState(() => localStorage.getItem('ls_crono_ribbon_collapsed') === '1');
   React.useEffect(() => { try { localStorage.setItem('ls_crono_ribbon_collapsed', ribbonCollapsed ? '1' : '0'); } catch { /* ignore */ } }, [ribbonCollapsed]);
   const [showPavimentos, setShowPavimentos] = React.useState(false);
-  // Rótulo do último nível aplicado no combo "Estrutura" — o próprio <select> volta pro
-  // placeholder a cada escolha (de propósito: reaplicar o MESMO nível depois de expandir/
-  // recolher tarefas manualmente precisa continuar disparando onChange), então sem isto não
-  // dava pra ver qual nível estava selecionado depois de escolher.
+  // Nível aplicado no combo "Estrutura" — controlado, pra mostrar no próprio <select> qual
+  // opção foi escolhida (antes ele voltava pro placeholder a cada escolha e só um texto
+  // auxiliar embaixo mostrava o nível, o que passava despercebido). Reseta pra '' em
+  // handleToggleCollapse (expandir/recolher uma linha manualmente) — assim reaplicar o MESMO
+  // nível depois de mexer manualmente ainda dispara onChange (mudança de '' pro nível).
+  const [nivelEstruturaValue, setNivelEstruturaValue] = React.useState('');
   const [nivelEstruturaLabel, setNivelEstruturaLabel] = React.useState(null);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id do alvo de exclusão
   // Popover do badge "Conflito" da faixa — lista os pares pred/suces em violação de precedência.
@@ -376,17 +380,21 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
 
 
   const exportExcelGantt = () => {
-    import('xlsx').then(XLSX => {
+    import('xlsx-js-style').then(mod => {
+      const XLSX = mod.utils ? mod : mod.default; // interop: xlsx-js-style não expõe named exports estáticos como o `xlsx`
       try {
       const wb   = XLSX.utils.book_new();
       const wbs  = computeAllWBS(etapas);
       const hdrs = ['WBS', 'ID', 'Nome', 'Início', 'Término', 'Duração (d)', 'Avanço', 'Status', 'Custo (R$)', 'Predecessoras'];
-      const rows = [hdrs, ...etapas.map(e => {
+      const HEADER_ROW  = 3;
+      const groupRowIdx = [];
+      const dataRows = etapas.map((e, i) => {
         const gv  = e.isGroup ? groupVals[e.id] : null;
         const ini = gv ? gv.inicio : e.inicio;
         const dur = gv ? gv.dur    : e.dur;
         const av  = gv ? gv.avanco : e.avanco;
         const cst = custoOrcadoMap[e.id] || 0;
+        if (e.isGroup) groupRowIdx.push(HEADER_ROW + 1 + i);
         return [
           wbs[e.id] || '',
           rowNumberMap[e.id] ?? e.id,
@@ -399,18 +407,33 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           cst,
           e.isGroup ? '' : formatDepList(e.dep, etapas),
         ];
-      })];
+      });
+      const rows = [
+        [`Cronograma de Obras · ${obraNome}`],
+        [`Gerado em ${new Date().toLocaleDateString('pt-BR')}`],
+        [],
+        hdrs,
+        ...dataRows,
+      ];
       const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
       const fmts = { 3: 'DD/MM/YYYY', 4: 'DD/MM/YYYY', 6: '0.00%', 8: '#,##0.00' };
       const rng  = XLSX.utils.decode_range(ws['!ref']);
-      for (let R = 1; R <= rng.e.r; R++) {
+      for (let R = HEADER_ROW + 1; R <= rng.e.r; R++) {
         Object.entries(fmts).forEach(([C, z]) => {
           const addr = XLSX.utils.encode_cell({ r: R, c: Number(C) });
           if (ws[addr]) ws[addr].z = z;
         });
       }
       ws['!cols']   = [{ wch: 8 }, { wch: 6 }, { wch: 32 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 20 }];
-      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+      ws['!freeze'] = { xSplit: 0, ySplit: HEADER_ROW + 1 };
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: hdrs.length - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: hdrs.length - 1 } },
+      ];
+      ws['A1'].s = { ...XLSX_TITLE_STYLE };
+      ws['A2'].s = { ...XLSX_SUBTITLE_STYLE };
+      aplicarEstiloLinha(XLSX, ws, HEADER_ROW, hdrs.length, XLSX_HEADER_STYLE);
+      groupRowIdx.forEach(r => aplicarEstiloLinha(XLSX, ws, r, hdrs.length, XLSX_GROUP_ROW_STYLE));
       XLSX.utils.book_append_sheet(wb, ws, 'Cronograma');
       XLSX.writeFile(wb, `gantt-${new Date().toISOString().slice(0, 10)}.xlsx`);
       } catch (err) { toast('Erro ao exportar Excel: ' + err.message, { tone: 'danger' }); }
@@ -437,7 +460,8 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
       // O PDF tem página de tamanho fixo — não faz sentido herdar as folgas de
       // calTotalDays (+3 meses de manobra e "preenche a largura da janela", pensadas só
       // pra tela interativa). Aqui o fim da linha do tempo é o fim real da última barra
-      // desenhada (mesmo ini/dur que drawGanttPage usa por linha, abaixo), sem sobra.
+      // desenhada (mesmo ini/dur que drawGanttPage usa por linha, abaixo), mais 1 mês de
+      // folga (+30) pra a última barra não ficar colada na margem direita da página.
       const pdfMaxEnd = visible.length
         ? Math.max(...visible.map(e => {
             const gv  = e.isGroup ? groupVals[e.id] : null;
@@ -446,7 +470,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
             return ini + dur;
           }))
         : tlStartOffset + 30;
-      const pdfTotalDays = Math.max(30, pdfMaxEnd - tlStartOffset);
+      const pdfTotalDays = Math.max(30, pdfMaxEnd - tlStartOffset) + 30;
       const pdfMonths    = buildCalendarMonths(tlStartDate, pdfTotalDays);
       const pdfQuarters  = buildCalendarQuarters(pdfMonths);
       // Timeline em calendário real (mesmos meses do eixo da aba): do 1º ao último mês,
@@ -624,6 +648,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   const handleToggleCollapse = (id) => {
     const novas = etapas.map(e => e.id === id ? { ...e, collapsed: !e.collapsed } : e);
     onCommit(novas, { silent: true, skipHistory: true });
+    setNivelEstruturaValue(''); // toggle manual de uma linha só: o nível aplicado no combo não reflete mais o estado atual
   };
 
   // ── Ações da faixa (mesma lógica da Lista, sobre a seleção em Set) ───────────
@@ -1128,11 +1153,12 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                 <div style={groupBox}>
                   <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
-                      <select defaultValue="" title="Expandir/recolher a estrutura por nível"
+                      <select value={nivelEstruturaValue} title="Expandir/recolher a estrutura por nível"
                         onChange={e => {
-                          const v = e.target.value; e.target.value = '';
+                          const v = e.target.value;
                           if (v === '') return;
                           onOutlineLevel?.(Number(v));
+                          setNivelEstruturaValue(v);
                           setNivelEstruturaLabel(v === '0' ? 'Tudo expandido' : v === '1' ? 'Tudo recolhido' : `Nível ${v}`);
                         }}
                         style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
