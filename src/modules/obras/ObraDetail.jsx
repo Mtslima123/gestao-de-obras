@@ -1180,12 +1180,24 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
     >
       <div className="stack">
         {files.length === 0
-          ? <label style={{ display: 'block', border: '2px dashed ' + (erros.arquivo ? 'var(--danger)' : 'var(--border)'), borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
-              <Icon name="image" size={32} />
-              <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Clique para selecionar uma ou mais imagens</div>
-              {erros.arquivo && <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--danger)' }}>{erros.arquivo}</div>}
-              <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
-            </label>
+          ? (
+            <div style={{ display: 'flex', gap: 10 }}>
+              <label style={{ flex: 1, display: 'block', border: '2px dashed ' + (erros.arquivo ? 'var(--danger)' : 'var(--border)'), borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
+                <Icon name="image" size={32} />
+                <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Clique para selecionar uma ou mais imagens</div>
+                {erros.arquivo && <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--danger)' }}>{erros.arquivo}</div>}
+                <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
+              </label>
+              {/* capture="environment" abre a câmera traseira do tablet/celular direto (em vez
+                  do seletor de galeria) — suportado em browsers móveis; em desktop cai de volta
+                  no seletor de arquivo normal, sem quebrar nada. */}
+              <label style={{ flex: 1, display: 'block', border: '2px dashed ' + (erros.arquivo ? 'var(--danger)' : 'var(--border)'), borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
+                <Icon name="camera" size={32} />
+                <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Tirar foto agora</div>
+                <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
+              </label>
+            </div>
+          )
           : (
             <div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
@@ -1200,11 +1212,20 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
                   </div>
                 ))}
                 {files.length < MAX_FOTOS && (
-                  <label style={{ width: 72, height: 72, border: '2px dashed var(--border)', borderRadius: 8,
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}>
-                    <Icon name="plus" size={18} />
-                    <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={onFileChange} />
-                  </label>
+                  <>
+                    <label style={{ width: 72, height: 72, border: '2px dashed var(--border)', borderRadius: 8,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}
+                      title="Adicionar da galeria">
+                      <Icon name="plus" size={18} />
+                      <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={onFileChange} />
+                    </label>
+                    <label style={{ width: 72, height: 72, border: '2px dashed var(--border)', borderRadius: 8,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}
+                      title="Tirar foto agora">
+                      <Icon name="camera" size={18} />
+                      <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileChange} />
+                    </label>
+                  </>
                 )}
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
