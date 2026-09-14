@@ -165,16 +165,22 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
           return (
             <div className="gantt-row" key={i}>
               <div className="gantt-label" style={{ paddingLeft: 14 + (e.nivel || 0) * 14, fontWeight: e.isGroup ? 700 : 400 }}>
-                {e.isGroup && !resumoOnly && (
-                  <span onClick={() => { setNivelSelecionado(''); setCollapsed(prev => { const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; }); }}
-                    title={collapsed.has(e.id) ? 'Expandir' : 'Recolher'}
-                    style={{ color: 'var(--text-muted)', marginRight: 5, fontSize: 10, cursor: 'pointer', userSelect: 'none' }}>
-                    {collapsed.has(e.id) ? '▸' : '▾'}
-                  </span>
-                )}
-                {e.etapa}
-                {/* % ao lado do nome, não mais dentro da barra — dentro dela ficava
-                    espremido/cortado em barras curtas (ex.: "BL2 (executado)"). */}
+                {/* Nome (com chevron do grupo) num span flex:1 próprio — trunca com "…" sem
+                    afetar o badge de %, que fica FORA daqui como segundo item do flex, sempre
+                    encostado na borda direita da coluna (não mais logo depois do texto). */}
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {e.isGroup && !resumoOnly && (
+                    <span onClick={() => { setNivelSelecionado(''); setCollapsed(prev => { const n = new Set(prev); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; }); }}
+                      title={collapsed.has(e.id) ? 'Expandir' : 'Recolher'}
+                      style={{ color: 'var(--text-muted)', marginRight: 5, fontSize: 10, cursor: 'pointer', userSelect: 'none' }}>
+                      {collapsed.has(e.id) ? '▸' : '▾'}
+                    </span>
+                  )}
+                  {e.etapa}
+                </span>
+                {/* % no canto direito da coluna, não mais dentro da barra (ficava
+                    espremido/cortado em barras curtas, ex.: "BL2 (executado)") nem colado no
+                    nome (variava de posição conforme o tamanho do nome da tarefa). */}
                 {!e.isGroup && v.avanco > 0 && (
                   <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--success)', flexShrink: 0 }}>{v.avanco}%</span>
                 )}
