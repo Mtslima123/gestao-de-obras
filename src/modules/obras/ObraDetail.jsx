@@ -173,6 +173,11 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
                   </span>
                 )}
                 {e.etapa}
+                {/* % ao lado do nome, não mais dentro da barra — dentro dela ficava
+                    espremido/cortado em barras curtas (ex.: "BL2 (executado)"). */}
+                {!e.isGroup && v.avanco > 0 && (
+                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--success)', flexShrink: 0 }}>{v.avanco}%</span>
+                )}
               </div>
               <div className="gantt-track">
                 <div
@@ -183,7 +188,6 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
                   }}
                 >
                   <div className="fill" style={{ width: v.avanco + '%' }}></div>
-                  <span style={{ position: 'relative', zIndex: 1 }}>{!e.isGroup && v.avanco > 0 ? v.avanco + '%' : ''}</span>
                 </div>
               </div>
             </div>
@@ -1726,6 +1730,27 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
               <div className="label">Avanço físico</div>
               <div className="value num" style={{ color: 'var(--brand)' }}>{heroStats.avancoFisico.toFixed(2)}%</div>
               <div className="meta">vs planejado {heroStats.planejadoHoje.toFixed(2)}%</div>
+              {/* Delta/Tendência ficam ANINHADOS aqui dentro (não como célula própria do grid)
+                  pra sempre aparecerem juntos, logo abaixo do Avanço físico — independente de
+                  quantas colunas o grid (auto-fit) couber em cada largura de tela, o que antes
+                  podia jogar essa célula pra outro canto, longe do Avanço físico.
+                  Indicadores informados no modal Editar — o sistema não calcula nenhum dos
+                  dois: não há avanço financeiro acumulado real nem projeção de fechamento.
+                  Cor pelo sinal: positivo verde, negativo vermelho, zero neutro. */}
+              <div style={{ display: 'flex', gap: 20, marginTop: 10 }}>
+                <div>
+                  <div className="label" style={{ whiteSpace: 'normal' }}>Delta (%) Físico × Financeiro</div>
+                  <div className="value num" style={{ color: corPorSinal(o.deltaFisicoFinanceiro) }}>
+                    {fmtPctSinal(o.deltaFisicoFinanceiro)}
+                  </div>
+                </div>
+                <div>
+                  <div className="label" style={{ whiteSpace: 'normal' }}>Tendência de fechamento</div>
+                  <div className="value num" style={{ color: corPorSinal(o.tendenciaFechamento) }}>
+                    {fmtPctSinal(o.tendenciaFechamento)}
+                  </div>
+                </div>
+              </div>
             </div>
             {/* Financeiro (%): mesmo indicador informado à mão no modal Editar do Delta/
                 Tendência — não é calculado pelo sistema. */}
@@ -1747,26 +1772,6 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
             <div className="hero-stat">
               <div className="label">Entrega (cliente)</div>
               <div className="value num">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</div>
-            </div>
-            {/* Indicadores informados no modal Editar — o sistema não calcula nenhum dos dois:
-                não há avanço financeiro acumulado real nem projeção de fechamento.
-                Cor pelo sinal: positivo verde, negativo vermelho, zero neutro.
-                Os dois juntos numa única célula do grid (não uma célula cada): assim o grid
-                sempre os quebra de linha JUNTOS quando a tela aperta, nunca um sozinho longe
-                do outro — independente da largura da tela. */}
-            <div className="hero-stat" style={{ display: 'flex', gap: 20 }}>
-              <div>
-                <div className="label" style={{ whiteSpace: 'normal' }}>Delta (%) Físico × Financeiro</div>
-                <div className="value num" style={{ color: corPorSinal(o.deltaFisicoFinanceiro) }}>
-                  {fmtPctSinal(o.deltaFisicoFinanceiro)}
-                </div>
-              </div>
-              <div>
-                <div className="label" style={{ whiteSpace: 'normal' }}>Tendência de fechamento</div>
-                <div className="value num" style={{ color: corPorSinal(o.tendenciaFechamento) }}>
-                  {fmtPctSinal(o.tendenciaFechamento)}
-                </div>
-              </div>
             </div>
           </div>
         </div>
