@@ -6,6 +6,10 @@ import { offsetToDate } from './cronogramaDateUtils';
 import { mesAtualOuUltimo, mesesComReprogramacao } from './scheduleEngine';
 import { medicaoMensalService } from './medicaoMensal.service';
 import {
+  XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
+  XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
+} from './cronogramaShared';
+import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
@@ -864,9 +868,9 @@ export default function MedicaoMensal({
         l.wbs || '',
         '  '.repeat(l.nivel || 0) + l.descricao + (l.foraDoMes ? ' (fora do mês)' : ''),
         grupo ? '' : l.pavimento,
-        grupo ? null : offsetToDate(l.inicioOff),
-        grupo ? null : offsetToDate(l.terminoOff - 1), // terminoOff é exclusivo; -1 pra exibir/exportar
-        grupo ? '' : l.duracaoDias,
+        offsetToDate(l.inicioOff),
+        offsetToDate(l.terminoOff - 1), // terminoOff é exclusivo; -1 pra exibir/exportar
+        l.duracaoDias,
         (l.peso ?? ((l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100)) / 100,
         grupo ? null : l.percExecutado / 100,
         (grupo ? l.med : l.percMedido) / 100,
@@ -881,26 +885,43 @@ export default function MedicaoMensal({
   const exportarExcel = async () => {
     setExportando(true);
     try {
-      const XLSX = await import('xlsx');
-      const corpo = linhasExport().map(l => l.cells);
+      const mod  = await import('xlsx-js-style');
+      const XLSX = mod.utils ? mod : mod.default; // interop: xlsx-js-style não expõe named exports estáticos como o `xlsx`
+      const HEADER_ROW  = 3;
+      const linhas2     = linhasExport();
+      const groupRowIdx = [];
+      linhas2.forEach((l, i) => { if (l.grupo) groupRowIdx.push(HEADER_ROW + 1 + i); });
+      const corpo = linhas2.map(l => l.cells);
+      const totalRowIdx = HEADER_ROW + 1 + corpo.length;
       const rows = [
+        [`Medição Mensal · ${obraNome} · ${mesLabel(mesRefKey)}`],
+        [`Gerado em ${new Date().toLocaleDateString('pt-BR')}`],
+        [],
         CABECALHOS,
         ...corpo,
-        [],
         [`TOTAL GERAL · ${totais.qtd} atividades`, '', '', null, null, '',
           totais.peso / 100, totais.exec / 100, totais.med / 100, totais.valor, totais.valorAMedir],
       ];
       const ws = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
       const rng = XLSX.utils.decode_range(ws['!ref']);
       // Números crus na célula + formato via .z (nunca string de moeda), padrão do projeto.
-      for (let R = 1; R <= rng.e.r; R++) {
+      for (let R = HEADER_ROW + 1; R <= rng.e.r; R++) {
         [[3, 'DD/MM/YYYY'], [4, 'DD/MM/YYYY'], [6, '0.00%'], [7, '0.00%'], [8, '0.00%'], [9, '#,##0.00'], [10, '#,##0.00']].forEach(([C, z]) => {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (ws[addr]) ws[addr].z = z;
         });
       }
       ws['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 7 }, { wch: 10 }, { wch: 13 }, { wch: 11 }, { wch: 16 }, { wch: 16 }];
-      ws['!freeze'] = { xSplit: 2, ySplit: 1 };
+      ws['!freeze'] = { xSplit: 2, ySplit: HEADER_ROW + 1 };
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: CABECALHOS.length - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: CABECALHOS.length - 1 } },
+      ];
+      ws['A1'].s = { ...XLSX_TITLE_STYLE };
+      ws['A2'].s = { ...XLSX_SUBTITLE_STYLE };
+      aplicarEstiloLinha(XLSX, ws, HEADER_ROW, CABECALHOS.length, XLSX_HEADER_STYLE);
+      groupRowIdx.forEach(r => aplicarEstiloLinha(XLSX, ws, r, CABECALHOS.length, XLSX_GROUP_ROW_STYLE));
+      aplicarEstiloLinha(XLSX, ws, totalRowIdx, CABECALHOS.length, XLSX_TOTAL_ROW_STYLE);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Medição');
       XLSX.writeFile(wb, `medicao-mensal-${mesRefKey || 'mes'}.xlsx`);

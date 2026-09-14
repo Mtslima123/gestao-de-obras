@@ -235,6 +235,11 @@ export function computeArvoreMedicao(itens, etapas, valorTotalBase, collapsed = 
         dataInicio: fmtData(e.inicio),
         dataTermino: fmtData(taskEnd(e) - 1),
         duracaoDias: e.dur,
+        // Offsets brutos (além das strings pré-formatadas acima) — o export em Excel
+        // (linhasExport em MedicaoMensal.jsx) precisa de um Date de verdade pra usar o
+        // formato de data nativo da célula, não texto.
+        inicioOff: e.inicio,
+        terminoOff: taskEnd(e), // exclusivo, mesma convenção do resto do arquivo
         ...agregar(folhasDoGrupo.get(e.id), valorTotalBase),
       });
       return;
