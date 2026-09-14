@@ -30,6 +30,8 @@ import {
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, VIRT_MIN,
   ColumnHeaderFilterMenu, resolveColType, FILTER_BLANK_KEY,
   buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter, gmConflicts,
+  XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
+  XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
 } from './cronogramaShared';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
@@ -65,10 +67,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [showAddCol,     setShowAddCol]     = React.useState(false);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // array de ids a excluir (ou null)
   const [showPavimentos, setShowPavimentos] = React.useState(false);
-  // Rótulo do último nível aplicado no combo "Estrutura" — o próprio <select> volta pro
-  // placeholder a cada escolha (de propósito: reaplicar o MESMO nível depois de expandir/
-  // recolher tarefas manualmente precisa continuar disparando onChange), então sem isto não
-  // dava pra ver qual nível estava selecionado depois de escolher.
+  // Nível aplicado no combo "Estrutura" — controlado, pra mostrar no próprio <select> qual
+  // opção foi escolhida (antes ele voltava pro placeholder a cada escolha e só um texto
+  // auxiliar embaixo mostrava o nível, o que passava despercebido). Reseta pra '' em
+  // handleToggleCollapse (expandir/recolher uma linha manualmente) — assim reaplicar o MESMO
+  // nível depois de mexer manualmente ainda dispara onChange (mudança de '' pro nível).
+  const [nivelEstruturaValue, setNivelEstruturaValue] = React.useState('');
   const [nivelEstruturaLabel, setNivelEstruturaLabel] = React.useState(null);
   const [showVincularTarefas, setShowVincularTarefas] = React.useState(false);
   const [showImportEAP, setShowImportEAP] = React.useState(false);
@@ -153,6 +157,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [marquee,        setMarquee]        = React.useState(null); // retângulo "marching ants" da cópia
   const [painterOn,      setPainterOn]      = React.useState(false); // pincel de formatação ativo
   const painterRef = React.useRef(null); // fmt capturado pelo pincel
+  // true só durante um arraste que COMEÇOU numa célula da grade com o pincel ligado (ver
+  // onMouseDown abaixo) — nunca em qualquer outro mouseup (ex.: soltar o clique no próprio
+  // botão do pincel, pra ligar/desligar), senão o listener global de mouseup aplicaria o
+  // formato numa seleção antiga por engano.
+  const painterDragRef = React.useRef(false);
   const isSelectingRef = React.useRef(false); // arraste de seleção de intervalo em andamento
   const fillDragRef = React.useRef(null); // arraste da alça de preenchimento em andamento (ver startFillDrag)
   const [fillPreview, setFillPreview] = React.useState(null); // { colId, ids: Set } — destaque das linhas-alvo enquanto arrasta
@@ -1774,17 +1783,31 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (selectedCell && !etapas.find(e => e.id === selectedCell.taskId)) setSelectedCell(null);
   }, [etapas, selectedCell]);
 
-  // Fim do arraste de seleção de intervalo em qualquer soltar de botão
+  // Contexto vivo do arraste. O efeito de mouseup abaixo roda uma vez só (listener de
+  // documento), então precisa ler estado/funções por ref, não pela closure do primeiro
+  // render — este objeto é sobrescrito a cada render com os valores mais recentes.
+  const dragCtxRef = React.useRef({ cols: [], filtrada: [], selectedCell: null });
+  dragCtxRef.current = {
+    cols: visibleColIds(), filtrada, selectedCell,
+    rangeCellList, applyFmtReplace,
+  };
+
+  // Fim do arraste de seleção de intervalo em qualquer soltar de botão. Se o arraste tinha
+  // começado com o pincel de formatação ligado (painterDragRef, setado no onMouseDown da
+  // célula), aplica a formatação capturada em TODO o intervalo resultante do arraste (não só
+  // na célula inicial) e desliga o pincel.
   React.useEffect(() => {
-    const up = () => { isSelectingRef.current = false; rowSelectingRef.current = false; };
+    const up = () => {
+      isSelectingRef.current = false; rowSelectingRef.current = false;
+      if (painterDragRef.current) {
+        painterDragRef.current = false;
+        if (painterRef.current) dragCtxRef.current.applyFmtReplace(dragCtxRef.current.rangeCellList(), painterRef.current);
+        setPainterOn(false);
+      }
+    };
     document.addEventListener('mouseup', up);
     return () => document.removeEventListener('mouseup', up);
   }, []);
-
-  // Contexto vivo do arraste. O efeito abaixo roda uma vez só (listeners de documento),
-  // então precisa ler colunas/linhas/seleção por ref, não pela closure do render.
-  const dragCtxRef = React.useRef({ cols: [], filtrada: [], selectedCell: null });
-  dragCtxRef.current = { cols: visibleColIds(), filtrada, selectedCell };
 
   // Arraste de seleção: extensão por coordenada + rolagem automática na borda.
   //
@@ -1950,12 +1973,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         // Clicar em qualquer célula sai do modo "coluna selecionada" (Ctrl+clique no cabeçalho) —
         // a partir daqui a seleção passa a ser de célula/linha, não mais de coluna inteira.
         if (multiSelCols.length) setMultiSelCols([]);
-        // Pincel de formatação ativo: aplica a formatação capturada nesta célula e desliga
+        // Pincel de formatação ativo: inicia uma seleção normal (célula + possível arraste,
+        // igual ao clique comum abaixo) em vez de aplicar de cara — assim arrastar sobre
+        // várias células estende o intervalo do MESMO jeito que a seleção normal já faz
+        // (via onMouseEnter/isSelectingRef), e a formatação só é aplicada no soltar do botão
+        // (mouseup, mais abaixo), no intervalo inteiro resultante. Um clique sem arraste
+        // continua se comportando como antes: o intervalo vira só essa célula.
         if (painterOn && painterRef.current) {
           ev.preventDefault();
-          applyFmtReplace([{ taskId, colId }], painterRef.current);
-          setPainterOn(false);
           setSelectedCell({ taskId, colId }); setSelAnchor({ taskId, colId });
+          isSelectingRef.current = true;
+          painterDragRef.current = true;
           if (!ev.ctrlKey && !ev.metaKey) setSelectedId(taskId);
           rowClickHandledRef.current = true;
           listaScrollRef.current?.focus?.({ preventScroll: true });
@@ -2481,6 +2509,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const handleToggleCollapse = (id) => {
     const novas = etapas.map(e => e.id === id ? { ...e, collapsed: !e.collapsed } : e);
     onCommit(novas, { silent: true, skipHistory: true });
+    setNivelEstruturaValue(''); // toggle manual de uma linha só: o nível aplicado no combo não reflete mais o estado atual
   };
 
   // ── Ações (usadas pelo ribbon, menu de contexto e atalhos) ───────────────────
@@ -2576,10 +2605,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
 
   const exportExcelLista = () => {
-    import('xlsx').then(XLSX => {
+    import('xlsx-js-style').then(mod => {
+      const XLSX = mod.utils ? mod : mod.default; // interop: xlsx-js-style não expõe named exports estáticos como o `xlsx`
       const wb      = XLSX.utils.book_new();
-      // Colunas visíveis na ordem atual (inclui custom cols que já estão em colOrder)
-      const visCols = colOrder.filter(c => !hiddenCols.has(c));
+      // Colunas visíveis na ordem atual: padrão (colOrder) + personalizadas (customCols não
+      // entram em colOrder — mesma composição usada na grade em tela, ex. linha 1008).
+      const visCols = [
+        ...colOrder.filter(c => !hiddenCols.has(c)),
+        ...customCols.filter(c => !hiddenCols.has(c.id)).map(c => c.id),
+      ];
       const getLabel = (cid) => {
         if (LISTA_COL_DEFS[cid]) return LISTA_COL_DEFS[cid].label;
         const cc = customCols.find(c => c.id === cid);
@@ -2588,9 +2622,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       // Formatos por índice de coluna
       const colFmts = {};
       visCols.forEach((cid, i) => {
-        if (['custo', 'custoReal', 'saldo', 'custoOrcado'].includes(cid)) { colFmts[i] = '#,##0.00'; return; }
+        if (['custo', 'custoReal', 'saldo', 'custoOrcado', 'valorVinculado'].includes(cid)) { colFmts[i] = '#,##0.00'; return; }
         if (cid === 'avanco' || cid === 'peso') { colFmts[i] = '0.00%'; return; }
-        if (cid === 'inicio' || cid === 'fim')  { colFmts[i] = 'DD/MM/YYYY'; return; }
+        if (cid === 'inicio' || cid === 'fim' || cid === 'restricao') { colFmts[i] = 'DD/MM/YYYY'; return; }
         const cc = customCols.find(c => c.id === cid);
         if (cc) {
           if (cc.type === 'currency') colFmts[i] = '#,##0.00';
@@ -2628,14 +2662,25 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap);
         if (cid === 'succ')     return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; ');
         if (cid === 'status')   return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
-        if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap')
-          ? `${e.restricaoTipo}${e.restricaoData ? ' ' + e.restricaoData : ''}` : '';
+        if (cid === 'restricao') return e.restricaoData ? offsetToDate(dateToOffset(e.restricaoData)) : '';
         if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
         return e.customCols?.[cid] ?? '';
       };
+      // Título + subtítulo (obra/data), iguais ao cabeçalho do PDF — depois uma linha em
+      // branco de respiro, e só então a tabela (HEADER_ROW é a linha do cabeçalho).
+      const HEADER_ROW  = 3;
+      const groupRowIdx = []; // índices (0-based, na planilha) das linhas de grupo, pra estilizar
+      const dataRows = filtrada.map((e, i) => {
+        if (e.isGroup) groupRowIdx.push(HEADER_ROW + 1 + i);
+        return visCols.map(cid => getCellVal(e, cid));
+      });
+      const totalRowIdx = HEADER_ROW + 1 + dataRows.length;
       const rows = [
+        [`Lista de Tarefas · ${obraNome}`],
+        [`Gerado em ${new Date().toLocaleDateString('pt-BR')}`],
+        [],
         visCols.map(getLabel),
-        ...filtrada.map(e => visCols.map(cid => getCellVal(e, cid))),
+        ...dataRows,
         visCols.map(cid => {
           if (cid === 'etapa')    return 'Total';
           if (cid === 'custo')    return totalCustoEf;
@@ -2647,14 +2692,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       ];
       const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
       const rng = XLSX.utils.decode_range(ws['!ref']);
-      for (let R = 1; R <= rng.e.r; R++) {
+      for (let R = HEADER_ROW + 1; R <= rng.e.r; R++) {
         Object.entries(colFmts).forEach(([C, z]) => {
           const addr = XLSX.utils.encode_cell({ r: R, c: Number(C) });
           if (ws[addr]) ws[addr].z = z;
         });
       }
       ws['!cols']   = visCols.map(c => ({ wch: Math.max(8, Math.round(getColW(c) / 7)) }));
-      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+      ws['!freeze'] = { xSplit: 0, ySplit: HEADER_ROW + 1 };
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: visCols.length - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: visCols.length - 1 } },
+      ];
+      ws['A1'].s = { ...XLSX_TITLE_STYLE };
+      ws['A2'].s = { ...XLSX_SUBTITLE_STYLE };
+      aplicarEstiloLinha(XLSX, ws, HEADER_ROW, visCols.length, XLSX_HEADER_STYLE);
+      groupRowIdx.forEach(r => aplicarEstiloLinha(XLSX, ws, r, visCols.length, XLSX_GROUP_ROW_STYLE));
+      aplicarEstiloLinha(XLSX, ws, totalRowIdx, visCols.length, XLSX_TOTAL_ROW_STYLE);
       XLSX.utils.book_append_sheet(wb, ws, 'Tarefas');
       XLSX.writeFile(wb, `lista-tarefas-${new Date().toISOString().slice(0, 10)}.xlsx`);
     });
@@ -2672,10 +2726,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       doc.setFontSize(8);  doc.setTextColor(130);
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
-      const visCols    = colOrder.filter(c => !hiddenCols.has(c));
+      const visCols    = [
+        ...colOrder.filter(c => !hiddenCols.has(c)),
+        ...customCols.filter(c => !hiddenCols.has(c.id)).map(c => c.id),
+      ];
       const getLabel   = (cid) => LISTA_COL_DEFS[cid]?.label ?? (customCols.find(c => c.id === cid)?.label ?? cid);
       const RIGHT_C    = new Set(['custo', 'custoReal', 'saldo', 'peso', 'avanco', 'duracao', 'id', 'fatorPeso', 'valorVinculado', 'custoOrcado']);
-      const CENTER_C   = new Set(['status', 'inicio', 'fim', 'participa']);
+      const CENTER_C   = new Set(['status', 'inicio', 'fim', 'restricao', 'participa']);
       const getPDFVal  = (e, cid) => {
         const gv      = e.isGroup ? groupVals[e.id] : null;
         const ini     = gv ? gv.inicio : e.inicio;
@@ -2706,7 +2763,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap);
         if (cid === 'succ')      return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; ');
         if (cid === 'status')    return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
-        if (cid === 'restricao') return (e.restricaoTipo && e.restricaoTipo !== 'asap') ? `${e.restricaoTipo}${e.restricaoData ? ' ' + e.restricaoData : ''}` : '';
+        if (cid === 'restricao') return e.restricaoData ? isoToBR(e.restricaoData) : '';
         if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
         return String(e.customCols?.[cid] ?? '');
       };
@@ -2722,9 +2779,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'saldo')     return fmtBRL(totalCustoEf - totalReal);
         return '';
       });
+      // Larguras proporcionais à largura de coluna configurada (getColW), escaladas pra
+      // caber exatamente no espaço disponível da página (W menos as margens laterais) —
+      // antes era um /4 fixo desatrelado da página/formato/quantidade de colunas, e com
+      // muitas colunas visíveis a soma estourava a margem direita.
+      const PDF_MARGIN     = { top: 25, right: 14, bottom: 14, left: 14 };
+      const larguraDisp    = W - PDF_MARGIN.left - PDF_MARGIN.right;
+      const pesos          = visCols.map(cid => getColW(cid));
+      const somaPesos      = pesos.reduce((s, p) => s + p, 0) || 1;
       const colStyles = Object.fromEntries(visCols.map((cid, i) => [i, {
         halign: RIGHT_C.has(cid) ? 'right' : CENTER_C.has(cid) ? 'center' : 'left',
-        cellWidth: Math.max(10, (LISTA_COL_DEFS[cid]?.defWidth ?? 100) / 4),
+        cellWidth: Math.max(10, pesos[i] / somaPesos * larguraDisp),
       }]));
       autoTable(doc, {
         startY: 25,
@@ -2737,7 +2802,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         alternateRowStyles: { fillColor: [248, 249, 250] },
         footStyles: { fillColor: [225, 232, 242], fontStyle: 'bold', fontSize: 7 },
         columnStyles: colStyles,
-        margin: { top: 25, right: 14, bottom: 14, left: 14 },
+        margin: PDF_MARGIN,
         didParseCell: (data) => {
           if (data.section === 'body' && body[data.row.index]?._isGroup) {
             data.cell.styles.fontStyle = 'bold';
@@ -3216,11 +3281,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={rowStyle}>
-                          <select defaultValue="" title="Expandir/recolher a estrutura por nível"
+                          <select value={nivelEstruturaValue} title="Expandir/recolher a estrutura por nível"
                             onChange={e => {
-                              const v = e.target.value; e.target.value = '';
+                              const v = e.target.value;
                               if (v === '') return;
                               onOutlineLevel?.(Number(v));
+                              setNivelEstruturaValue(v);
                               setNivelEstruturaLabel(v === '0' ? 'Tudo expandido' : v === '1' ? 'Tudo recolhido' : `Nível ${v}`);
                             }}
                             style={{ height: 28, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)', padding: '0 6px', cursor: 'pointer' }}>
