@@ -536,6 +536,16 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
         doc.setFontSize(7); doc.setTextColor(130);
         doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, ML, 17);
         doc.setTextColor(0);
+        // Legenda mínima da Linha de Base — só quando há uma ativa (mesma condição da
+        // legenda HTML da tela, em Cronograma.jsx), pra identificar a barra fantasma abaixo
+        // de cada barra real.
+        if (showBaseline && baselineEtapas) {
+          doc.setFillColor(107, 120, 144);
+          doc.rect(W - MR - 32, 9.5, 6, 1.6, 'F');
+          doc.setFontSize(7); doc.setTextColor(90);
+          doc.text('Linha de Base', W - MR - 24, 11, { align: 'left' });
+          doc.setTextColor(0);
+        }
         // Divisor coluna de nomes / timeline
         doc.setDrawColor(180); doc.setLineWidth(0.3);
         doc.line(tlX, MT, tlX, H - MB);
@@ -594,6 +604,16 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
               doc.rect(bx, by, bw * (av / 100), BAR_H, 'F');
             }
             // (o % agora fica na coluna à esquerda, não sobre a barra)
+          }
+
+          // Barra de linha de base (fantasma) — mesma fonte de dado e mesma cor da tela
+          // (blMap/showBaseline, linhas ~1600-1611), só que convertida pra coordenadas mm
+          // do PDF com a mesma fórmula usada acima pra barra real.
+          if (showBaseline && blMap[e.id] && !e.milestone) {
+            const blx = tlX + (blMap[e.id].inicio - tlStartOffset) * mpd;
+            const blw = Math.max(blMap[e.id].dur * mpd, 0.8);
+            doc.setFillColor(107, 120, 144);
+            doc.rect(blx, by + BAR_H + 0.4, blw, 1, 'F');
           }
         });
 
