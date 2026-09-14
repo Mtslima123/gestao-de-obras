@@ -314,6 +314,37 @@ export const GUTTER_W = 40; // largura da calha de número de linha (estilo Exce
 // então nenhuma coluna é excluída da seleção — todas podem ser selecionadas/formatadas.
 export const ROW_DRAG_COLS = new Set();
 
+// ─── Estilos de exportação Excel (xlsx-js-style) ─────────────────────────────
+// Paleta e pesos espelham o que os exports em PDF já usam (BRAND = #1C4584, a cor da
+// Soter) — mesmo visual nos dois formatos. Usa `xlsx-js-style` (drop-in do `xlsx`, mesma
+// API, com suporte a `ws[addr].s`) só nos pontos de export — o pacote `xlsx` original
+// continua servindo leitura/import em outros lugares do app.
+export const XLSX_HEADER_STYLE = {
+  font: { bold: true, color: { rgb: 'FFFFFF' } },
+  fill: { fgColor: { rgb: '1C4584' } },
+  alignment: { horizontal: 'center', vertical: 'center' },
+};
+export const XLSX_GROUP_ROW_STYLE = { font: { bold: true }, fill: { fgColor: { rgb: 'E8F0FC' } } };
+export const XLSX_TOTAL_ROW_STYLE = { font: { bold: true }, fill: { fgColor: { rgb: 'E1E8F2' } } };
+export const XLSX_TITLE_STYLE     = { font: { bold: true, sz: 13 } };
+export const XLSX_SUBTITLE_STYLE  = { font: { sz: 9, color: { rgb: '808080' } } };
+
+// Aplica um estilo a uma faixa de células de uma linha (0-indexada), colunas [0, numCols).
+// IMPORTANTE: clona `style` por célula (`{ ...style }`) em vez de atribuir a mesma
+// referência a todas — o `xlsx-js-style` tem um bug de cache onde células que
+// compartilham o MESMO objeto de estilo (por referência) "vazam" o formato numérico
+// (`.z`) umas das outras ao gravar o .xlsx: descoberto porque colunas sem formato próprio
+// (Duração, Fator Peso, Valor Vinculado) saíam com o formato de DATA ou PERCENTUAL de
+// colunas vizinhas (Início/Término, Peso %) só nas linhas de grupo/total, que são
+// justamente as que passam pelo objeto de estilo compartilhado.
+export function aplicarEstiloLinha(XLSX, ws, rowIdx0, numCols, style) {
+  for (let c = 0; c < numCols; c++) {
+    const addr = XLSX.utils.encode_cell({ r: rowIdx0, c });
+    if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+    ws[addr].s = { ...style };
+  }
+}
+
 // ─── Paleta de cores estilo Excel ──────────────────────────────────────────────
 // Clareia (pct>0, em direção ao branco) ou escurece (pct<0) um hex.
 export function shadeHex(hex, pct) {
