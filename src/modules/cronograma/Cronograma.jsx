@@ -21,7 +21,7 @@ import {
   CriarLinhaModal, GerenciarLinhasModal, FeriadosModal,
   CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal,
 } from './cronogramaModais';
-import { GM_TOTAL, gmConflicts } from './cronogramaShared';
+import { GM_TOTAL, gmConflicts, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa } from './etapasPatch';
 import { GanttInterativo } from './GanttInterativo';
@@ -67,7 +67,8 @@ const USO_COL_LABELS  = ['ID', 'EAP', 'Nome da Tarefa', 'Início', 'Término', '
 const USO_COL_DEFAULT = { id: 44, wbs: 52, nome: 208, inicio: 88, fim: 88, dur: 56, avanco: 52 };
 const USO_COL_ALIGN   = { id: 'right', wbs: 'left', nome: 'left', inicio: 'left', fim: 'left', dur: 'right', avanco: 'right' };
 
-const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap = {}, custoOrcadoMap = {}, wbsMap = {}, rowNumberMap = {} }) => {
+const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projeto', valorVinculadoMap = {}, custoOrcadoMap = {}, wbsMap = {}, rowNumberMap = {} }) => {
+  const toast = useToast();
   const [selectedId, setSelectedId] = React.useState(null);
   const leftRef  = React.useRef(null);
   const rightRef = React.useRef(null);
@@ -368,23 +369,36 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
   };
 
   const exportExcelUso = () => {
-    import('xlsx').then(XLSX => {
+    import('xlsx-js-style').then(mod => {
+      const XLSX = mod.utils ? mod : mod.default; // interop: xlsx-js-style não expõe named exports estáticos como o `xlsx`
       const wb     = XLSX.utils.book_new();
       const nFixed = usoColOrderVisible.length;
       const hdrs   = [...usoColOrderVisible.map(usoLabel), 'Valor (R$)', ...months.map(m => m.label), 'Total'];
-      const rows = [hdrs, ...etapas.map(e => {
+      const HEADER_ROW  = 3;
+      const groupRowIdx = [];
+      const dataRows = etapas.map((e, i) => {
         const dist  = getDist(e);
         const total = Object.values(dist).reduce((s, v) => s + v, 0);
+        if (e.isGroup) groupRowIdx.push(HEADER_ROW + 1 + i);
         return [
           ...usoColOrderVisible.map(k => usoExcelVal(e, k)),
           e.isGroup ? '' : cfg.val(e),
           ...months.map(m => dist[m.key] || 0),
           total,
         ];
-      })];
-      // Linhas de total: "Total geral" (R$) e "% do total"
-      rows.push(['Total geral', ...Array(nFixed).fill(''), ...months.map(m => monthTotals[m.key] || 0), grandTotal]);
-      rows.push(['% do total', ...Array(nFixed).fill(''), ...months.map(m => grandTotal > 0 ? monthTotals[m.key] / grandTotal : 0), grandTotal > 0 ? 1 : 0]);
+      });
+      const totalGeralIdx = HEADER_ROW + 1 + dataRows.length;
+      const pctTotalIdx   = totalGeralIdx + 1;
+      const rows = [
+        [`Uso da Tarefa · ${obraNome}`],
+        [`Gerado em ${new Date().toLocaleDateString('pt-BR')}`],
+        [],
+        hdrs,
+        ...dataRows,
+        // Linhas de total: "Total geral" (R$) e "% do total"
+        ['Total geral', ...Array(nFixed).fill(''), ...months.map(m => monthTotals[m.key] || 0), grandTotal],
+        ['% do total', ...Array(nFixed).fill(''), ...months.map(m => grandTotal > 0 ? monthTotals[m.key] / grandTotal : 0), grandTotal > 0 ? 1 : 0],
+      ];
       const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
       const rng = XLSX.utils.decode_range(ws['!ref']);
       const fmtCols = [];
@@ -392,7 +406,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       const iFim = usoColOrderVisible.indexOf('fim');    if (iFim >= 0) fmtCols.push([iFim, 'DD/MM/YYYY']);
       const iAv  = usoColOrderVisible.indexOf('avanco'); if (iAv  >= 0) fmtCols.push([iAv, '0.00%']);
       fmtCols.push([nFixed, '#,##0.00']); // Valor (R$)
-      for (let R = 1; R <= rng.e.r; R++) {
+      for (let R = HEADER_ROW + 1; R <= rng.e.r; R++) {
         fmtCols.forEach(([C, z]) => {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (ws[addr]) ws[addr].z = z;
@@ -408,7 +422,17 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
         if (ws[addr]) ws[addr].z = '0.00%';
       }
       ws['!cols']   = [...usoColOrderVisible.map(k => ({ wch: Math.max(8, Math.round(getUsoW(k) / 7)) })), { wch: 16 }, ...months.map(() => ({ wch: 16 })), { wch: 16 }];
-      ws['!freeze'] = { xSplit: Math.min(3, nFixed), ySplit: 1 };
+      ws['!freeze'] = { xSplit: Math.min(3, nFixed), ySplit: HEADER_ROW + 1 };
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: hdrs.length - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: hdrs.length - 1 } },
+      ];
+      ws['A1'].s = { ...XLSX_TITLE_STYLE };
+      ws['A2'].s = { ...XLSX_SUBTITLE_STYLE };
+      aplicarEstiloLinha(XLSX, ws, HEADER_ROW, hdrs.length, XLSX_HEADER_STYLE);
+      groupRowIdx.forEach(r => aplicarEstiloLinha(XLSX, ws, r, hdrs.length, XLSX_GROUP_ROW_STYLE));
+      aplicarEstiloLinha(XLSX, ws, totalGeralIdx, hdrs.length, XLSX_TOTAL_ROW_STYLE);
+      aplicarEstiloLinha(XLSX, ws, pctTotalIdx, hdrs.length, XLSX_TOTAL_ROW_STYLE);
       XLSX.utils.book_append_sheet(wb, ws, 'Uso da Tarefa');
       XLSX.writeFile(wb, `uso-tarefa-${new Date().toISOString().slice(0, 10)}.xlsx`);
     });
@@ -422,7 +446,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
       const BRAND = [28, 69, 132];
       const W = doc.internal.pageSize.getWidth();
       const H = doc.internal.pageSize.getHeight();
-      doc.setFontSize(13); doc.text(`Uso da Tarefa · ${obra?.nome || 'Projeto'}`, 14, 14);
+      doc.setFontSize(13); doc.text(`Uso da Tarefa · ${obraNome}`, 14, 14);
       doc.setFontSize(8);  doc.setTextColor(130);
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
@@ -491,7 +515,8 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
         },
       });
       doc.save(`uso-tarefa-${new Date().toISOString().slice(0, 10)}.pdf`);
-    } finally { setExportingPDF(false); }
+    } catch (err) { toast('Erro ao gerar PDF: ' + err.message, { tone: 'danger' }); }
+    finally { setExportingPDF(false); }
   };
 
   if (!months.length) return (
@@ -735,7 +760,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, valorVinculadoMap 
 };
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
-const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, selMonKey, setSelMonKey, valorVinculadoMap = {}, onCommit, topbarH }) => {
+const CurvaFisicaView = ({ etapas, obraNome = 'Projeto', months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, selMonKey, setSelMonKey, valorVinculadoMap = {}, onCommit, topbarH }) => {
   const toast = useToast();
   // Colapso LOCAL da tabela "Distribuição por tarefa" — não mexe no `collapsed` da Lista.
   const [collapsedCurva, setCollapsedCurva] = React.useState(() => new Set());
@@ -886,10 +911,16 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     const vb = svg.viewBox.baseVal;
     const w = vb && vb.width ? vb.width : (svg.clientWidth || 1000);
     const h = vb && vb.height ? vb.height : (svg.clientHeight || 300);
+    // O SVG é clonado com width/height já no tamanho final de rasterização (w*scale,
+    // h*scale), não no tamanho "lógico" (w, h) — o navegador decodifica a <Image> nessa
+    // resolução nativamente (traços/texto são vetor, escalam sem perda). Antes o clone saía
+    // em w×h e o drawImage esticava esse raster 1x pro dobro do tamanho dentro do canvas —
+    // um upscale de bitmap, daí o borrão nas linhas do gráfico exportado.
+    const scale = 2;
     const clone = svg.cloneNode(true);
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    clone.setAttribute('width', w);
-    clone.setAttribute('height', h);
+    clone.setAttribute('width', w * scale);
+    clone.setAttribute('height', h * scale);
     let s = new XMLSerializer().serializeToString(clone);
     s = s.replace(/var\(--brand\)/g, '#1c4584')
          .replace(/var\(--border\)/g, '#e2e8f0')
@@ -898,7 +929,6 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
     const img = new Image();
     img.onload = () => {
       try {
-        const scale = 2;
         const canvas = document.createElement('canvas');
         canvas.width = w * scale; canvas.height = h * scale;
         const ctx = canvas.getContext('2d');
@@ -937,28 +967,69 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
   };
 
   const exportExcel = () => {
-    import('xlsx').then(XLSX => {
+    import('xlsx-js-style').then(mod => {
+      const XLSX = mod.utils ? mod : mod.default; // interop: xlsx-js-style não expõe named exports estáticos como o `xlsx`
       try {
       const wb = XLSX.utils.book_new();
       const { blM, blA, repM, repA, rrM, rrA, difBL, difRep } = computeSeries();
-      const fmt = v => v != null ? parseFloat(v.toFixed(4)) : null;
+      // Valores aqui já vêm em "pontos percentuais" (0..100, ex.: 18.64 = 18,64%) — pra
+      // usar o formato nativo de porcentagem do Excel ('0.00%', que multiplica por 100 na
+      // exibição) é preciso converter pra fração antes (mesmo padrão já usado nos outros
+      // exports, ex. avanco/100 na Lista).
+      const frac = v => v != null ? v / 100 : null;
 
       const cabMeses = months.map(m => m.label);
+      const titulo   = [`Curva Física · ${obraNome}`];
+      const subtitulo = [`Gerado em ${new Date().toLocaleDateString('pt-BR')}`];
 
-      // Sheet 1 — Resumo Mensal
+      // Sheet 1 — Resumo Mensal (mesma estrutura em faixas coloridas do PDF: cada série —
+      // Linha de Base / Reprogramação / Real+Reprogramado / Diferenças — tem uma linha de
+      // faixa (band) seguida das linhas Mensal/Acumulado).
       if (expSel.resumo) {
-      const resumo = [
-        ['Atividade', ...cabMeses],
-        ['LB Mensal (%)',              ...blM.map(fmt)],
-        ['LB Acumulado (%)',           ...blA.map(fmt)],
-        ['Reprogramado Mensal (%)',    ...repM.map(fmt)],
-        ['Reprogramado Acumulado (%)', ...repA.map(fmt)],
-        ['Real Mensal (%)',            ...rrM.map(fmt)],
-        ['Real Acumulado (%)',         ...rrA.map(fmt)],
-        ['Dif. vs LB Acumulado (%)',   ...difBL.map(fmt)],
-        ['Dif. vs Rep. Acumulado (%)', ...difRep.map(fmt)],
-      ];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), 'Resumo Mensal');
+        const HEADER_ROW = 3;
+        const bandRow = (label) => [label, ...cabMeses.map(() => '')];
+        const rows = [
+          titulo, subtitulo, [],
+          ['', ...cabMeses],
+          bandRow(blEtapas ? blNome : 'Linha de Base'),
+          ['Mensal',    ...blM.map(frac)],
+          ['Acumulado', ...blA.map(frac)],
+          bandRow(hasRep ? repNome : 'Reprogramação'),
+          ['Mensal',    ...repM.map(frac)],
+          ['Acumulado', ...repA.map(frac)],
+          bandRow('Real + Reprogramado'),
+          ['Mensal',    ...rrM.map(frac)],
+          ['Acumulado', ...rrA.map(frac)],
+          bandRow('Diferenças'),
+          ['Dif. vs LB Acum.',   ...difBL.map(frac)],
+          ['Dif. vs Rep. Acum.', ...difRep.map(frac)],
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        const bandStyles = [
+          { row: 4,  rgb: '102B54' }, // Linha de Base — navy (mesma cor do PDF: [16,43,84])
+          { row: 7,  rgb: '1C4584' }, // Reprogramação — azul da marca ([28,69,132])
+          { row: 10, rgb: '15803D' }, // Real + Reprogramado — verde ([21,128,61])
+          { row: 13, rgb: '475569' }, // Diferenças — cinza ([71,85,105])
+        ];
+        const bandRowIdx = new Set(bandStyles.map(b => b.row));
+        for (let R = HEADER_ROW + 1; R <= HEADER_ROW + 12; R++) {
+          if (bandRowIdx.has(R)) continue;
+          for (let C = 1; C <= cabMeses.length; C++) {
+            const addr = XLSX.utils.encode_cell({ r: R, c: C });
+            if (ws[addr]) ws[addr].z = '0.00%';
+          }
+        }
+        ws['!cols'] = [{ wch: 22 }, ...cabMeses.map(() => ({ wch: 12 }))];
+        ws['!merges'] = [
+          { s: { r: 0, c: 0 }, e: { r: 0, c: cabMeses.length } },
+          { s: { r: 1, c: 0 }, e: { r: 1, c: cabMeses.length } },
+        ];
+        ws['A1'].s = { ...XLSX_TITLE_STYLE };
+        ws['A2'].s = { ...XLSX_SUBTITLE_STYLE };
+        aplicarEstiloLinha(XLSX, ws, HEADER_ROW, cabMeses.length + 1, XLSX_HEADER_STYLE);
+        bandStyles.forEach(({ row, rgb }) => aplicarEstiloLinha(XLSX, ws, row, cabMeses.length + 1,
+          { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb } } }));
+        XLSX.utils.book_append_sheet(wb, ws, 'Resumo Mensal');
       }
 
       // Sheet 2 — Distribuição por Tarefa
@@ -974,24 +1045,51 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         : 0;
 
       const cabDist = ['Atividade', 'Valor (R$)', 'Peso %', 'Conc. %', ...cabMeses, 'Total'];
-      const dist = [cabDist];
-      distRows.forEach(e => {
+      const HEADER_ROW  = 3;
+      const groupRowIdx = [];
+      const dataRows = distRows.map((e, i) => {
         const gv = e.isGroup ? (groupValsExp[e.id] || {}) : {};
         const taskCusto  = custoEf(e, gv);
         const peso = totalCusto > 0 ? taskCusto / totalCusto * 100 : 0;
         const mDist = e.isGroup ? getGroupMonthlyDist(e.id, etapas, monthlyDist) : (monthlyDist[e.id] || {});
         // Conc. % = acumulado até o mês de referência selecionado (não o avanco bruto).
         const concAteRef = taskCusto > 0
-          ? months.reduce((s, m, i) => i <= selIdx ? s + (mDist[m.key] || 0) : s, 0) / taskCusto * 100
+          ? months.reduce((s, m, i2) => i2 <= selIdx ? s + (mDist[m.key] || 0) : s, 0) / taskCusto * 100
           : 0;
-        const monPcts = months.map(m => taskCusto > 0 ? parseFloat(((mDist[m.key] || 0) / taskCusto * 100).toFixed(4)) : null);
-        dist.push([e.etapa, taskCusto, parseFloat(peso.toFixed(4)), parseFloat(concAteRef.toFixed(2)), ...monPcts, 100]);
+        const monPcts = months.map(m => taskCusto > 0 ? parseFloat(((mDist[m.key] || 0) / taskCusto * 100 / 100).toFixed(6)) : null);
+        if (e.isGroup) groupRowIdx.push(HEADER_ROW + 1 + i);
+        return [e.etapa, taskCusto, peso / 100, concAteRef / 100, ...monPcts, 1];
       });
+      const totalRowIdx = HEADER_ROW + 1 + dataRows.length;
       // Rodapé
-      const totalMonPcts = months.map(m => totalCusto > 0 ? parseFloat(((filteredPlanned[m.key] || 0) / totalCusto * 100).toFixed(4)) : null);
-      dist.push(['Total geral', totalCusto, 100, parseFloat(concGeralAteRef.toFixed(2)), ...totalMonPcts, 100]);
+      const totalMonPcts = months.map(m => totalCusto > 0 ? parseFloat(((filteredPlanned[m.key] || 0) / totalCusto * 100 / 100).toFixed(6)) : null);
+      const rows = [
+        titulo, subtitulo, [],
+        cabDist,
+        ...dataRows,
+        ['Total geral', totalCusto, 1, concGeralAteRef / 100, ...totalMonPcts, 1],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      for (let R = HEADER_ROW + 1; R <= totalRowIdx; R++) {
+        const addrValor = XLSX.utils.encode_cell({ r: R, c: 1 });
+        if (ws[addrValor]) ws[addrValor].z = '#,##0.00';
+        for (let C = 2; C <= 3 + cabMeses.length; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (ws[addr]) ws[addr].z = '0.00%';
+        }
+      }
+      ws['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, ...cabMeses.map(() => ({ wch: 11 })), { wch: 8 }];
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: cabDist.length - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: cabDist.length - 1 } },
+      ];
+      ws['A1'].s = { ...XLSX_TITLE_STYLE };
+      ws['A2'].s = { ...XLSX_SUBTITLE_STYLE };
+      aplicarEstiloLinha(XLSX, ws, HEADER_ROW, cabDist.length, XLSX_HEADER_STYLE);
+      groupRowIdx.forEach(r => aplicarEstiloLinha(XLSX, ws, r, cabDist.length, XLSX_GROUP_ROW_STYLE));
+      aplicarEstiloLinha(XLSX, ws, totalRowIdx, cabDist.length, XLSX_TOTAL_ROW_STYLE);
 
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dist), 'Distribuição');
+      XLSX.utils.book_append_sheet(wb, ws, 'Distribuição');
       }
 
       if (wb.SheetNames.length === 0) { toast('Selecione ao menos uma tabela para o Excel.', { tone: 'warn' }); return; }
@@ -1014,7 +1112,7 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         doc.text(`Página ${pageNumber}`, W - 20, H - 6);
         doc.setTextColor(0);
       };
-      doc.setFontSize(13); doc.text(`Curva Física · ${obra?.nome || 'Projeto'}`, 14, 14);
+      doc.setFontSize(13); doc.text(`Curva Física · ${obraNome}`, 14, 14);
       doc.setFontSize(8);  doc.setTextColor(130);
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
@@ -1110,12 +1208,19 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
         const concAteRef = taskCst > 0
           ? mf.reduce((s, f, i) => i <= selIdx ? s + f * 100 : s, 0)
           : 0;
+        // Mesmos limiares de "vazio → —" usados na tela (ver render da tabela em tela,
+        // linhas ~1919/1933/1946/1955): Peso e Total só têm valor quando a tarefa tem
+        // custo; Conc. usa limiar 0.005; cada mês usa limiar 0.5 (mais folgado, evita
+        // "0.00%" por arredondamento de frações muito pequenas de custo).
         return {
           _isGroup: e.isGroup, _conc: concAteRef, _mf: mf,
           vals: [
-            e.etapa, fmtBRL(taskCst), peso.toFixed(2) + '%', concAteRef.toFixed(2) + '%',
-            ...months.map((m, i) => taskCst > 0 ? (mf[i] * 100).toFixed(2) + '%' : '—'),
-            '100%',
+            e.etapa,
+            fmtBRL(taskCst),
+            taskCst > 0 ? peso.toFixed(2) + '%' : '—',
+            concAteRef > 0.005 ? concAteRef.toFixed(2) + '%' : '—',
+            ...months.map((m, i) => (taskCst > 0 && mf[i] * 100 > 0.5) ? (mf[i] * 100).toFixed(2) + '%' : '—'),
+            taskCst > 0 ? '100%' : '—',
           ],
         };
       });
@@ -1178,6 +1283,8 @@ const CurvaFisicaView = ({ etapas, months, monthlyDist, realizedTotals, baseline
       });
       }
       doc.save(`curva-fisica-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      toast('Erro ao gerar PDF: ' + err.message, { tone: 'danger' });
     } finally {
       setExportingPDF(false);
     }
@@ -2017,6 +2124,13 @@ function defaultRepId(reps, refMonthKey) {
   return pool.reduce((best, r) => (!best || r.criadaEm > best.criadaEm) ? r : best, null)?.id ?? null;
 }
 
+// Entre as linhas de base, a mais recente por criadaEm; lista vazia, null. Não tem o
+// conceito de "mês de referência" que a reprogramação tem (defaultRepId acima).
+function defaultBlId(baselines) {
+  if (!baselines.length) return null;
+  return baselines.reduce((best, b) => (!best || b.criadaEm > best.criadaEm) ? b : best, null)?.id ?? null;
+}
+
 // ─── Seleção visível da Curva (Linha de Base / Reprogramação), persistida por obra ──
 function carregarBlVisivel(obraId) {
   try { return localStorage.getItem('crono_bl_visivel_' + obraId) || null; } catch { return null; }
@@ -2186,7 +2300,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const [etapas,       setEtapas]       = React.useState([]);
   const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
   const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(defaultObraId || ''));
-  const [blVisivelId,  setBlVisivelId]  = React.useState(() => carregarBlVisivel(defaultObraId || ''));
+  const [blVisivelId,  setBlVisivelId]  = React.useState(() => carregarBlVisivel(defaultObraId || '') ?? defaultBlId(carregarBaselines(defaultObraId || '')));
   const [reprogramacoes, setReprogramacoes] = React.useState(() => carregarReprogramacoes(defaultObraId || ''));
   const [repVisivelId,   setRepVisivelId]   = React.useState(() => carregarRepVisivel(defaultObraId || '') ?? defaultRepId(carregarReprogramacoes(defaultObraId || '')));
   // Mês de referência da Curva Física — persistido por obra pelo mesmo motivo de blVisivelId/
@@ -2453,7 +2567,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         histHiddenColsRef.current = [lerHiddenColsLS(obraSel)];
         histRowHeightsRef.current = [lerRowHeightsLS(obraSel)];
         hidxRef.current = 0;
-        setBlVisivelId(carregarBlVisivel(obraSel));
+        setBlVisivelId(carregarBlVisivel(obraSel) ?? defaultBlId(cached.baselines || []));
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(cached.reprogramacoes || []));
         setSelMonKey(carregarMesRef(obraSel) || mesAtualKey());
         setLoadedObraId(obraSel);
@@ -2494,6 +2608,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         setReprogramacoes(reps);
         if (db.reprogramacoes?.length) salvarReprogramacoesLocal(obraSel, db.reprogramacoes);
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(reps));
+        setBlVisivelId(carregarBlVisivel(obraSel) ?? defaultBlId(bls));
         // Base do diff do save incremental: as mesmas etapas e os mesmos `outros` que o
         // próximo salvarCronograma vai receber. Montado aqui, e não no carregarCronogramaDB,
         // porque é depois de migrateEtapas/autoScheduleFromDeps que os objetos ficam iguais
@@ -2519,12 +2634,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         histHiddenColsRef.current = [lerHiddenColsLS(obraSel)];
         histRowHeightsRef.current = [lerRowHeightsLS(obraSel)];
         hidxRef.current = 0;
-        setBaselines(carregarBaselines(obraSel));
+        const blsMock = carregarBaselines(obraSel);
+        setBaselines(blsMock);
         const reps = carregarReprogramacoes(obraSel);
         setReprogramacoes(reps);
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(reps));
+        setBlVisivelId(carregarBlVisivel(obraSel) ?? defaultBlId(blsMock));
       }
-      setBlVisivelId(carregarBlVisivel(obraSel));
       setSelMonKey(carregarMesRef(obraSel) || mesAtualKey());
       setLoadedObraId(obraSel); // marca carga concluída — isLoading vira false
       if (reloadToastRef.current) {
@@ -3334,6 +3450,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               {view === 'curva' && (
                 <CurvaFisicaView
                   etapas={etapas}
+                  obraNome={obra?.nome || 'Projeto'}
                   months={months}
                   monthlyDist={monthlyDist}
                   realizedTotals={realizedTotals}
@@ -3402,7 +3519,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
               )}
 
               {view === 'uso' && (
-                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} valorVinculadoMap={valorVinculadoMapFull} custoOrcadoMap={custoOrcadoMap} wbsMap={wbsMap} rowNumberMap={rowNumberMap} />
+                <UsoTarefaView etapas={etapas} months={months} monthlyDist={monthlyDist} obraId={obraSel} obraNome={obra?.nome || 'Projeto'} valorVinculadoMap={valorVinculadoMapFull} custoOrcadoMap={custoOrcadoMap} wbsMap={wbsMap} rowNumberMap={rowNumberMap} />
               )}
 
               {view === 'medicao' && (
