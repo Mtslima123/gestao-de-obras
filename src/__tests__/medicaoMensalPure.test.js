@@ -143,28 +143,39 @@ describe('validarAbertura', () => {
     expect(ok).toBe(true);
     expect(pendentes).toEqual([]);
   });
+
+  it('bloqueia tarefa com avanço parcial que começou antes do mês sendo aberto e ainda termina nele (ou depois)', () => {
+    // dur: 30 (dias úteis) garante término bem depois do início — cai em julho (MES).
+    const etapasAtravessa = [
+      { id: 'A1', etapa: 'Atravessando', isGroup: false, nivel: 0, parentId: null, inicio: dateToOffset('2026-06-20'), dur: 30, avanco: 45 },
+    ];
+    const { ok, pendentes } = validarAbertura(etapasAtravessa, MES, { A1: '9.6' });
+    expect(ok).toBe(false);
+    expect(pendentes.map(p => p.id)).toEqual(['A1']);
+    expect(pendentes[0]).toMatchObject({ motivo: 'atravessa', avanco: 45, inicioMes: '2026-06' });
+  });
+
+  it('bloqueia tarefa 100% executada que começou antes do mês sendo aberto e ainda termina nele (datas desalinhadas)', () => {
+    const etapasAtravessa = [
+      { id: 'A2', etapa: 'Atravessando100', isGroup: false, nivel: 0, parentId: null, inicio: dateToOffset('2026-06-20'), dur: 30, avanco: 100 },
+    ];
+    const { ok, pendentes } = validarAbertura(etapasAtravessa, MES, { A2: '9.7' });
+    expect(ok).toBe(false);
+    expect(pendentes.map(p => p.id)).toEqual(['A2']);
+    expect(pendentes[0]).toMatchObject({ motivo: 'atravessa', avanco: 100 });
+  });
 });
 
 describe('validarFechamento', () => {
-  it('bloqueia item com % medido acima do % executado e marca atravessaMes quando início/término caem em meses diferentes', () => {
+  it('bloqueia item com % medido acima do % executado', () => {
     const itens = [{
       id: 'BL2', wbs: '1.2', descricao: 'BL2', percMedido: 100, percExecutado: 46,
-      inicioOff: dateToOffset('2026-09-25'), terminoOff: dateToOffset('2026-10-09'), // término (offset exclusivo -1) cai em outubro
+      inicioOff: dateToOffset('2026-09-25'), terminoOff: dateToOffset('2026-10-09'),
     }];
     const { ok, violacoes } = validarFechamento(itens);
     expect(ok).toBe(false);
     expect(violacoes).toHaveLength(1);
-    expect(violacoes[0]).toMatchObject({ id: 'BL2', atravessaMes: true });
-  });
-
-  it('bloqueia mas NÃO marca atravessaMes quando a tarefa fica dentro de um único mês', () => {
-    const itens = [{
-      id: 'BL1', wbs: '1.1', descricao: 'BL1', percMedido: 80, percExecutado: 50,
-      inicioOff: dateToOffset('2026-09-11'), terminoOff: dateToOffset('2026-09-24'),
-    }];
-    const { ok, violacoes } = validarFechamento(itens);
-    expect(ok).toBe(false);
-    expect(violacoes[0]).toMatchObject({ id: 'BL1', atravessaMes: false });
+    expect(violacoes[0]).toMatchObject({ id: 'BL2' });
   });
 
   it('não bloqueia quando % medido está dentro do % executado', () => {
@@ -177,19 +188,13 @@ describe('validarFechamento', () => {
     expect(violacoes).toEqual([]);
   });
 
-  it('bloqueia tarefa que atravessa mês MESMO com % medido = % executado (marcada 100% sem ajustar as datas)', () => {
+  // Tarefa atravessando o mês (início/término em meses diferentes) NÃO bloqueia mais o
+  // fechamento — fechar salva o que foi medido até ali; a checagem de cronograma "sujo"
+  // atravessando mês virou responsabilidade de validarAbertura (motivo 'atravessa'), que
+  // mira o mês sendo ABERTO, não o que está sendo fechado.
+  it('não bloqueia tarefa que atravessa mês quando % medido = % executado, mesmo com datas em meses diferentes', () => {
     const itens = [{
       id: 'BL2', wbs: '1.2', descricao: 'BL2', percMedido: 100, percExecutado: 100,
-      inicioOff: dateToOffset('2026-09-25'), terminoOff: dateToOffset('2026-10-09'),
-    }];
-    const { ok, violacoes } = validarFechamento(itens);
-    expect(ok).toBe(false);
-    expect(violacoes[0]).toMatchObject({ id: 'BL2', atravessaMes: true });
-  });
-
-  it('não bloqueia tarefa que atravessa mês quando é item "fora do mês" (registro manual de avanço adiantado)', () => {
-    const itens = [{
-      id: 'ADIANTADO', wbs: '1.4', descricao: 'Adiantada', percMedido: 30, percExecutado: 30, foraDoMes: true,
       inicioOff: dateToOffset('2026-09-25'), terminoOff: dateToOffset('2026-10-09'),
     }];
     const { ok, violacoes } = validarFechamento(itens);

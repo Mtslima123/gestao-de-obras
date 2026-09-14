@@ -296,22 +296,13 @@ export function computeResumo({ monthlyTotals, mesRefKey, valorMedidoMes = 0 }) 
   };
 }
 
-// Bloqueia o fechamento se algum item tiver %medido acima do %executado da tarefa OU
-// atravessar o mês (início e término em meses diferentes) — mesmo com %medido = %executado
-// (ex.: alguém marcou a tarefa em 100% sem ajustar as datas dela), fechar o mês com uma
-// tarefa cujo cronograma ainda se estende pro mês seguinte é inconsistente: a tarefa
-// precisa ser separada primeiro ("Reprogramar restante" na Lista, ver ModalFecharMedicao em
-// MedicaoMensal.jsx) pra só então cada pedaço ficar contido no mês em que é medido.
-// Item "fora do mês" (foraDoMes) é registro manual de avanço adiantado — não representa a
-// tarefa tomando o mês inteiro, então fica de fora da regra de atravessar mês (só continua
-// valendo a checagem de %medido/%executado).
+// Bloqueia o fechamento se algum item tiver %medido acima do %executado da tarefa. Tarefa
+// atravessando o mês (início e término em meses diferentes) NÃO bloqueia mais aqui — fechar
+// o mês salva o que foi medido até ali, mesmo com o cronograma da tarefa se estendendo pro
+// mês seguinte; essa checagem virou responsabilidade de validarAbertura, abaixo (mira o mês
+// sendo aberto, não o que está sendo fechado — ver motivo 'atravessa').
 export function validarFechamento(itens) {
-  const violacoes = itens
-    .map(i => ({
-      ...i,
-      atravessaMes: !i.foraDoMes && offsetToISO(i.inicioOff).slice(0, 7) !== offsetToISO(i.terminoOff - 1).slice(0, 7),
-    }))
-    .filter(i => i.percMedido > i.percExecutado || i.atravessaMes);
+  const violacoes = itens.filter(i => i.percMedido > i.percExecutado);
   return { ok: violacoes.length === 0, violacoes };
 }
 
@@ -329,20 +320,34 @@ export function validarAbertura(etapas, mesRefKey, wbsMap) {
       id: e.id, wbs: wbsMap[e.id] || '', descricao: e.etapa || '',
       avanco: e.avanco || 0, motivo: 'termino', terminoMes,
     }));
-  const jaListados = new Set(porTermino.map(p => p.id));
   // Tarefa que já devia estar em andamento (início num mês anterior ao que está sendo
   // aberto) mas segue em 0% — mesmo com término ainda no próprio mês ou depois, passar o
   // mês inteiro sem nenhuma execução registrada também tem que travar a abertura do
   // próximo mês (senão o mês fica "fechado" com a tarefa intocada, escondendo o atraso).
   const porInicioZerado = etapas
-    .filter(e => !e.isGroup && (e.avanco || 0) === 0 && !jaListados.has(e.id))
+    .filter(e => !e.isGroup && (e.avanco || 0) === 0)
     .map(e => ({ e, inicioMes: offsetToISO(e.inicio).slice(0, 7) }))
     .filter(({ inicioMes }) => inicioMes < mesRefKey)
     .map(({ e, inicioMes }) => ({
       id: e.id, wbs: wbsMap[e.id] || '', descricao: e.etapa || '',
       avanco: 0, motivo: 'zerada', inicioMes,
     }));
-  const pendentes = [...porTermino, ...porInicioZerado]
+  const jaListados = new Set([...porTermino, ...porInicioZerado].map(p => p.id));
+  // Tarefa que começou antes do mês sendo aberto e cujo término ainda cai dentro dele (ou
+  // depois) — cronograma "sujo" que precisa ser separado (Reprogramar restante) ou corrigido
+  // (ajustar término) antes de abrir. Cobre tanto avanço parcial (sobra "restante" pra
+  // separar) quanto 100% com término desalinhado (não sobra restante, mas a data ainda
+  // empurra uma fatia indevida pro previsto do mês sendo aberto). avanco===0 já é coberto
+  // por porInicioZerado acima, então fica de fora daqui pra não duplicar a pendência.
+  const porAtravessaMes = etapas
+    .filter(e => !e.isGroup && !jaListados.has(e.id) && (e.avanco || 0) > 0)
+    .map(e => ({ e, inicioMes: offsetToISO(e.inicio).slice(0, 7), terminoMes: offsetToISO(taskEnd(e) - 1).slice(0, 7) }))
+    .filter(({ inicioMes, terminoMes }) => inicioMes < mesRefKey && terminoMes >= mesRefKey)
+    .map(({ e, inicioMes }) => ({
+      id: e.id, wbs: wbsMap[e.id] || '', descricao: e.etapa || '',
+      avanco: e.avanco || 0, motivo: 'atravessa', inicioMes,
+    }));
+  const pendentes = [...porTermino, ...porInicioZerado, ...porAtravessaMes]
     .sort((a, b) => a.wbs.localeCompare(b.wbs, 'pt-BR', { numeric: true }));
   return { ok: pendentes.length === 0, pendentes };
 }

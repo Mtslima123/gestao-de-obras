@@ -164,9 +164,25 @@ function ModalPendenciasAbertura({ mesRefKey, pendentes, onClose }) {
         {pendentes.map(p => (
           <li key={p.id}>
             {p.wbs} — {p.descricao}: {fmtPct100(p.avanco)}
-            {p.motivo === 'termino'
-              ? ` (término ${mesLabel(p.terminoMes)})`
-              : ` (sem execução desde ${mesLabel(p.inicioMes)})`}
+            {p.motivo === 'termino' && ` (término ${mesLabel(p.terminoMes)})`}
+            {p.motivo === 'zerada' && ` (sem execução desde ${mesLabel(p.inicioMes)})`}
+            {p.motivo === 'atravessa' && (
+              <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>
+                Começa em {mesLabel(p.inicioMes)} e ainda se estende até {mesLabel(mesRefKey)} ou
+                depois.{' '}
+                {p.avanco >= 100 ? (
+                  // 100% executado mas ainda atravessa o mês: já terminou, as datas é que
+                  // ficaram desalinhadas (ex.: marcaram 100% sem ajustar o término) —
+                  // "Reprogramar restante" não se aplica (não sobra restante).
+                  <>Como ela já está 100% executada, não é caso de "Reprogramar restante" —
+                  as datas é que ficaram maiores que o trabalho real. Ajuste o término dela
+                  na Lista pra ele caber antes de {mesLabel(mesRefKey)}.</>
+                ) : (
+                  <>Na Lista, botão direito na tarefa → "Reprogramar restante" separa o que já
+                  foi feito do que falta, e libera a abertura.</>
+                )}
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -224,39 +240,11 @@ function ModalFecharMedicao({ mesRefKey, violacoes, salvando, onClose, onConfirm
             {violacoes.length} tarefa(s) impedem o fechamento de {mesLabel(mesRefKey)}:
           </p>
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-soft)' }}>
-            {violacoes.map(v => {
-              const percProblema = v.percMedido > v.percExecutado;
-              return (
-                <li key={v.id}>
-                  {v.wbs} — {v.descricao}
-                  {percProblema && <>: medido {fmtPct100(v.percMedido)} &gt; executado {fmtPct100(v.percExecutado)}</>}
-                  {v.atravessaMes && (
-                    <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>
-                      Essa tarefa começa num mês e termina em outro — mesmo com o % batendo, o mês só
-                      pode fechar com ela inteira contida nele.{' '}
-                      {v.percExecutado <= 0 ? (
-                        // Nada foi executado ainda: não há "o que já foi feito" pra separar —
-                        // "Reprogramar restante" não faz nada nesse caso (exige avanço entre 1 e 99).
-                        // A saída aqui é mover a tarefa inteira, não dividi-la.
-                        <>Como ela ainda não começou de verdade (0% executado), não é caso de
-                        "Reprogramar restante" — edite o início dela na Lista (ou arraste no Gantt)
-                        pra empurrar a tarefa inteira pro mês em que ela vai rodar de fato.</>
-                      ) : v.percExecutado >= 100 ? (
-                        // 100% executado mas ainda atravessa o mês: já terminou, as datas é que
-                        // ficaram desalinhadas (ex.: marcaram 100% sem ajustar o término) —
-                        // "Reprogramar restante" também não se aplica (não sobra restante).
-                        <>Como ela já está 100% executada, não é caso de "Reprogramar restante" —
-                        as datas é que ficaram maiores que o trabalho real. Ajuste o término dela
-                        na Lista pra ele caber dentro do mês.</>
-                      ) : (
-                        <>Na Lista, botão direito na tarefa → "Reprogramar restante" separa o que já
-                        foi feito do que falta, e libera o fechamento.</>
-                      )}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
+            {violacoes.map(v => (
+              <li key={v.id}>
+                {v.wbs} — {v.descricao}: medido {fmtPct100(v.percMedido)} &gt; executado {fmtPct100(v.percExecutado)}
+              </li>
+            ))}
           </ul>
         </div>
       ) : (
