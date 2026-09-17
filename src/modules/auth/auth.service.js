@@ -12,17 +12,18 @@ export const authService = {
   // Login SSO via Microsoft Entra ID (email corporativo @soter.com.br).
   // As credenciais (Client ID/Secret/Tenant) ficam só no painel do Supabase,
   // nunca no código. Aqui apenas iniciamos o fluxo OAuth com o provider 'azure'.
-  // O scope GroupMember.Read.All é o que permite ao App.jsx (via provider_token
-  // devolvido só nesta resposta inicial de login) chamar o Microsoft Graph
-  // checkMemberGroups e validar o grupo G-SOTER-<App> no servidor (Edge Function
-  // verificar-grupo-acesso). Requer o App Registration ter essa permissão
-  // delegada concedida e consentida pelo admin no Azure AD (passo manual, fora
-  // deste repositório).
+  // NÃO pedir o scope GroupMember.Read.All aqui enquanto ele não estiver com consentimento
+  // de admin já concedido no Azure AD: pedir um scope que exige aprovação de admin e ainda
+  // não foi aprovado bloqueia o LOGIN inteiro pra TODO MUNDO (a tela "Aprovação necessária"
+  // do Microsoft trava o fluxo OAuth antes de emitir sessão nenhuma) — não é só a checagem
+  // de grupo (Edge Function verificar-grupo-acesso) que fica sem efeito, como se pensou;
+  // incidente real em 2026-09-17, revertido. Só reativar depois que o admin tiver
+  // concedido e consentido a permissão no App Registration (fora deste repositório).
   signInWithSSO: () =>
     supabase.auth.signInWithOAuth({
       provider: 'azure',
       options: {
-        scopes: 'email openid profile GroupMember.Read.All',
+        scopes: 'email openid profile',
         redirectTo: window.location.origin,
       },
     }),
