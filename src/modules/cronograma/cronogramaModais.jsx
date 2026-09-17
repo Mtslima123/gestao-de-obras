@@ -321,8 +321,13 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
         novas.filter(e => e.parentId === taskId && e.pavimento)
              .map(e => e.pavimento.trim().toLowerCase())
       );
-      const paraInserir = selectedFloors.filter(nome => !existentes.has(nome.trim().toLowerCase()));
-      puladas += selectedFloors.length - paraInserir.length;
+      // Ordem de criação = ordem VISUAL dos chips (validFloors, que reflete o arrastar do
+      // Passo 2), não a ordem em que os checkboxes foram marcados (selectedFloors por si só
+      // só registra isso) — sem isso, reordenar os pavimentos não tinha efeito nenhum na
+      // sequência real das subtarefas criadas.
+      const ordemSelecionada = validFloors.filter(nome => selectedFloors.includes(nome));
+      const paraInserir = ordemSelecionada.filter(nome => !existentes.has(nome.trim().toLowerCase()));
+      puladas += ordemSelecionada.length - paraInserir.length;
       if (!paraInserir.length) return;
 
       // Encontra índice do último descendente para inserir subtarefas após ele
@@ -518,14 +523,21 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
                 const marcado = selectedFloors.includes(nome);
                 return (
                   <label key={nome} className="btn btn-ghost"
-                    onDragOver={ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; if (dragOverFloor !== nome) setDragOverFloor(nome); }}
+                    onDragOver={ev => {
+                      ev.preventDefault();
+                      ev.dataTransfer.dropEffect = 'move';
+                      if (dragOverFloor === nome) return;
+                      setDragOverFloor(nome);
+                      // Reordena já durante o arraste (não só ao soltar): o usuário vê a
+                      // posição se formando em tempo real, em vez de só "saltar" no drop.
+                      const from = dragFloorRef.current;
+                      if (from && from !== nome) reorderFloors(from, nome);
+                    }}
                     onDragLeave={() => setDragOverFloor(cur => cur === nome ? null : cur)}
                     onDrop={ev => {
                       ev.preventDefault();
-                      const from = dragFloorRef.current;
                       dragFloorRef.current = null;
                       setDragOverFloor(null);
-                      if (from) reorderFloors(from, nome);
                     }}
                     style={{ fontSize: 12.5, padding: '4px 10px 4px 4px', height: 28, borderRadius: 14, cursor: 'pointer',
                              display: 'inline-flex', alignItems: 'center', gap: 4,
