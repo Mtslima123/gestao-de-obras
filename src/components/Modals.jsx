@@ -4,6 +4,7 @@ import { AppData } from '../utils/data';
 import { orcamentosService } from '../modules/financeiro/orcamentos.service';
 import { notificacoesService } from '../services/notificacoes.service';
 import { logger } from '../services/logger';
+import { friendlyError } from '../utils/friendlyError';
 
 // Modals, toasts, dropdowns — shared interactive components
 
@@ -324,6 +325,12 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     const n = parseFloat(String(v).replace(',', '.'));
     return Number.isFinite(n) ? n : null;
   };
+  // Financeiro (%) é progresso 0-100 de verdade — Delta e Tendência NÃO usam isto (são
+  // variações com sinal, negativo é um valor válido e esperado ali, não um erro).
+  const numPercentOuNull = (v) => {
+    const n = numOuNull(v);
+    return n == null ? null : Math.min(100, Math.max(0, n));
+  };
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -339,7 +346,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         endereco:    form.endereco,
         previsto:    form.dataPrevista || obra.previsto,
         dataFimObra: form.dataFimObra || null,
-        avancoFinanceiro:      numOuNull(form.avancoFinanceiro),
+        avancoFinanceiro:      numPercentOuNull(form.avancoFinanceiro),
         deltaFisicoFinanceiro: numOuNull(form.deltaFisicoFinanceiro),
         tendenciaFechamento:   numOuNull(form.tendenciaFechamento),
         // id não é sobrescrito — permanece imutável
@@ -765,7 +772,8 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
     }, user?.id);
     setLoading(false);
     if (error) {
-      toast('Erro ao criar orçamento: ' + error.message, { tone: 'error', icon: 'alert' });
+      logger.error('erro ao criar orcamento', { module: 'financeiro', action: 'criar', err: error });
+      toast('Erro ao criar orçamento. ' + friendlyError(error), { tone: 'error', icon: 'alert' });
       return;
     }
     toast('Orçamento criado com sucesso', { tone: 'success', icon: 'check' });

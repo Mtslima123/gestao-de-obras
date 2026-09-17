@@ -4,6 +4,7 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
+import { friendlyError } from '../../utils/friendlyError';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura, isAdmin, abaSomenteLeitura } from '../../utils/permissions';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
@@ -812,18 +813,33 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
 
   const atualizarFoto = async (id, metadados) => {
     const { error } = await supabase.from('fotos_obra').update(metadados).eq('id', id);
-    if (!error) {
-      registrarPavimento(metadados.pavimento);
-      toast('Foto atualizada', { tone: 'success', icon: 'check' });
-      carregarPagina(pagina);
-      carregarPavimentosComFoto();
+    if (error) {
+      logger.error('erro ao atualizar foto', { module: 'obra', action: 'atualizarFoto', err: error });
+      toast('Erro ao atualizar foto. ' + friendlyError(error), { tone: 'danger' });
+      return false;
     }
+    registrarPavimento(metadados.pavimento);
+    toast('Foto atualizada', { tone: 'success', icon: 'check' });
+    carregarPagina(pagina);
+    carregarPavimentosComFoto();
+    return true;
   };
 
   const excluirFoto = async (foto) => {
     const paths = [foto.storage_path, foto.thumbnail_path].filter(Boolean);
-    await supabase.storage.from('obras-images').remove(paths);
-    await supabase.from('fotos_obra').delete().eq('id', foto.id);
+    const { error: errStorage } = await supabase.storage.from('obras-images').remove(paths);
+    const { error: errDb } = await supabase.from('fotos_obra').delete().eq('id', foto.id);
+    // O que importa pro usuário é o registro (fotos_obra): se ele não foi excluído, a foto
+    // continua aparecendo na galeria — precisa avisar. Falha só no storage (arquivo já não
+    // existia etc.) não impede seguir, já que o registro em si foi removido com sucesso.
+    if (errDb) {
+      logger.error('erro ao excluir foto', { module: 'obra', action: 'excluirFoto', err: errDb });
+      toast('Erro ao excluir foto. ' + friendlyError(errDb), { tone: 'danger' });
+      return;
+    }
+    if (errStorage) {
+      logger.error('falha ao remover arquivo da foto no storage (registro já excluído)', { module: 'obra', action: 'excluirFoto', err: errStorage });
+    }
     toast('Foto excluída', { tone: 'neutral' });
     carregarPavimentosComFoto();
     // Era a última foto desta página (e não é a 1ª página): volta uma página em vez de
@@ -985,7 +1001,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
             </div>
       }
       {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFotos} onClose={() => setShowUpload(false)} />}
-      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={(m) => { atualizarFoto(editando.id, m); setEditando(null); }} onClose={() => setEditando(null)} />}
+      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox
           fotos={fotos}
@@ -1424,7 +1440,8 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
     const path = `obras/${obra.id}/capa.jpg`;
     const { error } = await supabase.storage.from('obras-images').upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
     if (error) {
-      toast('Erro no upload: ' + error.message, { tone: 'danger' });
+      logger.error('erro no upload da capa', { module: 'obra', action: 'uploadCapa', err: error });
+      toast('Erro no upload. ' + friendlyError(error), { tone: 'danger' });
       setUploading(false);
       return;
     }

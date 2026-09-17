@@ -14,6 +14,7 @@
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
 import { notifBus } from '../../services/notificacoes.service';
+import { friendlyError } from '../../utils/friendlyError';
 import { mkId, nowISO, extOf, normAuthor, validateFile, computeDiffEvents } from './taskDetailPure';
 
 /**
@@ -188,7 +189,7 @@ const supa = {
   async listAttachments(obraId, taskId) {
     const { data, error } = await supabase.from('task_attachments')
       .select('*').eq('obra_id', obraId).eq('task_id', taskId).order('uploaded_at', { ascending: false });
-    if (error) throw new Error(error.message);
+    if (error) { logger.error('erro ao listar anexos', { module: 'taskDetail', action: 'listAttachments', obraId, taskId, err: error }); throw new Error(friendlyError(error)); }
     return (data || []).map(rowToAttachment);
   },
   async addAttachment(obraId, taskId, file, author) {
@@ -196,7 +197,7 @@ const supa = {
     const id = mkId();
     const path = `${obraId}/${taskId}/${id}`;
     const up = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type || undefined, upsert: false });
-    if (up.error) throw new Error('Falha no upload: ' + up.error.message);
+    if (up.error) { logger.error('erro no upload do anexo', { module: 'taskDetail', action: 'addAttachment.upload', obraId, taskId, err: up.error }); throw new Error(friendlyError(up.error)); }
     const a = normAuthor(author);
     const row = {
       id, obra_id: obraId, task_id: taskId, name: file.name, mime: file.type || extOf(file.name),
@@ -207,7 +208,8 @@ const supa = {
     if (ins.error) {
       try { await supabase.storage.from(BUCKET).remove([path]); }
       catch (e) { logger.error('falha ao remover anexo orfao do storage', { module: 'taskDetail', action: 'addAttachment.rollback', obraId, taskId, err: e }); }
-      throw new Error('Falha ao salvar anexo: ' + ins.error.message);
+      logger.error('erro ao salvar anexo', { module: 'taskDetail', action: 'addAttachment.insert', obraId, taskId, err: ins.error });
+      throw new Error(friendlyError(ins.error));
     }
     await supa.logEvent(obraId, taskId, { type: 'attachment_add', text: file.name, ...a });
     return rowToAttachment(row);
@@ -216,17 +218,17 @@ const supa = {
     const name = (newName || '').trim();
     if (!name) throw new Error('O nome não pode ficar vazio.');
     const cur = await supabase.from('task_attachments').select('name').eq('id', id).single();
-    if (cur.error) throw new Error(cur.error.message);
+    if (cur.error) { logger.error('erro ao ler anexo pra renomear', { module: 'taskDetail', action: 'renameAttachment.read', obraId, taskId, err: cur.error }); throw new Error(friendlyError(cur.error)); }
     const oldExt = extOf(cur.data.name);
     const finalName = extOf(name) === oldExt ? name : `${name}.${oldExt}`;
     const { error } = await supabase.from('task_attachments').update({ name: finalName }).eq('id', id);
-    if (error) throw new Error(error.message);
+    if (error) { logger.error('erro ao renomear anexo', { module: 'taskDetail', action: 'renameAttachment', obraId, taskId, err: error }); throw new Error(friendlyError(error)); }
     return { id, name: finalName };
   },
   async removeAttachment(obraId, taskId, id, author) {
     const cur = await supabase.from('task_attachments').select('storage_path, name').eq('id', id).single();
     const { error } = await supabase.from('task_attachments').delete().eq('id', id);
-    if (error) throw new Error(error.message);
+    if (error) { logger.error('erro ao excluir anexo', { module: 'taskDetail', action: 'removeAttachment', obraId, taskId, err: error }); throw new Error(friendlyError(error)); }
     if (cur.data?.storage_path) { try { await supabase.storage.from(BUCKET).remove([cur.data.storage_path]); } catch (e) { logger.error('falha ao remover anexo do storage', { module: 'taskDetail', action: 'removeAttachment', obraId, taskId, err: e }); } }
     await supa.logEvent(obraId, taskId, { type: 'attachment_remove', text: cur.data?.name || '', ...normAuthor(author) });
   },
@@ -238,12 +240,12 @@ const supa = {
   async listHistory(obraId, taskId) {
     const { data, error } = await supabase.from('task_history')
       .select('*').eq('obra_id', obraId).eq('task_id', taskId).order('created_at', { ascending: false });
-    if (error) throw new Error(error.message);
+    if (error) { logger.error('erro ao listar historico', { module: 'taskDetail', action: 'listHistory', obraId, taskId, err: error }); throw new Error(friendlyError(error)); }
     return (data || []).map(rowToEvent);
   },
   async logEvent(obraId, taskId, event) {
     const { data, error } = await supabase.from('task_history').insert(eventToRow(obraId, taskId, event)).select().single();
-    if (error) throw new Error(error.message);
+    if (error) { logger.error('erro ao gravar evento', { module: 'taskDetail', action: 'logEvent', obraId, taskId, err: error }); throw new Error(friendlyError(error)); }
     return rowToEvent(data);
   },
   async addComment(obraId, taskId, text, author) {
@@ -253,7 +255,7 @@ const supa = {
   },
   async removeComment(obraId, taskId, id) {
     const { error } = await supabase.from('task_history').delete().eq('id', id).eq('type', 'comment');
-    if (error) throw new Error(error.message);
+    if (error) { logger.error('erro ao excluir comentario', { module: 'taskDetail', action: 'removeComment', obraId, taskId, err: error }); throw new Error(friendlyError(error)); }
   },
 };
 

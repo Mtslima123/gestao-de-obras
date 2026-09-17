@@ -719,7 +719,10 @@ export default function MedicaoMensal({
     if (bloqueado) return;
     const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens);
     if (error) {
-      if (!silencioso) toast('Não foi possível salvar o rascunho (tabela de medição ainda não disponível).', { tone: 'danger' });
+      // Falha SEMPRE avisa, mesmo no autosave silencioso (que só suprime o toast de
+      // SUCESSO) — ficar sempre calado numa falha real fazia o usuário achar que salvou
+      // e o valor sumir ao recarregar a página.
+      toast('Não foi possível salvar o rascunho. Tente novamente.', { tone: 'danger' });
       return;
     }
     setRegistro(data);

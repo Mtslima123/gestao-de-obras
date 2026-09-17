@@ -4,6 +4,7 @@ import { AppData } from '../../utils/data';
 import { useToast, Modal } from '../../components/Modals';
 import { orcamentosService } from './orcamentos.service';
 import { logger } from '../../services/logger';
+import { friendlyError } from '../../utils/friendlyError';
 import { vinculoService } from './vinculoService';
 import { supabase } from '../../services/supabase';
 import { migrateEtapas } from '../cronograma/ganttUtils';
@@ -828,9 +829,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
   };
 
   // ── Operações de linha ─────────────────────────────────────────────────────
+  // Quantidade e Valor Unitário não fazem sentido negativos (item de composição de
+  // orçamento) — sem isso, dava pra digitar um valor negativo e ele ia direto pro banco.
+  const CAMPOS_NAO_NEGATIVOS = new Set(['quantidade', 'valor_unitario']);
   const editCell = (id, field, value) => {
+    const v = CAMPOS_NAO_NEGATIVOS.has(field) && typeof value === 'number' ? Math.max(0, value) : value;
     setItems(prev => prev.map(it =>
-      it.id === id ? { ...it, [field]: value, _dirty: true } : it
+      it.id === id ? { ...it, [field]: v, _dirty: true } : it
     ));
     setDirty(true);
   };
@@ -991,7 +996,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         const { error } = await orcamentosService.itens.excluirVarios(idsToDelete);
         if (error) {
           logger.error('erro ao substituir itens na importacao', { module: 'orcamento', action: 'importar.substituir', err: error });
-          toast('Erro ao substituir itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          toast('Erro ao substituir itens. ' + friendlyError(error), { tone: 'error', icon: 'alert' });
           setSaving(false);
           return; // nada foi alterado no banco
         }
@@ -1003,7 +1008,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         const { error } = await orcamentosService.itens.criar(toInsert);
         if (error) {
           logger.error('erro ao inserir itens na importacao', { module: 'orcamento', action: 'importar.inserir', err: error });
-          toast('Erro ao importar itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          toast('Erro ao importar itens. ' + friendlyError(error), { tone: 'error', icon: 'alert' });
           // Mantém os novos itens em memória (pendentes) para retry via "Salvar alterações"
           if (modo === 'substituir') setItems(newItems);
           else setItems(prev => [...prev, ...newItems]);
@@ -1042,6 +1047,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
 
   // ── Salvar no DB ───────────────────────────────────────────────────────────
   const handleSave = async () => {
+    const semNome = items.find(it => !String(it.nome || '').trim());
+    if (semNome) {
+      toast(`Preencha o nome do item ${semNome.codigo || ''} antes de salvar.`, { tone: 'error', icon: 'alert' });
+      return;
+    }
     setSaving(true);
     try {
       // Itens novos: omitir `id` (DB gera) e `user_id` (orcamento_itens não tem essa coluna)
@@ -1061,7 +1071,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         const { error } = await orcamentosService.itens.criar(toInsert);
         if (error) {
           logger.error('erro ao inserir itens', { module: 'orcamento', action: 'salvar.inserir', err: error });
-          toast('Erro ao inserir itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          toast('Erro ao inserir itens. ' + friendlyError(error), { tone: 'error', icon: 'alert' });
           setSaving(false);
           return;
         }
@@ -1075,7 +1085,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         const falha = resultados.find(r => r.error);
         if (falha) {
           logger.error('erro ao atualizar itens', { module: 'orcamento', action: 'salvar.atualizar', err: falha.error });
-          toast('Erro ao atualizar itens: ' + falha.error.message, { tone: 'error', icon: 'alert' });
+          toast('Erro ao atualizar itens. ' + friendlyError(falha.error), { tone: 'error', icon: 'alert' });
           setSaving(false);
           return;
         }
@@ -1086,7 +1096,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         const { error } = await orcamentosService.itens.excluirVarios(deletedIds);
         if (error) {
           logger.error('erro ao excluir itens', { module: 'orcamento', action: 'salvar.excluir', err: error });
-          toast('Erro ao excluir itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          toast('Erro ao excluir itens. ' + friendlyError(error), { tone: 'error', icon: 'alert' });
           setSaving(false);
           return;
         }
@@ -1144,7 +1154,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
         const { error } = await orcamentosService.itens.excluirVarios(idsToDelete);
         if (error) {
           logger.error('erro ao limpar itens', { module: 'orcamento', action: 'limpar', err: error });
-          toast('Erro ao limpar itens: ' + error.message, { tone: 'error', icon: 'alert' });
+          toast('Erro ao limpar itens. ' + friendlyError(error), { tone: 'error', icon: 'alert' });
           setClearing(false);
           return;
         }
@@ -1820,7 +1830,8 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
     }
     const { data, error } = await orcamentosService.excluir(id);
     if (error) {
-      toast('Erro ao excluir: ' + error.message, { tone: 'danger', icon: 'alert' });
+      logger.error('erro ao excluir orcamento', { module: 'orcamento', action: 'excluir', err: error });
+      toast('Erro ao excluir. ' + friendlyError(error), { tone: 'danger', icon: 'alert' });
       return;
     }
     // data vazio sem error = RLS filtrou a linha em silêncio (0 linhas afetadas) — hoje

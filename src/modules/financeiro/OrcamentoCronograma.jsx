@@ -11,6 +11,7 @@ import { filtrarComSubarvore, folhasDaSubarvore, ancestraisDe } from './itensHie
 import { invalidateCronCache, _ocCache, _obrasComCronCache } from '../cronograma/cronogramaCache';
 import { isAdmin } from '../../utils/permissions';
 import { logger } from '../../services/logger';
+import { friendlyError } from '../../utils/friendlyError';
 
 // ─── AutocompleteInput ────────────────────────────────────────────────────────
 const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
@@ -779,7 +780,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
 
     const { data, error } = await vinculoService.criarVarios(linhas);
     if (error) {
-      toast('Erro ao salvar vínculo(s): ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+      logger.error('erro ao criar vinculos', { module: 'orcamento', action: 'vincularItens', err: error });
+      toast('Erro ao salvar vínculo(s). ' + friendlyError(error), { tone: 'danger', icon: 'alert-triangle' });
     } else {
       const novos = data || [];
       setVinculos(prev => [...prev, ...novos]);
@@ -798,7 +800,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     const etapaId = vinculos.find(v => v.id === id)?.etapa_id;
     const { error } = await vinculoService.excluir(id);
     if (error) {
-      toast('Erro ao remover vínculo: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+      logger.error('erro ao remover vinculo', { module: 'orcamento', action: 'removerVinculo', err: error });
+      toast('Erro ao remover vínculo. ' + friendlyError(error), { tone: 'danger', icon: 'alert-triangle' });
       return;
     }
     const restantes = vinculos.filter(x => x.id !== id);
@@ -818,7 +821,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     setRemovendoTodos(true);
     const { error } = await vinculoService.excluirVarios(ids);
     if (error) {
-      toast('Erro ao remover os vínculos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+      logger.error('erro ao remover vinculos em lote', { module: 'orcamento', action: 'removerVinculosTodos', err: error });
+      toast('Erro ao remover os vínculos. ' + friendlyError(error), { tone: 'danger', icon: 'alert-triangle' });
       setRemovendoTodos(false);
       return;
     }
@@ -854,7 +858,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     const rpcIndisponivel = rpc.error && (rpc.error.code === 'PGRST202' || /function .* does not exist/i.test(rpc.error.message || ''));
 
     if (rpc.error && !rpcIndisponivel) {
-      toast('Erro ao salvar os pesos: ' + rpc.error.message, { tone: 'danger', icon: 'alert-triangle' });
+      logger.error('erro ao salvar pesos (rpc)', { module: 'orcamento', action: 'distribuirPesos', err: rpc.error });
+      toast('Erro ao salvar os pesos. ' + friendlyError(rpc.error), { tone: 'danger', icon: 'alert-triangle' });
       return false;
     }
 
@@ -870,7 +875,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
       const query = supabase.from('cronogramas').update({ etapas: novasEtapas, updated_at: nowISO }).eq('obra_id', obraSel);
       const { data, error } = await (expected ? query.eq('updated_at', expected) : query).select('updated_at');
       if (error) {
-        toast('Erro ao salvar os pesos: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+        logger.error('erro ao salvar pesos (fallback update)', { module: 'orcamento', action: 'distribuirPesos', err: error });
+        toast('Erro ao salvar os pesos. ' + friendlyError(error), { tone: 'danger', icon: 'alert-triangle' });
         return false;
       }
       if (expected && (!data || !data.length)) {
@@ -924,7 +930,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
       obra_id: obraSel, orcamento_item_id: numId, etapa_id: editandoEtapaId,
     }, user?.id);
     if (error) {
-      toast('Erro ao criar vínculo: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+      logger.error('erro ao criar vinculo (modal)', { module: 'orcamento', action: 'adicionarVinculo', err: error });
+      toast('Erro ao criar vínculo. ' + friendlyError(error), { tone: 'danger', icon: 'alert-triangle' });
     } else {
       const novos = data || [];
       setVinculos(prev => [...prev, ...novos]);
@@ -942,7 +949,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     setMovendoTarefa(true);
     const { error } = await vinculoService.moverParaEtapa(ids, novaTarefaId);
     if (error) {
-      toast('Erro ao mover os itens: ' + error.message, { tone: 'danger', icon: 'alert-triangle' });
+      logger.error('erro ao mover vinculos', { module: 'orcamento', action: 'moverVinculos', err: error });
+      toast('Erro ao mover os itens. ' + friendlyError(error), { tone: 'danger', icon: 'alert-triangle' });
     } else {
       const { data } = await vinculoService.listarPorObra(obraSel);
       setVinculos(data || []);

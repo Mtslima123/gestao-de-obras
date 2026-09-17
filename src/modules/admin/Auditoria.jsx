@@ -1,6 +1,15 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
 import { auditoriaService } from './auditoria.service';
+import { logger } from '../../services/logger';
+import { friendlyError } from '../../utils/friendlyError';
+
+// Tabela/coluna ainda não existe no banco (migration pendente) — cenário conhecido e
+// tolerado, cai pros dados de demonstração. Qualquer OUTRO erro (rede, permissão,
+// indisponibilidade) é diferente disso e precisa aparecer como erro de verdade — não
+// pode ficar escondido atrás do mesmo badge de "dados de demonstração".
+const tabelaIndisponivel = (error) =>
+  !!error && (error.code === '42P01' || error.code === 'PGRST205' || /relation .* does not exist/i.test(error.message || ''));
 
 const CRIT = {
   critica: { bg: '#fee2e2', text: '#b91c1c', border: '#fca5a5', label: 'Crítica' },
@@ -100,6 +109,7 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
   const [loading,     setLoading]     = React.useState(true);
   const [kpis,        setKpis]        = React.useState({ totalEventos: 0, eventosCriticos: 0, ultimaAtualizacao: null });
   const [usandoMock,  setUsandoMock]  = React.useState(false);
+  const [erroCarga,   setErroCarga]   = React.useState(null); // erro real (não "tabela ainda não existe")
   const [filtros,     setFiltros]     = React.useState(FILTROS_VAZIOS);
   const [aplicados,   setAplicados]   = React.useState(FILTROS_VAZIOS);
   const [pagina,      setPagina]      = React.useState(1);
@@ -124,7 +134,19 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
     setLoading(true);
     const critFilt = aba === 'criticos' ? 'critica' : filt.criticidade;
     const { data, count, error } = await auditoriaService.listar({ ...filt, criticidade: critFilt, origem: origemFiltro, page: pg, perPage: PER_PAGE });
-    if (error || !data) {
+    if (error && !tabelaIndisponivel(error)) {
+      // Erro de verdade (rede, permissão, indisponibilidade) — NÃO é a mesma coisa que
+      // "tabela ainda não existe" (cenário conhecido, tratado abaixo). Mostra erro real em
+      // vez de mascarar como "dados de demonstração", senão o usuário nem fica sabendo
+      // que a consulta falhou.
+      logger.error('erro ao carregar logs de auditoria', { module: 'admin', action: 'carregarLogs', err: error });
+      setErroCarga(friendlyError(error));
+      setUsandoMock(false);
+      setLogs([]);
+      setTotal(0);
+      setCriticosCount(0);
+    } else if (error || !data) {
+      setErroCarga(null);
       setLogs(MOCK_LOGS);
       setTotal(MOCK_LOGS.length);
       setUsandoMock(true);
@@ -132,6 +154,7 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
       setCriticosCount(critCount);
       setKpis({ totalEventos: MOCK_LOGS.length, eventosCriticos: critCount, ultimaAtualizacao: MOCK_LOGS[0]?.created_at });
     } else {
+      setErroCarga(null);
       setLogs(data);
       setTotal(count ?? 0);
       setUsandoMock(false);
@@ -206,6 +229,7 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
           </div>
         </div>
         {usandoMock && <span style={{ fontSize: 11.5, color: '#d97706', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, padding: '4px 10px' }}>Dados de demonstração — execute o SQL para ativar</span>}
+        {erroCarga && <span style={{ fontSize: 11.5, color: '#b91c1c', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '4px 10px' }}>Erro ao carregar: {erroCarga}</span>}
       </div>
 
       {/* KPI Cards */}

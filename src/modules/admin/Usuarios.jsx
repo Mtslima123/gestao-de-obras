@@ -3,6 +3,8 @@ import { Icon } from '../../components/Icons';
 import { useToast } from '../../components/Modals';
 import { AppData } from '../../utils/data';
 import { usuariosService } from './usuarios.service';
+import { logger } from '../../services/logger';
+import { friendlyError } from '../../utils/friendlyError';
 import { MODULOS as TODOS_MODULOS, MODULOS_IDS as TODOS_MODULOS_IDS, MODULO_ABAS } from '../../config/modulos';
 
 const MOCK_USUARIOS = [
@@ -75,7 +77,8 @@ const UsuariosScreen = ({ obras = [] }) => {
     setLoading(true);
     const { data, error, count } = await usuariosService.listar({ page: pagina, perPage: PER_PAGE, busca: search, status: filterStatus });
     if (error) {
-      setErroCarregar(error.message);
+      logger.error('erro ao carregar usuarios', { module: 'admin', action: 'listarUsuarios', err: error });
+      setErroCarregar(friendlyError(error));
       setUsuarios(MOCK_USUARIOS);
       setTotal(MOCK_USUARIOS.length);
     } else {
@@ -121,10 +124,22 @@ const UsuariosScreen = ({ obras = [] }) => {
 
   const handleSalvar = async () => {
     if (!form.nome.trim() || !form.email.trim()) return;
+    const email = form.email.trim();
+    // Formato básico + domínio corporativo — o cadastro só autoriza o e-mail pro SSO
+    // (a conta é criada no 1º login Microsoft, ver comentário abaixo), então um e-mail
+    // com formato errado ou fora do domínio nunca vai conseguir entrar de verdade.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast('Informe um e-mail válido.', { tone: 'error', icon: 'alert' });
+      return;
+    }
+    if (!email.toLowerCase().endsWith('@soter.com.br')) {
+      toast('O e-mail deve ser do domínio corporativo (@soter.com.br).', { tone: 'error', icon: 'alert' });
+      return;
+    }
     setSalvando(true);
     const payload = {
       nome: form.nome.trim(),
-      email: form.email.trim(),
+      email,
       telefone: form.telefone.trim() || null,
       perfil: form.perfil,
       status: form.status,
@@ -148,14 +163,19 @@ const UsuariosScreen = ({ obras = [] }) => {
       await carregarUsuarios();
       fecharForm();
     } catch (err) {
-      toast('Erro ao salvar: ' + err.message, { tone: 'error', icon: 'alert' });
+      logger.error('erro ao salvar usuario', { module: 'admin', action: 'salvarUsuario', err });
+      toast('Erro ao salvar. ' + friendlyError(err), { tone: 'error', icon: 'alert' });
     }
     setSalvando(false);
   };
 
   const handleExcluir = async (u) => {
     const { error } = await usuariosService.excluir(u.id);
-    if (error) { toast('Erro ao excluir: ' + error.message, { tone: 'error', icon: 'alert' }); return; }
+    if (error) {
+      logger.error('erro ao excluir usuario', { module: 'admin', action: 'excluirUsuario', err: error });
+      toast('Erro ao excluir. ' + friendlyError(error), { tone: 'error', icon: 'alert' });
+      return;
+    }
     setConfirmDelete(null);
     if (editando && editando !== 'novo' && editando.id === u.id) fecharForm();
     await carregarUsuarios();

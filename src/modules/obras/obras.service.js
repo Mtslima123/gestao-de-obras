@@ -1,5 +1,6 @@
 import { supabase } from '../../services/supabase';
 import { auditoriaService } from '../admin/auditoria.service';
+import { friendlyError } from '../../utils/friendlyError';
 
 const gerarIdUnico = async () => {
   for (let i = 0; i < 30; i++) {
@@ -32,7 +33,7 @@ export const obraDeleteErrorMessage = (error) => {
     }
     return 'Não é possível excluir: esta obra ainda tem dados vinculados em outro cadastro. Remova-os antes de excluir a obra.';
   }
-  return 'Erro ao excluir obra: ' + (error?.message || 'erro desconhecido');
+  return 'Erro ao excluir obra. ' + friendlyError(error);
 };
 
 export const obrasService = {
