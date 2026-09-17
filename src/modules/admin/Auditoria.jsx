@@ -109,6 +109,7 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
   const [regLogs,     setRegLogs]     = React.useState([]);
   const [regLoading,  setRegLoading]  = React.useState(false);
   const [criticosCount, setCriticosCount] = React.useState(0);
+  const [vistoEm,       setVistoEm]       = React.useState(null);
   // Origem do log: 'Web' = ações do app (com descrição), 'DB-trigger' = trilha à
   // prova de forja gerada no banco, '' = todas. Padrão mostra só Operação para
   // não duplicar (cada ação tem uma versão 'Web' legível e uma 'DB-trigger').
@@ -127,7 +128,7 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
       setLogs(MOCK_LOGS);
       setTotal(MOCK_LOGS.length);
       setUsandoMock(true);
-      const critCount = MOCK_LOGS.filter(l => l.criticidade === 'critica').length;
+      const critCount = MOCK_LOGS.filter(l => l.criticidade === 'critica' && (!vistoEm || l.created_at > vistoEm)).length;
       setCriticosCount(critCount);
       setKpis({ totalEventos: MOCK_LOGS.length, eventosCriticos: critCount, ultimaAtualizacao: MOCK_LOGS[0]?.created_at });
     } else {
@@ -135,16 +136,30 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
       setTotal(count ?? 0);
       setUsandoMock(false);
       if (aba !== 'criticos') {
-        const { count: cc } = await auditoriaService.listar({ criticidade: 'critica', origem: origemFiltro, perPage: 1 });
+        const { count: cc } = await auditoriaService.listar({ criticidade: 'critica', origem: origemFiltro, apos: vistoEm, perPage: 1 });
         setCriticosCount(cc ?? 0);
       }
     }
     setLoading(false);
-  }, [aplicados, pagina, aba, origemFiltro]);
+  }, [aplicados, pagina, aba, origemFiltro, vistoEm]);
 
   React.useEffect(() => { carregarKpis(); }, [carregarKpis]);
   React.useEffect(() => { carregarLogs(); }, [carregarLogs]);
   React.useEffect(() => { setPagina(1); }, [aba, aplicados, origemFiltro]);
+
+  // Carrega a última marca de "visto" do usuário (badge persiste entre sessões/dispositivos)
+  React.useEffect(() => {
+    if (!user?.id) return;
+    auditoriaService.obterCriticosVisto(user.id).then(({ data }) => setVistoEm(data?.visto_em ?? null));
+  }, [user?.id]);
+
+  // Ao abrir a aba Eventos Críticos, marca como vistos e zera o badge na hora
+  React.useEffect(() => {
+    if (aba !== 'criticos' || !user?.id) return;
+    auditoriaService.marcarCriticosVistos(user.id).then(({ error }) => {
+      if (!error) { setVistoEm(new Date().toISOString()); setCriticosCount(0); }
+    });
+  }, [aba, user?.id]);
 
   const aplicarFiltros = () => { setAplicados({ ...filtros }); setPagina(1); };
   const limparFiltros  = () => { setFiltros(FILTROS_VAZIOS); setAplicados(FILTROS_VAZIOS); setPagina(1); };

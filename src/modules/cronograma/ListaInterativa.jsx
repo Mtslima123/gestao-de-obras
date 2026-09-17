@@ -371,8 +371,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const gv  = e.isGroup ? groupVals[e.id] : null;
     const ini = gv ? gv.inicio : e.inicio;
     const dur = gv ? gv.dur    : e.dur;
+    // Recursivo (não só filhas diretas): custoOrcadoMap e valorVinculadoMap já são bubble-up
+    // do mesmo jeito (soma por folha, propaga nivel a nivel) — a diferença entre os dois
+    // isola exatamente o Custo Real acumulado das folhas descendentes, grupo ou não.
     const realCst = e.isGroup
-      ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+      ? (custoOrcadoMap[e.id] || 0) - (valorVinculadoMap[e.id] || 0)
       : (e.custoRealizado || 0);
     switch (colId) {
       case 'wbs':   { const v = wbsMap[e.id] || ''; return { raw: v, label: v }; }
@@ -729,6 +732,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     custoReal: { kind: 'number', get: e => String(e.custoRealizado ?? 0),   field: 'custoRealizado' },
     resp:      { kind: 'text',   get: e => e.responsavel || '',              field: 'responsavel' },
     restricao: { kind: 'date',   get: e => e.restricaoData || '',            field: 'restricao' },
+    pavimento: { kind: 'text',   get: e => e.pavimento || '',                field: 'pavimento' },
     // e.isGroup ? '' : ...: mesmo branco que a célula já mostra pra grupo em todo canto da
     // Lista (duplo-clique, F2, colFilterValue) — sem isso, Ctrl+C numa linha de grupo
     // copiava o texto do vínculo antigo mesmo a célula aparecendo vazia na tela.
@@ -918,6 +922,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       let ne = e;
       list.forEach(ed => {
         if (ed.field === 'succ') { succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue }); return; }
+        if (bloqueiaEdicaoEmMassa(ed.field, e)) return;
         const antes = ne;
         ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, filtrada);
         if (RESCHEDULE_FIELDS.includes(ed.field) && etapaMudouParaAgendamento(antes, ne)) reschedule = true;
@@ -999,6 +1004,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (trRect.top < headBottom) sc.scrollTop -= (headBottom - trRect.top);
     else if (trRect.bottom > scRect.bottom) sc.scrollTop += (trRect.bottom - scRect.bottom);
   };
+  // Rola a coluna em foco para dentro da área visível horizontalmente — irmã de
+  // scrollRowIntoView, mesmo raciocínio no eixo horizontal: a faixa de colunas
+  // congeladas (sticky, LISTA_FROZEN + calha de número) faz o papel do thead fixo.
+  const scrollColIntoView = (taskId, colId) => {
+    const sc = listaScrollRef.current;
+    if (!sc || LISTA_FROZEN.includes(colId)) return; // congelada: sempre visível, nunca precisa rolar
+    const td = sc.querySelector(`td[data-ck="${taskId}|${colId}"]`);
+    if (!td) return;
+    const scRect = sc.getBoundingClientRect();
+    const tdRect = td.getBoundingClientRect();
+    const frozenW = GUTTER_W + LISTA_FROZEN.filter(c => !hiddenCols.has(c)).reduce((a, c) => a + getColW(c), 0);
+    const leftBound = scRect.left + frozenW;
+    if (tdRect.left < leftBound) sc.scrollLeft -= (leftBound - tdRect.left);
+    else if (tdRect.right > scRect.right) sc.scrollLeft += (tdRect.right - scRect.right);
+  };
   // Foco externo (undo/redo, "Editar tarefa"): seleciona a tarefa e rola até ela
   React.useEffect(() => {
     if (!focusTaskId?.id) return;
@@ -1033,6 +1053,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const next = { taskId: rows[r], colId: cols[c] };
     setSelectedCell(next);
     scrollRowIntoView(next.taskId);
+    scrollColIntoView(next.taskId, next.colId);
     if (extend) return;                       // Shift+seta: estende o intervalo (âncora fica)
     setSelAnchor(next);                        // seta sem shift: colapsa o intervalo
     setSelectedId(rows[r]);                    // linha atual acompanha para as ações da barra
@@ -1386,7 +1407,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const cellNumericValue = (e, colId) => {
     const gv = e.isGroup ? groupVals[e.id] : null;
     const realCst = () => e.isGroup
-      ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+      ? (custoOrcadoMap[e.id] || 0) - (valorVinculadoMap[e.id] || 0)
       : (e.custoRealizado || 0);
     switch (colId) {
       case 'duracao':  return gv ? gv.dur : e.dur;
@@ -2260,6 +2281,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   }, [multiSel, etapas, selectedId, selectedCell, selAnchor, filtrada]);
 
   // ── Atualização de campo ────────────────────────────────────────────────────
+  // Mesmas guardas que a edição de célula única (abrirEdicaoCelula, coluna custoReal)
+  // e o drag-fill (GROUP_BLOCKED_FIELDS) já aplicam — colar em bloco (pasteCell/
+  // pasteExternalText) ficava de fora e podia gravar Valor Real numa tarefa-resumo
+  // (rollup automático a partir dos filhos) ou numa tarefa já vinculada a um item de
+  // orçamento (o valor vem do vínculo, não é digitável), descasando o Valor Total
+  // (computeCustoOrcadoMap soma Vinculado + Real de cada folha).
+  const bloqueiaEdicaoEmMassa = (field, task) =>
+    (GROUP_BLOCKED_FIELDS.has(field) && task.isGroup) ||
+    (field === 'custoRealizado' && !!valorVinculadoMap[task.id]);
+
   // RESCHEDULE_FIELDS/applyFieldToEtapa vêm de scheduleEngine.js — compartilhados com o
   // Formulário de Tarefa do Gantt, que precisa da mesma conversão de valor por campo.
   // Aplica um lote de edições (valor e/ou fmt por célula) num ÚNICO commit — usado no colar
@@ -2282,7 +2313,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       list.forEach(ed => {
         if (ed.field !== undefined) {
           if (ed.field === 'succ') succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue });
-          else {
+          else if (!bloqueiaEdicaoEmMassa(ed.field, e)) {
             const antes = ne;
             ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, filtrada);
             if (RESCHEDULE_FIELDS.includes(ed.field) && etapaMudouParaAgendamento(antes, ne)) reschedule = true;
@@ -2639,7 +2670,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const av      = gv ? gv.avanco : e.avanco;
         const cst     = custoEf(e, gv);
         const realCst = e.isGroup
-          ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+          ? (custoOrcadoMap[e.id] || 0) - (valorVinculadoMap[e.id] || 0)
           : (e.custoRealizado || 0);
         if (cid === 'wbs')      return wbsMap[e.id] || '';
         if (cid === 'id')       return rowNumberMap[e.id] ?? e.id;
@@ -2740,7 +2771,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const av      = gv ? gv.avanco : e.avanco;
         const cst     = custoEf(e, gv);
         const realCst = e.isGroup
-          ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+          ? (custoOrcadoMap[e.id] || 0) - (valorVinculadoMap[e.id] || 0)
           : (e.custoRealizado || 0);
         if (cid === 'wbs')       return wbsMap[e.id] || '';
         if (cid === 'id')        return String(rowNumberMap[e.id] ?? e.id);
@@ -3838,7 +3869,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   <td key="custoReal" className="num" style={{ textAlign: 'right' }} onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? (
                       <span className="mono" style={{ fontSize: 12, fontWeight: 700 }}>
-                        {fmtBRL(etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0))}
+                        {fmtBRL((custoOrcadoMap[e.id] || 0) - (valorVinculadoMap[e.id] || 0))}
                       </span>
                     ) : readOnly ? (
                       <span className="mono" style={{ fontSize: 12, display: 'block', textAlign: 'right' }}>{fmtBRL(e.custoRealizado || 0)}</span>
@@ -3879,7 +3910,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     {(() => {
                       const prev = custoEf(e, gv);
                       const real = e.isGroup
-                        ? etapas.filter(c => c.parentId === e.id).reduce((s, c) => s + (c.custoRealizado || 0), 0)
+                        ? (custoOrcadoMap[e.id] || 0) - (valorVinculadoMap[e.id] || 0)
                         : (e.custoRealizado || 0);
                       const saldo = prev - real;
                       return <span style={{ color: saldo < 0 ? 'var(--danger)' : 'inherit' }}>{fmtBRL(saldo)}</span>;

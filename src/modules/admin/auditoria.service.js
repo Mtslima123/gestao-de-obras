@@ -19,7 +19,7 @@ const obterIp = () => {
 
 export const auditoriaService = {
   // Busca logs paginados com filtros opcionais
-  listar: async ({ dataInicio, dataFim, userId, obraId, modulo, acao, criticidade, busca, entidade, origem, ip, page = 1, perPage = 10 } = {}) => {
+  listar: async ({ dataInicio, dataFim, userId, obraId, modulo, acao, criticidade, busca, entidade, origem, ip, apos, page = 1, perPage = 10 } = {}) => {
     // 🔒 SEGURANÇA [VULN-8]: teto de 100 registros por página — previne dump completo (CWE-400)
     const safePerPage = Math.min(Math.max(1, Number(perPage) || 10), 100);
     let q = supabase
@@ -39,8 +39,21 @@ export const auditoriaService = {
     if (entidade)   q = q.or(`entidade_tipo.ilike.%${entidade}%,entidade_id.ilike.%${entidade}%,descricao.ilike.%${entidade}%`);
     if (origem)     q = q.eq('origem', origem);
     if (ip)         q = q.ilike('ip', `%${ip}%`);
+    if (apos)       q = q.gt('created_at', apos);
 
     return q;
+  },
+
+  // Última vez que o usuário marcou os eventos críticos como vistos (badge da aba)
+  obterCriticosVisto: async (userId) => {
+    if (!userId) return { data: null, error: null };
+    return supabase.from('audit_criticos_visto').select('visto_em').eq('user_id', userId).maybeSingle();
+  },
+
+  // Marca os eventos críticos atuais como vistos, zerando o badge (persiste entre sessões)
+  marcarCriticosVistos: async (userId) => {
+    if (!userId) return { error: new Error('userId ausente') };
+    return supabase.from('audit_criticos_visto').upsert({ user_id: userId, visto_em: new Date().toISOString() });
   },
 
   // KPIs consolidados. `origem` deve refletir a mesma aba (Operação/Segurança/Todos)

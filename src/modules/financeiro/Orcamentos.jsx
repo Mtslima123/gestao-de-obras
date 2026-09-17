@@ -1129,6 +1129,13 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
   // ── Limpar itens ─────────────────────────────────────────────────────────────
   // Remove todos os itens da composição, mantendo o orçamento (fica vazio).
   const handleClearAll = async () => {
+    // Mesma proteção da exclusão individual (requestRemove) — sem isso, "Limpar itens"
+    // apagava itens vinculados ao cronograma sem passar pelo guard de vínculo nenhum.
+    if (vinculadoSet.size > 0) {
+      toast('Há itens vinculados ao cronograma. Remova os vínculos antes de limpar.', { tone: 'warning', icon: 'alert-triangle' });
+      setShowClearAll(false);
+      return;
+    }
     setClearing(true);
     try {
       // Itens já persistidos no banco: excluir via serviço (registra auditoria)
@@ -1317,8 +1324,12 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
             <button
               className="btn btn-ghost"
               onClick={() => setShowClearAll(true)}
-              disabled={clearing || items.length === 0}
-              title={items.length === 0 ? 'Não há itens para limpar' : 'Remover todos os itens deste orçamento'}
+              disabled={clearing || items.length === 0 || vinculadoSet.size > 0}
+              title={
+                vinculadoSet.size > 0 ? 'Há itens vinculados ao cronograma — remova os vínculos antes de limpar'
+                : items.length === 0 ? 'Não há itens para limpar'
+                : 'Remover todos os itens deste orçamento'
+              }
             >
               <Icon name="trash" size={15} />
               {clearing ? 'Limpando…' : 'Limpar itens'}

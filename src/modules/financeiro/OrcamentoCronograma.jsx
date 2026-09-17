@@ -191,8 +191,8 @@ const TarefaCronogramaSelect = React.memo(({ etapas, rowNumberMap = {}, value, o
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 34 }}>{rowNumberMap[et.id] ?? et.id}</span>
                 <span style={{ paddingLeft: (et.nivel || 0) * 12, fontWeight: et.isGroup ? 700 : 400, color: et.isGroup ? 'var(--brand)' : undefined }}>{et.etapa}</span>
                 {et.isGroup && <span style={{ fontSize: 10, color: 'var(--brand)', background: 'var(--brand-tint)', borderRadius: 4, padding: '0 5px' }}>grupo</span>}
+                {pai && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>em {pai}</span>}
               </div>
-              {pai && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 1, paddingLeft: 40 }}>em {pai}</div>}
             </div>
           );
         })}

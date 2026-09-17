@@ -8,7 +8,8 @@ import { offsetToISO, taskEndDisplay } from './cronogramaDateUtils';
 import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors } from './scheduleEngine';
 
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
-const PANEL_H = 220;
+const PANEL_H = 220; // também serve de altura mínima ao arrastar
+const PANEL_H_KEY = 'cronograma_taskform_h';
 
 const labelSt = { fontSize: 10.5, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3, display: 'block' };
 const thSt = { padding: '5px 8px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-faint)', textAlign: 'right', borderBottom: '1px solid var(--border)', background: 'var(--surface-muted)' };
@@ -19,11 +20,44 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   const [novoSuccId, setNovoSuccId] = React.useState('');
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
   const succMap = React.useMemo(() => computeSuccessors(etapas), [etapas]);
+  // Altura arrastável (borda de cima, estilo Excel) — persiste entre sessões, igual a
+  // colWidths na Lista. PANEL_H (valor original fixo) vira o mínimo/altura padrão.
+  const [panelH, setPanelH] = React.useState(() => {
+    try { return Number(localStorage.getItem(PANEL_H_KEY)) || PANEL_H; } catch { return PANEL_H; }
+  });
+  // Arrastar para CIMA aumenta a altura (startY - clientY), como um redimensionamento
+  // "de baixo pra cima" — a borda que se move é a de cima do painel, que fica colado
+  // no rodapé da tela.
+  const startPanelResize = (ev) => {
+    ev.preventDefault();
+    const startY = ev.clientY;
+    const startH = panelH;
+    let liveH = startH;
+    const maxH = Math.max(PANEL_H, window.innerHeight - 160);
+    const onMove = (e2) => {
+      liveH = Math.min(maxH, Math.max(PANEL_H, startH + (startY - e2.clientY)));
+      setPanelH(liveH);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (liveH !== startH) { try { localStorage.setItem(PANEL_H_KEY, String(liveH)); } catch { /* best-effort */ } }
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+  const resizeHandle = (
+    <div onMouseDown={startPanelResize} title="Arraste para redimensionar"
+      style={{ height: 6, marginTop: -3, cursor: 'row-resize', flexShrink: 0, position: 'relative', zIndex: 2 }} />
+  );
 
   if (!task) {
     return (
-      <div style={{ height: PANEL_H, display: 'flex', alignItems: 'center', justifyContent: 'center', borderTop: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-faint)', fontSize: 13, flexShrink: 0 }}>
-        Selecione uma tarefa para ver os detalhes
+      <div style={{ height: panelH, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0 }}>
+        {resizeHandle}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
+          Selecione uma tarefa para ver os detalhes
+        </div>
       </div>
     );
   }
@@ -81,7 +115,9 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   const inputSt = { height: 26, fontSize: 12.5, padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 6, background: locked ? 'var(--surface-muted)' : 'var(--surface)', width: '100%', boxSizing: 'border-box' };
 
   return (
-    <div style={{ height: PANEL_H, flexShrink: 0, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border)', background: 'var(--surface)', padding: '10px 16px', gap: 8, overflow: 'hidden', maxWidth: 900, width: '100%', margin: '0 auto' }}>
+    <div style={{ height: panelH, flexShrink: 0, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border)', background: 'var(--surface)', overflow: 'hidden' }}>
+      {resizeHandle}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '10px 16px', gap: 8, overflow: 'hidden', maxWidth: 900, width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
       {/* Linha 1 */}
       <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 260px', minWidth: 180 }}>
@@ -255,6 +291,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     </div>
   );
