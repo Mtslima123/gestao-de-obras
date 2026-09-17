@@ -1002,8 +1002,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const trRect = tr.getBoundingClientRect();
     const head = sc.querySelector('thead');
     const headBottom = head ? head.getBoundingClientRect().bottom : scRect.top;
+    // Antes de o card "pinar" (ver listaPinned em Cronograma.jsx), sua altura já é
+    // ~100vh mas ele começa mais abaixo na página — o fundo do container fica fora da
+    // janela visível. Comparar contra esse fundo invisível nunca dispara o scroll a
+    // tempo: a célula ativa "some" abaixo da dobra antes de o container perceber que
+    // precisa rolar. Usa o menor entre o fundo do container e o fundo da JANELA.
+    const bottomVisivel = Math.min(scRect.bottom, window.innerHeight);
     if (trRect.top < headBottom) sc.scrollTop -= (headBottom - trRect.top);
-    else if (trRect.bottom > scRect.bottom) sc.scrollTop += (trRect.bottom - scRect.bottom);
+    else if (trRect.bottom > bottomVisivel) sc.scrollTop += (trRect.bottom - bottomVisivel);
   };
   // Rola a coluna em foco para dentro da área visível horizontalmente — irmã de
   // scrollRowIntoView, mesmo raciocínio no eixo horizontal: a faixa de colunas
@@ -1882,7 +1888,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (!arrastando()) return;
       const sc = listaScrollRef.current;
       if (sc && ptr) {
-        const passo = passoDeRolagem(ptr.y, sc.getBoundingClientRect(), sc.scrollTop, sc.scrollHeight - sc.clientHeight);
+        // Card ainda não pinado (ver listaPinned em Cronograma.jsx): o fundo do
+        // container pode estar fora da janela visível — o mouse nunca chega lá, então
+        // grampeia o limite ao fundo da JANELA (no-op quando já está pinado).
+        const rect = sc.getBoundingClientRect();
+        // DOMRect não tem propriedades próprias enumeráveis (top/bottom são getters do
+        // protótipo) — espalhar com {...rect} viraria {} vazio. Constrói explícito.
+        const rectVisivel = { top: rect.top, bottom: Math.min(rect.bottom, window.innerHeight) };
+        const passo = passoDeRolagem(ptr.y, rectVisivel, sc.scrollTop, sc.scrollHeight - sc.clientHeight);
         if (passo) {
           sc.scrollTop += passo;
           // Reagenda o próximo quadro ANTES de estender(): se estender() lançar por
@@ -2385,7 +2398,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (fillDragRef.current !== drag) return;
       const sc = listaScrollRef.current;
       if (!sc) return;
-      const passo = passoDeRolagem(ptr.y, sc.getBoundingClientRect(), sc.scrollTop, sc.scrollHeight - sc.clientHeight);
+      // Mesmo grampo de listaCardH/scrollRowIntoView: antes de o card pinar, o fundo do
+      // container fica fora da janela (o mouse nunca alcança lá). DOMRect não tem
+      // propriedades próprias enumeráveis — constrói o objeto explícito, não espalha.
+      const rect = sc.getBoundingClientRect();
+      const rectVisivel = { top: rect.top, bottom: Math.min(rect.bottom, window.innerHeight) };
+      const passo = passoDeRolagem(ptr.y, rectVisivel, sc.scrollTop, sc.scrollHeight - sc.clientHeight);
       if (passo) {
         sc.scrollTop += passo;
         // Reagenda antes de atualizarPreview(): mesma razão do arraste de seleção (ver
