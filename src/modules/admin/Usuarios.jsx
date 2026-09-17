@@ -3,7 +3,6 @@ import { Icon } from '../../components/Icons';
 import { useToast } from '../../components/Modals';
 import { AppData } from '../../utils/data';
 import { usuariosService } from './usuarios.service';
-import { membrosPendentes } from './usuariosPure';
 import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
 import { MODULOS as TODOS_MODULOS, MODULOS_IDS as TODOS_MODULOS_IDS, MODULO_ABAS } from '../../config/modulos';
@@ -72,42 +71,7 @@ const UsuariosScreen = ({ obras = [] }) => {
   const [salvando, setSalvando] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(null);
   const [conviteEnviado, setConviteEnviado] = React.useState(null);
-  const [emailTravado, setEmailTravado] = React.useState(false); // e-mail veio do grupo (Entra): não deixa editar
   const formRef = React.useRef(null);
-
-  // "Pendências do grupo": quem já está autorizado no grupo GESTAOOBRAS (Azure AD) mas
-  // ainda não tem perfil cadastrado aqui. Independente da lista paginada acima — falha de
-  // um não trava o outro, e "+ Novo Usuário" manual continua funcionando de qualquer jeito.
-  const [membrosGrupo, setMembrosGrupo] = React.useState([]);
-  const [emailsCadastrados, setEmailsCadastrados] = React.useState([]);
-  const [carregandoGrupo, setCarregandoGrupo] = React.useState(true);
-  const [erroGrupo, setErroGrupo] = React.useState(null);
-
-  React.useEffect(() => {
-    let ativo = true;
-    setCarregandoGrupo(true);
-    Promise.all([usuariosService.listarMembrosGrupo(), usuariosService.listarTodosEmails()])
-      .then(([grupoRes, emailsRes]) => {
-        if (!ativo) return;
-        if (grupoRes.error || grupoRes.data?.error) {
-          const e = grupoRes.error || new Error(grupoRes.data.error);
-          logger.error('erro ao listar membros do grupo', { module: 'admin', action: 'listarMembrosGrupo', err: e });
-          setErroGrupo(friendlyError(e));
-          setMembrosGrupo([]);
-        } else {
-          setErroGrupo(null);
-          setMembrosGrupo(grupoRes.data?.membros || []);
-        }
-        if (!emailsRes.error) setEmailsCadastrados((emailsRes.data || []).map(r => r.email));
-      })
-      .finally(() => { if (ativo) setCarregandoGrupo(false); });
-    return () => { ativo = false; };
-  }, []);
-
-  const pendentesGrupo = React.useMemo(
-    () => membrosPendentes(membrosGrupo, emailsCadastrados),
-    [membrosGrupo, emailsCadastrados]
-  );
 
   const carregarUsuarios = React.useCallback(async () => {
     setLoading(true);
@@ -151,24 +115,12 @@ const UsuariosScreen = ({ obras = [] }) => {
     } else {
       setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])], modulosReadonlyIds: [...(usuario.modulosReadonlyIds || [])], abasReadonlyIds: [...(usuario.abasReadonlyIds || [])] });
     }
-    setEmailTravado(false);
     setEditando(usuario);
     setObraSearch('');
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   };
 
-  // "Definir perfil" a partir de uma pendência do grupo: abre o cadastro já preenchido
-  // com nome/e-mail do Entra — e-mail travado (readOnly) porque vem de fonte confiável,
-  // evita reintroduzir erro de digitação (o motivo da própria validação de domínio abaixo).
-  const abrirFormDoGrupo = (membro) => {
-    setForm({ ...FORM_VAZIO, nome: membro.nome, email: membro.email });
-    setEmailTravado(true);
-    setEditando('novo');
-    setObraSearch('');
-    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
-  };
-
-  const fecharForm = () => { setEditando(null); setForm(FORM_VAZIO); setObraSearch(''); setEmailTravado(false); };
+  const fecharForm = () => { setEditando(null); setForm(FORM_VAZIO); setObraSearch(''); };
 
   const handleSalvar = async () => {
     if (!form.nome.trim() || !form.email.trim()) return;
@@ -202,8 +154,6 @@ const UsuariosScreen = ({ obras = [] }) => {
         const { data: novo, error } = await usuariosService.criar(payload, form.obrasIds);
         if (error) throw error;
         setConviteEnviado({ email: novo?.email || payload.email });
-        // Some da lista de "Pendências do grupo" imediatamente (sem esperar reload da tela).
-        setEmailsCadastrados(prev => [...prev, payload.email]);
       } else {
         const { error } = await usuariosService.atualizar(editando.id, payload);
         if (error) throw error;
@@ -357,36 +307,6 @@ const UsuariosScreen = ({ obras = [] }) => {
         </div>
       </div>
 
-      {/* Pendências do grupo: quem já está no grupo GESTAOOBRAS (Azure AD) mas ainda não
-          tem perfil aqui. Some sozinha quando não há pendência nem erro — não polui a tela
-          fora desses casos. */}
-      {erroGrupo && (
-        <div style={{ fontSize: 12.5, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 14px', marginBottom: 16 }}>
-          Não foi possível carregar o grupo de acesso — {erroGrupo}
-        </div>
-      )}
-      {!erroGrupo && !carregandoGrupo && pendentesGrupo.length > 0 && (
-        <div className="card" style={{ marginBottom: 24, padding: '18px 24px' }}>
-          <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600 }}>
-            Pendências do grupo ({pendentesGrupo.length})
-          </h3>
-          <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 12 }}>
-            Já estão autorizados no grupo de acesso corporativo, mas ainda sem perfil definido aqui.
-          </div>
-          {pendentesGrupo.map(m => (
-            <div key={m.id || m.email} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 500 }}>{m.nome}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{m.email}</div>
-              </div>
-              <button className="btn btn-ghost" style={{ flexShrink: 0 }} onClick={() => abrirFormDoGrupo(m)}>
-                Definir perfil
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Lista */}
       <div className="card" style={{ marginBottom: 24, padding: '24px 24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -489,8 +409,7 @@ const UsuariosScreen = ({ obras = [] }) => {
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>E-mail <span style={{ color: '#b91c1c' }}>*</span></label>
                 <input className="input" style={{ width: '100%' }} type="email" placeholder="email@empresa.com.br" value={form.email}
-                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  disabled={emailTravado} title={emailTravado ? 'E-mail confirmado pelo grupo de acesso corporativo' : undefined} />
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Status <span style={{ color: '#b91c1c' }}>*</span></label>

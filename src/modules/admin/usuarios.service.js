@@ -105,13 +105,4 @@ export const usuariosService = {
 
   desvincularObras: (userId) =>
     supabase.from('user_obras').delete().eq('user_id', userId),
-
-  // Todos os e-mails já cadastrados (sem paginação) — usado só pra cruzar com o grupo do
-  // Azure AD ("Pendências do grupo"); a lista paginada de `listar()` não serve pra isso
-  // porque só traz a página atual.
-  listarTodosEmails: () => supabase.from('user_profiles').select('email'),
-
-  // Membros do grupo de acesso do Azure AD (GESTAOOBRAS), via Edge Function
-  // (application permission no servidor — ver supabase/functions/listar-membros-grupo).
-  listarMembrosGrupo: () => supabase.functions.invoke('listar-membros-grupo'),
 };
