@@ -23,28 +23,53 @@ const UsuariosScreen            = React.lazy(() => import('./modules/admin/Usuar
 const AuditoriaScreen           = React.lazy(() => import('./modules/admin/Auditoria').then(m => ({ default: m.AuditoriaScreen })));
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
+// Um módulo (React.lazy) que já estava carregado na aba e o site foi atualizado (novo
+// deploy) deixa de conseguir buscar o .js antigo — o navegador ainda tenta o arquivo com
+// o hash da versão anterior, que o deploy novo já não tem mais. "Failed to fetch
+// dynamically imported module" é a mensagem que os browsers dão nesse caso; sem tratar
+// à parte, caía na regra genérica de "falha de conexão", que é enganosa aqui (o problema
+// não é a internet do usuário, é a aba estar com a versão antiga do app).
+const CHUNK_LOAD_ERROR_RE = /dynamically imported module|failed to fetch dynamically|importing a module script failed|chunkloaderror/i;
+const isChunkLoadError = (error) => CHUNK_LOAD_ERROR_RE.test(String(error?.message || error?.name || ''));
+
 // Captura erros de render e exibe mensagem em vez de tela branca
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
-  componentDidCatch(error, info) { logger.fatal('erro de renderizacao', { module: 'react', action: 'render', err: error, componentStack: info?.componentStack }); }
+  componentDidCatch(error, info) {
+    logger.fatal('erro de renderizacao', { module: 'react', action: 'render', err: error, componentStack: info?.componentStack });
+    // React.lazy() guarda a promise da importação pra sempre — clicar em "Tentar
+    // novamente" não re-busca o arquivo, só re-lança o mesmo erro. Só uma recarga de
+    // verdade (window.location.reload) busca o index.html novo e resolve. Recarrega
+    // automaticamente UMA vez (guarda por sessionStorage: se persistir após a recarga,
+    // não é isso — evita ficar recarregando em loop).
+    if (isChunkLoadError(error)) {
+      try {
+        if (!sessionStorage.getItem('gm_reload_chunk_error')) {
+          sessionStorage.setItem('gm_reload_chunk_error', '1');
+          window.location.reload();
+        }
+      } catch { /* sessionStorage indisponível: só mostra o botão manual abaixo */ }
+    }
+  }
   render() {
     if (this.state.error) {
+      const chunkError = isChunkLoadError(this.state.error);
       return (
         <div style={{ padding: 40, textAlign: 'center', fontFamily: 'system-ui' }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
-          <h2 style={{ margin: '0 0 8px', fontSize: 18 }}>Erro ao carregar este módulo</h2>
+          <h2 style={{ margin: '0 0 8px', fontSize: 18 }}>{chunkError ? 'Nova versão disponível' : 'Erro ao carregar este módulo'}</h2>
           <p style={{ color: '#b91c1c', fontSize: 13.5, textAlign: 'center', maxWidth: 460,
                       margin: '16px auto', background: '#fef2f2',
                       padding: '10px 16px', borderRadius: 8, border: '1px solid #fecaca' }}>
-            {friendlyError(this.state.error)}
+            {chunkError ? 'O sistema foi atualizado. Recarregue a página para continuar.' : friendlyError(this.state.error)}
           </p>
           <button
-            onClick={() => this.setState({ error: null })}
+            onClick={() => chunkError ? window.location.reload() : this.setState({ error: null })}
             style={{ padding: '8px 20px', background: 'var(--brand,#014386)', color: '#fff',
                      border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}
           >
-            Tentar novamente
+            {chunkError ? 'Recarregar página' : 'Tentar novamente'}
           </button>
         </div>
       );
@@ -61,6 +86,11 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 const AppInner = () => {
+  // A app montou normalmente: limpa a guarda de "já recarreguei uma vez por erro de
+  // chunk" (ver ErrorBoundary/isChunkLoadError) — sem isso, só o PRIMEIRO deploy depois
+  // de abrir a aba ganhava a recarga automática; deploys seguintes na mesma sessão cairiam
+  // direto no botão manual, mesmo sendo exatamente o mesmo caso.
+  React.useEffect(() => { try { sessionStorage.removeItem('gm_reload_chunk_error'); } catch { /* ignore */ } }, []);
   const toast = useToast();
   const [authed, setAuthed]           = React.useState(false);
   const [acessoNegado, setAcessoNegado] = React.useState(false); // sessão válida, mas e-mail não autorizado
