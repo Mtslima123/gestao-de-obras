@@ -12,13 +12,12 @@ export const authService = {
   // Login SSO via Microsoft Entra ID (email corporativo @soter.com.br).
   // As credenciais (Client ID/Secret/Tenant) ficam só no painel do Supabase,
   // nunca no código. Aqui apenas iniciamos o fluxo OAuth com o provider 'azure'.
-  // NÃO pedir o scope GroupMember.Read.All aqui enquanto ele não estiver com consentimento
-  // de admin já concedido no Azure AD: pedir um scope que exige aprovação de admin e ainda
-  // não foi aprovado bloqueia o LOGIN inteiro pra TODO MUNDO (a tela "Aprovação necessária"
-  // do Microsoft trava o fluxo OAuth antes de emitir sessão nenhuma) — não é só a checagem
-  // de grupo (Edge Function verificar-grupo-acesso) que fica sem efeito, como se pensou;
-  // incidente real em 2026-09-17, revertido. Só reativar depois que o admin tiver
-  // concedido e consentido a permissão no App Registration (fora deste repositório).
+  // Sem escopo de Graph de propósito: a validação do grupo de acesso (G-SOTER-<App>) é
+  // decisão de arquitetura da Soter — fica inteiramente fora deste app, via "Assignment
+  // required" no Enterprise Application (gerenciado pelo Appiá, não por este código).
+  // Pedir um scope como GroupMember.Read.All aqui sem consentimento de admin já concedido
+  // bloqueia o LOGIN inteiro pra todo mundo (incidente real em 2026-09-17) — não tentar de
+  // novo; ver Login.jsx (traduzErroSSO) pro tratamento do AADSTS50105 quando o Entra barrar.
   signInWithSSO: () =>
     supabase.auth.signInWithOAuth({
       provider: 'azure',

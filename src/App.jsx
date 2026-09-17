@@ -188,6 +188,10 @@ const AppInner = () => {
 
   // Portão de acesso app-wide: só entra quem tem perfil cadastrado e ativo.
   // Centraliza a regra para valer tanto no restore de sessão quanto no login SSO.
+  // O grupo de acesso do Azure AD (G-SOTER-<App>) é validado fora deste app: gate no
+  // Enterprise Application ("Assignment required" + grupo atribuído), gerenciado pelo
+  // Appiá — quem não está no grupo nem completa o login (AADSTS50105, tratado em
+  // Login.jsx). Não há checagem de grupo em runtime aqui de propósito.
   const aplicarSessao = async (session) => {
     if (!session?.user) {
       setAuthed(false);
@@ -201,7 +205,7 @@ const AppInner = () => {
     setContext({ userId: session.user.id, userEmail: session.user.email }); // enriquece os logs
 
     const perfil = await loadUserProfile(session.user.email);
-    let autorizado = !!perfil && perfil.status === 'ativo';
+    const autorizado = !!perfil && perfil.status === 'ativo';
     setAuthed(autorizado);
     setAcessoNegado(!autorizado); // mantém a sessão para exibir o e-mail na tela de bloqueio
     // Fire-and-forget: RLS não deixa o usuário comum dar UPDATE direto na própria
@@ -210,31 +214,6 @@ const AppInner = () => {
       supabase.rpc('registrar_ultimo_acesso').then(({ error }) => {
         if (error) logger.error('falha ao registrar ultimo acesso', { module: 'app', action: 'registrarUltimoAcesso', err: error });
       });
-    }
-
-    // Confirma no Microsoft Graph (via Edge Function verificar-grupo-acesso) que o
-    // usuário pertence ao grupo de acesso do Azure AD. Só dá pra checar num login SSO
-    // recém-feito: o provider_token (token do Graph) só vem nesta resposta inicial,
-    // não sobrevive a um restore de sessão/reload. "Fail open": se a checagem em si
-    // falhar (rede, permissão do Azure AD ainda não concedida, etc.), não bloqueia o
-    // acesso — só bloqueia numa resposta explícita "não é membro" do Graph.
-    if (autorizado && session.provider_token) {
-      try {
-        const { data, error } = await supabase.functions.invoke('verificar-grupo-acesso', {
-          body: { providerToken: session.provider_token },
-        });
-        if (error) {
-          logger.error('falha ao verificar grupo de acesso', { module: 'app', action: 'verificarGrupoAcesso', err: error });
-        } else if (data?.error) {
-          logger.error('falha ao verificar grupo de acesso', { module: 'app', action: 'verificarGrupoAcesso', err: data.error });
-        } else if (data?.membro === false) {
-          autorizado = false;
-          setAuthed(false);
-          setAcessoNegado(true);
-        }
-      } catch (err) {
-        logger.error('falha ao verificar grupo de acesso', { module: 'app', action: 'verificarGrupoAcesso', err });
-      }
     }
   };
 

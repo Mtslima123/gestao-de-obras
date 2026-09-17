@@ -1,9 +1,22 @@
 import React from 'react';
 import { authService } from './auth.service';
+import { ssoLoginError } from '../../services/supabase';
+
+// Traduz o erro que o Azure AD devolve no redirect quando barra o login antes de emitir
+// sessão (ver services/supabase.js `ssoLoginError`). AADSTS50105 é o código específico de
+// "Assignment required" no Enterprise Application — usuário autenticado, mas fora do
+// grupo de acesso (gerenciado pelo Appiá, não por este app). Qualquer outro erro cai
+// numa mensagem genérica.
+const traduzErroSSO = (desc) => {
+  if (/AADSTS50105/i.test(desc)) {
+    return 'Você ainda não tem acesso ao Gestão de Obras. Solicite pelo portal Appiá.';
+  }
+  return 'Não foi possível concluir o login com a Microsoft. Tente novamente ou contate o administrador.';
+};
 
 const LoginScreen = () => {
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState(null);
+  const [error, setError] = React.useState(() => ssoLoginError ? traduzErroSSO(ssoLoginError) : null);
 
   // Inicia o login SSO (Microsoft Entra ID). Em caso de sucesso o navegador
   // é redirecionado para a Microsoft, então não resetamos loading no fluxo feliz.

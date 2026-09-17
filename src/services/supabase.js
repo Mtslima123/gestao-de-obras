@@ -18,6 +18,21 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   throw new Error(msg);
 }
 
+// Quando o Azure AD barra o login antes de devolver o código pro Supabase (ex.:
+// "Assignment required" no Enterprise Application e o usuário não está no grupo
+// atribuído — AADSTS50105), a Microsoft redireciona de volta com o erro na URL
+// (#error=...&error_description=...) em vez de uma sessão. Sem capturar isso, o usuário
+// só via a tela de login de novo, sem explicação — parecia bug (ver Login.jsx). Captura
+// ANTES do createClient (que também lê a URL via detectSessionInUrl), garantindo que
+// pegamos o valor cru antes de qualquer processamento, e já limpa a URL em seguida.
+export const ssoLoginError = (() => {
+  const raw = window.location.hash.replace(/^#/, '') || window.location.search.replace(/^\?/, '');
+  const desc = new URLSearchParams(raw).get('error_description');
+  if (!desc) return null;
+  window.history.replaceState(null, '', window.location.pathname);
+  return decodeURIComponent(desc.replace(/\+/g, ' '));
+})();
+
 // Sessão guardada em sessionStorage: ao fechar o navegador a sessão é descartada
 // e o login passa a ser exigido novamente. detectSessionInUrl é mantido para o
 // fluxo de recuperação de senha (link por e-mail) seguir funcionando.
