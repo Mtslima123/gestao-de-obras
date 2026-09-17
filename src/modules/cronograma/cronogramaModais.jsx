@@ -253,6 +253,26 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
   const [pavimentosCollapsed, setPavimentosCollapsed] = React.useState(false);
   const floorInputRefs = React.useRef([]);
   const prevFloorsLenRef = React.useRef(floors.length);
+  // Arrastar pra reordenar os chips do Passo 2 — só nesta inserção: reordena o mesmo
+  // `floors` do Passo 1 (que já dita a ordem de criação em handleConfirm), então não
+  // precisa de estado de ordem separado nem persiste em lugar nenhum. Ao reabrir o modal,
+  // `floors` reinicializa a partir de `pavimentosSalvos` (ordem de cadastro) de novo.
+  const dragFloorRef = React.useRef(null);
+  const [dragOverFloor, setDragOverFloor] = React.useState(null);
+
+  const reorderFloors = (fromNome, toNome) => {
+    if (fromNome === toNome) return;
+    setFloors(fl => {
+      const next = [...fl];
+      const fi = next.indexOf(fromNome);
+      if (fi < 0) return fl;
+      next.splice(fi, 1);
+      const ti = next.indexOf(toNome);
+      if (ti < 0) return fl;
+      next.splice(ti, 0, fromNome);
+      return next;
+    });
+  };
 
   const normBusca = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const etapasFiltradas = React.useMemo(() => {
@@ -498,11 +518,30 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
                 const marcado = selectedFloors.includes(nome);
                 return (
                   <label key={nome} className="btn btn-ghost"
-                    style={{ fontSize: 12.5, padding: '4px 10px 4px 6px', height: 28, borderRadius: 14, cursor: 'pointer',
-                             display: 'inline-flex', alignItems: 'center', gap: 5,
+                    onDragOver={ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; if (dragOverFloor !== nome) setDragOverFloor(nome); }}
+                    onDragLeave={() => setDragOverFloor(cur => cur === nome ? null : cur)}
+                    onDrop={ev => {
+                      ev.preventDefault();
+                      const from = dragFloorRef.current;
+                      dragFloorRef.current = null;
+                      setDragOverFloor(null);
+                      if (from) reorderFloors(from, nome);
+                    }}
+                    style={{ fontSize: 12.5, padding: '4px 10px 4px 4px', height: 28, borderRadius: 14, cursor: 'pointer',
+                             display: 'inline-flex', alignItems: 'center', gap: 4,
                              background: marcado ? 'var(--brand-tint)' : undefined,
                              borderColor: marcado ? 'var(--brand)' : undefined,
-                             color: marcado ? 'var(--brand)' : undefined }}>
+                             color: marcado ? 'var(--brand)' : undefined,
+                             outline: dragOverFloor === nome ? '2px solid var(--brand)' : 'none' }}>
+                    <span
+                      draggable
+                      onDragStart={ev => { dragFloorRef.current = nome; ev.dataTransfer.effectAllowed = 'move'; }}
+                      onDragEnd={() => { dragFloorRef.current = null; setDragOverFloor(null); }}
+                      title="Arrastar para reordenar"
+                      style={{ cursor: 'grab', display: 'flex', opacity: 0.45 }}
+                    >
+                      <Icon name="grip" size={11} />
+                    </span>
                     <input type="checkbox" checked={marcado}
                       onChange={ev => setSelectedFloors(sf => ev.target.checked ? [...sf, nome] : sf.filter(n => n !== nome))} />
                     {nome}
