@@ -253,6 +253,40 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
     if (n.has(id)) n.delete(id); else n.add(id);
     return n;
   });
+  // "Retirar da distribuição": some da lista principal e some pra uma pastinha de
+  // "removidas" (chips), sem apagar a tarefa do cronograma — só zera o fator peso dela
+  // (e da própria subárvore, se tiver filhos) pra não receber nenhuma fatia do valor do
+  // grupo. "Adicionar de volta" restaura o peso que a linha tinha antes de remover.
+  const [removidos, setRemovidos] = React.useState(() => new Set());
+  const pesoAntesRemocaoRef = React.useRef({});
+  const subarvoreIds = React.useCallback(
+    (id) => [id, ...flattenTree(id, childrenOf).map(n => n.etapa.id)],
+    [childrenOf]
+  );
+  const removerDaDistribuicao = (id) => {
+    const alvo = subarvoreIds(id);
+    setPesos(p => {
+      const novo = { ...p };
+      alvo.forEach(aid => { pesoAntesRemocaoRef.current[aid] = p[aid]; novo[aid] = '0'; });
+      return novo;
+    });
+    setRemovidos(r => new Set([...r, id]));
+  };
+  const readicionarNaDistribuicao = (id) => {
+    const alvo = subarvoreIds(id);
+    setPesos(p => {
+      const novo = { ...p };
+      alvo.forEach(aid => { novo[aid] = pesoAntesRemocaoRef.current[aid] ?? '1'; });
+      return novo;
+    });
+    setRemovidos(r => { const n = new Set(r); n.delete(id); return n; });
+  };
+  // ids removidos + toda a subárvore de cada um (a subárvore some junto da lista principal)
+  const removidosSubarvore = React.useMemo(() => {
+    const set = new Set();
+    removidos.forEach(id => subarvoreIds(id).forEach(aid => set.add(aid)));
+    return set;
+  }, [removidos, subarvoreIds]);
   // Refs dos inputs de fator peso — Enter confirma e pula para a próxima linha visível
   const pesoRefs = React.useRef([]);
   // Linha cuja coluna de R$ está sendo digitada (duplo clique abre, igual à Lista)
@@ -381,8 +415,9 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
             <span style={{ width: 90, textAlign: 'center' }}>Fator peso</span>
             <span style={{ width: 24 }} />
             <span style={{ width: 130, textAlign: 'right' }}>Valor (R$)</span>
+            <span style={{ width: 24 }} />
           </div>
-          {linhas.map((no, idx) => {
+          {linhas.filter(no => !removidosSubarvore.has(no.etapa.id)).map((no, idx) => {
             const f = no.etapa;
             const concluida = travado(f);
             const cadeado = travas.has(f.id);
@@ -468,6 +503,13 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
                     {formatBRL(valorPorNo[f.id] || 0)}
                   </span>
                 )}
+                <button
+                  onClick={() => removerDaDistribuicao(f.id)}
+                  title="Retirar da distribuição de peso (não exclui a tarefa do cronograma)"
+                  style={{ width: 24, display: 'flex', justifyContent: 'center', padding: 2, background: 'none', border: 'none',
+                    cursor: 'pointer', color: 'var(--text-faint)' }}>
+                  <Icon name="x" size={14} />
+                </button>
               </div>
             );
           })}
@@ -477,8 +519,30 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
             <span className="mono" style={{ width: 130, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
               {formatBRL(totalDistribuido)}
             </span>
+            <span style={{ width: 24 }} />
           </div>
         </div>
+        {removidos.size > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-soft)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+              Retiradas da distribuição
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {[...removidos].map(id => {
+                const no = descendentes.find(n => n.etapa.id === id);
+                if (!no) return null;
+                return (
+                  <button key={id} className="btn btn-ghost" onClick={() => readicionarNaDistribuicao(id)}
+                    title="Adicionar de volta à distribuição"
+                    style={{ fontSize: 12, padding: '3px 10px 3px 8px', height: 26, borderRadius: 14, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="plus" size={11} />
+                    {no.etapa.etapa}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {temDivergencia && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>
             <Icon name="alert-triangle" size={14} />
@@ -698,21 +762,38 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
       setVinculos([]); setItens([]); setEtapas([]);
       return;
     }
+    let cancelado = false;
+    const carregarFresco = () => {
+      setLoading(true);
+      Promise.all([
+        vinculoService.listarPorObra(obraSel),
+        vinculoService.itensPorObra(obraSel),
+        supabase.from('cronogramas').select('etapas, updated_at').eq('obra_id', obraSel).single(),
+      ]).then(([vincRes, itensRes, cronRes]) => {
+        if (cancelado) return;
+        const v = vincRes.data || [], it = itensRes.data || [], et = migrateEtapas(cronRes.data?.etapas || []);
+        const updatedAt = cronRes.data?.updated_at ?? null;
+        setVinculos(v); setItens(it); setEtapas(et);
+        etapasUpdatedAtRef.current = updatedAt;
+        _ocCache[obraSel] = { vinculos: v, itens: it, etapas: et, updatedAt };
+        setLoading(false);
+      });
+    };
     const c = _ocCache[obraSel];
-    if (c) { setVinculos(c.vinculos); setItens(c.itens); setEtapas(c.etapas); etapasUpdatedAtRef.current = c.updatedAt ?? null; return; }
-    setLoading(true);
-    Promise.all([
-      vinculoService.listarPorObra(obraSel),
-      vinculoService.itensPorObra(obraSel),
-      supabase.from('cronogramas').select('etapas, updated_at').eq('obra_id', obraSel).single(),
-    ]).then(([vincRes, itensRes, cronRes]) => {
-      const v = vincRes.data || [], it = itensRes.data || [], et = migrateEtapas(cronRes.data?.etapas || []);
-      const updatedAt = cronRes.data?.updated_at ?? null;
-      setVinculos(v); setItens(it); setEtapas(et);
-      etapasUpdatedAtRef.current = updatedAt;
-      _ocCache[obraSel] = { vinculos: v, itens: it, etapas: et, updatedAt };
-      setLoading(false);
-    });
+    if (c) {
+      // Mostra o cache já (sem esperar rede), mas confere em paralelo se ele ainda vale:
+      // _ocCache nunca expira sozinho, e um DELETE feito na Lista salva no banco de forma
+      // assíncrona (debounce) — sem essa checagem, uma tarefa já excluída podia continuar
+      // aparecendo aqui (ex.: Distribuir pesos) até a página inteira ser recarregada.
+      setVinculos(c.vinculos); setItens(c.itens); setEtapas(c.etapas); etapasUpdatedAtRef.current = c.updatedAt ?? null;
+      supabase.from('cronogramas').select('updated_at').eq('obra_id', obraSel).single().then(({ data }) => {
+        if (cancelado) return;
+        if ((data?.updated_at ?? null) !== c.updatedAt) carregarFresco();
+      });
+      return () => { cancelado = true; };
+    }
+    carregarFresco();
+    return () => { cancelado = true; };
   }, [obraSel]);
 
   const linkedEtapaIds = React.useMemo(
