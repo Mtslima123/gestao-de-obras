@@ -26,6 +26,7 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 // ANTES do createClient (que também lê a URL via detectSessionInUrl), garantindo que
 // pegamos o valor cru antes de qualquer processamento, e já limpa a URL em seguida.
 export const ssoLoginError = (() => {
+  if (typeof window === 'undefined') return null; // ambiente sem DOM (ex.: testes)
   const raw = window.location.hash.replace(/^#/, '') || window.location.search.replace(/^\?/, '');
   const desc = new URLSearchParams(raw).get('error_description');
   if (!desc) return null;
