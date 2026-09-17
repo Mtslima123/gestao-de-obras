@@ -3,93 +3,18 @@ import { Icon } from './components/Icons';
 import { NotifPanel } from './components/Modals';
 import { notificacoesService, notifBus } from './services/notificacoes.service';
 import { logger } from './services/logger';
-import { authService } from './modules/auth/auth.service';
 import { moduloLiberado } from './utils/permissions';
 import { MODULOS_TOPO } from './config/modulos';
 
 // Sidebar + Topbar — shared app chrome
-const ModalAlterarSenha = ({ onClose, forcar = false }) => {
-  const [nova, setNova] = React.useState('');
-  const [confirma, setConfirma] = React.useState('');
-  const [loading, setLoading] = React.useState(false);
-  const [erro, setErro] = React.useState(null);
-  const [sucesso, setSucesso] = React.useState(false);
-
-  const handleSalvar = async (e) => {
-    e.preventDefault();
-    if (nova.length < 6) { setErro('A senha deve ter pelo menos 6 caracteres.'); return; }
-    if (nova !== confirma) { setErro('As senhas não coincidem.'); return; }
-    setErro(null);
-    setLoading(true);
-    const { error } = await authService.updatePassword(nova);
-    if (error) { setErro('Erro ao alterar senha: ' + error.message); setLoading(false); return; }
-    await authService.marcarSenhaAlterada();
-    setLoading(false);
-    if (forcar) { onClose(); return; }
-    setSucesso(true);
-  };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '28px 32px', maxWidth: 380, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,0.25)' }}>
-        {sucesso ? (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#dcfce7', display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
-              <Icon name="check" size={22} style={{ color: '#15803d' }} />
-            </div>
-            <h3 style={{ margin: '0 0 8px', fontSize: 17 }}>Senha alterada!</h3>
-            <p style={{ margin: '0 0 22px', color: 'var(--text-muted)', fontSize: 14 }}>Sua nova senha já está ativa.</p>
-            <button className="btn btn-primary" onClick={onClose}>Fechar</button>
-          </div>
-        ) : (
-          <form onSubmit={handleSalvar}>
-            {forcar && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fefce8', border: '1px solid #fde047', borderRadius: 9, padding: '10px 14px', marginBottom: 20 }}>
-                <Icon name="alert" size={15} style={{ color: '#ca8a04', flexShrink: 0 }} />
-                <span style={{ fontSize: 13, color: '#854d0e' }}>Por segurança, defina uma senha pessoal antes de continuar.</span>
-              </div>
-            )}
-            <h3 style={{ margin: '0 0 6px', fontSize: 17 }}>{forcar ? 'Defina sua nova senha' : 'Alterar senha'}</h3>
-            <p style={{ margin: '0 0 20px', color: 'var(--text-muted)', fontSize: 13.5 }}>
-              {forcar ? 'Sua senha temporária precisa ser substituída.' : 'Escolha uma nova senha para sua conta.'}
-            </p>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Nova senha</label>
-              <input className="input" style={{ width: '100%' }} type="password"
-                placeholder="Mínimo 6 caracteres" value={nova} onChange={e => setNova(e.target.value)} autoFocus />
-            </div>
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Confirmar senha</label>
-              <input className="input" style={{ width: '100%' }} type="password"
-                placeholder="Repita a senha" value={confirma} onChange={e => setConfirma(e.target.value)} />
-            </div>
-            {erro && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 12px', marginBottom: 16, fontSize: 13, color: '#b91c1c' }}>
-                <Icon name="alert" size={14} />{erro}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              {!forcar && <button type="button" className="btn btn-ghost" onClick={onClose}>Cancelar</button>}
-              <button type="submit" className="btn btn-primary" style={{ flex: forcar ? 1 : undefined }} disabled={loading}>
-                {loading ? <span className="login-spinner" style={{ width: 14, height: 14 }} /> : 'Salvar senha'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarAlterarSenha = false, onPasswordChanged, cronogramaTab, onCronogramaTabChange, adminTab, onAdminTabChange, pinned = false, onPinChange }) => {
+//
+// Login é SOMENTE SSO (Microsoft Entra ID) — não existe senha própria no app, então não há
+// tela de "alterar senha" aqui (removida na auditoria de 2026-09, junto com o restante da
+// infraestrutura de senha própria que não era mais usada por nenhuma tela).
+const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogramaTab, onCronogramaTabChange, adminTab, onAdminTabChange, pinned = false, onPinChange }) => {
   const [expanded, setExpanded] = React.useState(false);
-  const [showAlterarSenha, setShowAlterarSenha] = React.useState(false);
   const [expandedSection, setExpandedSection] = React.useState(null);
   const asideRef = React.useRef(null);
-
-  React.useEffect(() => {
-    if (forcarAlterarSenha) setShowAlterarSenha(true);
-  }, [forcarAlterarSenha]);
 
   // Recolhe o menu assim que o ponteiro sai da área do sidebar. Garante o
   // recolhimento mesmo quando o evento nativo onMouseLeave se perde (ex.: após
@@ -273,15 +198,6 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, forcarA
         )}
       </div>
     </aside>
-    {showAlterarSenha && (
-      <ModalAlterarSenha
-        forcar={forcarAlterarSenha}
-        onClose={() => {
-          setShowAlterarSenha(false);
-          if (forcarAlterarSenha && onPasswordChanged) onPasswordChanged();
-        }}
-      />
-    )}
     </>
   );
 };

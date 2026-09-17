@@ -10,6 +10,7 @@ import { supabase } from './services/supabase';
 import { moduloLiberado, obraLiberada, obrasPermitidas } from './utils/permissions';
 import { obrasService, obraDeleteErrorMessage } from './modules/obras/obras.service';
 import { logger, setContext, clearContext } from './services/logger';
+import { friendlyError } from './utils/friendlyError';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
 // Renderizadas dentro de <Suspense> no corpo do App.
 const Dashboard                 = React.lazy(() => import('./modules/dashboard/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -33,11 +34,11 @@ class ErrorBoundary extends React.Component {
         <div style={{ padding: 40, textAlign: 'center', fontFamily: 'system-ui' }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
           <h2 style={{ margin: '0 0 8px', fontSize: 18 }}>Erro ao carregar este módulo</h2>
-          <pre style={{ color: '#b91c1c', fontSize: 12, textAlign: 'left', maxWidth: 700,
-                        margin: '16px auto', whiteSpace: 'pre-wrap', background: '#fef2f2',
-                        padding: 16, borderRadius: 8, border: '1px solid #fecaca' }}>
-            {this.state.error.message}
-          </pre>
+          <p style={{ color: '#b91c1c', fontSize: 13.5, textAlign: 'center', maxWidth: 460,
+                      margin: '16px auto', background: '#fef2f2',
+                      padding: '10px 16px', borderRadius: 8, border: '1px solid #fecaca' }}>
+            {friendlyError(this.state.error)}
+          </p>
           <button
             onClick={() => this.setState({ error: null })}
             style={{ padding: '8px 20px', background: 'var(--brand,#014386)', color: '#fff',
@@ -102,7 +103,8 @@ const AppInner = () => {
   const handleObraCreate = async (nova) => {
     const { data, error } = await obrasService.criar(nova, user?.id);
     if (error) {
-      toast('Erro ao criar obra: ' + error.message, { tone: 'danger' });
+      logger.error('erro ao criar obra', { module: 'obras', action: 'criar', err: error });
+      toast('Erro ao criar obra. ' + friendlyError(error), { tone: 'danger' });
       return false;
     }
     const novaComId = (Array.isArray(data) ? data[0] : data) || nova;
@@ -115,7 +117,8 @@ const AppInner = () => {
   const handleObraUpdate = async (updated) => {
     const { error } = await obrasService.atualizar(updated.id, updated);
     if (error) {
-      toast('Erro ao atualizar obra: ' + error.message, { tone: 'danger' });
+      logger.error('erro ao atualizar obra', { module: 'obras', action: 'atualizar', err: error });
+      toast('Erro ao atualizar obra. ' + friendlyError(error), { tone: 'danger' });
       return false;
     }
     const novas = obras.map(o => o.id === updated.id ? updated : o);
@@ -143,7 +146,7 @@ const AppInner = () => {
     if (!email) return null;
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('id, perfil, status, modulos_ids, modulos_readonly_ids, abas_ids, abas_readonly_ids, deve_alterar_senha, user_obras(obra_id)')
+      .select('id, perfil, status, modulos_ids, modulos_readonly_ids, abas_ids, abas_readonly_ids, user_obras(obra_id)')
       .eq('email', email)
       .single();
     // PGRST116 = 0 linhas (usuário sem perfil cadastrado) — caso legítimo, não é erro.
@@ -168,7 +171,7 @@ const AppInner = () => {
     setContext({ userId: session.user.id, userEmail: session.user.email }); // enriquece os logs
 
     const perfil = await loadUserProfile(session.user.email);
-    const autorizado = !!perfil && perfil.status === 'ativo';
+    let autorizado = !!perfil && perfil.status === 'ativo';
     setAuthed(autorizado);
     setAcessoNegado(!autorizado); // mantém a sessão para exibir o e-mail na tela de bloqueio
     // Fire-and-forget: RLS não deixa o usuário comum dar UPDATE direto na própria
@@ -177,6 +180,31 @@ const AppInner = () => {
       supabase.rpc('registrar_ultimo_acesso').then(({ error }) => {
         if (error) logger.error('falha ao registrar ultimo acesso', { module: 'app', action: 'registrarUltimoAcesso', err: error });
       });
+    }
+
+    // Confirma no Microsoft Graph (via Edge Function verificar-grupo-acesso) que o
+    // usuário pertence ao grupo de acesso do Azure AD. Só dá pra checar num login SSO
+    // recém-feito: o provider_token (token do Graph) só vem nesta resposta inicial,
+    // não sobrevive a um restore de sessão/reload. "Fail open": se a checagem em si
+    // falhar (rede, permissão do Azure AD ainda não concedida, etc.), não bloqueia o
+    // acesso — só bloqueia numa resposta explícita "não é membro" do Graph.
+    if (autorizado && session.provider_token) {
+      try {
+        const { data, error } = await supabase.functions.invoke('verificar-grupo-acesso', {
+          body: { providerToken: session.provider_token },
+        });
+        if (error) {
+          logger.error('falha ao verificar grupo de acesso', { module: 'app', action: 'verificarGrupoAcesso', err: error });
+        } else if (data?.error) {
+          logger.error('falha ao verificar grupo de acesso', { module: 'app', action: 'verificarGrupoAcesso', err: data.error });
+        } else if (data?.membro === false) {
+          autorizado = false;
+          setAuthed(false);
+          setAcessoNegado(true);
+        }
+      } catch (err) {
+        logger.error('falha ao verificar grupo de acesso', { module: 'app', action: 'verificarGrupoAcesso', err });
+      }
     }
   };
 
@@ -297,8 +325,6 @@ const AppInner = () => {
         user={user}
         userProfile={userProfile}
         onLogout={handleLogout}
-        forcarAlterarSenha={userProfile?.deve_alterar_senha === true}
-        onPasswordChanged={() => setUserProfile(p => p ? { ...p, deve_alterar_senha: false } : p)}
         cronogramaTab={cronogramaTab}
         onCronogramaTabChange={setCronogramaTab}
         adminTab={adminTab}
