@@ -4,6 +4,7 @@
 import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { passoDeRolagem } from './listaAutoScroll';
+import { logger } from '../../services/logger';
 
 // Alvo de mousedown que já é um campo de edição aberto. A grade rouba foco e chama
 // preventDefault em vários handlers; dentro de um input isso impede posicionar o cursor
@@ -1882,9 +1883,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       const sc = listaScrollRef.current;
       if (sc && ptr) {
         const passo = passoDeRolagem(ptr.y, sc.getBoundingClientRect(), sc.scrollTop, sc.scrollHeight - sc.clientHeight);
-        if (passo) sc.scrollTop += passo;
-        estender();
-        if (passo) rafId = requestAnimationFrame(quadro); // só continua enquanto estiver rolando
+        if (passo) {
+          sc.scrollTop += passo;
+          // Reagenda o próximo quadro ANTES de estender(): se estender() lançar por
+          // qualquer motivo (referência obsoleta, linha que já não existe mais no meio
+          // do arraste), o laço de rolagem não pode morrer silenciosamente depois de um
+          // único incremento (~18px, quase imperceptível — parecia "não rola nada").
+          rafId = requestAnimationFrame(quadro); // só continua enquanto estiver rolando
+        }
+        try { estender(); } catch (e) { logger.warn('falha ao estender selecao durante auto-scroll', { module: 'cronograma', action: 'autoScrollLista', err: e }); }
       }
     };
 
@@ -2379,9 +2386,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       const sc = listaScrollRef.current;
       if (!sc) return;
       const passo = passoDeRolagem(ptr.y, sc.getBoundingClientRect(), sc.scrollTop, sc.scrollHeight - sc.clientHeight);
-      if (passo) sc.scrollTop += passo;
-      atualizarPreview();
-      if (passo) rafId = requestAnimationFrame(quadro);
+      if (passo) {
+        sc.scrollTop += passo;
+        // Reagenda antes de atualizarPreview(): mesma razão do arraste de seleção (ver
+        // useEffect acima) — um erro ali não pode matar o laço de rolagem em silêncio.
+        rafId = requestAnimationFrame(quadro);
+      }
+      try { atualizarPreview(); } catch (e) { logger.warn('falha ao atualizar preview durante auto-scroll', { module: 'cronograma', action: 'autoScrollFillHandle', err: e }); }
     };
     const onMove = (moveEv) => {
       ptr = { x: moveEv.clientX, y: moveEv.clientY };
