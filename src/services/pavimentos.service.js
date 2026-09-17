@@ -5,14 +5,17 @@ import { logger } from './logger';
 // Cronograma (inserção automática de pavimentos) e as Fotos da obra, para que um
 // pavimento cadastrado em qualquer lugar fique disponível na obra inteira.
 export const pavimentosService = {
-  // Lista os nomes de pavimentos da obra, ordenados.
+  // Lista os nomes de pavimentos da obra, na ordem de cadastro (não alfabética: "nome" é
+  // texto livre, ex. "1".."10".."11" — ordenar por nome intercalaria "10"/"11" entre "1" e
+  // "2", já que compara caractere a caractere, não como número. `id` é a sequência real de
+  // inserção, então preserva a ordem que a obra cadastrou.
   async listar(obraId) {
     if (!obraId) return [];
     const { data, error } = await supabase
       .from('pavimentos_obra')
       .select('nome')
       .eq('obra_id', obraId)
-      .order('nome');
+      .order('id');
     if (error) { logger.error('falha ao listar pavimentos', { module: 'pavimentos', action: 'listar', obraId, err: error }); return []; }
     return (data || []).map(r => r.nome);
   },
