@@ -12,7 +12,7 @@ const ehCampoDeEdicao = (el) =>
   !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
-import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, taskEndDisplay, dateToOffset } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, taskEndDisplay, dateToOffset, dateToExcelSerial } from './cronogramaDateUtils';
 import {
   fmtBRL, indentTasks, outdentTasks,
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
@@ -2675,8 +2675,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'wbs')      return wbsMap[e.id] || '';
         if (cid === 'id')       return rowNumberMap[e.id] ?? e.id;
         if (cid === 'etapa')    return '  '.repeat(e.nivel || 0) + e.etapa;
-        if (cid === 'inicio')   return offsetToDate(ini);
-        if (cid === 'fim')      return offsetToDate(taskEndDisplay({ isGroup: e.isGroup, inicio: ini, dur }));
+        if (cid === 'inicio')   return dateToExcelSerial(offsetToDate(ini));
+        if (cid === 'fim')      return dateToExcelSerial(offsetToDate(taskEndDisplay({ isGroup: e.isGroup, inicio: ini, dur })));
         if (cid === 'duracao')  return dur;
         if (cid === 'avanco')   return av / 100;
         if (cid === 'custo')    return cst;
@@ -2693,7 +2693,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap);
         if (cid === 'succ')     return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; ');
         if (cid === 'status')   return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
-        if (cid === 'restricao') return e.restricaoData ? offsetToDate(dateToOffset(e.restricaoData)) : '';
+        if (cid === 'restricao') return e.restricaoData ? dateToExcelSerial(offsetToDate(dateToOffset(e.restricaoData))) : '';
         if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
         return e.customCols?.[cid] ?? '';
       };

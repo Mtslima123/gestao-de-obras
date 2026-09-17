@@ -27,6 +27,19 @@ export function offsetToISO(days) {
   return `${y}-${mo}-${day}`;
 }
 
+// Converte um Date (calendário local, ex.: vindo de offsetToDate) pro número de série
+// que o Excel usa internamente pra representar datas. Necessário nos exports em Excel:
+// se a gente entrega um objeto Date "cru" pro xlsx-js-style, a conversão interna dele
+// (baseada em Date.getTime(), sensível ao fuso do navegador) jogava a data 1 dia pra
+// trás em qualquer fuso negativo (Brasil, UTC-3) — ex.: 01/09/2024 virava 31/08/2024 no
+// arquivo baixado, mesmo a tela mostrando a data certa. Calculando o serial nós mesmos,
+// com aritmética 100% em UTC (Date.UTC dos dois lados), o resultado não depende do fuso
+// do processo/navegador.
+export function dateToExcelSerial(date) {
+  const ms = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(1899, 11, 30);
+  return Math.round(ms / 86400000);
+}
+
 // Converte "YYYY-MM-DD" → "DD/MM/AAAA" para exibição
 export function isoToBR(iso) {
   if (!iso || iso.length < 10) return iso || '';

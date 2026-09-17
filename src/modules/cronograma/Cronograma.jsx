@@ -11,7 +11,7 @@ import { useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
 import { podeVerAba, moduloSomenteLeitura, abaSomenteLeitura, isAdmin } from '../../utils/permissions';
-import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay, dateToOffset } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay, dateToOffset, dateToExcelSerial } from './cronogramaDateUtils';
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, statusAposAvanco, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
@@ -349,8 +349,8 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
       case 'id':     return rowNumberMap[e.id] ?? e.id;
       case 'wbs':    return wbsMap[e.id] || '';
       case 'nome':   return '  '.repeat(e.nivel || 0) + e.etapa;
-      case 'inicio': return offsetToDate(e.inicio);
-      case 'fim':    return offsetToDate(taskEndDisplay(e));
+      case 'inicio': return dateToExcelSerial(offsetToDate(e.inicio));
+      case 'fim':    return dateToExcelSerial(offsetToDate(taskEndDisplay(e)));
       case 'dur':    return e.dur;
       case 'avanco': return e.avanco / 100;
       default:       return '';

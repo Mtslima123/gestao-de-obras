@@ -6,7 +6,7 @@ import { Icon } from '../../components/Icons';
 import { useToast, Modal } from '../../components/Modals';
 import { buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
          buildCalendarWeeks, buildCalendarDays } from './ganttUtils';
-import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, taskEndDisplay, todayOffset } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, taskEndDisplay, todayOffset, dateToExcelSerial } from './cronogramaDateUtils';
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
@@ -401,8 +401,8 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           wbs[e.id] || '',
           rowNumberMap[e.id] ?? e.id,
           '  '.repeat(e.nivel || 0) + e.etapa,
-          offsetToDate(ini),
-          offsetToDate(taskEndDisplay({ isGroup: e.isGroup, inicio: ini, dur })),
+          dateToExcelSerial(offsetToDate(ini)),
+          dateToExcelSerial(offsetToDate(taskEndDisplay({ isGroup: e.isGroup, inicio: ini, dur }))),
           dur,
           av / 100,
           e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura'),

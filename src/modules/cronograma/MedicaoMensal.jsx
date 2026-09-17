@@ -2,7 +2,7 @@ import React from 'react';
 import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
 import { formatBRL, formatNum } from '../../utils/formatters';
-import { offsetToDate } from './cronogramaDateUtils';
+import { offsetToDate, dateToExcelSerial } from './cronogramaDateUtils';
 import { mesAtualOuUltimo, mesesComReprogramacao } from './scheduleEngine';
 import { medicaoMensalService } from './medicaoMensal.service';
 import {
@@ -882,7 +882,11 @@ export default function MedicaoMensal({
       const linhas2     = linhasExport();
       const groupRowIdx = [];
       linhas2.forEach((l, i) => { if (l.grupo) groupRowIdx.push(HEADER_ROW + 1 + i); });
-      const corpo = linhas2.map(l => l.cells);
+      // linhasExport() devolve objetos Date crus nas células 3/4 (Início/Término) porque o
+      // export em PDF usa esses mesmos Date via toLocaleDateString — só aqui, pro Excel,
+      // convertemos pro serial do Excel (ver dateToExcelSerial: entregar o Date object direto
+      // pro xlsx-js-style jogava a data 1 dia pra trás em fuso negativo, ex. Brasil).
+      const corpo = linhas2.map(l => l.cells.map((v, i) => (i === 3 || i === 4) && v instanceof Date ? dateToExcelSerial(v) : v));
       const totalRowIdx = HEADER_ROW + 1 + corpo.length;
       const rows = [
         [`Medição Mensal · ${obraNome} · ${mesLabel(mesRefKey)}`],
