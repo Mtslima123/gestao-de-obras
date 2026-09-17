@@ -13,6 +13,8 @@ import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          nextEtapaId, nextDisplayId, emptyCustomCols } from './scheduleEngine';
 import { PavimentosModal } from './cronogramaModais';
 import { TaskFormPanel } from './TaskFormPanel';
+import { logger } from '../../services/logger';
+import { friendlyError } from '../../utils/friendlyError';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_ROW_ANO, GM_ROW_TRI, GM_ROW_MES, GM_ROW_FINE, ZOOM_PX_DIA,
@@ -69,7 +71,7 @@ function BaselineSelect({ value, baselines, reprogramacoes, onChange }) {
 }
 
 export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, redo, canUndo = true, canRedo = true, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, isAdmin = false, customCols = [],
-  baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
+  baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo, onDataInicioProjeto,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   filtroResp = '', filtroPreset = '', filtroPresetRange = { de: '', ate: '' }, filtroTaskIds = [],
@@ -436,7 +438,10 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
       groupRowIdx.forEach(r => aplicarEstiloLinha(XLSX, ws, r, hdrs.length, XLSX_GROUP_ROW_STYLE));
       XLSX.utils.book_append_sheet(wb, ws, 'Cronograma');
       XLSX.writeFile(wb, `gantt-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      } catch (err) { toast('Erro ao exportar Excel: ' + err.message, { tone: 'danger' }); }
+      } catch (err) {
+        logger.error('erro ao exportar excel do gantt', { module: 'cronograma', action: 'exportExcelGantt', err });
+        toast('Erro ao exportar Excel. ' + friendlyError(err), { tone: 'danger' });
+      }
     });
   };
 
@@ -1261,12 +1266,19 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                   <div style={caption}>Calendário</div>
                 </div>
                 <div style={groupBox}>
-                  <div style={{ ...groupContent, justifyContent: 'center' }}>
+                  <div style={groupContent}>
                     <div style={rowStyle}>
                       <button style={cmdBtn} onClick={onProjectInfo} title="Ver o resumo do projeto (somente leitura)">
                         <Icon name="file" size={13} /> Informações do projeto
                       </button>
                     </div>
+                    {!readOnly && (
+                      <div style={rowStyle}>
+                        <button style={cmdBtn} onClick={onDataInicioProjeto} title="Definir a data de início do projeto (desloca todo o cronograma)">
+                          <Icon name="calendar" size={13} /> Data de início
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div style={caption}>Projeto</div>
                 </div>

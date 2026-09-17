@@ -50,7 +50,7 @@ const FILL_EXCLUDED_COLS = new Set(['dep', 'succ']);
 const GROUP_BLOCKED_FIELDS = new Set(['inicio', 'fim', 'avanco', 'custo', 'custoRealizado', 'duracaoDias']);
 
 export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, rowHeights: rowHeightsProp = EMPTY_ROW_HEIGHTS, onRowHeightsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, isAdmin = false,
-  baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo,
+  baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo, onDataInicioProjeto,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   filtroResp = '', setFiltroResp,
@@ -3495,12 +3495,19 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <div style={caption}>Calendário</div>
                     </div>
                     <div style={groupBox}>
-                      <div style={{ ...groupContent, justifyContent: 'center' }}>
+                      <div style={groupContent}>
                         <div style={rowStyle}>
                           <button style={cmdBtn} onClick={onProjectInfo} title="Ver o resumo do projeto (somente leitura)">
                             <Icon name="file" size={13} /> Informações do projeto
                           </button>
                         </div>
+                        {!readOnly && (
+                          <div style={rowStyle}>
+                            <button style={cmdBtn} onClick={onDataInicioProjeto} title="Definir a data de início do projeto (desloca todo o cronograma)">
+                              <Icon name="calendar" size={13} /> Data de início
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div style={caption}>Projeto</div>
                     </div>

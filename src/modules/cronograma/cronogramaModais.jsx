@@ -4,7 +4,7 @@
 import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
-import { isoToBR, todayOffset, workEnd } from "./cronogramaDateUtils";
+import { isoToBR, todayOffset, workEnd, dateToOffset } from "./cronogramaDateUtils";
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, mesAtualOuUltimo, mesesComReprogramacao } from "./scheduleEngine";
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
@@ -133,6 +133,62 @@ export const InformacoesProjetoModal = ({ info, onClose }) => {
           <Tile label="Feriados/dias não úteis" value={info.feriados} />
           <Tile label="Sábado trabalhado" value={info.sabadoUtil} />
         </Group>
+      </div>
+    </Modal>
+  );
+};
+
+// ─── DataInicioProjetoModal ───────────────────────────────────────────────────
+// Permite reancorar o cronograma inteiro numa nova data de início. Como o motor
+// (scheduleEngine) não tem um "início do projeto" separado das tarefas — cada
+// tarefa-raiz sem predecessora guarda sua própria data (ver auditoria) — a forma
+// correta de "mudar o início do projeto" é deslocar TODAS as tarefas pelo mesmo
+// número de dias: isso preserva durações, dependências e a linha de base (que
+// continua intacta, como snapshot do planejamento anterior).
+export const DataInicioProjetoModal = ({ dataAtualISO, onConfirm, onClose }) => {
+  const [data, setData] = React.useState(dataAtualISO || '');
+  const toast = useToast();
+
+  const deltaDias = data ? dateToOffset(data) - dateToOffset(dataAtualISO) : 0;
+
+  const confirmar = () => {
+    if (!data) { toast('Escolha uma data', { tone: 'warning' }); return; }
+    if (deltaDias === 0) { onClose(); return; }
+    onConfirm(deltaDias);
+    onClose();
+  };
+
+  return (
+    <Modal
+      title="Data de início do projeto"
+      subtitle="Desloca todas as tarefas do cronograma, mantendo durações e dependências"
+      size="sm"
+      draggable
+      overlay={false}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" onClick={confirmar}>Aplicar</button>
+        </>
+      }
+    >
+      <div className="form-grid">
+        <div className="field full">
+          <label>Nova data de início</label>
+          <input
+            autoFocus type="date" className="input" value={data}
+            onChange={e => setData(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') confirmar(); }}
+          />
+        </div>
+        <div className="field full">
+          <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+            {data && deltaDias !== 0
+              ? `O cronograma inteiro vai ${deltaDias > 0 ? 'avançar' : 'recuar'} ${Math.abs(deltaDias)} dia(s). A linha de base (se houver) não é alterada.`
+              : 'Data atual de início: ' + isoToBR(dataAtualISO)}
+          </span>
+        </div>
       </div>
     </Modal>
   );

@@ -4,13 +4,14 @@ import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { pavimentosService } from '../../services/pavimentos.service';
 import { logger } from '../../services/logger';
+import { friendlyError } from '../../utils/friendlyError';
 import { SCurveChart } from './SCurveChart';
 import { SCurveChart2 } from './SCurveChart2';
 import { useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
 import { podeVerAba, moduloSomenteLeitura, abaSomenteLeitura, isAdmin } from '../../utils/permissions';
-import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay, dateToOffset } from './cronogramaDateUtils';
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, statusAposAvanco, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
@@ -19,7 +20,7 @@ import {
 import MedicaoMensal from './MedicaoMensal';
 import {
   CriarLinhaModal, GerenciarLinhasModal, FeriadosModal,
-  CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal,
+  CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal, DataInicioProjetoModal,
 } from './cronogramaModais';
 import { GM_TOTAL, gmConflicts, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
@@ -515,7 +516,10 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
         },
       });
       doc.save(`uso-tarefa-${new Date().toISOString().slice(0, 10)}.pdf`);
-    } catch (err) { toast('Erro ao gerar PDF: ' + err.message, { tone: 'danger' }); }
+    } catch (err) {
+      logger.error('erro ao gerar pdf do uso da tarefa', { module: 'cronograma', action: 'exportPDFUso', err });
+      toast('Erro ao gerar PDF. ' + friendlyError(err), { tone: 'danger' });
+    }
     finally { setExportingPDF(false); }
   };
 
@@ -1094,7 +1098,10 @@ const CurvaFisicaView = ({ etapas, obraNome = 'Projeto', months, monthlyDist, re
 
       if (wb.SheetNames.length === 0) { toast('Selecione ao menos uma tabela para o Excel.', { tone: 'warn' }); return; }
       XLSX.writeFile(wb, `curva-fisica-${new Date().toISOString().slice(0,10)}.xlsx`);
-      } catch (err) { toast('Erro ao exportar Excel: ' + err.message, { tone: 'danger' }); }
+      } catch (err) {
+        logger.error('erro ao exportar excel da curva fisica', { module: 'cronograma', action: 'exportExcel', err });
+        toast('Erro ao exportar Excel. ' + friendlyError(err), { tone: 'danger' });
+      }
     });
   };
 
@@ -1284,7 +1291,8 @@ const CurvaFisicaView = ({ etapas, obraNome = 'Projeto', months, monthlyDist, re
       }
       doc.save(`curva-fisica-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (err) {
-      toast('Erro ao gerar PDF: ' + err.message, { tone: 'danger' });
+      logger.error('erro ao gerar pdf da curva fisica', { module: 'cronograma', action: 'exportPDF', err });
+      toast('Erro ao gerar PDF. ' + friendlyError(err), { tone: 'danger' });
     } finally {
       setExportingPDF(false);
     }
@@ -2317,12 +2325,14 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
   const showGerenciar     = activeCadastroModal === 'gerenciar';
   const showFeriados      = activeCadastroModal === 'feriados';
   const showProjInfo      = activeCadastroModal === 'projInfo';
+  const showDataInicio    = activeCadastroModal === 'dataInicio';
   const setShowCriar        = (v) => setActiveCadastroModal(v ? 'criar' : null);
   const setShowCriarRep     = (v) => setActiveCadastroModal(v ? 'criarRep' : null);
   const setShowGerenciarRep = (v) => setActiveCadastroModal(v ? 'gerenciarRep' : null);
   const setShowGerenciar    = (v) => setActiveCadastroModal(v ? 'gerenciar' : null);
   const setShowFeriados     = (v) => setActiveCadastroModal(v ? 'feriados' : null);
   const setShowProjInfo     = (v) => setActiveCadastroModal(v ? 'projInfo' : null);
+  const setShowDataInicio   = (v) => setActiveCadastroModal(v ? 'dataInicio' : null);
   // Cronograma iniciado mas ainda sem etapas: mostra o editor vazio sem gravar nada
   const [iniciando,    setIniciando]    = React.useState(false);
   // Feriados por obra (dias não trabalhados) — persistidos por obra no navegador.
@@ -2973,6 +2983,22 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     }));
   };
 
+  // Reancora o cronograma inteiro numa nova data de início: desloca `inicio` (e a
+  // restrição de data, se houver) de TODA tarefa pelo mesmo número de dias. Um
+  // deslocamento uniforme preserva durações e a ordem das dependências exatamente
+  // (não precisa reagendar via scheduleEngine) — e não toca em `baselines`/
+  // `reprogramacoes`, que são fotos do planejamento anterior e devem continuar
+  // valendo como estavam.
+  const alterarDataInicioProjeto = (deltaDias) => {
+    if (readOnly || !deltaDias) return;
+    commit(etapas.map(e => ({
+      ...e,
+      inicio: e.inicio + deltaDias,
+      ...(e.restricaoData ? { restricaoData: offsetToISO(dateToOffset(e.restricaoData) + deltaDias) } : {}),
+    })));
+    toast('Data de início do projeto atualizada', { tone: 'success', icon: 'check' });
+  };
+
   const undo = () => {
     if (hidxRef.current <= 0) { toast('Nada para desfazer', { tone: 'neutral', icon: 'alert' }); return; }
     const prev = histRef.current[hidxRef.current];
@@ -3255,6 +3281,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                           onSalvarRep={() => setShowCriarRep(true)} onGerenciarReps={() => setShowGerenciarRep(true)}
                           onFeriados={() => setShowFeriados(true)} onOutlineLevel={applyOutlineLevel}
                           onProjectInfo={() => setShowProjInfo(true)}
+                          onDataInicioProjeto={() => setShowDataInicio(true)}
                           obraNome={obra?.nome || 'Projeto'}
                           pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos} onPavimentoExcluir={excluirPavimentoObra}
                           showProjSummary={viewCfg.projSummary} showSummaryTasks={viewCfg.summaryTasks}
@@ -3497,6 +3524,7 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
                   onFeriados={() => setShowFeriados(true)}
                   onOutlineLevel={applyOutlineLevel}
                   onProjectInfo={() => setShowProjInfo(true)}
+                  onDataInicioProjeto={() => setShowDataInicio(true)}
                   obraNome={obra?.nome || 'Projeto'}
                   pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos} onPavimentoExcluir={excluirPavimentoObra}
                   showProjSummary={viewCfg.projSummary}
@@ -3609,6 +3637,13 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
         };
         return <InformacoesProjetoModal info={info} onClose={() => setShowProjInfo(false)} />;
       })()}
+      {showDataInicio && etapas.length > 0 && (
+        <DataInicioProjetoModal
+          dataAtualISO={offsetToISO(Math.min(...etapas.map(e => e.inicio)))}
+          onConfirm={alterarDataInicioProjeto}
+          onClose={() => setShowDataInicio(false)}
+        />
+      )}
     </>
   );
 };
