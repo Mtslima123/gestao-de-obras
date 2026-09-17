@@ -4,7 +4,7 @@
 // têm state, JSX nem efeitos colaterais. Datas/dias úteis vêm de ./cronogramaDateUtils.
 
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
-import { offsetToDate, offsetToISO, dateToOffset, taskEnd, workStart, workDur, todayOffset, nextMonthStartOffset } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, dateToOffset, parseAnyDateToISO, taskEnd, workStart, workDur, todayOffset, nextMonthStartOffset } from './cronogramaDateUtils';
 
 // ─── Funções puras de dados ──────────────────────────────────────────────────
 
@@ -602,10 +602,18 @@ export const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restri
 // grupos recolhidos), pra "3" sempre significar "a 3ª linha que aparece na grade"
 // (a mesma numeração da calha), não a 3ª posição na lista inteira.
 export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
-  if (field === 'inicio')      { return { ...e, inicio: Math.round(dateToOffset(rawValue)) }; }
+  // parseAnyDateToISO aceita tanto ISO (edição/colar interno) quanto DD/MM/AAAA (colar de
+  // fora, ex.: Excel) — sem reconhecer o formato, retorna '' e a tarefa não é alterada
+  // (evita corromper a data existente com um colar que não é uma data válida).
+  if (field === 'inicio')      { const iso = parseAnyDateToISO(rawValue); return iso ? { ...e, inicio: Math.round(dateToOffset(iso)) } : e; }
   // +1: a data digitada é o último dia INCLUSIVO de trabalho, mas workDur espera o
   // offset EXCLUSIVO (dia seguinte) — ver taskEndDisplay em cronogramaDateUtils.js.
-  if (field === 'fim')         { const offset = Math.round(dateToOffset(rawValue)) + 1; return { ...e, dur: workDur(e.inicio, offset) }; }
+  if (field === 'fim') {
+    const iso = parseAnyDateToISO(rawValue);
+    if (!iso) return e;
+    const offset = Math.round(dateToOffset(iso)) + 1;
+    return { ...e, dur: workDur(e.inicio, offset) };
+  }
   if (field === 'duracaoDias') { return { ...e, dur: Math.max(1, parseInt(rawValue) || 1) }; }
   if (field === 'avanco') {
     const avanco = Math.min(100, Math.max(0, parseInt(rawValue) || 0));
@@ -623,10 +631,12 @@ export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
     // Campo virtual da coluna simplificada (estilo Project): só uma data, sem tipo à escolha.
     // Preenchida = "não iniciar antes de" (snet); vazia = sem restrição (asap).
     const v = (rawValue || '').trim();
-    return v ? { ...e, restricaoTipo: 'snet', restricaoData: v } : { ...e, restricaoTipo: 'asap', restricaoData: '' };
+    if (!v) return { ...e, restricaoTipo: 'asap', restricaoData: '' };
+    const iso = parseAnyDateToISO(v);
+    return iso ? { ...e, restricaoTipo: 'snet', restricaoData: iso } : e;
   }
   if (field === 'restricaoTipo') { return { ...e, restricaoTipo: rawValue }; }
-  if (field === 'restricaoData') { return { ...e, restricaoData: rawValue }; }
+  if (field === 'restricaoData') { const iso = parseAnyDateToISO(rawValue); return iso ? { ...e, restricaoData: iso } : e; }
   if (field === 'custo' || field === 'custoRealizado') { return { ...e, [field]: parseBRL(rawValue) }; }
   if (field === 'fator_peso')  {
     if ((e.avanco ?? 0) >= 100) return e; // tarefa concluída: peso travado, não altera

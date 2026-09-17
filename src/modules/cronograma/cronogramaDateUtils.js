@@ -44,6 +44,30 @@ export function isoToBRWeekday(iso) {
   return `${DIAS_ABREV[wd]} ${isoToBR(iso)}`;
 }
 
+// Normaliza uma data digitada/colada pro formato ISO "YYYY-MM-DD" que o resto do app
+// espera internamente (inclusive o <input type="date"> nativo da célula editável).
+// Aceita ISO (colar entre células do próprio app, que já copia em ISO) e "DD/MM/AAAA"
+// ou "DD/MM/AA" (colar de fora — Excel/Google Sheets exibem e copiam datas assim por
+// padrão no Brasil). Sem isso, colar uma data em DD/MM/AAAA gravava o texto cru direto
+// (ex.: em restricaoData), fora do formato ISO que o input nativo e o cálculo de
+// agendamento esperam — a data colada parecia simplesmente ignorada.
+// Retorna '' se não reconhecer o formato (não corrompe o valor existente).
+export function parseAnyDateToISO(raw) {
+  const v = String(raw ?? '').trim();
+  if (!v) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!m) return '';
+  let [, d, mo, y] = m;
+  if (y.length === 2) y = (Number(y) <= 69 ? '20' : '19') + y; // mesma regra de século do Excel
+  const iso = `${y.padStart(4, '0')}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  const [yy, mm, dd] = iso.split('-').map(Number);
+  const check = new Date(yy, mm - 1, dd);
+  // Valida (ex.: "31/02/2024" não existe) — new Date "rola" o mês, então confere se voltou.
+  if (check.getFullYear() !== yy || check.getMonth() !== mm - 1 || check.getDate() !== dd) return '';
+  return iso;
+}
+
 // Converte string ISO para offset em DIAS desde GM_REF
 export function dateToOffset(iso) {
   if (!iso) return 0;
