@@ -1181,15 +1181,19 @@ export default function MedicaoMensal({
         <KpiCard label="Executado acumulado" value={resumo.executadoAcumulado} barColor="var(--success)" />
       </div>
 
-      {/* Sentinela: marca onde o card começa, para detectar quando prender */}
+      {/* Sentinela: marca onde o card começa, para detectar quando prender. No celular o
+          "prender embaixo da topbar com rolagem interna" não entra (ver plano) — a lista de
+          cards flui na página normal, uma rolagem só, em vez de uma rolagem dentro da outra. */}
       <div ref={sentinelRef} aria-hidden="true" style={{ height: 0 }} />
       {/* Espaçador: preserva a altura do fluxo quando o card sai dele (position:fixed) */}
-      {pinned && <div aria-hidden="true" style={{ marginTop: 8, height: cardH }} />}
+      {!isMobile && pinned && <div aria-hidden="true" style={{ marginTop: 8, height: cardH }} />}
 
       <div className="card"
-        style={pinned
-          ? { position: 'fixed', top: topbarH + 10, left: pinned.left, width: pinned.width, height: cardH, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
-          : { marginTop: 8, height: cardH, display: 'flex', flexDirection: 'column' }
+        style={isMobile
+          ? { marginTop: 8, display: 'flex', flexDirection: 'column' }
+          : pinned
+            ? { position: 'fixed', top: topbarH + 10, left: pinned.left, width: pinned.width, height: cardH, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
+            : { marginTop: 8, height: cardH, display: 'flex', flexDirection: 'column' }
         }>
         <div style={{ position: 'relative', borderBottom: '1px solid var(--border)', flexShrink: 0, minHeight: 34 }}>
         <div style={{
@@ -1340,8 +1344,10 @@ export default function MedicaoMensal({
         )}
 
         {/* flex:1 + minHeight:0 dá a rolagem por dentro do card; sem o minHeight o
-            flex item não encolhe e o scroll vaza para a página. */}
-        <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+            flex item não encolhe e o scroll vaza para a página. No celular fica sem
+            essa restrição — a página inteira rola, sem uma caixa de rolagem dentro
+            da outra. */}
+        <div style={isMobile ? undefined : { overflow: 'auto', flex: 1, minHeight: 0 }}>
           {isMobile ? (
             linhas.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
