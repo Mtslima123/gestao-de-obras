@@ -426,6 +426,9 @@ a:hover { color: var(--brand-600); }
 .breadcrumb .crumb:hover { color: var(--brand); }
 .breadcrumb .sep { color: var(--text-faint); }
 .breadcrumb .current { color: var(--text); font-weight: 600; }
+/* Hambúrguer (abre a sidebar como drawer) e rótulo de texto de botões da topbar — só
+   aparecem/somem via @media (max-width: 768px) abaixo; no desktop ficam como estavam. */
+.sidebar-hamburger { display: none; flex-shrink: 0; }
 .topbar-actions {
   margin-left: auto;
   display: flex; align-items: center; gap: 8px;
@@ -880,7 +883,7 @@ a:hover { color: var(--brand-600); }
   height: auto;
   max-width: 560px;
   max-height: 460px;
-  min-width: 320px;
+  min-width: min(320px, 100%);
   min-height: 240px;
 }
 .hero-img::after {
@@ -1558,7 +1561,7 @@ a:hover { color: var(--brand-600); }
    ============================================ */
 .obra-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
   gap: var(--gap);
 }
 .obra-card {
@@ -2504,6 +2507,49 @@ tr:hover .obras-row-actions {
   .sso-brand-label { bottom: 18px; font-size: 13px; letter-spacing: 6px; }
   .sso-access { padding: 32px 24px; }
   .sso-title { font-size: 34px; }
+}
+
+/* ============================================
+   MOBILE (< 768px) — navegação (sidebar vira drawer por toque, já que hover não
+   existe em touch — ver Chrome.jsx), Modal genérico e Dashboard/Obras.
+   ============================================ */
+@media (max-width: 768px) {
+  /* Sidebar: some da tela por padrão (não reserva mais os 80px fixos de ícones) e só
+     entra como drawer de tela cheia quando aberta pelo hambúrguer/toque. */
+  .app { padding-left: 0; }
+  .app.sidebar-pinned { padding-left: 0; } /* "fixar" não faz sentido em modo drawer */
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.24s cubic-bezier(.4,0,.2,1);
+  }
+  .sidebar.expanded { transform: translateX(0); width: min(276px, 85vw); }
+
+  .sidebar-hamburger { display: flex; }
+  .topbar-btn-label { display: none; }
+  .breadcrumb { overflow-x: auto; white-space: nowrap; flex: 1; min-width: 0; }
+  .topbar { padding: 0 14px; gap: 10px; }
+
+  /* Modal genérico + .form-grid: usado por quase todo formulário do app (Nova Obra,
+     Nova Medição, Solicitar Compra, Novo Orçamento etc.) — corrigir aqui uma vez só
+     beneficia todos eles, sem tocar em nenhum componente individual. */
+  .modal, .modal.sm, .modal.lg, .modal.xl { max-width: 100%; }
+  .modal-backdrop { padding: 10px; }
+  .modal-header { padding: 14px 16px; }
+  .modal-body { padding: 16px; }
+  .modal-footer { padding: 12px 16px; }
+  .form-grid { grid-template-columns: 1fr; }
+
+  /* Dashboard: KPIs em 1 coluna (2 colunas ainda aperta demais < 768px) */
+  .kpi-grid, .kpi-grid.cols-5, .kpi-grid.cols-3, .kpi-grid.cols-2 { grid-template-columns: 1fr; }
+  .donut-wrap { flex-wrap: wrap; }
+}
+
+/* Telas de celular pequenas/médias (iPhone SE, Android comum ~360-420px) — acabamento
+   fino além do empilhamento genérico acima. */
+@media (max-width: 420px) {
+  .sso-brand { min-height: 160px; }
+  .sso-access { padding: 24px 18px; }
+  .sso-title { font-size: 28px; }
 }
 
 /* ============================================

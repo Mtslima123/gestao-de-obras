@@ -151,7 +151,7 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
             placeholder="Buscar obra, cliente ou código…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ minWidth: 260 }}
+            style={{ minWidth: 'min(260px, 100%)' }}
           />
         </div>
       </div>

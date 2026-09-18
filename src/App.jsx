@@ -111,6 +111,7 @@ const AppInner = () => {
   const [cronogramaTab,   setCronogramaTab]   = React.useState(() => sessionStorage.getItem('nav_cronograma_tab') || 'gantt');
   const [adminTab,        setAdminTab]        = React.useState(() => sessionStorage.getItem('nav_admin_tab') || 'usuarios');
   const [sidebarPinned,   setSidebarPinned]   = React.useState(false); // menu fixado aberto (sem persistir)
+  const [sidebarMobileOpen, setSidebarMobileOpen] = React.useState(false); // drawer aberto pelo hambúrguer (mobile)
   // Sub-abas persistem na sessão para o F5 reabrir na mesma aba
   React.useEffect(() => { sessionStorage.setItem('nav_cronograma_tab', cronogramaTab); }, [cronogramaTab]);
   React.useEffect(() => { sessionStorage.setItem('nav_admin_tab', adminTab); }, [adminTab]);
@@ -340,10 +341,13 @@ const AppInner = () => {
         onAdminTabChange={setAdminTab}
         pinned={sidebarPinned}
         onPinChange={setSidebarPinned}
+        mobileOpen={sidebarMobileOpen}
+        onMobileClose={() => setSidebarMobileOpen(false)}
       />
       <div className="main">
         <Topbar
           breadcrumb={buildBreadcrumb()}
+          onMenuToggle={() => setSidebarMobileOpen(v => !v)}
         />
         <div className="content">
           <ErrorBoundary key={view}>
