@@ -11,7 +11,7 @@ import { MODULOS_TOPO } from './config/modulos';
 // Login é SOMENTE SSO (Microsoft Entra ID) — não existe senha própria no app, então não há
 // tela de "alterar senha" aqui (removida na auditoria de 2026-09, junto com o restante da
 // infraestrutura de senha própria que não era mais usada por nenhuma tela).
-const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogramaTab, onCronogramaTabChange, adminTab, onAdminTabChange, pinned = false, onPinChange, mobileOpen = false, onMobileClose }) => {
+const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogramaTab, onCronogramaTabChange, adminTab, onAdminTabChange, pinned = false, onPinChange }) => {
   const [expanded, setExpanded] = React.useState(false);
   const [expandedSection, setExpandedSection] = React.useState(null);
   const asideRef = React.useRef(null);
@@ -40,7 +40,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogr
       setExpandedSection(null);
     }
   }, [currentView]);
-  const open = expanded || pinned || mobileOpen;   // aberto por hover, fixação OU pelo hambúrguer (mobile)
+  const open = expanded || pinned;   // aberto por hover OU por fixação
   const collapsed = !open;
   // Menu derivado da fonte única (config/modulos). Módulos sem permissão
   // continuam visíveis (locked: true) em vez de somem — só ficam bloqueados
@@ -78,7 +78,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogr
     <button
       key={item.id}
       className={'nav-item' + (currentView === item.id ? ' active' : '') + (item.subtle ? ' subtle' : '') + (item.locked ? ' locked' : '')}
-      onClick={item.locked ? undefined : (onClick ?? (() => { onNavigate(item.id); onMobileClose?.(); }))}
+      onClick={item.locked ? undefined : (onClick ?? (() => onNavigate(item.id)))}
       title={item.locked ? 'Sem acesso a este módulo. Fale com o administrador.' : (collapsed ? item.label : undefined)}
       aria-disabled={item.locked || undefined}
       aria-current={currentView === item.id ? 'page' : undefined}
@@ -91,12 +91,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogr
 
   return (
     <>
-      {open && !pinned && (
-        <div
-          onClick={mobileOpen ? onMobileClose : undefined}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 199, pointerEvents: mobileOpen ? 'auto' : 'none' }}
-        />
-      )}
+      {open && !pinned && <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.3)',zIndex:199,pointerEvents:'none'}}/>}
       <aside
         ref={asideRef}
         className={'sidebar' + (open ? ' expanded' : '')}
@@ -147,7 +142,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogr
                           className={'nav-sub-item' + (cronogramaTab === sub.id ? ' active' : '') + (sub.locked ? ' locked' : '')}
                           title={sub.locked ? 'Sem acesso a este módulo. Fale com o administrador.' : undefined}
                           aria-disabled={sub.locked || undefined}
-                          onClick={sub.locked ? undefined : () => { onNavigate('cronograma'); onCronogramaTabChange && onCronogramaTabChange(sub.id); onMobileClose?.(); }}
+                          onClick={sub.locked ? undefined : () => { onNavigate('cronograma'); onCronogramaTabChange && onCronogramaTabChange(sub.id); }}
                         >
                           {sub.label}
                         </button>
@@ -170,7 +165,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogr
                         <button
                           key={sub.id}
                           className={'nav-sub-item' + (adminTab === sub.id ? ' active' : '')}
-                          onClick={() => { onNavigate('admin'); onAdminTabChange && onAdminTabChange(sub.id); onMobileClose?.(); }}
+                          onClick={() => { onNavigate('admin'); onAdminTabChange && onAdminTabChange(sub.id); }}
                         >
                           {sub.label}
                         </button>
@@ -207,7 +202,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogr
   );
 };
 
-const Topbar = ({ breadcrumb, onNovaObra, onMenuToggle }) => {
+const Topbar = ({ breadcrumb, onNovaObra }) => {
   const [notifOpen, setNotifOpen] = React.useState(false);
   const [naoLidas,  setNaoLidas]  = React.useState(0);
   const refreshCount = React.useCallback(async () => {
@@ -229,9 +224,6 @@ const Topbar = ({ breadcrumb, onNovaObra, onMenuToggle }) => {
   }, [refreshCount]);
   return (
     <header className="topbar">
-      <button className="icon-btn sidebar-hamburger" onClick={onMenuToggle} title="Abrir menu">
-        <Icon name="menu" size={20} />
-      </button>
       <div className="breadcrumb">
         {breadcrumb.map((c, i) => (
           <React.Fragment key={i}>
@@ -258,7 +250,7 @@ const Topbar = ({ breadcrumb, onNovaObra, onMenuToggle }) => {
         </div>
         {onNovaObra && (
           <button className="btn btn-primary" onClick={onNovaObra}>
-            <Icon name="plus" size={15} /><span className="topbar-btn-label">Nova obra</span>
+            <Icon name="plus" size={15} />Nova obra
           </button>
         )}
       </div>
