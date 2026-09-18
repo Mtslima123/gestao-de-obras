@@ -453,6 +453,30 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose, onDownload, urlOriginal
   };
   const onMouseUp = () => { isDraggingRef.current = false; setIsDragging(false); };
 
+  // Arrastar o dedo pra trocar de foto — só sem zoom (com zoom>1 o toque continua livre
+  // pros botões de +/- e duplo-toque, arrastar pra fazer pan fica pra uma rodada
+  // seguinte). Mesmo papel dos botões prev/next, sem tirar eles do lugar.
+  const touchStartRef = React.useRef(null);
+  const onTouchStart = (e) => {
+    if (scale > 1 || e.touches.length !== 1) { touchStartRef.current = null; return; }
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
+  };
+  const onTouchEnd = (e) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    // Precisa ser rápido, horizontal e com deslocamento mínimo — senão um toque comum
+    // (ou um scroll vertical sem querer) dispararia a troca de foto.
+    if (Date.now() - start.time < 600 && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx > 0 && idx > 0) onNavigate(idx - 1);
+      else if (dx < 0 && idx < fotos.length - 1) onNavigate(idx + 1);
+    }
+  };
+
   return (
     <div
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.95)',
@@ -500,6 +524,8 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose, onDownload, urlOriginal
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
       >
         <img
           src={urlOriginal || foto.url}
@@ -1256,7 +1282,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
             </div>
           )
         }
-        <div className="form-grid">
+        <div className="form-grid form-grid-fotos">
           <div className="field">
             <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
             <input type="date" value={form.data} max={hojeISO} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
@@ -1302,7 +1328,7 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
         </button>
       </>}
     >
-      <div className="form-grid">
+      <div className="form-grid form-grid-fotos">
         <div className="field">
           <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
           <input type="date" value={form.data} max={hojeISO} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
