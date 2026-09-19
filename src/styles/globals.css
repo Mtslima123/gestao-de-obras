@@ -1279,10 +1279,10 @@ a:hover { color: var(--brand-600); }
   padding: 24px;
   animation: fadeIn 0.14s ease-out;
 }
-/* Menos respiro nas bordas em telas estreitas — dá mais largura de verdade pro modal
-   num celular (24px de cada lado já é 48px roubados de uma tela de ~380-420px). */
+/* Respiro menor que o padrão (24px) mas ainda com margem visível dos dois lados —
+   card um pouco menor que a tela toda, sem ficar colado na borda. */
 @media (max-width: 480px) {
-  .modal-backdrop { padding: 10px; }
+  .modal-backdrop { padding: 16px; }
 }
 /* Painel que rola por roda do mouse mas sem barra visível (evita barra "no meio") */
 .uso-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
