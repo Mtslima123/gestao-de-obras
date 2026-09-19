@@ -1281,7 +1281,8 @@ a:hover { color: var(--brand-600); }
   animation: fadeIn 0.14s ease-out;
 }
 @media (max-width: 480px) {
-  .modal-backdrop { padding-block: 16px; }
+  .modal-backdrop { padding-block: 8px; }
+  .modal { max-height: calc(100dvh - 16px); }
 }
 /* Painel que rola por roda do mouse mas sem barra visível (evita barra "no meio") */
 .uso-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
