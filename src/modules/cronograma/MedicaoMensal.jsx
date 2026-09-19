@@ -1471,8 +1471,9 @@ export default function MedicaoMensal({
                         {l.foraDoMes && (
                           <>
                             <span className="badge warning" style={{ fontSize: 9.5, padding: '0 5px' }}>fora do mês</span>
-                            <button type="button" className="icon-btn-sm" title="Remover tarefa"
-                              onClick={() => removerTarefaManual(l.id)} disabled={bloqueado}>
+                            <button type="button" className="icon-btn-sm"
+                              title={l.percMedido > 0 ? 'Zere o % medido antes de remover' : 'Remover tarefa'}
+                              onClick={() => removerTarefaManual(l.id)} disabled={bloqueado || l.percMedido > 0}>
                               <Icon name="x" size={11} />
                             </button>
                           </>
@@ -1731,7 +1732,9 @@ export default function MedicaoMensal({
                     {l.foraDoMes && (
                       <>
                         <span className="badge warning" style={{ fontSize: 9.5, padding: '0 5px' }}>fora do mês</span>
-                        <button type="button" className="icon-btn-sm" title="Remover tarefa" onClick={() => removerTarefaManual(l.id)} disabled={bloqueado}>
+                        <button type="button" className="icon-btn-sm"
+                          title={l.percMedido > 0 ? 'Zere o % medido antes de remover' : 'Remover tarefa'}
+                          onClick={() => removerTarefaManual(l.id)} disabled={bloqueado || l.percMedido > 0}>
                           <Icon name="x" size={11} />
                         </button>
                       </>
