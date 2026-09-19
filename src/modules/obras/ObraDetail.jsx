@@ -675,9 +675,13 @@ function mesRangeISO(mesStr) {
   return { ini, fim };
 }
 
-const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
+const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) => {
   const toast = useToast();
   const isMobile = useIsMobile();
+  // O design mobile (cabeçalho/grade 2 colunas/FAB) só vale dentro do "modo foco" do
+  // Mobile Gate (hideChrome) — "Acessar sistema completo" sempre mostra a grade
+  // clássica, não importa a largura real da tela.
+  const mobileView = isMobile && hideChrome;
   const [fotos,        setFotos]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
   const [totalCount,   setTotalCount]   = React.useState(0);
@@ -904,7 +908,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
 
   return (
     <>
-      {!isMobile && (
+      {!mobileView && (
       <div ref={fotosHeaderRef} className="card" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '12px 16px', marginBottom: 16, flexWrap: 'wrap',
                                      position: 'sticky', top: FOTOS_STICKY_TOP, zIndex: 2 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-2)',
@@ -946,7 +950,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
       </div>
       )}
 
-      {isMobile && (
+      {mobileView && (
       <div className="fotos-mobile-header">
         <div>
           <div className="fotos-mobile-eyebrow">{obra.nome}</div>
@@ -1004,8 +1008,8 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
                 <div className="text-muted" style={{ marginTop: 12 }}>Nenhuma foto encontrada para o filtro selecionado.</div>
               </div>
           : <div style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
-              <div className="gallery">
-                {isMobile && Array.from({ length: uploadingCount }, (_, i) => (
+              <div className={'gallery' + (mobileView ? ' gallery-mobile' : '')}>
+                {mobileView && Array.from({ length: uploadingCount }, (_, i) => (
                   <div key={'uploading-' + i} className="photo photo-uploading">
                     <span className="photo-uploading-spinner" />
                     <span>Enviando…</span>
@@ -1057,7 +1061,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
               )}
             </div>
       }
-      {isMobile && !readOnly && (
+      {mobileView && !readOnly && (
         <button
           type="button" className="fab-camera" title="Tirar foto"
           onClick={() => { setUploadAutoCapture(true); setShowUpload(true); }}
@@ -2073,7 +2077,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
           </div>
         </>
       )}
-      {tab === 'fotos' && <Fotos obra={o} readOnly={readOnly || abaSomenteLeitura(userProfile, 'obras', 'fotos')} isAdmin={isAdmin(userProfile)} />}
+      {tab === 'fotos' && <Fotos obra={o} readOnly={readOnly || abaSomenteLeitura(userProfile, 'obras', 'fotos')} isAdmin={isAdmin(userProfile)} hideChrome={hideChrome} />}
 
       {showEdit && (
         <ObraFormModal

@@ -402,10 +402,14 @@ function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar }) {
 export default function MedicaoMensal({
   etapas, months, monthlyDist, monthlyTotals, valorVinculadoMap = {}, wbsMap,
   obraId, readOnly, currentUser, onEnviarAvanco,
-  reprogramacoes = [], obraNome = 'Projeto',
+  reprogramacoes = [], obraNome = 'Projeto', hideChrome = false,
 }) {
   const toast = useToast();
   const isMobile = useIsMobile();
+  // O design mobile (accordion/cards) só vale dentro do "modo foco" do Mobile Gate
+  // (hideChrome) — "Acessar sistema completo" sempre mostra a tabela clássica, não
+  // importa a largura real da tela (isMobile sozinho não decide mais o layout).
+  const mobileView = isMobile && hideChrome;
   const hasVinc = Object.keys(valorVinculadoMap).length > 0;
   const weightOverride = hasVinc ? valorVinculadoMap : null;
 
@@ -651,11 +655,11 @@ export default function MedicaoMensal({
   // por baixo. Roda 1x por mesRefKey (a ref evita repetir ao só re-renderizar).
   const autoColapsouMobileRef = React.useRef(null);
   React.useEffect(() => {
-    if (isMobile && nivel0Ids.length > 0 && autoColapsouMobileRef.current !== mesRefKey) {
+    if (mobileView && nivel0Ids.length > 0 && autoColapsouMobileRef.current !== mesRefKey) {
       setCollapsed(new Set(nivel0Ids));
       autoColapsouMobileRef.current = mesRefKey;
     }
-  }, [isMobile, mesRefKey, nivel0Ids]);
+  }, [mobileView, mesRefKey, nivel0Ids]);
   // gruposParaNivel recolhe grupos de nivel >= alvo-1, então o alvo útil vai até o
   // nível do grupo mais fundo + 1. Acima disso nada recolhe, e a opção seria inócua.
   const nivelMax = React.useMemo(
@@ -739,10 +743,10 @@ export default function MedicaoMensal({
     setCollapsed(prev => {
       const estaFechado = prev.has(id);
       const next = new Set(prev);
-      // Accordion só entre etapas de nível 0 (topo) e só no mobile: abrir uma fecha as
-      // demais que estavam abertas, sem mexer no colapso interno de subníveis (que
-      // continuam com toggle independente). No desktop mantém multi-abertura de sempre.
-      if (isMobile && estaFechado && nivel0Ids.includes(id)) {
+      // Accordion só entre etapas de nível 0 (topo) e só no modo foco mobile: abrir uma
+      // fecha as demais que estavam abertas, sem mexer no colapso interno de subníveis
+      // (que continuam com toggle independente). Fora do modo foco mantém multi-abertura.
+      if (mobileView && estaFechado && nivel0Ids.includes(id)) {
         nivel0Ids.forEach(gid => next.add(gid));
       }
       if (estaFechado) next.delete(id); else next.add(id);
@@ -1103,7 +1107,7 @@ export default function MedicaoMensal({
 
   return (
     <>
-      {!isMobile && (
+      {!mobileView && (
       <>
       <div className="page-header">
         <div>
@@ -1530,7 +1534,7 @@ export default function MedicaoMensal({
       </>
       )}
 
-      {isMobile && (
+      {mobileView && (
       <div className="mm-mobile">
         <div className="mm-mobile-header">
           <div className="mm-mobile-title-row">

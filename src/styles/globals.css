@@ -1171,15 +1171,14 @@ a:hover { color: var(--brand-600); }
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
-/* Celular: 4 colunas fixas viram miniaturas minúsculas (~75-95px), com legenda e ícones
-   de ação se sobrepondo. 2 colunas dá miniatura reconhecível sem perder a grade. Só a
-   Galeria de Fotos usa essa regra (globals.css inteiro fica igual pro resto do app). */
-@media (max-width: 560px) {
-  .gallery { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .photo .icon-btn { width: 32px !important; height: 32px !important; }
-}
+/* Grade de 2 colunas — só dentro do "modo foco" mobile (ver mobileView em
+   ObraDetail.jsx; classe aplicada via JS, não por largura de tela: "Acessar sistema
+   completo" continua sempre com 4 colunas, mesmo num celular). 4 colunas fixas numa
+   tela estreita viravam miniaturas minúsculas com legenda e ícones se sobrepondo. */
+.gallery.gallery-mobile { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.gallery.gallery-mobile .icon-btn { width: 32px !important; height: 32px !important; }
 
-/* FAB de câmera — só no mobile (ver isMobile na aba Fotos de ObraDetail.jsx) */
+/* FAB de câmera — só no modo foco mobile (ver mobileView na aba Fotos de ObraDetail.jsx) */
 .fab-camera {
   position: fixed;
   right: 18px; bottom: 24px;
@@ -1206,7 +1205,7 @@ a:hover { color: var(--brand-600); }
   animation: spin 0.7s linear infinite;
 }
 
-/* Fotos — cabeçalho mobile (ver isMobile em ObraDetail.jsx) */
+/* Fotos — cabeçalho mobile (ver mobileView em ObraDetail.jsx) */
 .fotos-mobile-header {
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
   padding: 14px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;
@@ -2594,7 +2593,7 @@ tr:hover .obras-row-actions {
 }
 
 /* ============================================
-   Medição Mensal — visão mobile (accordion por etapa, ver isMobile em
+   Medição Mensal — visão mobile (accordion por etapa, ver mobileView em
    MedicaoMensal.jsx). Reaproveita os mesmos dados/handlers da tabela desktop —
    é só uma segunda forma de renderizar, sem lógica nova.
    ============================================ */

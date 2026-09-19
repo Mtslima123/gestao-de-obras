@@ -3561,6 +3561,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   onEnviarAvanco={aplicarMedicaoNoAvanco} wbsMap={wbsMap}
                   reprogramacoes={reprogramacoes}
                   obraNome={obra?.nome || 'Projeto'}
+                  hideChrome={hideChrome}
                 />
               )}
 
