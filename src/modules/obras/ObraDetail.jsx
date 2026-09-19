@@ -7,6 +7,7 @@ import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura, isAdmin, abaSomenteLeitura } from '../../utils/permissions';
+import { useIsMobile } from '../../utils/useIsMobile';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd, taskEndDisplay } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
@@ -702,11 +703,14 @@ function mesRangeISO(mesStr) {
 
 const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   const toast = useToast();
+  const isMobile = useIsMobile();
   const [fotos,        setFotos]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
   const [totalCount,   setTotalCount]   = React.useState(0);
   const [pagina,       setPagina]       = React.useState(1);
   const [showUpload,   setShowUpload]   = React.useState(false);
+  const [uploadAutoCapture, setUploadAutoCapture] = React.useState(false);
+  const [uploadingCount, setUploadingCount] = React.useState(0);
   const [editando,     setEditando]     = React.useState(null);
   const [filtroMes,    setFiltroMes]    = React.useState('');
   const [filtroPavimento, setFiltroPavimento] = React.useState('');
@@ -959,7 +963,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
         )}
         {!readOnly && (
           <div style={{ marginLeft: 'auto' }}>
-            <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
+            <button className="btn btn-primary" onClick={() => { setUploadAutoCapture(false); setShowUpload(true); }}>
               <Icon name="upload" size={15} />Upload
             </button>
           </div>
@@ -980,6 +984,12 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
               </div>
           : <div style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
               <div className="gallery">
+                {isMobile && Array.from({ length: uploadingCount }, (_, i) => (
+                  <div key={'uploading-' + i} className="photo photo-uploading">
+                    <span className="photo-uploading-spinner" />
+                    <span>Enviando…</span>
+                  </div>
+                ))}
                 {fotos.map((f, i) => (
                   <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}
                        onClick={() => setLightboxIdx(i)}>
@@ -1026,7 +1036,22 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
               )}
             </div>
       }
-      {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFotos} onClose={() => setShowUpload(false)} />}
+      {isMobile && !readOnly && (
+        <button
+          type="button" className="fab-camera" title="Tirar foto"
+          onClick={() => { setUploadAutoCapture(true); setShowUpload(true); }}
+        >
+          <Icon name="camera" size={22} />
+        </button>
+      )}
+      {showUpload && (
+        <UploadFotoModal
+          obra={obra} pavimentos={pavimentos}
+          autoCapture={uploadAutoCapture}
+          onSave={async (metadados, files) => { setUploadingCount(files.length); try { await salvarFotos(metadados, files); } finally { setUploadingCount(0); } }}
+          onClose={() => { setShowUpload(false); setUploadAutoCapture(false); }}
+        />
+      )}
       {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox
@@ -1153,7 +1178,7 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
 // ----- Modal: Upload de Foto -----
 const MAX_FOTOS = 7;
 
-const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
+const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, onClose }) => {
   const toast = useToast();
   const [files,   setFiles]   = React.useState([]); // [{ file, preview }]
   const [saving,  setSaving]  = React.useState(false);
@@ -1161,6 +1186,17 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const filesRef = React.useRef(files);
   filesRef.current = files;
+  const cameraInputRef = React.useRef(null);
+  // FAB "Tirar foto" no mobile já pede a câmera: abre o modal e dispara o input de
+  // captura sozinho, sem o usuário precisar tocar de novo em "Tirar foto agora".
+  // Navegadores móveis exigem "user activation" recente pra abrir a câmera via
+  // .click() programático — como isso roda logo após o toque no FAB, funciona na
+  // maioria dos casos; se algum navegador bloquear, o usuário ainda pode tocar
+  // "Tirar foto agora" manualmente dentro do modal (fallback sem quebrar nada).
+  React.useEffect(() => {
+    if (autoCapture) cameraInputRef.current?.click();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só na 1a renderização
+  }, []);
 
   // Revoga todos os objectURLs no unmount (usa ref pra pegar a lista mais recente,
   // já que o array final só é conhecido no momento do cleanup)
@@ -1242,7 +1278,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
               <label style={{ flex: 1, display: 'block', border: '2px dashed ' + (erros.arquivo ? 'var(--danger)' : 'var(--border)'), borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
                 <Icon name="camera" size={32} />
                 <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Tirar foto agora</div>
-                <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
               </label>
             </div>
           )
@@ -1271,7 +1307,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}
                       title="Tirar foto agora">
                       <Icon name="camera" size={18} />
-                      <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileChange} />
+                      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileChange} />
                     </label>
                   </>
                 )}
@@ -1587,11 +1623,13 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
 };
 
 // ----- Main ObraDetail -----
-const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma }) => {
+const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma, initialTab }) => {
   // Sempre abre em "Visão geral" ao entrar numa obra — antes ficava salvo em
   // sessionStorage sem distinguir qual obra, então abrir a obra B na aba "Fotos"
-  // reaproveitava a aba que tinha ficado selecionada na obra A.
-  const [tab, setTab] = React.useState('visao');
+  // reaproveitava a aba que tinha ficado selecionada na obra A. `initialTab` é a
+  // única exceção de propósito: só o Mobile Gate passa isso, pra abrir direto em
+  // Fotos — sem a prop, o comportamento acima continua intacto (default 'visao').
+  const [tab, setTab] = React.useState(initialTab || 'visao');
   const [cronoView, setCronoView] = React.useState('gantt');
   const [cronoCollapsed, setCronoCollapsed] = React.useState(() => new Set()); // grupos recolhidos na mini-Lista
   const [showEdit,   setShowEdit]   = React.useState(false);

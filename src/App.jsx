@@ -11,6 +11,8 @@ import { moduloLiberado, obraLiberada, obrasPermitidas } from './utils/permissio
 import { obrasService, obraDeleteErrorMessage } from './modules/obras/obras.service';
 import { logger, setContext, clearContext } from './services/logger';
 import { friendlyError } from './utils/friendlyError';
+import { useIsMobile } from './utils/useIsMobile';
+import { MobileGate } from './modules/mobile/MobileGate';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
 // Renderizadas dentro de <Suspense> no corpo do App.
 const Dashboard                 = React.lazy(() => import('./modules/dashboard/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -111,6 +113,13 @@ const AppInner = () => {
   const [cronogramaTab,   setCronogramaTab]   = React.useState(() => sessionStorage.getItem('nav_cronograma_tab') || 'gantt');
   const [adminTab,        setAdminTab]        = React.useState(() => sessionStorage.getItem('nav_admin_tab') || 'usuarios');
   const [sidebarPinned,   setSidebarPinned]   = React.useState(false); // menu fixado aberto (sem persistir)
+  const isMobile = useIsMobile();
+  const [mobileGateBypassed, setMobileGateBypassed] = React.useState(() => {
+    try { return sessionStorage.getItem('mobile_gate_ok') === '1'; } catch { return false; }
+  });
+  // Deep links "de uma vez só" para dentro dos módulos — ver handleOpenCronograma/handleOpenObra abaixo.
+  const [cronogramaInitialTab, setCronogramaInitialTab] = React.useState(null);
+  const [selectedObraInitialTab, setSelectedObraInitialTab] = React.useState('visao');
   // Sub-abas persistem na sessão para o F5 reabrir na mesma aba
   React.useEffect(() => { sessionStorage.setItem('nav_cronograma_tab', cronogramaTab); }, [cronogramaTab]);
   React.useEffect(() => { sessionStorage.setItem('nav_admin_tab', adminTab); }, [adminTab]);
@@ -199,6 +208,9 @@ const AppInner = () => {
       setUser(null);
       setUserProfile(null);
       clearContext(); // some o userId dos logs após logout
+      // Some junto com a sessão — próximo login (mesma aba) deve mostrar o Mobile Gate de novo.
+      try { sessionStorage.removeItem('mobile_gate_ok'); } catch { /* ignore */ }
+      setMobileGateBypassed(false);
       return;
     }
     setUser(session.user);
@@ -247,6 +259,11 @@ const AppInner = () => {
 
   const handleLogout = () => authService.signOut();
 
+  const bypassMobileGate = () => {
+    try { sessionStorage.setItem('mobile_gate_ok', '1'); } catch { /* ignore */ }
+    setMobileGateBypassed(true);
+  };
+
   // apply theme + density + accent to root
   React.useEffect(() => {
     document.documentElement.setAttribute('data-theme', tweaks.theme);
@@ -260,20 +277,29 @@ const AppInner = () => {
     setView(v);
   };
 
-  const handleOpenObra = (obra) => {
+  const handleOpenObra = (obra, tab = 'visao') => {
     sessionStorage.setItem('nav_view', 'obra-detail');
     try { sessionStorage.setItem('nav_obra', JSON.stringify(obra)); } catch {}
     setSelectedObra(obra);
+    setSelectedObraInitialTab(tab);
     setView('obra-detail');
   };
 
-  const handleOpenCronograma = (obraId) => {
+  const handleOpenCronograma = (obraId, tab) => {
     setCronogramaObraId(obraId);
-    // "Ir para Cronograma" sempre quer dizer o Gantt/Lista, não a sub-aba que ficou
-    // selecionada de uma visita anterior (ex.: Orçamento x Cronograma).
+    // "Ir para Cronograma" sempre quer dizer o Gantt/Lista — só o Mobile Gate passa
+    // um `tab` explícito (ex.: 'medicao') pra abrir direto numa sub-aba.
     setCronogramaTab('gantt');
+    if (tab) setCronogramaInitialTab(tab);
     handleNavigate('cronograma');
   };
+
+  // Consome o deep link uma única vez: assim que o CronogramaFull nasce com o initialTab
+  // certo (capturado no useState inicial dele), zera de volta — sem isso, uma navegação
+  // comum pela Sidebar reabriria acidentalmente na mesma sub-aba de uma visita anterior.
+  React.useEffect(() => {
+    if (cronogramaInitialTab) setCronogramaInitialTab(null);
+  }, [cronogramaInitialTab]);
 
   const screenLabels = {
     'dashboard':  '01 Dashboard',
@@ -318,6 +344,8 @@ const AppInner = () => {
     ['dashboard', 'obras', 'orcamentos', 'cronograma']
       .find(v => moduloLiberado(userProfile, v)) || 'dashboard';
 
+  const showMobileGate = isMobile && !mobileGateBypassed;
+
   return (
     <>
       {!authed && !acessoNegado && (
@@ -326,7 +354,18 @@ const AppInner = () => {
       {acessoNegado && (
         <AcessoNaoAutorizado email={user?.email} onSair={handleLogout} />
       )}
-      {authed && !acessoNegado && (
+      {authed && !acessoNegado && showMobileGate && (
+        <MobileGate
+          obras={obrasVisiveis}
+          obrasLoaded={obrasLoaded}
+          userProfile={userProfile}
+          onLogout={handleLogout}
+          onEnterFull={bypassMobileGate}
+          onGoMedicao={(obraId) => { bypassMobileGate(); handleOpenCronograma(obraId, 'medicao'); }}
+          onGoFotos={(obra) => { bypassMobileGate(); handleOpenObra(obra, 'fotos'); }}
+        />
+      )}
+      {authed && !acessoNegado && !showMobileGate && (
     <div className={'app' + (sidebarPinned ? ' sidebar-pinned' : '')} data-screen-label={screenLabels[view] || view}>
       <Sidebar
         currentView={view === 'obra-detail' ? 'obras' : view}
@@ -364,6 +403,7 @@ const AppInner = () => {
               onObraUpdate={handleObraUpdate}
               onObraDelete={handleObraDelete}
               onOpenCronograma={handleOpenCronograma}
+              initialTab={selectedObraInitialTab}
             />
           )}
           {view === 'orcamentos' && (
@@ -377,7 +417,7 @@ const AppInner = () => {
           )}
           {view === 'cronograma' && (
             <>
-              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} obras={obrasVisiveis} userProfile={userProfile} />}
+              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} obras={obrasVisiveis} userProfile={userProfile} initialTab={cronogramaInitialTab} />}
               {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} userProfile={userProfile} />}
             </>
           )}

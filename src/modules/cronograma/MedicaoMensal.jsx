@@ -5,6 +5,7 @@ import { formatBRL, formatNum } from '../../utils/formatters';
 import { offsetToDate, dateToExcelSerial } from './cronogramaDateUtils';
 import { mesAtualOuUltimo, mesesComReprogramacao } from './scheduleEngine';
 import { medicaoMensalService } from './medicaoMensal.service';
+import { useIsMobile } from '../../utils/useIsMobile';
 import {
   XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
@@ -51,20 +52,6 @@ const PDF_FORMATOS = ['a4', 'a3', 'a2', 'a1', 'a0'];
 // Abaixo de 768px a tabela (1320px de largura mínima) não cabe de jeito nenhum — troca
 // por uma lista de cards (ver render mais abaixo). É só uma troca de "casca" visual: os
 // mesmos `linhas`/handlers alimentam os dois, nada de lógica duplicada.
-const MOBILE_BREAKPOINT = 768;
-function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState(
-    () => typeof window !== 'undefined' && window.innerWidth <= MOBILE_BREAKPOINT
-  );
-  React.useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`);
-    const onChange = () => setIsMobile(mq.matches);
-    onChange();
-    mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange);
-    return () => (mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange));
-  }, []);
-  return isMobile;
-}
 
 function ModalReabrirMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
   return (
@@ -638,6 +625,13 @@ export default function MedicaoMensal({
     () => computeArvoreMedicao(filtradas, etapas, valorTotalBase, new Set()),
     [filtradas, etapas, valorTotalBase]
   );
+  // Ids das etapas de topo (nível 0) — base do accordion mobile em alternarGrupo. Vem de
+  // arvoreCompleta (não de `linhas` filtradas) porque não pode depender do próprio
+  // `collapsed` que está sendo alterado.
+  const nivel0Ids = React.useMemo(
+    () => arvoreCompleta.filter(l => l.tipo === 'grupo' && (l.nivel || 0) === 0).map(l => l.id),
+    [arvoreCompleta]
+  );
   // gruposParaNivel recolhe grupos de nivel >= alvo-1, então o alvo útil vai até o
   // nível do grupo mais fundo + 1. Acima disso nada recolhe, e a opção seria inócua.
   const nivelMax = React.useMemo(
@@ -731,8 +725,16 @@ export default function MedicaoMensal({
   const alternarGrupo = (id) => {
     setNivelEstrutura(''); // o select deixa de valer: a árvore não está mais uniforme num nível só
     setCollapsed(prev => {
+      const estaFechado = prev.has(id);
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      // Accordion só entre etapas de nível 0 (topo) e só no mobile: abrir uma fecha
+      // as demais que estavam abertas, sem mexer no colapso interno de subníveis
+      // (que continuam com toggle independente). No desktop mantém multi-abertura
+      // sem nenhuma mudança de comportamento.
+      if (isMobile && estaFechado && nivel0Ids.includes(id)) {
+        nivel0Ids.forEach(gid => next.add(gid));
+      }
+      if (estaFechado) next.delete(id); else next.add(id);
       return next;
     });
   };
@@ -1389,7 +1391,8 @@ export default function MedicaoMensal({
                       key={l.id}
                       style={{
                         marginLeft: indentMobile + 12, background: l.foraDoMes ? 'var(--warning-bg)' : 'var(--surface)',
-                        border: '1px solid var(--border)', borderRadius: 10, padding: '9px 11px',
+                        border: '1px solid var(--border)', borderLeft: '3px solid var(--brand)',
+                        borderRadius: 10, padding: '9px 11px 9px 9px',
                         display: 'flex', flexDirection: 'column', gap: 6,
                       }}
                     >

@@ -2269,7 +2269,7 @@ async function carregarCronogramaDB(obraId) {
 // Movidos para ./cronogramaModais.
 
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
-const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
+const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile }) => {
   const D    = AppData;
   const toast = useToast();
 
@@ -2285,8 +2285,9 @@ const CronogramaFull = ({ initialObraId, obras = [], userProfile }) => {
     || null;
 
   const [obraSel,      setObraSel]      = React.useState(defaultObraId);
-  // Sempre abre na aba Gantt (não persiste a sub-aba entre acessos ao módulo).
-  const [view,         setView]         = React.useState('gantt');
+  // initialTab: deep link do Mobile Gate ("Ir direto para Medição"). Sem ele, mantém
+  // o padrão de sempre abrir no Gantt (não persiste a sub-aba entre acessos ao módulo).
+  const [view,         setView]         = React.useState(initialTab || 'gantt');
   // Módulo inteiro OU só a aba ativa marcada como "Visualizar" no admin — recalcula a
   // cada troca de aba (view), então uma aba liberada pra editar volta a funcionar ao navegar pra ela.
   const readOnly = moduloSomenteLeitura(userProfile, 'cronograma') || abaSomenteLeitura(userProfile, 'cronograma', view);
