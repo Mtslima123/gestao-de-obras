@@ -9,6 +9,34 @@ import { friendlyError } from '../utils/friendlyError';
 
 // Modals, toasts, dropdowns — shared interactive components
 
+// DEBUG TEMPORÁRIO — remover junto com a chamada em Modal. Mostra em texto, dentro do
+// próprio modal, as medidas reais do aparelho de quem está vendo (não dá pra inspecionar
+// isso remotamente sem devtools do usuário) — o objetivo é aparecer no próximo print.
+function DebugMedidasModal({ nodeRef }) {
+  const [info, setInfo] = React.useState('medindo…');
+  React.useEffect(() => {
+    const medir = () => {
+      const m = nodeRef.current;
+      const b = m?.parentElement; // .modal-backdrop
+      const mr = m?.getBoundingClientRect();
+      const br = b?.getBoundingClientRect();
+      const vv = window.visualViewport;
+      setInfo(
+        `innerW=${window.innerWidth} vvW=${vv ? Math.round(vv.width) : '—'} vvOffsetX=${vv ? Math.round(vv.offsetLeft) : '—'} dpr=${window.devicePixelRatio} ` +
+        `backdrop=${br ? Math.round(br.left) + '..' + Math.round(br.right) : '—'} modal=${mr ? Math.round(mr.left) + '..' + Math.round(mr.right) + ' w=' + Math.round(mr.width) : '—'}`
+      );
+    };
+    medir();
+    const id = setInterval(medir, 500);
+    return () => clearInterval(id);
+  }, [nodeRef]);
+  return (
+    <div style={{ background: '#fff3cd', color: '#7a5b00', fontSize: 10, padding: '4px 8px', wordBreak: 'break-all', borderBottom: '1px solid #f0d488' }}>
+      {info}
+    </div>
+  );
+}
+
 // ----- Modal shell -----
 const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false, resizable = false, overlay = true }) => {
   const nodeRef  = React.useRef(null);
@@ -128,6 +156,9 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
+        {/* DEBUG TEMPORÁRIO — remover depois de diagnosticar o corte no mobile.
+            Mostra as medidas reais da tela/backdrop/modal no aparelho do usuário. */}
+        <DebugMedidasModal nodeRef={nodeRef} />
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-footer">{footer}</div>}
         {resizable && (
