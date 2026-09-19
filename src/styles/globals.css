@@ -1274,8 +1274,9 @@ a:hover { color: var(--brand-600); }
   background: rgba(8, 14, 28, 0.42);
   backdrop-filter: blur(2px);
   z-index: 100;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 24px;
   animation: fadeIn 0.14s ease-out;
 }
