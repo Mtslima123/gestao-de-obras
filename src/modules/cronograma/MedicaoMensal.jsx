@@ -5,6 +5,7 @@ import { formatBRL, formatNum } from '../../utils/formatters';
 import { offsetToDate, dateToExcelSerial } from './cronogramaDateUtils';
 import { mesAtualOuUltimo, mesesComReprogramacao } from './scheduleEngine';
 import { medicaoMensalService } from './medicaoMensal.service';
+import { useIsMobile } from '../../utils/useIsMobile';
 import {
   XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
@@ -404,6 +405,7 @@ export default function MedicaoMensal({
   reprogramacoes = [], obraNome = 'Projeto',
 }) {
   const toast = useToast();
+  const isMobile = useIsMobile();
   const hasVinc = Object.keys(valorVinculadoMap).length > 0;
   const weightOverride = hasVinc ? valorVinculadoMap : null;
 
@@ -619,6 +621,41 @@ export default function MedicaoMensal({
     () => computeArvoreMedicao(filtradas, etapas, valorTotalBase, new Set()),
     [filtradas, etapas, valorTotalBase]
   );
+  // Ids das etapas de topo (nível 0) — base do accordion mobile em alternarGrupo e do
+  // auto-colapso ao entrar. Vem de arvoreCompleta (não de `linhas`) porque não pode
+  // depender do próprio `collapsed` que está sendo alterado.
+  const nivel0Ids = React.useMemo(
+    () => arvoreCompleta.filter(l => l.tipo === 'grupo' && (l.nivel || 0) === 0).map(l => l.id),
+    [arvoreCompleta]
+  );
+  // Nº de tarefas (folhas) sob cada etapa de topo — só pro resumo mobile ("peso 35% · 7
+  // tarefas"). arvoreCompleta é ordem depth-first: cada grupo é seguido dos próprios
+  // descendentes até o próximo item de nível <= o dele, daí a varredura por índice.
+  const contagemPorGrupo = React.useMemo(() => {
+    const mapa = {};
+    arvoreCompleta.forEach((l, i) => {
+      if (l.tipo !== 'grupo' || (l.nivel || 0) !== 0) return;
+      let count = 0;
+      for (let j = i + 1; j < arvoreCompleta.length; j++) {
+        const cur = arvoreCompleta[j];
+        if (cur.tipo === 'grupo' && (cur.nivel || 0) <= 0) break;
+        if (cur.tipo === 'item') count++;
+      }
+      mapa[l.id] = count;
+    });
+    return mapa;
+  }, [arvoreCompleta]);
+  // No celular, ao entrar pela 1ª vez num mês, começa com as etapas de topo recolhidas
+  // (resumidas em 1 linha) — igual ao "Recolher tudo", mas só no nível 0: abrir uma
+  // etapa (alternarGrupo) já mostra a subárvore inteira dela, sem subníveis colapsados
+  // por baixo. Roda 1x por mesRefKey (a ref evita repetir ao só re-renderizar).
+  const autoColapsouMobileRef = React.useRef(null);
+  React.useEffect(() => {
+    if (isMobile && nivel0Ids.length > 0 && autoColapsouMobileRef.current !== mesRefKey) {
+      setCollapsed(new Set(nivel0Ids));
+      autoColapsouMobileRef.current = mesRefKey;
+    }
+  }, [isMobile, mesRefKey, nivel0Ids]);
   // gruposParaNivel recolhe grupos de nivel >= alvo-1, então o alvo útil vai até o
   // nível do grupo mais fundo + 1. Acima disso nada recolhe, e a opção seria inócua.
   const nivelMax = React.useMemo(
@@ -700,8 +737,15 @@ export default function MedicaoMensal({
   const alternarGrupo = (id) => {
     setNivelEstrutura(''); // o select deixa de valer: a árvore não está mais uniforme num nível só
     setCollapsed(prev => {
+      const estaFechado = prev.has(id);
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      // Accordion só entre etapas de nível 0 (topo) e só no mobile: abrir uma fecha as
+      // demais que estavam abertas, sem mexer no colapso interno de subníveis (que
+      // continuam com toggle independente). No desktop mantém multi-abertura de sempre.
+      if (isMobile && estaFechado && nivel0Ids.includes(id)) {
+        nivel0Ids.forEach(gid => next.add(gid));
+      }
+      if (estaFechado) next.delete(id); else next.add(id);
       return next;
     });
   };
@@ -1059,6 +1103,8 @@ export default function MedicaoMensal({
 
   return (
     <>
+      {!isMobile && (
+      <>
       <div className="page-header">
         <div>
           <h1 className="page-title">Medição Mensal</h1>
@@ -1481,6 +1527,186 @@ export default function MedicaoMensal({
           )}
         </div>
       </div>
+      </>
+      )}
+
+      {isMobile && (
+      <div className="mm-mobile">
+        <div className="mm-mobile-header">
+          <div className="mm-mobile-title-row">
+            <div>
+              <div className="mm-mobile-eyebrow">{obraNome}</div>
+              <div className="mm-mobile-title">Medição Mensal</div>
+            </div>
+            {registro && (
+              <span className={'badge' + (fechada ? '' : ' success')}>
+                <span className="dot" />{fechada ? 'Fechada' : 'Aberta'}
+              </span>
+            )}
+          </div>
+
+          {aberta && !bloqueado && (
+            <div className="mm-mobile-actions-row">
+              <button type="button" className="btn btn-dark" style={{ flex: 1 }} onClick={() => setMostrarConfirmFechar(true)}>
+                <Icon name="check" size={15} />Fechar medição
+              </button>
+              <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setModalIncluirAberto(true)}>
+                <Icon name="plus" size={15} />Incluir tarefa
+              </button>
+            </div>
+          )}
+          {fechada && !readOnly && (
+            <div className="mm-mobile-actions-row">
+              <button type="button" className="btn btn-ghost" style={{ flex: 1 }}
+                onClick={() => {
+                  if (existePosteriorFechada) { toast(`Reabra primeiro a medição de ${mesLabel(proximaFechadaPosterior.key)}`, { tone: 'danger', icon: 'alert-triangle' }); return; }
+                  setMostrarConfirmReabrir(true);
+                }}
+                title={existePosteriorFechada ? `Reabra primeiro a medição de ${mesLabel(proximaFechadaPosterior.key)}` : undefined}>
+                <Icon name="refresh-cw" size={15} />Reabrir medição
+              </button>
+            </div>
+          )}
+
+          <input
+            className="input input-search"
+            style={{ width: '100%' }}
+            placeholder="Buscar atividade..."
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+          />
+
+          <div className="mm-mobile-filters-row">
+            <select className="input" value={pavimento} onChange={e => setPavimento(e.target.value)}>
+              {pavimentos.map(p => <option key={p} value={p}>{p === 'Todos' ? 'Pavimento: Todos' : p}</option>)}
+            </select>
+            <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)}>
+              {months.map(m => {
+                const st = statusPorMes[m.key];
+                const sufixo = st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
+                return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;
+              })}
+            </select>
+          </div>
+
+          {qtdForaDoMes > 0 && (
+            <span className="badge warning" style={{ alignSelf: 'flex-start' }}>
+              {qtdForaDoMes} {qtdForaDoMes === 1 ? 'item fora do mês' : 'itens fora do mês'}
+            </span>
+          )}
+
+          {linhas.length > 0 && (
+            <div className="mm-mobile-hint">toque numa etapa para abrir só ela — as outras ficam resumidas em 1 linha</div>
+          )}
+        </div>
+
+        <div className="mm-mobile-list">
+          {linhas.length === 0 ? (
+            <div className="mm-mobile-empty">
+              {carregando ? (
+                <div>Carregando medição…</div>
+              ) : !registro ? (
+                <>
+                  <div>Nenhuma medição aberta para <strong>{mesLabel(mesRefKey)}</strong>.</div>
+                  {readOnly ? (
+                    <div className="mm-mobile-empty-note">Você não tem permissão para abrir medições.</div>
+                  ) : anteriorAberta ? (
+                    <div className="mm-mobile-empty-note danger">Feche primeiro a medição de {mesLabel(mesAnterior.key)} para poder abrir esta.</div>
+                  ) : anteriorSemReprogramacao ? (
+                    <div className="mm-mobile-empty-note danger">Salve a reprogramação de {mesLabel(mesAnterior.key)} antes de abrir esta medição.</div>
+                  ) : (
+                    <button type="button" className="btn btn-dark" onClick={abrirMedicao} disabled={salvando}>
+                      <Icon name="plus" size={15} />{salvando ? 'Abrindo…' : 'Abrir medição'}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <div>Nenhum item do cronograma agendado para o período com os filtros aplicados.</div>
+              )}
+            </div>
+          ) : (
+            linhas.map(l => {
+              if (l.tipo === 'grupo') {
+                const nivel0 = (l.nivel || 0) === 0;
+                return (
+                  <button
+                    key={'g' + l.id} type="button"
+                    className={'mm-etapa' + (nivel0 ? ' mm-etapa-n0' : ' mm-etapa-sub') + (!l.colapsado ? ' open' : '')}
+                    onClick={() => alternarGrupo(l.id)}
+                  >
+                    <span className="mm-etapa-name">
+                      <Icon name="chevron-right" size={nivel0 ? 13 : 11} className="mm-etapa-chevron" />
+                      {l.descricao}
+                    </span>
+                    <span className="mm-etapa-meta">
+                      peso {fmtPct100(l.peso)}{nivel0 && contagemPorGrupo[l.id] != null ? ` · ${contagemPorGrupo[l.id]} tarefa${contagemPorGrupo[l.id] === 1 ? '' : 's'}` : ''}
+                    </span>
+                  </button>
+                );
+              }
+              const status = derivarStatus(l);
+              const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
+              return (
+                <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')}>
+                  <div className="mm-card-head">
+                    <span className="mm-card-wbs">{l.wbs}</span>
+                    <span className="mm-card-nome">{l.descricao}</span>
+                    {l.foraDoMes && (
+                      <>
+                        <span className="badge warning" style={{ fontSize: 9.5, padding: '0 5px' }}>fora do mês</span>
+                        <button type="button" className="icon-btn-sm" title="Remover tarefa" onClick={() => removerTarefaManual(l.id)} disabled={bloqueado}>
+                          <Icon name="x" size={11} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <div className="mm-card-sub">{l.pavimento} · {l.dataInicio} → {l.dataTermino} · peso {fmtPct100(peso)}</div>
+                  <div className="progress-row">
+                    <div className={'progress' + (status === 'concluida' ? ' success' : status === 'pendente' ? ' danger' : '')}>
+                      <span style={{ width: `${Math.min(100, l.percExecutado)}%` }} />
+                    </div>
+                    <span className="pct">{fmtPct100(l.percExecutado)}</span>
+                  </div>
+                  <div className="mm-card-valores">
+                    <span>executado {fmtPct100(l.percExecutado)}</span>
+                    <span>a medir {formatBRL(l.valor, 2)} · medido {formatBRL((l.valor * l.percMedido) / 100, 2)}</span>
+                  </div>
+                  <label className="mm-card-medido">
+                    <span>% medido</span>
+                    <input
+                      className="input medicao-input-medido"
+                      inputMode="decimal"
+                      value={l.percMedido}
+                      disabled={bloqueado}
+                      aria-label={`Percentual medido de ${l.descricao}`}
+                      onChange={e => alterarMedido(l.id, e.target.value)}
+                    />
+                  </label>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {linhas.length > 0 && (
+          <div className="mm-mobile-total">
+            <div className="mm-mobile-total-row">
+              <span>Total geral · {totais.qtd} atividades</span>
+              <span>{fmtPct100(totais.med)}</span>
+            </div>
+            <div className="mm-mobile-total-row sub">
+              <span>exec {fmtPct100(totais.exec)}</span>
+              <span>{formatBRL(totais.valor, 2)} → {formatBRL(totais.valorAMedir, 2)}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="mm-mobile-footnote">
+          Itens do cronograma agendados para {mesLabel(mesRefKey)}
+          {registro?.updated_at ? ` · atualizado em ${new Date(registro.updated_at).toLocaleString('pt-BR')}` : ''}
+        </div>
+      </div>
+      )}
 
       {mostrarConfirmFechar && (
         <ModalFecharMedicao

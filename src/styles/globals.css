@@ -2550,6 +2550,71 @@ tr:hover .obras-row-actions {
 }
 
 /* ============================================
+   Medição Mensal — visão mobile (accordion por etapa, ver isMobile em
+   MedicaoMensal.jsx). Reaproveita os mesmos dados/handlers da tabela desktop —
+   é só uma segunda forma de renderizar, sem lógica nova.
+   ============================================ */
+.mm-mobile { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.mm-mobile-header {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px; display: flex; flex-direction: column; gap: 10px;
+}
+.mm-mobile-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.mm-mobile-eyebrow { font-size: 11px; color: var(--text-muted); }
+.mm-mobile-title { font-size: 17px; font-weight: 700; color: var(--text); }
+.mm-mobile-actions-row { display: flex; gap: 8px; }
+.mm-mobile-filters-row { display: flex; gap: 8px; }
+.mm-mobile-filters-row .input { flex: 1; min-width: 0; }
+.mm-mobile-hint { font-size: 10.5px; color: var(--text-faint); }
+
+.mm-mobile-list { display: flex; flex-direction: column; gap: 6px; }
+.mm-mobile-empty {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 32px 20px; text-align: center; display: flex; flex-direction: column; gap: 10px;
+  align-items: center; font-size: 13.5px; color: var(--text-muted);
+}
+.mm-mobile-empty-note { font-size: 12.5px; }
+.mm-mobile-empty-note.danger { color: var(--danger); }
+
+.mm-etapa {
+  all: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; cursor: pointer; border-radius: 10px; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--brand);
+}
+.mm-etapa-n0 { font-weight: 700; font-size: 13.5px; color: var(--text); }
+.mm-etapa-sub {
+  margin-left: 14px; font-weight: 600; font-size: 12px; color: var(--text-muted);
+  border-left-color: var(--border-strong); background: var(--surface-muted); padding: 7px 10px;
+}
+.mm-etapa-name { display: flex; align-items: center; gap: 6px; }
+.mm-etapa-chevron { transition: transform .15s; flex-shrink: 0; }
+.mm-etapa.open .mm-etapa-chevron { transform: rotate(90deg); }
+.mm-etapa-meta { font-size: 10.5px; color: var(--text-faint); white-space: nowrap; flex-shrink: 0; }
+
+.mm-card {
+  margin-left: 14px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand);
+  border-radius: 10px; padding: 10px 12px 10px 10px; display: flex; flex-direction: column; gap: 6px;
+}
+.mm-card.fora-do-mes { background: var(--warning-bg); }
+.mm-card-head { display: flex; align-items: baseline; gap: 6px; }
+.mm-card-wbs { font-size: 10px; font-weight: 700; color: var(--text-faint); font-family: var(--font-mono); flex-shrink: 0; }
+.mm-card-nome { font-size: 13.5px; font-weight: 600; color: var(--text); flex: 1; }
+.mm-card-sub { font-size: 11px; color: var(--text-muted); }
+.mm-card-valores { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
+.mm-card-medido { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.mm-card-medido span { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.mm-card-medido .input { width: 64px; height: 36px; text-align: center; font-size: 15px; font-weight: 700; }
+
+.mm-mobile-total {
+  background: var(--brand-700); color: #fff; border-radius: 10px; padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.mm-mobile-total-row { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 700; }
+.mm-mobile-total-row.sub { font-size: 10.5px; font-weight: 500; opacity: .85; }
+
+.mm-mobile-footnote { font-size: 11.5px; color: var(--text-muted); padding: 0 2px; }
+
+/* ============================================
    CRONOGRAMA — redesenho das 4 telas (handoff)
    Paleta navy da marca (#1C4584). Intensidade de
    heatmap por --f (0..1) definido inline por célula.
