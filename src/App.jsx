@@ -294,12 +294,18 @@ const AppInner = () => {
     handleNavigate('cronograma');
   };
 
-  // Consome o deep link uma única vez: assim que o CronogramaFull nasce com o initialTab
-  // certo (capturado no useState inicial dele), zera de volta — sem isso, uma navegação
-  // comum pela Sidebar reabriria acidentalmente na mesma sub-aba de uma visita anterior.
+  // Zera o deep link só ao SAIR do Cronograma (não logo depois de setar): CronogramaFull
+  // é React.lazy, então o mount real pode ficar suspenso até o chunk carregar — resetar no
+  // efeito seguinte ao clique apagava o valor antes do componente nascer com ele, e a
+  // Medição sempre caía no Gantt. Zerando só na saída, o deep link sobrevive ao carregamento
+  // do chunk e uma futura navegação comum pela Sidebar ainda não reabre na sub-aba antiga.
+  const cronogramaViewAnteriorRef = React.useRef(view);
   React.useEffect(() => {
-    if (cronogramaInitialTab) setCronogramaInitialTab(null);
-  }, [cronogramaInitialTab]);
+    if (cronogramaViewAnteriorRef.current === 'cronograma' && view !== 'cronograma') {
+      setCronogramaInitialTab(null);
+    }
+    cronogramaViewAnteriorRef.current = view;
+  }, [view]);
 
   const screenLabels = {
     'dashboard':  '01 Dashboard',
