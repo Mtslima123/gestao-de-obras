@@ -1725,7 +1725,6 @@ export default function MedicaoMensal({
                 <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')}
                   style={{ borderLeftColor: corPorLinha[l.id], marginLeft: 14 + Math.max(0, profundidade - 1) * 10 }}>
                   <div className="mm-card-row">
-                    <span className="mm-card-wbs">{l.wbs}</span>
                     <span className="mm-card-nome">{l.descricao}</span>
                     <span className="mm-card-pav">{l.pavimento}</span>
                     <input

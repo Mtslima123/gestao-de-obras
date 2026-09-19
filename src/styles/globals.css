@@ -2662,7 +2662,6 @@ tr:hover .obras-row-actions {
 }
 .mm-card.fora-do-mes { background: var(--warning-bg); }
 .mm-card-row { display: flex; align-items: center; gap: 7px; }
-.mm-card-wbs { font-size: 10px; font-weight: 700; color: var(--text-faint); font-family: var(--font-mono); flex-shrink: 0; }
 .mm-card-nome {
   font-size: 13px; font-weight: 600; color: var(--text); flex: 1; min-width: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
