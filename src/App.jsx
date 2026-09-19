@@ -407,13 +407,13 @@ const AppInner = () => {
       {authed && !acessoNegado && !showMobileGate && mobileFocus && (
         <div className="mobile-focus-shell">
           <div className="mobile-focus-header">
-            <button type="button" className="mobile-focus-back" onClick={() => setMobileFocus(null)}>
-              <Icon name="chevron-left" size={18} />Voltar
-            </button>
             <span className="mobile-focus-brand">
               <img src="/assets/soter-mark-white.png" alt="" style={{ width: 18, height: 18 }} />
               Soter · Gestão de Obras
             </span>
+            <button type="button" className="icon-btn" title="Voltar" onClick={() => setMobileFocus(null)}>
+              <Icon name="chevron-left" size={18} />
+            </button>
           </div>
           <div className="mobile-focus-body">
             <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>

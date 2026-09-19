@@ -2689,16 +2689,11 @@ tr:hover .obras-row-actions {
    a página toda). 100dvh acompanha a barra de endereço do navegador recolhendo. */
 .mobile-focus-shell { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--bg-app); overflow: hidden; }
 .mobile-focus-header {
-  flex-shrink: 0; display: flex; align-items: center; gap: 12px;
+  flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
   padding: 10px 14px; background: var(--brand); color: #fff;
 }
-.mobile-focus-back {
-  display: flex; align-items: center; gap: 2px;
-  border: none; background: transparent; color: #fff;
-  font-size: 14px; font-weight: 600; padding: 6px 6px 6px 2px; border-radius: var(--r-sm);
-  cursor: pointer;
-}
-.mobile-focus-back:hover { background: rgba(255,255,255,0.14); }
+.mobile-focus-header .icon-btn { color: rgba(255,255,255,0.85); }
+.mobile-focus-header .icon-btn:hover { background: rgba(255,255,255,0.14); color: #fff; border-color: transparent; }
 .mobile-focus-brand {
   display: flex; align-items: center; gap: 8px;
   font-weight: 700; font-size: 13.5px; color: #fff;
