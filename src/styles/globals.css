@@ -2658,16 +2658,20 @@ tr:hover .obras-row-actions {
 
 .mm-card {
   margin-left: 14px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand);
-  border-radius: 10px; padding: 10px 12px 10px 10px; display: flex; flex-direction: column; gap: 6px;
+  border-radius: 8px; padding: 8px 9px; display: flex; flex-direction: column; gap: 6px;
 }
 .mm-card.fora-do-mes { background: var(--warning-bg); }
-.mm-card-head { display: flex; align-items: baseline; gap: 6px; }
+.mm-card-row { display: flex; align-items: center; gap: 7px; }
 .mm-card-wbs { font-size: 10px; font-weight: 700; color: var(--text-faint); font-family: var(--font-mono); flex-shrink: 0; }
-.mm-card-nome { font-size: 13.5px; font-weight: 600; color: var(--text); flex: 1; }
-.mm-card-sub { font-size: 11px; color: var(--text-muted); }
-.mm-card-medido { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.mm-card-medido span { font-size: 11px; font-weight: 600; color: var(--text-muted); }
-.mm-card-medido .input { width: 64px; height: 36px; text-align: center; font-size: 15px; font-weight: 700; }
+.mm-card-nome {
+  font-size: 13px; font-weight: 600; color: var(--text); flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mm-card-pav {
+  font-size: 10.5px; color: var(--text-muted); flex-shrink: 0; max-width: 72px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mm-card-input { width: 52px; height: 36px; padding: 0 4px; text-align: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
 
 .mm-mobile-total {
   background: var(--brand-700); color: #fff; border-radius: 10px; padding: 10px 14px;

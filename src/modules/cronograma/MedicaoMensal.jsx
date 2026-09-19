@@ -1724,32 +1724,29 @@ export default function MedicaoMensal({
               return (
                 <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')}
                   style={{ borderLeftColor: corPorLinha[l.id], marginLeft: 14 + Math.max(0, profundidade - 1) * 10 }}>
-                  <div className="mm-card-head">
+                  <div className="mm-card-row">
                     <span className="mm-card-wbs">{l.wbs}</span>
                     <span className="mm-card-nome">{l.descricao}</span>
-                    {l.foraDoMes && (
-                      <>
-                        <span className="badge warning" style={{ fontSize: 9.5, padding: '0 5px' }}>fora do mês</span>
-                        <button type="button" className="icon-btn-sm"
-                          title={l.percMedido > 0 ? 'Zere o % medido antes de remover' : 'Remover tarefa'}
-                          onClick={() => removerTarefaManual(l.id)} disabled={bloqueado || l.percMedido > 0}>
-                          <Icon name="x" size={11} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  <div className="mm-card-sub">{l.pavimento} · {l.dataInicio} → {l.dataTermino}</div>
-                  <label className="mm-card-medido">
-                    <span>% medido</span>
+                    <span className="mm-card-pav">{l.pavimento}</span>
                     <input
-                      className="input medicao-input-medido"
+                      className="input medicao-input-medido mm-card-input"
                       inputMode="decimal"
                       value={l.percMedido}
                       disabled={bloqueado}
                       aria-label={`Percentual medido de ${l.descricao}`}
                       onChange={e => alterarMedido(l.id, e.target.value)}
                     />
-                  </label>
+                  </div>
+                  {l.foraDoMes && (
+                    <div className="mm-card-row">
+                      <span className="badge warning" style={{ fontSize: 9.5, padding: '0 5px' }}>fora do mês</span>
+                      <button type="button" className="icon-btn-sm"
+                        title={l.percMedido > 0 ? 'Zere o % medido antes de remover' : 'Remover tarefa'}
+                        onClick={() => removerTarefaManual(l.id)} disabled={bloqueado || l.percMedido > 0}>
+                        <Icon name="x" size={11} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })
