@@ -36,6 +36,11 @@ const MEDICAO_COL_DEFWIDTH = {
 };
 
 const MES_NOMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+// Uma cor por etapa de topo no accordion mobile — só pra diferenciar visualmente uma
+// etapa da outra (borda esquerda do cabeçalho e dos cards das tarefas dela). Cicla pelo
+// índice da etapa no mês (não é ligado a nenhuma configuração salva no cronograma).
+const ETAPA_CORES_MOBILE = ['#1C4584', '#B45309', '#166437', '#7C2D92', '#0F766E', '#B91C1C'];
 const mesLabel = (key) => {
   const [y, m] = (key || '').split('-');
   return m ? `${MES_NOMES[Number(m) - 1]} / ${y}` : '—';
@@ -315,7 +320,7 @@ const groupTintDoNivel = (nivel) =>
 // Tela de escolha manual de tarefas fora do mês (sem fatia programada no mês de
 // referência) para trazer à medição — substitui o antigo checkbox "Incluir itens não
 // programados" por uma seleção explícita, item a item.
-function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar }) {
+function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar, mobileView = false }) {
   const [busca, setBusca] = React.useState('');
   const [selecionados, setSelecionados] = React.useState(() => new Set());
 
@@ -381,6 +386,26 @@ function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar }) {
             }}>
               {l.descricao}
             </div>
+          ) : mobileView ? (
+            // No mobile a linha em flex única espremia demais a descrição (wbs + valor
+            // já tomavam boa parte da largura) — empilha em 2 linhas, sem coluna de
+            // disciplina (cabe na descrição/wbs, que já mostra o essencial).
+            <label key={l.id} style={{
+              display: 'flex', flexDirection: 'column', gap: 4, padding: '9px 12px', paddingLeft: 12 + l.nivel * 14,
+              borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer', fontSize: 13,
+            }}>
+              <span style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <input type="checkbox" checked={selecionados.has(l.id)} onChange={() => alternar(l.id)} style={{ marginTop: 2, flexShrink: 0 }} />
+                <span style={{ flex: 1 }}>
+                  <span className="num" style={{ color: 'var(--text-muted)', marginRight: 6 }}>{l.wbs}</span>
+                  {l.descricao}
+                </span>
+              </span>
+              <span style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: 26, fontSize: 12, color: 'var(--text-muted)' }}>
+                <span>{l.disciplina}</span>
+                <span className="num">{formatBRL(l.valor, 2)}</span>
+              </span>
+            </label>
           ) : (
             <label key={l.id} style={{
               display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', paddingLeft: 12 + l.nivel * 14,
@@ -646,6 +671,22 @@ export default function MedicaoMensal({
         if (cur.tipo === 'item') count++;
       }
       mapa[l.id] = count;
+    });
+    return mapa;
+  }, [arvoreCompleta]);
+  // Cor de cada linha (grupo de topo, subníveis e tarefas) = a cor da etapa de topo que
+  // a contém — mesma varredura depth-first de contagemPorGrupo, só que carregando a cor
+  // "corrente" adiante em vez de contar. Só usado no accordion mobile.
+  const corPorLinha = React.useMemo(() => {
+    const mapa = {};
+    let corAtual = ETAPA_CORES_MOBILE[0];
+    let indiceEtapa = -1;
+    arvoreCompleta.forEach((l) => {
+      if (l.tipo === 'grupo' && (l.nivel || 0) === 0) {
+        indiceEtapa += 1;
+        corAtual = ETAPA_CORES_MOBILE[indiceEtapa % ETAPA_CORES_MOBILE.length];
+      }
+      mapa[l.id] = corAtual;
     });
     return mapa;
   }, [arvoreCompleta]);
@@ -1592,6 +1633,19 @@ export default function MedicaoMensal({
               })}
             </select>
           </div>
+          {/* Mesmo seletor de nível do desktop (Estrutura) — reaproveita aplicarNivel/
+              nivelEstrutura tal como já existem, sem lógica nova. */}
+          <div className="mm-mobile-filters-row">
+            <select className="input" value={nivelEstrutura} title="Expandir ou recolher a estrutura por nível"
+              onChange={e => { const v = e.target.value; if (v !== '') aplicarNivel(Number(v)); }}>
+              <option value="" disabled>Estrutura: escolher…</option>
+              <option value="0">Expandir tudo</option>
+              <option value="1">Recolher tudo</option>
+              {Array.from({ length: nivelMax }, (_, i) => i + 1).map(n => (
+                <option key={n} value={n}>Nível {n}</option>
+              ))}
+            </select>
+          </div>
 
           {qtdForaDoMes > 0 && (
             <span className="badge warning" style={{ alignSelf: 'flex-start' }}>
@@ -1636,6 +1690,7 @@ export default function MedicaoMensal({
                   <button
                     key={'g' + l.id} type="button"
                     className={'mm-etapa' + (nivel0 ? ' mm-etapa-n0' : ' mm-etapa-sub') + (!l.colapsado ? ' open' : '')}
+                    style={nivel0 ? { borderLeftColor: corPorLinha[l.id] } : undefined}
                     onClick={() => alternarGrupo(l.id)}
                   >
                     <span className="mm-etapa-name">
@@ -1651,7 +1706,7 @@ export default function MedicaoMensal({
               const status = derivarStatus(l);
               const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
               return (
-                <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')}>
+                <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')} style={{ borderLeftColor: corPorLinha[l.id] }}>
                   <div className="mm-card-head">
                     <span className="mm-card-wbs">{l.wbs}</span>
                     <span className="mm-card-nome">{l.descricao}</span>
@@ -1764,6 +1819,7 @@ export default function MedicaoMensal({
           etapas={etapas}
           onClose={() => setModalIncluirAberto(false)}
           onConfirmar={adicionarTarefasManuais}
+          mobileView={mobileView}
         />
       )}
 

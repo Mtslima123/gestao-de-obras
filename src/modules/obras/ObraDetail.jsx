@@ -687,8 +687,20 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   const [totalCount,   setTotalCount]   = React.useState(0);
   const [pagina,       setPagina]       = React.useState(1);
   const [showUpload,   setShowUpload]   = React.useState(false);
-  const [uploadAutoCapture, setUploadAutoCapture] = React.useState(false);
   const [uploadingCount, setUploadingCount] = React.useState(0);
+  // Captura direta pelo FAB: o input de câmera fica fora do modal (sempre montado) —
+  // o .click() sincronizado ao toque no FAB abre a câmera na hora, sem mostrar o
+  // modal por trás. O modal só aparece DEPOIS da foto tirada, já com ela carregada
+  // (pendingFiles) — cancelar a câmera (files vazio) não abre nada.
+  const fabCameraInputRef = React.useRef(null);
+  const [pendingFiles, setPendingFiles] = React.useState(null);
+  const onFabCapture = (e) => {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!picked.length) return;
+    setPendingFiles(picked.map(f => ({ file: f, preview: URL.createObjectURL(f) })));
+    setShowUpload(true);
+  };
   const [editando,     setEditando]     = React.useState(null);
   const [filtroMes,    setFiltroMes]    = React.useState('');
   const [filtroPavimento, setFiltroPavimento] = React.useState('');
@@ -959,12 +971,8 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
 
         {!readOnly && (
           <div className="mm-mobile-actions-row">
-            <button type="button" className="btn btn-dark" style={{ flex: 1 }}
-              onClick={() => { setUploadAutoCapture(true); setShowUpload(true); }}>
-              <Icon name="camera" size={15} />Tirar foto
-            </button>
             <button type="button" className="btn btn-ghost" style={{ flex: 1 }}
-              onClick={() => { setUploadAutoCapture(false); setShowUpload(true); }}>
+              onClick={() => setShowUpload(true)}>
               <Icon name="image" size={15} />Galeria
             </button>
           </div>
@@ -1062,19 +1070,25 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
             </div>
       }
       {mobileView && !readOnly && (
-        <button
-          type="button" className="fab-camera" title="Tirar foto"
-          onClick={() => { setUploadAutoCapture(true); setShowUpload(true); }}
-        >
-          <Icon name="camera" size={22} />
-        </button>
+        <>
+          <input
+            ref={fabCameraInputRef} type="file" accept="image/*" capture="environment"
+            style={{ display: 'none' }} onChange={onFabCapture}
+          />
+          <button
+            type="button" className="fab-camera" title="Tirar foto"
+            onClick={() => fabCameraInputRef.current?.click()}
+          >
+            <Icon name="camera" size={22} />
+          </button>
+        </>
       )}
       {showUpload && (
         <UploadFotoModal
           obra={obra} pavimentos={pavimentos}
-          autoCapture={uploadAutoCapture}
+          initialFiles={pendingFiles}
           onSave={async (metadados, files) => { setUploadingCount(files.length); try { await salvarFotos(metadados, files); } finally { setUploadingCount(0); } }}
-          onClose={() => { setShowUpload(false); setUploadAutoCapture(false); }}
+          onClose={() => { setShowUpload(false); setPendingFiles(null); }}
         />
       )}
       {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
@@ -1203,25 +1217,16 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
 // ----- Modal: Upload de Foto -----
 const MAX_FOTOS = 7;
 
-const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, onClose }) => {
+const UploadFotoModal = ({ obra, pavimentos = [], initialFiles = null, onSave, onClose }) => {
   const toast = useToast();
-  const [files,   setFiles]   = React.useState([]); // [{ file, preview }]
+  // initialFiles: foto já tirada pelo FAB antes do modal abrir (ver onFabCapture em
+  // Fotos) — chega pronta, sem precisar de outro clique em "Tirar foto agora".
+  const [files,   setFiles]   = React.useState(() => initialFiles || []); // [{ file, preview }]
   const [saving,  setSaving]  = React.useState(false);
   const [form,    setForm]    = React.useState({ data: '', pavimento: '', descricao: '' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const filesRef = React.useRef(files);
   filesRef.current = files;
-  const cameraInputRef = React.useRef(null);
-  // FAB/"Tirar foto" no mobile já pede a câmera: abre o modal e dispara o input de
-  // captura sozinho, sem o usuário precisar tocar de novo em "Tirar foto agora".
-  // Navegadores móveis exigem "user activation" recente pra abrir a câmera via
-  // .click() programático — como isso roda logo após o toque no botão, funciona na
-  // maioria dos casos; se algum navegador bloquear, o usuário ainda pode tocar
-  // "Tirar foto agora" manualmente dentro do modal (fallback sem quebrar nada).
-  React.useEffect(() => {
-    if (autoCapture) cameraInputRef.current?.click();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- só na 1a renderização
-  }, []);
 
   // Revoga todos os objectURLs no unmount (usa ref pra pegar a lista mais recente,
   // já que o array final só é conhecido no momento do cleanup)
@@ -1303,7 +1308,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, o
               <label style={{ flex: 1, display: 'block', border: '2px dashed ' + (erros.arquivo ? 'var(--danger)' : 'var(--border)'), borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
                 <Icon name="camera" size={32} />
                 <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Tirar foto agora</div>
-                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
+                <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
               </label>
             </div>
           )
@@ -1332,7 +1337,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, o
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}
                       title="Tirar foto agora">
                       <Icon name="camera" size={18} />
-                      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileChange} />
+                      <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileChange} />
                     </label>
                   </>
                 )}
