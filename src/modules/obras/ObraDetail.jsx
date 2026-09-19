@@ -7,7 +7,6 @@ import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura, isAdmin, abaSomenteLeitura } from '../../utils/permissions';
-import { useIsMobile } from '../../utils/useIsMobile';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd, taskEndDisplay } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
@@ -454,30 +453,6 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose, onDownload, urlOriginal
   };
   const onMouseUp = () => { isDraggingRef.current = false; setIsDragging(false); };
 
-  // Arrastar o dedo pra trocar de foto — só sem zoom (com zoom>1 o toque continua livre
-  // pros botões de +/- e duplo-toque, arrastar pra fazer pan fica pra uma rodada
-  // seguinte). Mesmo papel dos botões prev/next, sem tirar eles do lugar.
-  const touchStartRef = React.useRef(null);
-  const onTouchStart = (e) => {
-    if (scale > 1 || e.touches.length !== 1) { touchStartRef.current = null; return; }
-    const t = e.touches[0];
-    touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
-  };
-  const onTouchEnd = (e) => {
-    const start = touchStartRef.current;
-    touchStartRef.current = null;
-    if (!start) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - start.x;
-    const dy = t.clientY - start.y;
-    // Precisa ser rápido, horizontal e com deslocamento mínimo — senão um toque comum
-    // (ou um scroll vertical sem querer) dispararia a troca de foto.
-    if (Date.now() - start.time < 600 && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      if (dx > 0 && idx > 0) onNavigate(idx - 1);
-      else if (dx < 0 && idx < fotos.length - 1) onNavigate(idx + 1);
-    }
-  };
-
   return (
     <div
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.95)',
@@ -525,8 +500,6 @@ const FotoLightbox = ({ fotos, idx, onNavigate, onClose, onDownload, urlOriginal
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
       >
         <img
           src={urlOriginal || foto.url}
@@ -703,14 +676,11 @@ function mesRangeISO(mesStr) {
 
 const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   const toast = useToast();
-  const isMobile = useIsMobile();
   const [fotos,        setFotos]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
   const [totalCount,   setTotalCount]   = React.useState(0);
   const [pagina,       setPagina]       = React.useState(1);
   const [showUpload,   setShowUpload]   = React.useState(false);
-  const [uploadAutoCapture, setUploadAutoCapture] = React.useState(false);
-  const [uploadingCount, setUploadingCount] = React.useState(0);
   const [editando,     setEditando]     = React.useState(null);
   const [filtroMes,    setFiltroMes]    = React.useState('');
   const [filtroPavimento, setFiltroPavimento] = React.useState('');
@@ -963,7 +933,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
         )}
         {!readOnly && (
           <div style={{ marginLeft: 'auto' }}>
-            <button className="btn btn-primary" onClick={() => { setUploadAutoCapture(false); setShowUpload(true); }}>
+            <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
               <Icon name="upload" size={15} />Upload
             </button>
           </div>
@@ -984,12 +954,6 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
               </div>
           : <div style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
               <div className="gallery">
-                {isMobile && Array.from({ length: uploadingCount }, (_, i) => (
-                  <div key={'uploading-' + i} className="photo photo-uploading">
-                    <span className="photo-uploading-spinner" />
-                    <span>Enviando…</span>
-                  </div>
-                ))}
                 {fotos.map((f, i) => (
                   <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}
                        onClick={() => setLightboxIdx(i)}>
@@ -1036,22 +1000,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
               )}
             </div>
       }
-      {isMobile && !readOnly && (
-        <button
-          type="button" className="fab-camera" title="Tirar foto"
-          onClick={() => { setUploadAutoCapture(true); setShowUpload(true); }}
-        >
-          <Icon name="camera" size={22} />
-        </button>
-      )}
-      {showUpload && (
-        <UploadFotoModal
-          obra={obra} pavimentos={pavimentos}
-          autoCapture={uploadAutoCapture}
-          onSave={async (metadados, files) => { setUploadingCount(files.length); try { await salvarFotos(metadados, files); } finally { setUploadingCount(0); } }}
-          onClose={() => { setShowUpload(false); setUploadAutoCapture(false); }}
-        />
-      )}
+      {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFotos} onClose={() => setShowUpload(false)} />}
       {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox
@@ -1178,7 +1127,7 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
 // ----- Modal: Upload de Foto -----
 const MAX_FOTOS = 7;
 
-const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, onClose }) => {
+const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
   const toast = useToast();
   const [files,   setFiles]   = React.useState([]); // [{ file, preview }]
   const [saving,  setSaving]  = React.useState(false);
@@ -1186,17 +1135,6 @@ const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, o
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const filesRef = React.useRef(files);
   filesRef.current = files;
-  const cameraInputRef = React.useRef(null);
-  // FAB "Tirar foto" no mobile já pede a câmera: abre o modal e dispara o input de
-  // captura sozinho, sem o usuário precisar tocar de novo em "Tirar foto agora".
-  // Navegadores móveis exigem "user activation" recente pra abrir a câmera via
-  // .click() programático — como isso roda logo após o toque no FAB, funciona na
-  // maioria dos casos; se algum navegador bloquear, o usuário ainda pode tocar
-  // "Tirar foto agora" manualmente dentro do modal (fallback sem quebrar nada).
-  React.useEffect(() => {
-    if (autoCapture) cameraInputRef.current?.click();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- só na 1a renderização
-  }, []);
 
   // Revoga todos os objectURLs no unmount (usa ref pra pegar a lista mais recente,
   // já que o array final só é conhecido no momento do cleanup)
@@ -1278,7 +1216,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, o
               <label style={{ flex: 1, display: 'block', border: '2px dashed ' + (erros.arquivo ? 'var(--danger)' : 'var(--border)'), borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
                 <Icon name="camera" size={32} />
                 <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Tirar foto agora</div>
-                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
+                <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
               </label>
             </div>
           )
@@ -1307,7 +1245,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, o
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}
                       title="Tirar foto agora">
                       <Icon name="camera" size={18} />
-                      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileChange} />
+                      <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileChange} />
                     </label>
                   </>
                 )}
@@ -1318,7 +1256,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, o
             </div>
           )
         }
-        <div className="form-grid form-grid-fotos">
+        <div className="form-grid">
           <div className="field">
             <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
             <input type="date" value={form.data} max={hojeISO} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
@@ -1364,7 +1302,7 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
         </button>
       </>}
     >
-      <div className="form-grid form-grid-fotos">
+      <div className="form-grid">
         <div className="field">
           <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
           <input type="date" value={form.data} max={hojeISO} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />

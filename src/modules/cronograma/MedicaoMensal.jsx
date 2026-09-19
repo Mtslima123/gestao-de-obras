@@ -5,7 +5,6 @@ import { formatBRL, formatNum } from '../../utils/formatters';
 import { offsetToDate, dateToExcelSerial } from './cronogramaDateUtils';
 import { mesAtualOuUltimo, mesesComReprogramacao } from './scheduleEngine';
 import { medicaoMensalService } from './medicaoMensal.service';
-import { useIsMobile } from '../../utils/useIsMobile';
 import {
   XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
@@ -48,10 +47,6 @@ function salvarMesRefMedicao(obraId, key) {
 }
 
 const PDF_FORMATOS = ['a4', 'a3', 'a2', 'a1', 'a0'];
-
-// Abaixo de 768px a tabela (1320px de largura mínima) não cabe de jeito nenhum — troca
-// por uma lista de cards (ver render mais abaixo). É só uma troca de "casca" visual: os
-// mesmos `linhas`/handlers alimentam os dois, nada de lógica duplicada.
 
 function ModalReabrirMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
   return (
@@ -409,7 +404,6 @@ export default function MedicaoMensal({
   reprogramacoes = [], obraNome = 'Projeto',
 }) {
   const toast = useToast();
-  const isMobile = useIsMobile();
   const hasVinc = Object.keys(valorVinculadoMap).length > 0;
   const weightOverride = hasVinc ? valorVinculadoMap : null;
 
@@ -625,31 +619,12 @@ export default function MedicaoMensal({
     () => computeArvoreMedicao(filtradas, etapas, valorTotalBase, new Set()),
     [filtradas, etapas, valorTotalBase]
   );
-  // Ids das etapas de topo (nível 0) — base do accordion mobile em alternarGrupo. Vem de
-  // arvoreCompleta (não de `linhas` filtradas) porque não pode depender do próprio
-  // `collapsed` que está sendo alterado.
-  const nivel0Ids = React.useMemo(
-    () => arvoreCompleta.filter(l => l.tipo === 'grupo' && (l.nivel || 0) === 0).map(l => l.id),
-    [arvoreCompleta]
-  );
   // gruposParaNivel recolhe grupos de nivel >= alvo-1, então o alvo útil vai até o
   // nível do grupo mais fundo + 1. Acima disso nada recolhe, e a opção seria inócua.
   const nivelMax = React.useMemo(
     () => arvoreCompleta.reduce((m, l) => (l.tipo === 'grupo' ? Math.max(m, l.nivel + 1) : m), 0),
     [arvoreCompleta]
   );
-  // No celular a lista já entra com os grupos recolhidos (mesmo efeito do "Recolher
-  // tudo" do seletor Estrutura) — com tudo aberto de uma vez a rolagem fica enorme (ver
-  // mockup "cenário denso"). Um recolhimento por mês/obra: troca de mês não deve reabrir
-  // o que o usuário já fechou à mão, só a entrada em mobile pela 1ª vez.
-  const autoColapsouMobileRef = React.useRef(null);
-  React.useEffect(() => {
-    if (isMobile && arvoreCompleta.length > 0 && autoColapsouMobileRef.current !== mesRefKey) {
-      setCollapsed(gruposParaNivel(arvoreCompleta, 1));
-      autoColapsouMobileRef.current = mesRefKey;
-    }
-  }, [isMobile, mesRefKey, arvoreCompleta]);
-
   const totais = React.useMemo(() => computeTotaisMedicao(filtradas, valorTotalBase), [filtradas, valorTotalBase]);
   const qtdForaDoMes = React.useMemo(() => filtradas.filter(i => i.foraDoMes).length, [filtradas]);
 
@@ -725,16 +700,8 @@ export default function MedicaoMensal({
   const alternarGrupo = (id) => {
     setNivelEstrutura(''); // o select deixa de valer: a árvore não está mais uniforme num nível só
     setCollapsed(prev => {
-      const estaFechado = prev.has(id);
       const next = new Set(prev);
-      // Accordion só entre etapas de nível 0 (topo) e só no mobile: abrir uma fecha
-      // as demais que estavam abertas, sem mexer no colapso interno de subníveis
-      // (que continuam com toggle independente). No desktop mantém multi-abertura
-      // sem nenhuma mudança de comportamento.
-      if (isMobile && estaFechado && nivel0Ids.includes(id)) {
-        nivel0Ids.forEach(gid => next.add(gid));
-      }
-      if (estaFechado) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
@@ -1090,41 +1057,6 @@ export default function MedicaoMensal({
   const footCell = { padding: '0 10px', height: 30 };
   const filtroLabelSt = { fontSize: 10.5, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '.04em' };
 
-  // Aviso de "sem itens" — igual nas duas visões (tabela/cards), extraído uma vez pra
-  // não duplicar as regras de carregando/sem registro/sem itens filtrados.
-  const semItensConteudo = carregando ? (
-    // Enquanto a busca no banco não volta, "Nenhuma medição aberta" seria enganoso — a
-    // medição pode existir e só não ter chegado ainda; sem isso a tela piscava esse
-    // aviso a cada troca de aba/mês antes do real.
-    <div style={{ fontSize: 13.5 }}>Carregando medição…</div>
-  ) : !registro ? (
-    // Mês sem medição: o ciclo começa aqui. Nada de itens e nada editável até abrir —
-    // antes a tela já vinha preenchida e livre, sem registro.
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-      <div style={{ fontSize: 13.5 }}>
-        Nenhuma medição aberta para <strong>{mesLabel(mesRefKey)}</strong>.
-      </div>
-      {readOnly ? (
-        <div style={{ fontSize: 12.5 }}>Você não tem permissão para abrir medições.</div>
-      ) : anteriorAberta ? (
-        <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
-          Feche primeiro a medição de {mesLabel(mesAnterior.key)} para poder abrir esta.
-        </div>
-      ) : anteriorSemReprogramacao ? (
-        <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
-          Salve a reprogramação de {mesLabel(mesAnterior.key)} (Cadastro → Salvar
-          reprogramação) antes de abrir esta medição.
-        </div>
-      ) : (
-        <button type="button" className="btn btn-dark" onClick={abrirMedicao} disabled={salvando}>
-          <Icon name="plus" size={15} />{salvando ? 'Abrindo…' : 'Abrir medição'}
-        </button>
-      )}
-    </div>
-  ) : (
-    'Nenhum item do cronograma agendado para o período com os filtros aplicados.'
-  );
-
   return (
     <>
       <div className="page-header">
@@ -1183,41 +1115,21 @@ export default function MedicaoMensal({
         <KpiCard label="Executado acumulado" value={resumo.executadoAcumulado} barColor="var(--success)" />
       </div>
 
-      {/* Sentinela: marca onde o card começa, para detectar quando prender. No celular o
-          "prender embaixo da topbar com rolagem interna" não entra (ver plano) — a lista de
-          cards flui na página normal, uma rolagem só, em vez de uma rolagem dentro da outra. */}
+      {/* Sentinela: marca onde o card começa, para detectar quando prender */}
       <div ref={sentinelRef} aria-hidden="true" style={{ height: 0 }} />
       {/* Espaçador: preserva a altura do fluxo quando o card sai dele (position:fixed) */}
-      {!isMobile && pinned && <div aria-hidden="true" style={{ marginTop: 8, height: cardH }} />}
+      {pinned && <div aria-hidden="true" style={{ marginTop: 8, height: cardH }} />}
 
       <div className="card"
-        style={isMobile
-          ? { marginTop: 8, display: 'flex', flexDirection: 'column' }
-          : pinned
-            ? { position: 'fixed', top: topbarH + 10, left: pinned.left, width: pinned.width, height: cardH, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
-            : { marginTop: 8, height: cardH, display: 'flex', flexDirection: 'column' }
+        style={pinned
+          ? { position: 'fixed', top: topbarH + 10, left: pinned.left, width: pinned.width, height: cardH, zIndex: 5, margin: 0, display: 'flex', flexDirection: 'column' }
+          : { marginTop: 8, height: cardH, display: 'flex', flexDirection: 'column' }
         }>
         <div style={{ position: 'relative', borderBottom: '1px solid var(--border)', flexShrink: 0, minHeight: 34 }}>
         <div style={{
           display: filtrosRecolhidos ? 'none' : 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 10,
           padding: '14px 40px 14px 16px',
         }}>
-          {/* Atalhos diretos no celular: as mesmas duas ações mais usadas em campo (fechar
-              o mês e incluir uma tarefa fora do previsto) ficam à vista em vez de
-              escondidas dentro do menu "Ações" — o resto (Limpar/Excluir/Enviar %)
-              continua só no menu, são ações mais raras. */}
-          {isMobile && !bloqueado && (
-            <div style={{ display: 'flex', gap: 8, width: '100%' }}>
-              <button type="button" className="btn" style={{ flex: 1, justifyContent: 'center', background: 'var(--success)', color: '#fff' }}
-                onClick={() => setMostrarConfirmFechar(true)}>
-                <Icon name="check" size={15} />Fechar medição
-              </button>
-              <button type="button" className="btn btn-dark" style={{ flex: 1, justifyContent: 'center' }}
-                onClick={() => setModalIncluirAberto(true)}>
-                <Icon name="plus" size={15} />Incluir tarefa
-              </button>
-            </div>
-          )}
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 200 }}>
             <span style={filtroLabelSt}>Busca</span>
             <input
@@ -1303,7 +1215,7 @@ export default function MedicaoMensal({
             </div>
           )}
           {fechada && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: isMobile ? 0 : 'auto', width: isMobile ? '100%' : undefined, justifyContent: isMobile ? 'space-between' : undefined }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
               <span className="badge success"><span className="dot" />Medição fechada</span>
               {!readOnly && (
                 <button type="button" className="btn btn-ghost"
@@ -1346,119 +1258,9 @@ export default function MedicaoMensal({
         )}
 
         {/* flex:1 + minHeight:0 dá a rolagem por dentro do card; sem o minHeight o
-            flex item não encolhe e o scroll vaza para a página. No celular fica sem
-            essa restrição — a página inteira rola, sem uma caixa de rolagem dentro
-            da outra. */}
-        <div style={isMobile ? undefined : { overflow: 'auto', flex: 1, minHeight: 0 }}>
-          {isMobile ? (
-            linhas.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
-                {semItensConteudo}
-              </div>
-            ) : (
-              <div style={{ padding: '10px 12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {linhas.map(l => {
-                  const indentMobile = Math.min(l.nivel || 0, 4) * 10;
-                  if (l.tipo === 'grupo') {
-                    return (
-                      <button
-                        key={'g' + l.id}
-                        type="button"
-                        onClick={() => alternarGrupo(l.id)}
-                        aria-expanded={!l.colapsado}
-                        style={{
-                          all: 'unset', boxSizing: 'border-box', width: '100%', cursor: 'pointer',
-                          marginLeft: indentMobile, marginTop: 4,
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                          padding: '9px 10px', borderRadius: 9, background: groupTintDoNivel(l.nivel),
-                        }}
-                      >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--brand)' }}>
-                          <span className="lista-toggle" style={{ pointerEvents: 'none' }}>{l.colapsado ? '▶' : '▼'}</span>
-                          {l.descricao}
-                        </span>
-                        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'right', flexShrink: 0 }}>
-                          peso {fmtPct100(l.peso)} · exec {fmtPct100(l.exec)} · med {fmtPct100(l.med)}
-                        </span>
-                      </button>
-                    );
-                  }
-                  const status = derivarStatus(l);
-                  // Fora do mês não faz parte do previsto: peso zero (soma só ao realizado).
-                  const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
-                  return (
-                    <div
-                      key={l.id}
-                      style={{
-                        marginLeft: indentMobile + 12, background: l.foraDoMes ? 'var(--warning-bg)' : 'var(--surface)',
-                        border: '1px solid var(--border)', borderLeft: '3px solid var(--brand)',
-                        borderRadius: 10, padding: '9px 11px 9px 9px',
-                        display: 'flex', flexDirection: 'column', gap: 6,
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-                          <span className="num" style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{l.wbs}</span>
-                          <span style={{ fontSize: 13, fontWeight: 600 }}>{l.descricao}</span>
-                          {l.foraDoMes && (
-                            <>
-                              <span className="badge warning" style={{ fontSize: 9.5, padding: '0 5px' }}>fora do mês</span>
-                              <button type="button" className="icon-btn-sm" title="Remover tarefa"
-                                onClick={() => removerTarefaManual(l.id)} disabled={bloqueado}>
-                                <Icon name="x" size={11} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1 }}>
-                          {l.pavimento} · {l.dataInicio} → {l.dataTermino} · {l.duracaoDias}d · peso {fmtPct100(peso)}
-                        </div>
-                      </div>
-                      <div className="progress-row">
-                        <div className={'progress' + (status === 'concluida' ? ' success' : status === 'pendente' ? ' danger' : '')}>
-                          <span style={{ width: `${Math.min(100, l.percExecutado)}%` }} />
-                        </div>
-                        <span className="pct">{fmtPct100(l.percExecutado)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--text-muted)' }}>
-                        <span>a medir {formatBRL(l.valor, 2)}</span>
-                        <span>medido {formatBRL((l.valor * l.percMedido) / 100, 2)}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 7 }}>
-                        <label style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-soft)' }}>% medido</label>
-                        <input
-                          className="input medicao-input-medido"
-                          style={{ width: 60, height: 40, padding: '0 6px', textAlign: 'center', fontSize: 14.5, fontWeight: 700 }}
-                          inputMode="decimal"
-                          value={l.percMedido}
-                          disabled={bloqueado}
-                          aria-label={`Percentual medido de ${l.descricao}`}
-                          onChange={e => alterarMedido(l.id, e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key !== 'Enter') return;
-                            e.preventDefault();
-                            const inputs = Array.from(document.querySelectorAll('.medicao-input-medido'));
-                            const proximo = inputs[inputs.indexOf(e.currentTarget) + 1];
-                            if (proximo) { proximo.focus(); proximo.select(); }
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-                <div style={{ background: 'var(--brand-700)', color: '#fff', borderRadius: 10, padding: '11px 12px', display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: 700 }}>
-                    <span>Total geral · {totais.qtd} atividades</span>
-                    <span>{fmtPct100(totais.med)}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: .85 }}>
-                    <span>peso {fmtPct100(totais.peso)} · exec {fmtPct100(totais.exec)}</span>
-                    <span>{formatBRL(totais.valor, 2)} → {formatBRL(totais.valorAMedir, 2)}</span>
-                  </div>
-                </div>
-              </div>
-            )
-          ) : (
+            flex item não encolhe e o scroll vaza para a página. */}
+        <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+          {/* tbl-lista: cabeçalho azul e altura de linha fina, os mesmos da Lista. */}
           <table className="tbl tbl-lista" style={{ minWidth: 1240, '--lista-row-h': '24px' }}>
             <colgroup>
               {MEDICAO_COL_IDS.map(id => <col key={id} style={{ width: getColW(id) }} />)}
@@ -1488,7 +1290,38 @@ export default function MedicaoMensal({
               {linhas.length === 0 && (
                 <tr>
                   <td colSpan={11} style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
-                    {semItensConteudo}
+                    {carregando ? (
+                      // Enquanto a busca no banco não volta, "Nenhuma medição aberta" seria
+                      // enganoso — a medição pode existir e só não ter chegado ainda; sem
+                      // isso a tela piscava esse aviso a cada troca de aba/mês antes do real.
+                      <div style={{ fontSize: 13.5 }}>Carregando medição…</div>
+                    ) : !registro ? (
+                      // Mês sem medição: o ciclo começa aqui. Nada de itens e nada editável
+                      // até abrir — antes a tela já vinha preenchida e livre, sem registro.
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                        <div style={{ fontSize: 13.5 }}>
+                          Nenhuma medição aberta para <strong>{mesLabel(mesRefKey)}</strong>.
+                        </div>
+                        {readOnly ? (
+                          <div style={{ fontSize: 12.5 }}>Você não tem permissão para abrir medições.</div>
+                        ) : anteriorAberta ? (
+                          <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
+                            Feche primeiro a medição de {mesLabel(mesAnterior.key)} para poder abrir esta.
+                          </div>
+                        ) : anteriorSemReprogramacao ? (
+                          <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
+                            Salve a reprogramação de {mesLabel(mesAnterior.key)} (Cadastro → Salvar
+                            reprogramação) antes de abrir esta medição.
+                          </div>
+                        ) : (
+                          <button type="button" className="btn btn-dark" onClick={abrirMedicao} disabled={salvando}>
+                            <Icon name="plus" size={15} />{salvando ? 'Abrindo…' : 'Abrir medição'}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      'Nenhum item do cronograma agendado para o período com os filtros aplicados.'
+                    )}
                   </td>
                 </tr>
               )}
@@ -1597,7 +1430,6 @@ export default function MedicaoMensal({
               </tr>
             </tfoot>
           </table>
-          )}
 
           {/* Rodapé e histórico ficam DENTRO do container que rola. Fora dele, com o card
               em position:fixed ocupando a viewport, os dois ficavam atrás do card e o

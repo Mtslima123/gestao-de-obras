@@ -1171,42 +1171,6 @@ a:hover { color: var(--brand-600); }
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
-/* Celular: 4 colunas fixas viram miniaturas minúsculas (~75-95px) — 2 colunas dá
-   miniatura reconhecível sem perder a grade. Só a Galeria de Fotos usa essa regra
-   (globals.css inteiro fica igual pro resto do app). */
-@media (max-width: 560px) {
-  .gallery { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  /* Botões de baixar/editar/excluir na miniatura: maiores no toque (o mouse não precisa
-     do alvo maior, por isso só entra abaixo do breakpoint). */
-  .photo .icon-btn { width: 34px !important; height: 34px !important; }
-}
-
-/* FAB de câmera — só no mobile (ver isMobile na aba Fotos de ObraDetail.jsx) */
-.fab-camera {
-  position: fixed;
-  right: 18px; bottom: 24px;
-  width: 56px; height: 56px;
-  border-radius: 50%; border: none;
-  background: var(--brand); color: #fff;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.28);
-  cursor: pointer;
-  z-index: 40;
-}
-.fab-camera:active { transform: scale(0.96); }
-
-/* Placeholder de foto em upload — reaproveita o fundo tracejado de .photo */
-.photo.photo-uploading {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; cursor: default; color: var(--text-muted); font-size: 11.5px;
-}
-.photo-uploading-spinner {
-  width: 22px; height: 22px;
-  border: 2.5px solid var(--border);
-  border-top-color: var(--brand);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
 .photo {
   aspect-ratio: 4/3;
   background:
@@ -1391,14 +1355,6 @@ a:hover { color: var(--brand-600); }
   pointer-events: none;
 }
 .field-prefix input { padding-left: 36px; }
-
-/* Só os modais de Upload/Editar foto (form-grid + form-grid-fotos juntas) colapsam pra 1
-   coluna no celular — mexer no .form-grid geral já foi tentado numa rodada anterior e não
-   ficou bom (afetava modal do app inteiro); aqui a classe extra restringe o efeito só a
-   essas duas telas. */
-@media (max-width: 480px) {
-  .form-grid-fotos { grid-template-columns: 1fr; }
-}
 
 .segmented {
   display: inline-flex;
