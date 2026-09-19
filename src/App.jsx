@@ -108,7 +108,16 @@ const AppInner = () => {
 
   const [obras, setObras] = React.useState(() => []);
   const [refreshOrcamentos, setRefreshOrcamentos] = React.useState(0);
-  const [cronogramaObraId, setCronogramaObraId] = React.useState(null);
+  const [cronogramaObraId, setCronogramaObraId] = React.useState(() => {
+    // Só recupera se o motivo do reload foi ficar em modo foco na Medição (ver mobileFocus
+    // abaixo) — navegação normal pelo Cronograma clássico continua sem persistir isto.
+    try {
+      if (sessionStorage.getItem('mobile_focus') === 'medicao') {
+        return sessionStorage.getItem('mobile_focus_obra_id') || null;
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
   const [obrasLoaded,     setObrasLoaded]     = React.useState(false);
   const [cronogramaTab,   setCronogramaTab]   = React.useState(() => sessionStorage.getItem('nav_cronograma_tab') || 'gantt');
   const [adminTab,        setAdminTab]        = React.useState(() => sessionStorage.getItem('nav_admin_tab') || 'usuarios');
@@ -123,7 +132,22 @@ const AppInner = () => {
   // "Modo foco" do Mobile Gate: tela cheia sem Sidebar/Topbar/cabeçalho próprio do
   // módulo, só o conteúdo pedido (Medição ou Fotos) + um botão de sair. Diferente de
   // "Acessar sistema completo" (que usa mobileGateBypassed e mostra o shell inteiro).
-  const [mobileFocus, setMobileFocus] = React.useState(null); // null | 'medicao' | 'fotos'
+  // Persiste em sessionStorage (ver efeito abaixo): o Android às vezes descarta/recarrega
+  // a aba ao voltar da câmera (FAB de Fotos), e sem persistir isto o reload perdia o
+  // mobileFocus (state puro) mas mantinha um mobileGateBypassed antigo de sessionStorage,
+  // caindo sem querer no sistema completo em vez de voltar ao modo foco.
+  const [mobileFocus, setMobileFocus] = React.useState(() => {
+    try {
+      const saved = sessionStorage.getItem('mobile_focus');
+      return (saved === 'medicao' || saved === 'fotos') ? saved : null;
+    } catch { return null; }
+  }); // null | 'medicao' | 'fotos'
+  React.useEffect(() => {
+    try {
+      if (mobileFocus) sessionStorage.setItem('mobile_focus', mobileFocus);
+      else { sessionStorage.removeItem('mobile_focus'); sessionStorage.removeItem('mobile_focus_obra_id'); }
+    } catch { /* ignore */ }
+  }, [mobileFocus]);
   // Sub-abas persistem na sessão para o F5 reabrir na mesma aba
   React.useEffect(() => { sessionStorage.setItem('nav_cronograma_tab', cronogramaTab); }, [cronogramaTab]);
   React.useEffect(() => { sessionStorage.setItem('nav_admin_tab', adminTab); }, [adminTab]);
@@ -372,7 +396,11 @@ const AppInner = () => {
           userProfile={userProfile}
           onLogout={handleLogout}
           onEnterFull={bypassMobileGate}
-          onGoMedicao={(obraId) => { handleOpenCronograma(obraId, 'medicao'); setMobileFocus('medicao'); }}
+          onGoMedicao={(obraId) => {
+            try { sessionStorage.setItem('mobile_focus_obra_id', obraId); } catch { /* ignore */ }
+            handleOpenCronograma(obraId, 'medicao');
+            setMobileFocus('medicao');
+          }}
           onGoFotos={(obra) => { handleOpenObra(obra, 'fotos'); setMobileFocus('fotos'); }}
         />
       )}
