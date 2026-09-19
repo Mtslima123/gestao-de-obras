@@ -1171,6 +1171,50 @@ a:hover { color: var(--brand-600); }
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
+/* Celular: 4 colunas fixas viram miniaturas minúsculas (~75-95px), com legenda e ícones
+   de ação se sobrepondo. 2 colunas dá miniatura reconhecível sem perder a grade. Só a
+   Galeria de Fotos usa essa regra (globals.css inteiro fica igual pro resto do app). */
+@media (max-width: 560px) {
+  .gallery { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .photo .icon-btn { width: 32px !important; height: 32px !important; }
+}
+
+/* FAB de câmera — só no mobile (ver isMobile na aba Fotos de ObraDetail.jsx) */
+.fab-camera {
+  position: fixed;
+  right: 18px; bottom: 24px;
+  width: 56px; height: 56px;
+  border-radius: 50%; border: none;
+  background: var(--brand); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+  cursor: pointer;
+  z-index: 40;
+}
+.fab-camera:active { transform: scale(0.96); }
+
+/* Placeholder de foto em upload — reaproveita o fundo tracejado de .photo */
+.photo.photo-uploading {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; cursor: default; color: var(--text-muted); font-size: 11.5px;
+}
+.photo-uploading-spinner {
+  width: 22px; height: 22px;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* Fotos — cabeçalho mobile (ver isMobile em ObraDetail.jsx) */
+.fotos-mobile-header {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;
+}
+.fotos-mobile-eyebrow { font-size: 11px; color: var(--text-muted); }
+.fotos-mobile-title { font-size: 17px; font-weight: 700; color: var(--text); }
+.fotos-mobile-count { font-size: 11.5px; color: var(--text-muted); }
+
 .photo {
   aspect-ratio: 4/3;
   background:

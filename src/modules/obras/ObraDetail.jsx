@@ -7,6 +7,7 @@ import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura, isAdmin, abaSomenteLeitura } from '../../utils/permissions';
+import { useIsMobile } from '../../utils/useIsMobile';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd, taskEndDisplay } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
@@ -676,11 +677,14 @@ function mesRangeISO(mesStr) {
 
 const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
   const toast = useToast();
+  const isMobile = useIsMobile();
   const [fotos,        setFotos]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
   const [totalCount,   setTotalCount]   = React.useState(0);
   const [pagina,       setPagina]       = React.useState(1);
   const [showUpload,   setShowUpload]   = React.useState(false);
+  const [uploadAutoCapture, setUploadAutoCapture] = React.useState(false);
+  const [uploadingCount, setUploadingCount] = React.useState(0);
   const [editando,     setEditando]     = React.useState(null);
   const [filtroMes,    setFiltroMes]    = React.useState('');
   const [filtroPavimento, setFiltroPavimento] = React.useState('');
@@ -900,6 +904,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
 
   return (
     <>
+      {!isMobile && (
       <div ref={fotosHeaderRef} className="card" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '12px 16px', marginBottom: 16, flexWrap: 'wrap',
                                      position: 'sticky', top: FOTOS_STICKY_TOP, zIndex: 2 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-2)',
@@ -939,6 +944,52 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
           </div>
         )}
       </div>
+      )}
+
+      {isMobile && (
+      <div className="fotos-mobile-header">
+        <div>
+          <div className="fotos-mobile-eyebrow">{obra.nome}</div>
+          <div className="fotos-mobile-title">Fotos</div>
+        </div>
+
+        {!readOnly && (
+          <div className="mm-mobile-actions-row">
+            <button type="button" className="btn btn-dark" style={{ flex: 1 }}
+              onClick={() => { setUploadAutoCapture(true); setShowUpload(true); }}>
+              <Icon name="camera" size={15} />Tirar foto
+            </button>
+            <button type="button" className="btn btn-ghost" style={{ flex: 1 }}
+              onClick={() => { setUploadAutoCapture(false); setShowUpload(true); }}>
+              <Icon name="image" size={15} />Galeria
+            </button>
+          </div>
+        )}
+
+        {!loading && (totalCount > 0 || !semFiltro) && (
+          <div className="mm-mobile-filters-row">
+            <MesAnoInput value={filtroMes} onChange={setFiltroMes} />
+            {pavimentosComFoto.length > 0 && (
+              <div style={{ position: 'relative', display: 'inline-flex', flex: 1 }}>
+                <select className="input" value={filtroPavimento} onChange={e => setFiltroPavimento(e.target.value)} style={{ width: '100%' }}
+                  title="Filtrar por pavimento">
+                  <option value="">Todos os pavimentos</option>
+                  {pavimentosComFoto.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+        {!semFiltro && (
+          <button type="button" className="btn btn-ghost" style={{ alignSelf: 'flex-start' }}
+            onClick={() => { setFiltroMes(''); setFiltroPavimento(''); }}>
+            <Icon name="x" size={13} />Limpar filtro
+          </button>
+        )}
+
+        <span className="fotos-mobile-count">{totalCount} foto{totalCount !== 1 ? 's' : ''}</span>
+      </div>
+      )}
 
       {loading
         ? <div className="text-muted" style={{ padding: 48, textAlign: 'center' }}>Carregando…</div>
@@ -954,6 +1005,12 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
               </div>
           : <div style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
               <div className="gallery">
+                {isMobile && Array.from({ length: uploadingCount }, (_, i) => (
+                  <div key={'uploading-' + i} className="photo photo-uploading">
+                    <span className="photo-uploading-spinner" />
+                    <span>Enviando…</span>
+                  </div>
+                ))}
                 {fotos.map((f, i) => (
                   <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}
                        onClick={() => setLightboxIdx(i)}>
@@ -1000,7 +1057,22 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false }) => {
               )}
             </div>
       }
-      {showUpload && <UploadFotoModal obra={obra} pavimentos={pavimentos} onSave={salvarFotos} onClose={() => setShowUpload(false)} />}
+      {isMobile && !readOnly && (
+        <button
+          type="button" className="fab-camera" title="Tirar foto"
+          onClick={() => { setUploadAutoCapture(true); setShowUpload(true); }}
+        >
+          <Icon name="camera" size={22} />
+        </button>
+      )}
+      {showUpload && (
+        <UploadFotoModal
+          obra={obra} pavimentos={pavimentos}
+          autoCapture={uploadAutoCapture}
+          onSave={async (metadados, files) => { setUploadingCount(files.length); try { await salvarFotos(metadados, files); } finally { setUploadingCount(0); } }}
+          onClose={() => { setShowUpload(false); setUploadAutoCapture(false); }}
+        />
+      )}
       {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox
@@ -1127,7 +1199,7 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
 // ----- Modal: Upload de Foto -----
 const MAX_FOTOS = 7;
 
-const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
+const UploadFotoModal = ({ obra, pavimentos = [], autoCapture = false, onSave, onClose }) => {
   const toast = useToast();
   const [files,   setFiles]   = React.useState([]); // [{ file, preview }]
   const [saving,  setSaving]  = React.useState(false);
@@ -1135,6 +1207,17 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const filesRef = React.useRef(files);
   filesRef.current = files;
+  const cameraInputRef = React.useRef(null);
+  // FAB/"Tirar foto" no mobile já pede a câmera: abre o modal e dispara o input de
+  // captura sozinho, sem o usuário precisar tocar de novo em "Tirar foto agora".
+  // Navegadores móveis exigem "user activation" recente pra abrir a câmera via
+  // .click() programático — como isso roda logo após o toque no botão, funciona na
+  // maioria dos casos; se algum navegador bloquear, o usuário ainda pode tocar
+  // "Tirar foto agora" manualmente dentro do modal (fallback sem quebrar nada).
+  React.useEffect(() => {
+    if (autoCapture) cameraInputRef.current?.click();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só na 1a renderização
+  }, []);
 
   // Revoga todos os objectURLs no unmount (usa ref pra pegar a lista mais recente,
   // já que o array final só é conhecido no momento do cleanup)
@@ -1216,7 +1299,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
               <label style={{ flex: 1, display: 'block', border: '2px dashed ' + (erros.arquivo ? 'var(--danger)' : 'var(--border)'), borderRadius: 8, padding: '40px 24px', textAlign: 'center', cursor: 'pointer' }}>
                 <Icon name="camera" size={32} />
                 <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>Tirar foto agora</div>
-                <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { onFileChange(e); setErros(er => ({ ...er, arquivo: undefined })); }} />
               </label>
             </div>
           )
@@ -1245,7 +1328,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onSave, onClose }) => {
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}
                       title="Tirar foto agora">
                       <Icon name="camera" size={18} />
-                      <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileChange} />
+                      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileChange} />
                     </label>
                   </>
                 )}
