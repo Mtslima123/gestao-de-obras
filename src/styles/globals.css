@@ -2683,7 +2683,15 @@ tr:hover .obras-row-actions {
 .mobile-focus-header {
   flex-shrink: 0; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--surface);
 }
-.mobile-focus-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 32px; min-width: 0; }
+.mobile-focus-body {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 32px; min-width: 0;
+}
+/* Barra de rolagem sem reservar espaço — em alguns navegadores/webviews móveis uma
+   barra "clássica" (não overlay) num container com overflow-y:auto reduz a largura útil
+   e sobra por baixo de elementos position:fixed que ocupam a viewport inteira (ex.: o
+   Modal, que ficam sem essa faixa contabilizada). Mesma técnica de .uso-hide-scrollbar. */
+.mobile-focus-body { scrollbar-width: none; -ms-overflow-style: none; }
+.mobile-focus-body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
 /* ============================================
    CRONOGRAMA — redesenho das 4 telas (handoff)
