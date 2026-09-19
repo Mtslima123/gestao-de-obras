@@ -650,12 +650,21 @@ export default function MedicaoMensal({
     () => computeArvoreMedicao(filtradas, etapas, valorTotalBase, new Set()),
     [filtradas, etapas, valorTotalBase]
   );
-  // Ids das etapas de topo (nível 0) — base do accordion mobile em alternarGrupo e do
-  // auto-colapso ao entrar. Vem de arvoreCompleta (não de `linhas`) porque não pode
+  // Nível das "etapas de topo" pro accordion mobile: normalmente nível 0, mas várias
+  // obras têm um único grupo-raiz tipo "Resumo" envolvendo o cronograma inteiro (peso
+  // 100%) — nesse caso as etapas de verdade (SERVIÇOS INICIAIS, INFRAESTRUTURA...) ficam
+  // no nível 1, e colorir/accordionar no nível 0 pintava só o "Resumo" sozinho. Se o
+  // nível 0 tem exatamente 1 grupo, desce um nível; do contrário usa o 0 normalmente.
+  const nivelEtapaMobile = React.useMemo(() => {
+    const nivel0 = arvoreCompleta.filter(l => l.tipo === 'grupo' && (l.nivel || 0) === 0);
+    return nivel0.length === 1 ? 1 : 0;
+  }, [arvoreCompleta]);
+  // Ids das etapas de topo (no nível acima) — base do accordion mobile em alternarGrupo
+  // e do auto-colapso ao entrar. Vem de arvoreCompleta (não de `linhas`) porque não pode
   // depender do próprio `collapsed` que está sendo alterado.
   const nivel0Ids = React.useMemo(
-    () => arvoreCompleta.filter(l => l.tipo === 'grupo' && (l.nivel || 0) === 0).map(l => l.id),
-    [arvoreCompleta]
+    () => arvoreCompleta.filter(l => l.tipo === 'grupo' && (l.nivel || 0) === nivelEtapaMobile).map(l => l.id),
+    [arvoreCompleta, nivelEtapaMobile]
   );
   // Nº de tarefas (folhas) sob cada etapa de topo — só pro resumo mobile ("peso 35% · 7
   // tarefas"). arvoreCompleta é ordem depth-first: cada grupo é seguido dos próprios
@@ -663,17 +672,17 @@ export default function MedicaoMensal({
   const contagemPorGrupo = React.useMemo(() => {
     const mapa = {};
     arvoreCompleta.forEach((l, i) => {
-      if (l.tipo !== 'grupo' || (l.nivel || 0) !== 0) return;
+      if (l.tipo !== 'grupo' || (l.nivel || 0) !== nivelEtapaMobile) return;
       let count = 0;
       for (let j = i + 1; j < arvoreCompleta.length; j++) {
         const cur = arvoreCompleta[j];
-        if (cur.tipo === 'grupo' && (cur.nivel || 0) <= 0) break;
+        if (cur.tipo === 'grupo' && (cur.nivel || 0) <= nivelEtapaMobile) break;
         if (cur.tipo === 'item') count++;
       }
       mapa[l.id] = count;
     });
     return mapa;
-  }, [arvoreCompleta]);
+  }, [arvoreCompleta, nivelEtapaMobile]);
   // Cor de cada linha (grupo de topo, subníveis e tarefas) = a cor da etapa de topo que
   // a contém — mesma varredura depth-first de contagemPorGrupo, só que carregando a cor
   // "corrente" adiante em vez de contar. Só usado no accordion mobile.
@@ -682,14 +691,14 @@ export default function MedicaoMensal({
     let corAtual = ETAPA_CORES_MOBILE[0];
     let indiceEtapa = -1;
     arvoreCompleta.forEach((l) => {
-      if (l.tipo === 'grupo' && (l.nivel || 0) === 0) {
+      if (l.tipo === 'grupo' && (l.nivel || 0) === nivelEtapaMobile) {
         indiceEtapa += 1;
         corAtual = ETAPA_CORES_MOBILE[indiceEtapa % ETAPA_CORES_MOBILE.length];
       }
       mapa[l.id] = corAtual;
     });
     return mapa;
-  }, [arvoreCompleta]);
+  }, [arvoreCompleta, nivelEtapaMobile]);
   // No celular, ao entrar pela 1ª vez num mês, começa com as etapas de topo recolhidas
   // (resumidas em 1 linha) — igual ao "Recolher tudo", mas só no nível 0: abrir uma
   // etapa (alternarGrupo) já mostra a subárvore inteira dela, sem subníveis colapsados
@@ -1685,7 +1694,9 @@ export default function MedicaoMensal({
           ) : (
             linhas.map(l => {
               if (l.tipo === 'grupo') {
-                const nivel0 = (l.nivel || 0) === 0;
+                // "nivel0" aqui é o nível das etapas de topo pro accordion (nivelEtapaMobile),
+                // não necessariamente o nível 0 real da árvore — ver nivelEtapaMobile acima.
+                const nivel0 = (l.nivel || 0) === nivelEtapaMobile;
                 return (
                   <button
                     key={'g' + l.id} type="button"

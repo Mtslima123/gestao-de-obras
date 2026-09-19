@@ -1087,11 +1087,12 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
         <UploadFotoModal
           obra={obra} pavimentos={pavimentos}
           initialFiles={pendingFiles}
+          mobileView={mobileView}
           onSave={async (metadados, files) => { setUploadingCount(files.length); try { await salvarFotos(metadados, files); } finally { setUploadingCount(0); } }}
           onClose={() => { setShowUpload(false); setPendingFiles(null); }}
         />
       )}
-      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
+      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} mobileView={mobileView} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox
           fotos={fotos}
@@ -1217,7 +1218,7 @@ const PavimentoInput = ({ value, onChange, options = [] }) => {
 // ----- Modal: Upload de Foto -----
 const MAX_FOTOS = 7;
 
-const UploadFotoModal = ({ obra, pavimentos = [], initialFiles = null, onSave, onClose }) => {
+const UploadFotoModal = ({ obra, pavimentos = [], initialFiles = null, mobileView = false, onSave, onClose }) => {
   const toast = useToast();
   // initialFiles: foto já tirada pelo FAB antes do modal abrir (ver onFabCapture em
   // Fotos) — chega pronta, sem precisar de outro clique em "Tirar foto agora".
@@ -1348,7 +1349,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], initialFiles = null, onSave, o
             </div>
           )
         }
-        <div className="form-grid">
+        <div className={'form-grid' + (mobileView ? ' form-grid-mobile' : '')}>
           <div className="field">
             <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
             <input type="date" value={form.data} max={hojeISO} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />
@@ -1370,7 +1371,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], initialFiles = null, onSave, o
 };
 
 // ----- Modal: Editar Foto -----
-const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
+const EditFotoModal = ({ foto, pavimentos = [], mobileView = false, onSave, onClose }) => {
   const [form, setForm] = React.useState({ data: foto.data || '', pavimento: foto.pavimento || '', descricao: foto.descricao || '' });
   const [erros, setErros] = React.useState({});
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -1394,7 +1395,7 @@ const EditFotoModal = ({ foto, pavimentos = [], onSave, onClose }) => {
         </button>
       </>}
     >
-      <div className="form-grid">
+      <div className={'form-grid' + (mobileView ? ' form-grid-mobile' : '')}>
         <div className="field">
           <label>Data <span style={{ color: 'var(--danger)' }}>*</span></label>
           <input type="date" value={form.data} max={hojeISO} onChange={e => { set('data', e.target.value); setErros(er => ({ ...er, data: undefined })); }} />

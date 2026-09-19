@@ -1353,6 +1353,10 @@ a:hover { color: var(--brand-600); }
   grid-template-columns: repeat(2, 1fr);
   gap: 14px 16px;
 }
+/* Só nos modais de Upload/Editar foto do modo foco mobile (ver mobileView em
+   ObraDetail.jsx) — 2 colunas apertava DATA/PAVIMENTO numa tela estreita. Classe (não
+   media query) pra não vazar pro modal aberto no "Acessar sistema completo". */
+.form-grid.form-grid-mobile { grid-template-columns: 1fr; }
 .field {
   display: flex;
   flex-direction: column;
@@ -2606,8 +2610,11 @@ tr:hover .obras-row-actions {
 .mm-mobile-eyebrow { font-size: 11px; color: var(--text-muted); }
 .mm-mobile-title { font-size: 17px; font-weight: 700; color: var(--text); }
 .mm-mobile-actions-row { display: flex; gap: 8px; }
-.mm-mobile-filters-row { display: flex; gap: 8px; }
-.mm-mobile-filters-row .input { flex: 1; min-width: 0; }
+/* Empilhado (não lado a lado): 2 selects dividindo a largura cortavam o texto do
+   <select> nativo (ex.: "Pavimento: Todos" virava "Pavimento: Todo:"). Cada um ocupa
+   a largura toda da sua própria linha. */
+.mm-mobile-filters-row { display: flex; flex-direction: column; gap: 8px; }
+.mm-mobile-filters-row .input { width: 100%; }
 .mm-mobile-hint { font-size: 10.5px; color: var(--text-faint); }
 
 .mm-mobile-list { display: flex; flex-direction: column; gap: 6px; }
