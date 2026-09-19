@@ -1693,19 +1693,25 @@ export default function MedicaoMensal({
             </div>
           ) : (
             linhas.map(l => {
+              // Profundidade relativa à etapa de topo (0 = a própria etapa) — cada nível
+              // abaixo dela precisa ficar visivelmente menor/mais recuado que o de cima,
+              // nunca do tamanho do pai (ex.: uma sub-tarefa dentro de uma etapa não pode
+              // parecer do mesmo tamanho da etapa, mesmo se ela própria agrupar tarefas).
+              const profundidade = Math.max(0, (l.nivel || 0) - nivelEtapaMobile);
               if (l.tipo === 'grupo') {
-                // "nivel0" aqui é o nível das etapas de topo pro accordion (nivelEtapaMobile),
-                // não necessariamente o nível 0 real da árvore — ver nivelEtapaMobile acima.
-                const nivel0 = (l.nivel || 0) === nivelEtapaMobile;
+                const nivel0 = profundidade === 0;
                 return (
                   <button
                     key={'g' + l.id} type="button"
                     className={'mm-etapa' + (nivel0 ? ' mm-etapa-n0' : ' mm-etapa-sub') + (!l.colapsado ? ' open' : '')}
-                    style={nivel0 ? { borderLeftColor: corPorLinha[l.id] } : undefined}
+                    style={nivel0
+                      ? { borderLeftColor: corPorLinha[l.id] }
+                      : { marginLeft: 14 + (profundidade - 1) * 10, borderLeftWidth: Math.max(2, 4 - profundidade), fontSize: Math.max(10.5, 12 - (profundidade - 1)) }
+                    }
                     onClick={() => alternarGrupo(l.id)}
                   >
                     <span className="mm-etapa-name">
-                      <Icon name="chevron-right" size={nivel0 ? 13 : 11} className="mm-etapa-chevron" />
+                      <Icon name="chevron-right" size={nivel0 ? 13 : Math.max(9, 11 - profundidade)} className="mm-etapa-chevron" />
                       {l.descricao}
                     </span>
                     <span className="mm-etapa-meta">
@@ -1717,7 +1723,8 @@ export default function MedicaoMensal({
               const status = derivarStatus(l);
               const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
               return (
-                <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')} style={{ borderLeftColor: corPorLinha[l.id] }}>
+                <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')}
+                  style={{ borderLeftColor: corPorLinha[l.id], marginLeft: 14 + Math.max(0, profundidade - 1) * 10 }}>
                   <div className="mm-card-head">
                     <span className="mm-card-wbs">{l.wbs}</span>
                     <span className="mm-card-nome">{l.descricao}</span>
