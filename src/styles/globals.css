@@ -1277,13 +1277,11 @@ a:hover { color: var(--brand-600); }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding-block: 24px;
   animation: fadeIn 0.14s ease-out;
 }
-/* Respiro menor que o padrão (24px) mas ainda com margem visível dos dois lados —
-   card um pouco menor que a tela toda, sem ficar colado na borda. */
 @media (max-width: 480px) {
-  .modal-backdrop { padding: 16px; }
+  .modal-backdrop { padding-block: 16px; }
 }
 /* Painel que rola por roda do mouse mas sem barra visível (evita barra "no meio") */
 .uso-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
@@ -1304,7 +1302,12 @@ a:hover { color: var(--brand-600); }
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
-  width: 100%;
+  /* Medido num aparelho real: width:100% dentro do .modal-backdrop (flex, com padding
+     horizontal) calculava contra a caixa CHEIA do pai nesse navegador, ignorando o
+     padding — o modal saía do tamanho da tela inteira e sempre estourava a borda
+     direita exatamente pela largura do padding que devia ter sido descontado. calc()
+     contra a viewport não depende dessa resolução de %, então não tem esse problema. */
+  width: calc(100vw - 32px);
   max-width: 600px;
   max-height: calc(100vh - 48px);
   display: flex;
