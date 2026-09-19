@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from './Icons';
 import { AppData } from '../utils/data';
 import { orcamentosService } from '../modules/financeiro/orcamentos.service';
@@ -106,7 +107,14 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   };
   const headerStyle = draggable ? { cursor: 'grab', userSelect: 'none' } : {};
 
-  return (
+  // Portal pra document.body: sem isso, um modal aberto de dentro de um contêiner com
+  // rolagem própria (ex.: .mobile-focus-body do modo foco mobile) fica sujeito a um bug
+  // conhecido de vários navegadores/webviews móveis, onde um `position:fixed` descendente
+  // de um ancestral com scroll é posicionado/dimensionado relativo a esse ancestral em vez
+  // da viewport real — o sintoma é exatamente a margem direita "grudando" que não
+  // reproduzia no desktop. Portal elimina essa dependência: o modal sempre fica direto sob
+  // <body>, position:fixed relativo à viewport de verdade, não importa de onde foi aberto.
+  return createPortal(
     <div className={'modal-backdrop' + (overlay ? '' : ' modal-backdrop-bare')}
       onClick={(e) => overlay && e.target === e.currentTarget && onClose()}>
       <div ref={nodeRef} className={'modal ' + sizeClass} style={modalStyle}
@@ -138,7 +146,8 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
