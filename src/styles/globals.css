@@ -2571,16 +2571,21 @@ tr:hover .obras-row-actions {
   display: flex;
   flex-direction: column;
   background: var(--bg-app);
-  padding: 24px 20px;
 }
 .mobile-gate-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 28px;
+  flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px; background: var(--brand);
+}
+.mobile-gate-body {
+  flex: 1;
+  padding: 24px 20px;
 }
 .mobile-gate-brand {
   display: flex; align-items: center; gap: 10px;
-  font-weight: 700; font-size: 13.5px; color: var(--brand);
+  font-weight: 700; font-size: 13.5px; color: #fff;
 }
+.mobile-gate-header .icon-btn { color: rgba(255,255,255,0.85); }
+.mobile-gate-header .icon-btn:hover { background: rgba(255,255,255,0.14); color: #fff; border-color: transparent; }
 .mobile-gate-title { font-size: 20px; font-weight: 700; margin: 4px 0; color: var(--text); }
 .mobile-gate-sub { color: var(--text-muted); font-size: 13.5px; margin-bottom: 22px; }
 .mobile-gate-options { display: flex; flex-direction: column; gap: 12px; }

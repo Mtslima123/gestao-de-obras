@@ -980,7 +980,6 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
 
         {!loading && (totalCount > 0 || !semFiltro) && (
           <div className="mm-mobile-filters-row">
-            <MesAnoInput value={filtroMes} onChange={setFiltroMes} />
             {pavimentosComFoto.length > 0 && (
               <div style={{ position: 'relative', display: 'inline-flex', flex: 1 }}>
                 <select className="input" value={filtroPavimento} onChange={e => setFiltroPavimento(e.target.value)} style={{ width: '100%' }}
@@ -990,6 +989,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
                 </select>
               </div>
             )}
+            <MesAnoInput value={filtroMes} onChange={setFiltroMes} />
           </div>
         )}
         {!semFiltro && (
