@@ -2615,6 +2615,17 @@ tr:hover .obras-row-actions {
 .mm-mobile-footnote { font-size: 11.5px; color: var(--text-muted); padding: 0 2px; }
 
 /* ============================================
+   Mobile Focus Shell — tela cheia sem Sidebar/Topbar/cabeçalho próprio do módulo,
+   usada quando o Mobile Gate manda direto pra Medição ou Fotos (ver mobileFocus em
+   App.jsx, e hideChrome em Cronograma.jsx/ObraDetail.jsx).
+   ============================================ */
+.mobile-focus-shell { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg-app); }
+.mobile-focus-header {
+  flex-shrink: 0; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.mobile-focus-body { flex: 1; padding: 14px 14px 32px; min-width: 0; }
+
+/* ============================================
    CRONOGRAMA — redesenho das 4 telas (handoff)
    Paleta navy da marca (#1C4584). Intensidade de
    heatmap por --f (0..1) definido inline por célula.

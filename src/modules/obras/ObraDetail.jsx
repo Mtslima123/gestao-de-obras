@@ -1561,7 +1561,7 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
 };
 
 // ----- Main ObraDetail -----
-const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma, initialTab }) => {
+const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma, initialTab, hideChrome = false }) => {
   // Sempre abre em "Visão geral" ao entrar numa obra — antes ficava salvo em
   // sessionStorage sem distinguir qual obra, então abrir a obra B na aba "Fotos"
   // reaproveitava a aba que tinha ficado selecionada na obra A. `initialTab` é a
@@ -1732,6 +1732,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
 
   return (
     <>
+      {!hideChrome && (
+      <>
       <div className="page-header" style={{ marginBottom: 18 }}>
         <div>
           <div className="row" style={{ gap: 8, marginBottom: 6 }}>
@@ -1840,6 +1842,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
           );
         })}
       </div>
+      </>
+      )}
 
       {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} baselines={baselinesObra} />}
       {tab === 'cronograma' && (

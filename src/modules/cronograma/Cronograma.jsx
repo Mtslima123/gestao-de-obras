@@ -2269,7 +2269,7 @@ async function carregarCronogramaDB(obraId) {
 // Movidos para ./cronogramaModais.
 
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
-const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile }) => {
+const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hideChrome = false }) => {
   const D    = AppData;
   const toast = useToast();
 
@@ -3092,6 +3092,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile }) 
           <button onClick={recarregarCronograma} style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>Recarregar</button>
         </div>
       )}
+      {!hideChrome && (
       <div className="page-header">
         <div>
           <h1 className="page-title">Cronogramas</h1>
@@ -3116,6 +3117,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile }) 
           </div>
         </div>
       </div>
+      )}
 
       {isLoading
         ? <div className="text-muted" style={{ padding: 64, textAlign: 'center' }}>Carregando…</div>

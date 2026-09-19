@@ -120,6 +120,10 @@ const AppInner = () => {
   // Deep links "de uma vez só" para dentro dos módulos — ver handleOpenCronograma/handleOpenObra abaixo.
   const [cronogramaInitialTab, setCronogramaInitialTab] = React.useState(null);
   const [selectedObraInitialTab, setSelectedObraInitialTab] = React.useState('visao');
+  // "Modo foco" do Mobile Gate: tela cheia sem Sidebar/Topbar/cabeçalho próprio do
+  // módulo, só o conteúdo pedido (Medição ou Fotos) + um botão de sair. Diferente de
+  // "Acessar sistema completo" (que usa mobileGateBypassed e mostra o shell inteiro).
+  const [mobileFocus, setMobileFocus] = React.useState(null); // null | 'medicao' | 'fotos'
   // Sub-abas persistem na sessão para o F5 reabrir na mesma aba
   React.useEffect(() => { sessionStorage.setItem('nav_cronograma_tab', cronogramaTab); }, [cronogramaTab]);
   React.useEffect(() => { sessionStorage.setItem('nav_admin_tab', adminTab); }, [adminTab]);
@@ -211,6 +215,7 @@ const AppInner = () => {
       // Some junto com a sessão — próximo login (mesma aba) deve mostrar o Mobile Gate de novo.
       try { sessionStorage.removeItem('mobile_gate_ok'); } catch { /* ignore */ }
       setMobileGateBypassed(false);
+      setMobileFocus(null);
       return;
     }
     setUser(session.user);
@@ -350,7 +355,7 @@ const AppInner = () => {
     ['dashboard', 'obras', 'orcamentos', 'cronograma']
       .find(v => moduloLiberado(userProfile, v)) || 'dashboard';
 
-  const showMobileGate = isMobile && !mobileGateBypassed;
+  const showMobileGate = isMobile && !mobileGateBypassed && !mobileFocus;
 
   return (
     <>
@@ -367,11 +372,45 @@ const AppInner = () => {
           userProfile={userProfile}
           onLogout={handleLogout}
           onEnterFull={bypassMobileGate}
-          onGoMedicao={(obraId) => { bypassMobileGate(); handleOpenCronograma(obraId, 'medicao'); }}
-          onGoFotos={(obra) => { bypassMobileGate(); handleOpenObra(obra, 'fotos'); }}
+          onGoMedicao={(obraId) => { handleOpenCronograma(obraId, 'medicao'); setMobileFocus('medicao'); }}
+          onGoFotos={(obra) => { handleOpenObra(obra, 'fotos'); setMobileFocus('fotos'); }}
         />
       )}
-      {authed && !acessoNegado && !showMobileGate && (
+      {authed && !acessoNegado && !showMobileGate && mobileFocus && (
+        <div className="mobile-focus-shell">
+          <div className="mobile-focus-header">
+            <button type="button" className="btn btn-ghost" onClick={() => setMobileFocus(null)}>
+              <Icon name="chevron-left" size={15} />Sair
+            </button>
+          </div>
+          <div className="mobile-focus-body">
+            <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+              {mobileFocus === 'medicao' && (
+                <CronogramaFull
+                  initialObraId={cronogramaObraId}
+                  initialTab="medicao"
+                  obras={obrasVisiveis}
+                  userProfile={userProfile}
+                  hideChrome
+                />
+              )}
+              {mobileFocus === 'fotos' && (
+                <ObraDetail
+                  obra={selectedObra}
+                  initialTab="fotos"
+                  userProfile={userProfile}
+                  onBack={() => setMobileFocus(null)}
+                  onObraUpdate={handleObraUpdate}
+                  onObraDelete={handleObraDelete}
+                  onOpenCronograma={handleOpenCronograma}
+                  hideChrome
+                />
+              )}
+            </React.Suspense>
+          </div>
+        </div>
+      )}
+      {authed && !acessoNegado && !showMobileGate && !mobileFocus && (
     <div className={'app' + (sidebarPinned ? ' sidebar-pinned' : '')} data-screen-label={screenLabels[view] || view}>
       <Sidebar
         currentView={view === 'obra-detail' ? 'obras' : view}
