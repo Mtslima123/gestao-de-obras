@@ -2665,7 +2665,6 @@ tr:hover .obras-row-actions {
 .mm-card-wbs { font-size: 10px; font-weight: 700; color: var(--text-faint); font-family: var(--font-mono); flex-shrink: 0; }
 .mm-card-nome { font-size: 13.5px; font-weight: 600; color: var(--text); flex: 1; }
 .mm-card-sub { font-size: 11px; color: var(--text-muted); }
-.mm-card-valores { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
 .mm-card-medido { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .mm-card-medido span { font-size: 11px; font-weight: 600; color: var(--text-muted); }
 .mm-card-medido .input { width: 64px; height: 36px; text-align: center; font-size: 15px; font-weight: 700; }

@@ -1721,8 +1721,6 @@ export default function MedicaoMensal({
                   </button>
                 );
               }
-              const status = derivarStatus(l);
-              const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
               return (
                 <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')}
                   style={{ borderLeftColor: corPorLinha[l.id], marginLeft: 14 + Math.max(0, profundidade - 1) * 10 }}>
@@ -1740,17 +1738,7 @@ export default function MedicaoMensal({
                       </>
                     )}
                   </div>
-                  <div className="mm-card-sub">{l.pavimento} · {l.dataInicio} → {l.dataTermino} · peso {fmtPct100(peso)}</div>
-                  <div className="progress-row">
-                    <div className={'progress' + (status === 'concluida' ? ' success' : status === 'pendente' ? ' danger' : '')}>
-                      <span style={{ width: `${Math.min(100, l.percExecutado)}%` }} />
-                    </div>
-                    <span className="pct">{fmtPct100(l.percExecutado)}</span>
-                  </div>
-                  <div className="mm-card-valores">
-                    <span>executado {fmtPct100(l.percExecutado)}</span>
-                    <span>a medir {formatBRL(l.valor, 2)} · medido {formatBRL((l.valor * l.percMedido) / 100, 2)}</span>
-                  </div>
+                  <div className="mm-card-sub">{l.pavimento} · {l.dataInicio} → {l.dataTermino}</div>
                   <label className="mm-card-medido">
                     <span>% medido</span>
                     <input
