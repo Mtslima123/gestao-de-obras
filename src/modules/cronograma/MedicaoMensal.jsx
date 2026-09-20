@@ -1715,9 +1715,11 @@ export default function MedicaoMensal({
                       <Icon name="chevron-right" size={nivel0 ? 13 : Math.max(9, 11 - profundidade)} className="mm-etapa-chevron" />
                       {l.descricao}
                     </span>
-                    <span className="mm-etapa-meta">
-                      peso {fmtPct100(l.peso)}{nivel0 && contagemPorGrupo[l.id] != null ? ` · ${contagemPorGrupo[l.id]} tarefa${contagemPorGrupo[l.id] === 1 ? '' : 's'}` : ''}
-                    </span>
+                    {nivel0 && contagemPorGrupo[l.id] != null && (
+                      <span className="mm-etapa-meta">
+                        {contagemPorGrupo[l.id]} tarefa{contagemPorGrupo[l.id] === 1 ? '' : 's'}
+                      </span>
+                    )}
                   </button>
                 );
               }
