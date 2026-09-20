@@ -874,7 +874,18 @@ export default function MedicaoMensal({
     persistirRascunho(proximos, { silencioso: true });
   };
 
-  // Desfaz a inclusão manual de uma tarefa fora do mês.
+  // Desfaz a inclusão manual de uma tarefa fora do mês. Com % medido preenchido, o botão
+  // continua clicável (só desabilitado quando a medição está bloqueada) pra poder avisar
+  // o motivo por toast — um <button disabled> não dispara title/tooltip no toque (mobile
+  // não tem hover), então o aviso silencioso não chegava a quem tentasse remover.
+  const tentarRemoverTarefa = (l) => {
+    if (bloqueado) return;
+    if (l.percMedido > 0) {
+      toast('Zere o % medido antes de remover esta tarefa.', { tone: 'danger', icon: 'alert-triangle' });
+      return;
+    }
+    removerTarefaManual(l.id);
+  };
   const removerTarefaManual = (id) => {
     if (bloqueado) return;
     const nextIds = new Set(idsManuais);
@@ -1473,7 +1484,7 @@ export default function MedicaoMensal({
                             <span className="badge warning" style={{ fontSize: 9.5, padding: '0 5px' }}>fora do mês</span>
                             <button type="button" className="icon-btn-sm"
                               title={l.percMedido > 0 ? 'Zere o % medido antes de remover' : 'Remover tarefa'}
-                              onClick={() => removerTarefaManual(l.id)} disabled={bloqueado || l.percMedido > 0}>
+                              onClick={() => tentarRemoverTarefa(l)} disabled={bloqueado}>
                               <Icon name="x" size={11} />
                             </button>
                           </>
@@ -1743,7 +1754,7 @@ export default function MedicaoMensal({
                       <span className="badge warning" style={{ fontSize: 9.5, padding: '0 5px' }}>fora do mês</span>
                       <button type="button" className="icon-btn-sm"
                         title={l.percMedido > 0 ? 'Zere o % medido antes de remover' : 'Remover tarefa'}
-                        onClick={() => removerTarefaManual(l.id)} disabled={bloqueado || l.percMedido > 0}>
+                        onClick={() => tentarRemoverTarefa(l)} disabled={bloqueado}>
                         <Icon name="x" size={11} />
                       </button>
                     </div>
