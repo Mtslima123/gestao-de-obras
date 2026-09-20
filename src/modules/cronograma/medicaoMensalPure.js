@@ -356,8 +356,12 @@ export function validarAbertura(etapas, mesRefKey, wbsMap) {
 // o default (percExecutado) já aplicado em buildItensMedicao.
 export function mergePercMedido(itensBase, registroItens) {
   if (!registroItens?.length) return itensBase;
-  const salvos = new Map(registroItens.map(r => [r.id, r.percMedido]));
-  return itensBase.map(i => (salvos.has(i.id) ? { ...i, percMedido: salvos.get(i.id) } : i));
+  const salvos = new Map(registroItens.map(r => [r.id, r]));
+  return itensBase.map(i => {
+    const r = salvos.get(i.id);
+    if (!r) return i;
+    return { ...i, percMedido: r.percMedido, ...(r.observacao ? { observacao: r.observacao } : {}) };
+  });
 }
 
 // Snapshot gravado no fechamento: congela o que foi medido para que o histórico não
@@ -382,6 +386,7 @@ export function buildSnapshotFechamento(itens, totais, previstoCongelado = {}) {
       foraDoMes: !!i.foraDoMes,
       percExecutado: i.percExecutado,
       percMedido: i.percMedido,
+      ...(i.observacao ? { observacao: i.observacao } : {}),
       // Campos de exibição também congelam: sem eles a tela de uma medição fechada
       // teria que voltar ao cronograma para montar a árvore e as datas, e mudaria
       // junto com ele.
@@ -422,6 +427,7 @@ export function hidratarSnapshot(registroItens, etapas, { wbsMap = {}, disciplin
       foraDoMes: !!i.foraDoMes,
       percExecutado: i.percExecutado || 0,
       percMedido: i.percMedido || 0,
+      observacao: i.observacao || '',
       status: undefined,
     };
   });

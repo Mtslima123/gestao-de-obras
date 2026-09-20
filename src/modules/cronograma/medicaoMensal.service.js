@@ -68,7 +68,12 @@ export const medicaoMensalService = {
       obra_id: obraId,
       mes_referencia: mesReferencia,
       status: 'rascunho',
-      itens: itens.map(i => ({ id: i.id, percMedido: i.percMedido, ...(i.foraDoMes ? { manual: true } : {}) })),
+      itens: itens.map(i => ({
+        id: i.id,
+        percMedido: i.percMedido,
+        ...(i.foraDoMes ? { manual: true } : {}),
+        ...(i.observacao ? { observacao: i.observacao } : {}),
+      })),
       ...(previstoCongelado ? {
         perc_previsto: previstoCongelado.percPrevisto,
         perc_previsto_acumulado: previstoCongelado.percPrevistoAcumulado,

@@ -340,6 +340,14 @@ describe('buildSnapshotFechamento', () => {
       'nivel', 'parentId', 'pavimento', 'percExecutado', 'percMedido', 'valor', 'wbs',
     ]);
   });
+
+  it('congela a observação quando o item tem uma, e não grava a chave quando não tem', () => {
+    const itens = buildItensMedicao(etapas, MES, opts).map(i => (i.id === 'A' ? { ...i, observacao: 'Aguardando material' } : i));
+    const totais = computeTotaisMedicao(itens, 2500);
+    const snap = buildSnapshotFechamento(itens, totais);
+    expect(snap.itens.find(i => i.id === 'A').observacao).toBe('Aguardando material');
+    expect(snap.itens.find(i => i.id === 'B')).not.toHaveProperty('observacao');
+  });
 });
 
 describe('hidratarSnapshot', () => {
@@ -373,6 +381,15 @@ describe('hidratarSnapshot', () => {
   it('devolve vazio sem itens', () => {
     expect(hidratarSnapshot([], etapas)).toEqual([]);
     expect(hidratarSnapshot(null, etapas)).toEqual([]);
+  });
+
+  it('mantém a observação congelada, ou string vazia quando o item não tem', () => {
+    const itensComNota = buildItensMedicao(etapas, MES, opts).map(i => (i.id === 'A' ? { ...i, observacao: 'Aguardando material' } : i));
+    const totaisComNota = computeTotaisMedicao(itensComNota, 2500);
+    const snapComNota = buildSnapshotFechamento(itensComNota, totaisComNota);
+    const linhas = hidratarSnapshot(snapComNota.itens, [], { wbsMap, disciplinaInfo });
+    expect(linhas.find(l => l.id === 'A').observacao).toBe('Aguardando material');
+    expect(linhas.find(l => l.id === 'B').observacao).toBe('');
   });
 });
 

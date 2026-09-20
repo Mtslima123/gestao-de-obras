@@ -2669,6 +2669,23 @@ tr:hover .obras-row-actions {
 }
 .mm-card-input { width: 52px; height: 36px; padding: 0 4px; text-align: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
 
+.mm-card-nota-toggle {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; box-sizing: border-box;
+  padding: 6px 8px; border-radius: 7px;
+  border: 1px dashed var(--border-strong); background: none;
+  color: var(--text-muted); font-size: 11px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.mm-card-nota-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-card-nota-toggle:disabled { opacity: .5; cursor: default; }
+.mm-card-nota-toggle.has-nota { border: 1px solid var(--border); background: var(--brand-tint); color: var(--brand); }
+.mm-card-nota-editor { display: flex; flex-direction: column; gap: 6px; }
+.mm-card-nota-textarea {
+  height: auto; min-height: 60px; padding: 8px; text-align: left;
+  font-size: 12px; font-family: inherit; resize: vertical; width: 100%;
+}
+.mm-card-nota-actions { display: flex; justify-content: flex-end; gap: 6px; }
+
 .mm-mobile-total {
   background: var(--brand-700); color: #fff; border-radius: 10px; padding: 10px 14px;
   display: flex; flex-direction: column; gap: 3px;

@@ -495,6 +495,12 @@ export default function MedicaoMensal({
   const [modalIncluirAberto, setModalIncluirAberto] = React.useState(false);
   const [modalEnviarAberto, setModalEnviarAberto] = React.useState(false);
 
+  // Observação por tarefa (card mobile): editor embutido no card, some fechado por
+  // padrão — só abre id-a-id (notasAbertas) com um rascunho próprio (notaDrafts) até
+  // "Salvar" gravar em itensTrabalho/persistirRascunho; "Cancelar" descarta o rascunho.
+  const [notasAbertas, setNotasAbertas] = React.useState(() => new Set());
+  const [notaDrafts, setNotaDrafts] = React.useState({});
+
   // Grupos recolhidos (ids). Local: recolher aqui não mexe no cronograma.
   const [collapsed, setCollapsed] = React.useState(() => new Set());
   // Último nível escolhido no select "Estrutura", só para o select mostrar o que foi
@@ -786,6 +792,23 @@ export default function MedicaoMensal({
       saveTimerRef.current = setTimeout(() => persistirRascunho(proximos, { silencioso: true }), 800);
       return proximos;
     });
+  };
+
+  // Observação por tarefa (mobile) — ver notasAbertas/notaDrafts acima.
+  const abrirNota = (l) => {
+    setNotaDrafts(prev => ({ ...prev, [l.id]: l.observacao || '' }));
+    setNotasAbertas(prev => new Set(prev).add(l.id));
+  };
+  const fecharNota = (id) => {
+    setNotasAbertas(prev => { const next = new Set(prev); next.delete(id); return next; });
+  };
+  const salvarNota = (id) => {
+    if (bloqueado) return;
+    const texto = (notaDrafts[id] || '').trim();
+    const proximos = itensTrabalho.map(l => (l.id === id ? { ...l, observacao: texto } : l));
+    setItensTrabalho(proximos);
+    persistirRascunho(proximos);
+    fecharNota(id);
   };
 
   const alternarGrupo = (id) => {
@@ -1758,6 +1781,31 @@ export default function MedicaoMensal({
                         <Icon name="x" size={11} />
                       </button>
                     </div>
+                  )}
+                  {notasAbertas.has(l.id) ? (
+                    <div className="mm-card-nota-editor">
+                      <textarea
+                        className="input mm-card-nota-textarea"
+                        value={notaDrafts[l.id] ?? ''}
+                        disabled={bloqueado}
+                        placeholder="Ex.: motivo do atraso, pendência, combinado com o cliente…"
+                        aria-label={`Observação de ${l.descricao}`}
+                        onChange={e => setNotaDrafts(prev => ({ ...prev, [l.id]: e.target.value }))}
+                      />
+                      <div className="mm-card-nota-actions">
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => fecharNota(l.id)}>Cancelar</button>
+                        <button type="button" className="btn btn-dark btn-sm" disabled={bloqueado} onClick={() => salvarNota(l.id)}>Salvar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button type="button"
+                      className={'mm-card-nota-toggle' + (l.observacao ? ' has-nota' : '')}
+                      disabled={bloqueado && !l.observacao}
+                      onClick={() => abrirNota(l)}>
+                      <Icon name={l.observacao ? 'message-square' : 'plus'} size={13} />
+                      <span>{l.observacao || 'Adicionar observação'}</span>
+                      {l.observacao && <Icon name="chevron-down" size={12} />}
+                    </button>
                   )}
                 </div>
               );
