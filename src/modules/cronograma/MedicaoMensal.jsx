@@ -1531,34 +1531,43 @@ export default function MedicaoMensal({
                         )}
                         {/* Observação por tarefa — mesmo campo/handlers do card mobile
                             (abrirNota/fecharNota/salvarNota, notasAbertas/notaDrafts),
-                            só a casca de popover muda: sincroniza sozinho com o celular. */}
-                        <span className="mm-row-nota-wrap">
-                          <button type="button"
-                            className={'mm-row-nota-btn' + (l.observacao ? ' has-nota' : '')}
-                            title={l.observacao || 'Adicionar observação'}
-                            disabled={bloqueado && !l.observacao}
-                            onClick={() => (notasAbertas.has(l.id) ? fecharNota(l.id) : abrirNota(l))}>
-                            <Icon name={l.observacao ? 'message-square' : 'plus'} size={13} />
-                          </button>
-                          {notasAbertas.has(l.id) && (
-                            <div className="mm-row-nota-popover" onClick={e => e.stopPropagation()}>
-                              <div className="mm-card-nota-editor">
-                                <textarea
-                                  className="input mm-card-nota-textarea"
-                                  value={notaDrafts[l.id] ?? ''}
-                                  disabled={bloqueado}
-                                  placeholder="Ex.: motivo do atraso, pendência, combinado com o cliente…"
-                                  aria-label={`Observação de ${l.descricao}`}
-                                  onChange={e => setNotaDrafts(prev => ({ ...prev, [l.id]: e.target.value }))}
-                                />
-                                <div className="mm-card-nota-actions">
-                                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => fecharNota(l.id)}>Cancelar</button>
-                                  <button type="button" className="btn btn-dark btn-sm" disabled={bloqueado} onClick={() => salvarNota(l.id)}>Salvar</button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </span>
+                            sincroniza sozinho com o celular. Editor em Modal (portal pra
+                            document.body) em vez de popover posicionado: a célula fica
+                            dentro de um <td> com overflow:hidden (.tbl-lista, linha fina
+                            de 24px) — um popover absoluto ali dentro ficava sempre
+                            cortado/invisível, mesmo abrindo de verdade. */}
+                        <button type="button"
+                          className={'mm-row-nota-btn' + (l.observacao ? ' has-nota' : '')}
+                          title={l.observacao || 'Adicionar observação'}
+                          disabled={bloqueado && !l.observacao}
+                          onClick={() => abrirNota(l)}>
+                          <Icon name={l.observacao ? 'message-square' : 'plus'} size={13} />
+                        </button>
+                        {notasAbertas.has(l.id) && (
+                          <Modal
+                            title="Observação"
+                            subtitle={l.descricao}
+                            onClose={() => fecharNota(l.id)}
+                            overlay={false}
+                            footer={
+                              <>
+                                <div className="spacer" />
+                                <button className="btn btn-ghost" onClick={() => fecharNota(l.id)}>Cancelar</button>
+                                <button className="btn btn-dark" disabled={bloqueado} onClick={() => salvarNota(l.id)}>Salvar</button>
+                              </>
+                            }
+                          >
+                            <textarea
+                              className="input"
+                              style={{ width: '100%', minHeight: 120, padding: 10, fontSize: 13.5, fontFamily: 'inherit', resize: 'vertical' }}
+                              value={notaDrafts[l.id] ?? ''}
+                              disabled={bloqueado}
+                              placeholder="Ex.: motivo do atraso, pendência, combinado com o cliente…"
+                              aria-label={`Observação de ${l.descricao}`}
+                              onChange={e => setNotaDrafts(prev => ({ ...prev, [l.id]: e.target.value }))}
+                            />
+                          </Modal>
+                        )}
                       </div>
                     </td>
                     <td>{l.pavimento}</td>
