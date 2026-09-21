@@ -1412,7 +1412,7 @@ export default function MedicaoMensal({
             flex item não encolhe e o scroll vaza para a página. */}
         <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
           {/* tbl-lista: cabeçalho azul e altura de linha fina, os mesmos da Lista. */}
-          <table className="tbl tbl-lista" style={{ minWidth: 1240, '--lista-row-h': '24px' }}>
+          <table className="tbl tbl-lista tbl-medicao" style={{ minWidth: 1240, '--lista-row-h': '24px' }}>
             <colgroup>
               {MEDICAO_COL_IDS.map(id => <col key={id} style={{ width: getColW(id) }} />)}
             </colgroup>
@@ -1549,6 +1549,8 @@ export default function MedicaoMensal({
                             subtitle={l.descricao}
                             onClose={() => fecharNota(l.id)}
                             overlay={false}
+                            draggable
+                            resizable
                             footer={
                               <>
                                 <div className="spacer" />

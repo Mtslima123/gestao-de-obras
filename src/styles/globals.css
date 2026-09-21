@@ -2696,6 +2696,15 @@ tr:hover .obras-row-actions {
 }
 .mm-row-nota-btn:hover { background: var(--surface-muted); color: var(--text-muted); }
 .mm-row-nota-btn.has-nota { color: var(--brand); }
+/* Tablet/touch: a linha de 24px da tabela é precisa demais pra tocar no botão de
+   observação (20x20px). Só entra em ponteiro grosso (touch) — mouse continua com a
+   grade compacta de sempre. !important porque a altura vem de uma CSS var inline na
+   própria <table> (--lista-row-h). Escopado só à tabela da Medição (.tbl-medicao), não
+   ao resto da Lista/Gantt que usa a mesma classe .tbl-lista. */
+@media (pointer: coarse) {
+  .tbl-medicao { --lista-row-h: 32px !important; }
+  .tbl-medicao .mm-row-nota-btn { width: 28px; height: 28px; }
+}
 
 .mm-mobile-total {
   background: var(--brand-700); color: #fff; border-radius: 10px; padding: 10px 14px;
