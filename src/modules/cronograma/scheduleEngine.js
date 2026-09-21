@@ -303,8 +303,10 @@ export function propagateDrag(etapas, endDeltaMap, startDeltaMap = {}) {
     const id = queue.shift();
     for (const sid of (succs[id] || [])) {
       if (visited.has(sid)) continue;
-      // Sucessora manual (Modo da Tarefa): datas fixas — não é empurrada nem propaga adiante.
-      if (etapas.find(x => x.id === sid)?.modo === 'manual') { visited.add(sid); continue; }
+      // Sucessora manual (Modo da Tarefa) ou 100% concluída: datas travadas — não é
+      // empurrada nem propaga adiante. Volta a mover se o % concluída voltar pra 0.
+      const sucEtapa = etapas.find(x => x.id === sid);
+      if (sucEtapa?.modo === 'manual' || (sucEtapa?.avanco ?? 0) >= 100) { visited.add(sid); continue; }
       // Verifica o tipo da dependência que liga sid ao predecessor id
       const deps = getDepsOf(sid);
       const depOnId = deps.find(d => d.id === id);
@@ -372,9 +374,11 @@ function schedulePass(etapas) {
 
   order.forEach(id => {
     const e = upd[id];
-    // Tarefa manual (Modo da Tarefa): datas fixas pelo usuário — não é reagendada.
-    // Ainda serve de predecessora pelas próprias datas (permanece em `upd`).
-    if (!e || e.isGroup || e.modo === 'manual') return;
+    // Tarefa manual (Modo da Tarefa) ou 100% concluída: datas fixas — não é reagendada
+    // nem pela própria duração, nem por predecessora que mudou de data. Volta a ser
+    // reagendada se o % concluída voltar pra 0 (edição manual do AVANÇO, ex.). Ainda
+    // serve de predecessora pelas próprias datas (permanece em `upd`).
+    if (!e || e.isGroup || e.modo === 'manual' || (e.avanco ?? 0) >= 100) return;
 
     const tipo   = e.restricaoTipo;
     const isAsap = !tipo || tipo === 'asap';

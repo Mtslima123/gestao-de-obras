@@ -2127,6 +2127,24 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [ctxMenu]);
 
+  // Devolve o foco pro grid sempre que o menu de contexto fecha (clique num item,
+  // Escape ou clique fora) — clicar num <button> do menu (ex.: "Reprogramar restante")
+  // dá foco a ele (padrão do Chromium) e o item some do DOM logo em seguida
+  // (setCtxMenu(null)), deixando o navegador decidir pra onde o foco vai; se cair num
+  // lugar que o atalho global de desfazer não reconheça como INPUT/SELECT/TEXTAREA
+  // (Cronograma.jsx), o Ctrl+Z seguinte deveria funcionar mesmo assim — mas sem foco
+  // nenhum garantido, não dá pra confirmar sem inspecionar ao vivo. Aqui fecha essa
+  // lacuna de vez: o grid (mesmo elemento que já recebe onKeyDown) sempre reganha foco.
+  const ctxMenuAbertoRef = React.useRef(false);
+  React.useEffect(() => {
+    if (ctxMenu) {
+      ctxMenuAbertoRef.current = true;
+    } else if (ctxMenuAbertoRef.current) {
+      ctxMenuAbertoRef.current = false;
+      listaScrollRef.current?.focus?.({ preventScroll: true });
+    }
+  }, [ctxMenu]);
+
   // Clique fora do card da Lista inteira (ribbon + tabela + popovers/modais internos, todos
   // dentro de listaRef) limpa a seleção de célula/linha — sem isso, criar uma tarefa e clicar
   // em qualquer outro lugar da tela deixava a seleção "presa" visualmente na grade.
