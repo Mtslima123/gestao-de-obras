@@ -822,7 +822,24 @@ export default function MedicaoMensal({
       if (mobileView && estaFechado && nivel0Ids.includes(id)) {
         nivel0Ids.forEach(gid => next.add(gid));
       }
-      if (estaFechado) next.delete(id); else next.add(id);
+      if (estaFechado) {
+        next.delete(id);
+        // Ao abrir um grupo, os subgrupos logo abaixo dele sempre voltam recolhidos —
+        // sem isso, abrir uma etapa já revelava a subárvore inteira de uma vez (nenhum
+        // subnível tinha sido tocado ainda, então não estava em `collapsed`). Mesma
+        // varredura depth-first de contagemPorGrupo/corPorLinha.
+        const idx = arvoreCompleta.findIndex(l => l.id === id);
+        if (idx !== -1) {
+          const nivelAtual = arvoreCompleta[idx].nivel || 0;
+          for (let i = idx + 1; i < arvoreCompleta.length; i++) {
+            const cur = arvoreCompleta[i];
+            if (cur.tipo === 'grupo' && (cur.nivel || 0) <= nivelAtual) break;
+            if (cur.tipo === 'grupo') next.add(cur.id);
+          }
+        }
+      } else {
+        next.add(id);
+      }
       return next;
     });
   };
@@ -1512,6 +1529,36 @@ export default function MedicaoMensal({
                             </button>
                           </>
                         )}
+                        {/* Observação por tarefa — mesmo campo/handlers do card mobile
+                            (abrirNota/fecharNota/salvarNota, notasAbertas/notaDrafts),
+                            só a casca de popover muda: sincroniza sozinho com o celular. */}
+                        <span className="mm-row-nota-wrap">
+                          <button type="button"
+                            className={'mm-row-nota-btn' + (l.observacao ? ' has-nota' : '')}
+                            title={l.observacao || 'Adicionar observação'}
+                            disabled={bloqueado && !l.observacao}
+                            onClick={() => (notasAbertas.has(l.id) ? fecharNota(l.id) : abrirNota(l))}>
+                            <Icon name={l.observacao ? 'message-square' : 'plus'} size={13} />
+                          </button>
+                          {notasAbertas.has(l.id) && (
+                            <div className="mm-row-nota-popover" onClick={e => e.stopPropagation()}>
+                              <div className="mm-card-nota-editor">
+                                <textarea
+                                  className="input mm-card-nota-textarea"
+                                  value={notaDrafts[l.id] ?? ''}
+                                  disabled={bloqueado}
+                                  placeholder="Ex.: motivo do atraso, pendência, combinado com o cliente…"
+                                  aria-label={`Observação de ${l.descricao}`}
+                                  onChange={e => setNotaDrafts(prev => ({ ...prev, [l.id]: e.target.value }))}
+                                />
+                                <div className="mm-card-nota-actions">
+                                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => fecharNota(l.id)}>Cancelar</button>
+                                  <button type="button" className="btn btn-dark btn-sm" disabled={bloqueado} onClick={() => salvarNota(l.id)}>Salvar</button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </span>
                       </div>
                     </td>
                     <td>{l.pavimento}</td>

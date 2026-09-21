@@ -2686,6 +2686,24 @@ tr:hover .obras-row-actions {
 }
 .mm-card-nota-actions { display: flex; justify-content: flex-end; gap: 6px; }
 
+/* Mesma observação por tarefa, versão desktop: botão de ícone na célula DESCRIÇÃO que
+   abre um popover flutuante (a linha da tabela tem 24px de altura, não dá pra expandir
+   inline como no card). Miolo (textarea/botões) reaproveita as classes .mm-card-nota-*
+   acima — só o wrapper de posicionamento é novo. */
+.mm-row-nota-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 5px; border: none; background: none;
+  color: var(--text-faint); cursor: pointer; flex-shrink: 0;
+}
+.mm-row-nota-btn:hover { background: var(--surface-muted); color: var(--text-muted); }
+.mm-row-nota-btn.has-nota { color: var(--brand); }
+.mm-row-nota-wrap { position: relative; display: inline-flex; }
+.mm-row-nota-popover {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
+  width: 260px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.18); padding: 10px;
+}
+
 .mm-mobile-total {
   background: var(--brand-700); color: #fff; border-radius: 10px; padding: 10px 14px;
   display: flex; flex-direction: column; gap: 3px;
