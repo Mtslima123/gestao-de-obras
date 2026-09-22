@@ -596,7 +596,7 @@ export function parseDep(raw, etapas) {
 
 // ─── Atualização de campo (Lista e Formulário de Tarefa) ─────────────────────
 // Campos que exigem reprogramação (recalcular datas via dependências)
-export const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricao', 'restricaoTipo', 'restricaoData', 'modo'];
+export const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricao', 'restricaoTipo', 'restricaoData', 'modo', 'avanco'];
 
 // Aplica um único campo a uma etapa (conversões de valor). Reutilizado pela Lista
 // (célula editável, colar em bloco) e pelo Formulário de Tarefa do Gantt.
@@ -661,6 +661,11 @@ export function etapaMudouParaAgendamento(antes, depois) {
     || antes.modo !== depois.modo
     || antes.restricaoTipo !== depois.restricaoTipo
     || antes.restricaoData !== depois.restricaoData
+    // Cruzar o limiar de 100% (não o valor bruto do avanço): é o único jeito de avanço
+    // mudar se a tarefa participa do agendamento (schedulePass/propagateDrag travam em
+    // avanco>=100). Subir de 40% pra 60%, por exemplo, não reagenda nada — correto, nada
+    // muda pra ela nem pras que dependem dela.
+    || ((antes.avanco ?? 0) >= 100) !== ((depois.avanco ?? 0) >= 100)
     || JSON.stringify(antes.dep || []) !== JSON.stringify(depois.dep || []);
 }
 

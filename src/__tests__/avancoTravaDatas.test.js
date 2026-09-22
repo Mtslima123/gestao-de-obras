@@ -4,7 +4,7 @@
 // usado para `modo === 'manual'` (schedulePass/propagateDrag em scheduleEngine.js).
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setWorkCal, taskEnd, offsetToISO } from '../modules/cronograma/cronogramaDateUtils';
-import { autoScheduleFromDeps, applyFieldToEtapa, commitFieldChange, propagateDrag } from '../modules/cronograma/scheduleEngine';
+import { autoScheduleFromDeps, commitFieldChange, propagateDrag } from '../modules/cronograma/scheduleEngine';
 
 beforeEach(() => {
   setWorkCal({ dias: [], sabadoUtil: false });
@@ -48,9 +48,10 @@ describe('tarefa 100% concluída: datas travadas', () => {
     const travado = commitFieldChange(etapas, 'P', 'duracaoDias', '20');
     expect(travado.find(e => e.id === 'S').inicio).toBe(5); // continua travada
 
-    // Edição manual da célula AVANÇO (mesmo caminho da Lista) zera o % concluída.
-    const zerado = travado.map(e => (e.id === 'S' ? applyFieldToEtapa(e, 'avanco', '0', travado) : e));
-    const reagendado = autoScheduleFromDeps(zerado);
+    // commitFieldChange, não applyFieldToEtapa + autoScheduleFromDeps manual: é o caminho
+    // real da célula AVANÇO na Lista (ListaInterativa.jsx:handleCellSave/applyBlockEdits) —
+    // só ele decide SOZINHO se reagenda, via RESCHEDULE_FIELDS/etapaMudouParaAgendamento.
+    const reagendado = commitFieldChange(travado, 'S', 'avanco', '0');
     const p = reagendado.find(e => e.id === 'P');
     const s = reagendado.find(e => e.id === 'S');
     expect(s.inicio).toBe(taskEnd(p)); // agora sim segue a predecessora
