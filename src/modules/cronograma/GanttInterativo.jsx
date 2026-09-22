@@ -1785,8 +1785,11 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           )}
 
           {/* ── SVG: setas de dependência tipadas (TI/TT/II/IT) ──────────── */}
+          {/* +GM_ROW_H quando "Tarefa Resumo do Projeto" está ligada: essa linha sintética
+             (:1459 e vizinhas) entra ANTES das linhas de tarefa reais e empurra visible[0]
+             uma linha pra baixo — sem somar aqui, toda seta nascia 36px acima da barra. */}
           <svg style={{
-            position: 'absolute', top: headerH, left: labelWidth,
+            position: 'absolute', top: headerH + (showProjSummary ? GM_ROW_H : 0), left: labelWidth,
             width: tlW, height: visible.length * GM_ROW_H,
             pointerEvents: 'none', overflow: 'visible',
           }}>
@@ -1811,12 +1814,21 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                 const eBar = getBar(e);
                 const warn = conflictIds.has(e.id) || conflictIds.has(dId);
 
-                // Âncoras por tipo de vínculo
+                // Âncoras por tipo de vínculo. taskEnd, não inicio+dur bruto: a BARRA já
+                // desenha sua largura em dias ÚTEIS (workEnd, mais abaixo) — toda tarefa
+                // que atravessa fim de semana/feriado terminava, na tela, depois do ponto
+                // que inicio+dur cru apontava, e a seta nascia por dentro da barra em vez
+                // de na ponta (erro cresce com dias não-úteis atravessados × zoomDayW).
+                // -3 em taskEnd(dBar)/taskEnd(eBar) do lado do término: a barra em si é
+                // desenhada com 3px de recuo em cada ponta (left: posX(inicio)+3, width:
+                // ...-6 — ver renderização da barra, abaixo), então a borda direita REAL
+                // fica em posX(taskEnd)-3, não posX(taskEnd) puro. Confirmado com harness
+                // (getBoundingClientRect da barra vs fx calculado) até a diferença zerar.
                 let fx, tx;
-                if (tipo === 'TI') { fx = posX(dBar.inicio + dBar.dur); tx = posX(eBar.inicio) + 4; }
-                else if (tipo === 'TT') { fx = posX(dBar.inicio + dBar.dur); tx = posX(eBar.inicio + eBar.dur) - 4; }
+                if (tipo === 'TI') { fx = posX(taskEnd(dBar)) - 3; tx = posX(eBar.inicio) + 4; }
+                else if (tipo === 'TT') { fx = posX(taskEnd(dBar)) - 3; tx = posX(taskEnd(eBar)) - 3; }
                 else if (tipo === 'II') { fx = posX(dBar.inicio); tx = posX(eBar.inicio) + 4; }
-                else /* IT */           { fx = posX(dBar.inicio); tx = posX(eBar.inicio + eBar.dur) - 4; }
+                else /* IT */           { fx = posX(dBar.inicio); tx = posX(taskEnd(eBar)) - 3; }
 
                 const fy  = depIdx * GM_ROW_H + GM_ROW_H / 2;
                 const ty  = i * GM_ROW_H + GM_ROW_H / 2;
