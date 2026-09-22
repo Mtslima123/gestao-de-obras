@@ -197,7 +197,7 @@ export const DataInicioProjetoModal = ({ dataAtualISO, onConfirm, onClose }) => 
 // ─── RowHeightModal ───────────────────────────────────────────────────────────
 // Caixa "Altura da linha" (estilo Excel). A grade usa altura uniforme, então o valor
 // vale para todas as linhas da tabela.
-export const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 }) => {
+export const RowHeightModal = ({ value, min, max, onApply, onReset, onClose, count = 1 }) => {
   const [val, setVal] = React.useState(String(value));
 
   const doApply = () => {
@@ -216,6 +216,11 @@ export const RowHeightModal = ({ value, min, max, onApply, onClose, count = 1 })
       overlay={false}
       footer={
         <>
+          {/* Digitar um número "no chute" não garante bater com o padrão real da tabela
+              (rowH pode não ser mais 21px) — Restaurar padrão remove o override em vez de
+              setar um valor, então sempre fica idêntico a qualquer linha não customizada. */}
+          <button className="btn btn-ghost" onClick={() => { onReset(); onClose(); }}>Restaurar padrão</button>
+          <div className="spacer" />
           <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
           <button className="btn btn-primary" onClick={doApply}>OK</button>
         </>

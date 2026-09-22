@@ -4541,6 +4541,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             rowHDialogTargets.forEach(id => { next[id] = v; });
             return next;
           })}
+          onReset={() => onRowHeightsChange?.(prev => {
+            const next = { ...prev };
+            rowHDialogTargets.forEach(id => { delete next[id]; });
+            return next;
+          })}
           onClose={() => setShowRowHDialog(false)}
         />
       )}
