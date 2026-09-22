@@ -45,13 +45,28 @@ export const medicaoMensalService = {
   // recente primeiro. Serve para duas coisas: marcar o estado de cada mês no seletor e
   // alimentar o histórico (as fechadas são um filtro em memória). Sem `itens` no select:
   // o JSONB é grande e aqui só interessa o cabeçalho de cada medição.
+  //
+  // aprovada_em/aprovada_por (migration 20260922000001) podem ainda não existir em
+  // produção — sem o fallback, um SELECT pedindo coluna inexistente falha por inteiro
+  // (PGRST204) e listarMeses degradaria pra [], apagando o histórico/estado de TODOS os
+  // meses da tela até a migration ser aplicada, não só a aprovação. Mesmo padrão de
+  // degradação graciosa de upsertComFallback, abaixo, só que pro lado do SELECT.
   async listarMeses(obraId) {
     if (!obraId) return [];
-    const { data, error } = await supabase
+    const colunasCompletas = 'mes_referencia, status, updated_at, fechada_em, fechada_por, aprovada_em, aprovada_por, perc_medido, valor_total_medido';
+    const colunasSemAprovacao = 'mes_referencia, status, updated_at, fechada_em, fechada_por, perc_medido, valor_total_medido';
+    let { data, error } = await supabase
       .from('medicoes_mensais')
-      .select('mes_referencia, status, updated_at, fechada_em, fechada_por, perc_medido, valor_total_medido')
+      .select(colunasCompletas)
       .eq('obra_id', obraId)
       .order('mes_referencia', { ascending: false });
+    if (error && colunaAusente(error)) {
+      ({ data, error } = await supabase
+        .from('medicoes_mensais')
+        .select(colunasSemAprovacao)
+        .eq('obra_id', obraId)
+        .order('mes_referencia', { ascending: false }));
+    }
     if (error) {
       logger.error('falha ao listar medições da obra', { module: 'medicaoMensal', action: 'listarMeses', obraId, err: error });
       return [];
@@ -130,6 +145,36 @@ export const medicaoMensalService = {
       .maybeSingle();
     if (error) {
       logger.error('falha ao reabrir medição mensal', { module: 'medicaoMensal', action: 'reabrir', obraId, mesReferencia, err: error });
+      return { data: null, error };
+    }
+    return { data, error: null };
+  },
+
+  // Aprova uma medição já fechada: libera a abertura do mês seguinte (ver
+  // anteriorNaoAprovada em MedicaoMensal.jsx). Mesmo motivo de reabrir() pra precisar de
+  // RPC (SECURITY DEFINER, supabase/migrations/20260922000001) em vez de update direto —
+  // a RESTRICTIVE "medicoes_mensais_no_edit_fechada" só libera UPDATE partindo de
+  // rascunho, então fechada->aprovada também seria filtrada silenciosamente.
+  async aprovar(obraId, mesReferencia, aprovadaPor) {
+    const { data, error } = await supabase
+      .rpc('aprovar_medicao_mensal', { p_obra_id: obraId, p_mes_referencia: mesReferencia, p_aprovada_por: aprovadaPor || null })
+      .maybeSingle();
+    if (error) {
+      logger.error('falha ao aprovar medição mensal', { module: 'medicaoMensal', action: 'aprovar', obraId, mesReferencia, err: error });
+      return { data: null, error };
+    }
+    return { data, error: null };
+  },
+
+  // Desfaz a aprovação: volta pra 'fechada' (não pra 'rascunho' direto — reabrir() é o
+  // passo seguinte, separado, se também precisar destravar o % medido). Mesma RPC
+  // dedicada, mesmo motivo.
+  async desaprovar(obraId, mesReferencia) {
+    const { data, error } = await supabase
+      .rpc('desaprovar_medicao_mensal', { p_obra_id: obraId, p_mes_referencia: mesReferencia })
+      .maybeSingle();
+    if (error) {
+      logger.error('falha ao desaprovar medição mensal', { module: 'medicaoMensal', action: 'desaprovar', obraId, mesReferencia, err: error });
       return { data: null, error };
     }
     return { data, error: null };

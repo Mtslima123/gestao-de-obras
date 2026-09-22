@@ -80,6 +80,62 @@ function ModalReabrirMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
   );
 }
 
+function ModalAprovarMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
+  return (
+    <Modal
+      title="Aprovar medição"
+      subtitle={mesLabel(mesRefKey)}
+      onClose={onClose}
+      overlay={false}
+      footer={
+        <>
+          <div className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button
+            className="btn"
+            style={{ background: 'var(--success)', color: '#fff' }}
+            disabled={salvando}
+            onClick={onConfirmar}
+          >
+            <Icon name="check" size={14} />{salvando ? 'Aprovando…' : 'Confirmar aprovação'}
+          </button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--text-soft)' }}>
+        Isso aprova a medição de {mesLabel(mesRefKey)} e libera a abertura do mês seguinte.
+        Deseja continuar?
+      </p>
+    </Modal>
+  );
+}
+
+function ModalDesaprovarMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
+  return (
+    <Modal
+      title="Desaprovar medição"
+      subtitle={mesLabel(mesRefKey)}
+      onClose={onClose}
+      overlay={false}
+      footer={
+        <>
+          <div className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" disabled={salvando} onClick={onConfirmar}>
+            <Icon name="refresh-cw" size={14} />{salvando ? 'Desaprovando…' : 'Desaprovar'}
+          </button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--text-soft)' }}>
+        Isso volta {mesLabel(mesRefKey)} para "fechada" e bloqueia de novo a abertura do mês
+        seguinte, até aprovar novamente. O % medido continua travado — use "Reabrir medição"
+        depois disso se também precisar editar os valores.
+      </p>
+    </Modal>
+  );
+}
+
 function ModalLimparMedicao({ mesRefKey, qtd, salvando, onClose, onConfirmar }) {
   return (
     <Modal
@@ -459,8 +515,13 @@ export default function MedicaoMensal({
   const [pavimento, setPavimento] = React.useState('Todos');
   const [mostrarConfirmFechar, setMostrarConfirmFechar] = React.useState(false);
   const [mostrarConfirmReabrir, setMostrarConfirmReabrir] = React.useState(false);
+  const [mostrarConfirmAprovar, setMostrarConfirmAprovar] = React.useState(false);
+  const [mostrarConfirmDesaprovar, setMostrarConfirmDesaprovar] = React.useState(false);
   const [mostrarConfirmLimpar, setMostrarConfirmLimpar] = React.useState(false);
   const [mostrarConfirmExcluir, setMostrarConfirmExcluir] = React.useState(false);
+  // { mesKey, pendentes } — mesKey é o mês que a checagem mirou (pode ser o mês sendo
+  // aberto OU o mês seguinte ao que está sendo aprovado, ver aprovarMedicao), não
+  // necessariamente o mês selecionado na tela.
   const [pendenciasAbertura, setPendenciasAbertura] = React.useState(null);
 
   // Largura das colunas da tabela principal — mesmo padrão de ListaInterativa.jsx.
@@ -590,28 +651,37 @@ export default function MedicaoMensal({
     () => Object.fromEntries(mesesComMedicao.map(m => [m.mes_referencia, m.status])),
     [mesesComMedicao]
   );
-  const fechadas = React.useMemo(() => mesesComMedicao.filter(m => m.status === 'fechada'), [mesesComMedicao]);
+  // 'aprovada' entra na mesma lista de 'fechada': é o mesmo snapshot congelado, só que
+  // num passo adiante do ciclo — some do histórico seria uma regressão (o mês mais
+  // "definitivo" de todos desaparecendo da lista de fechamentos).
+  const fechadas = React.useMemo(() => mesesComMedicao.filter(m => m.status === 'fechada' || m.status === 'aprovada'), [mesesComMedicao]);
 
-  const fechada = registro?.status === 'fechada';
+  const aprovada = registro?.status === 'aprovada';
+  const fechada = registro?.status === 'fechada' || aprovada;
   const aberta = !!registro && !fechada;
   // Sem registro no banco a medição não existe: nada editável até "Abrir medição".
   // Antes a ausência de registro deixava a tela livre, indistinguível de um rascunho.
   const bloqueado = readOnly || fechada || !registro;
 
   // Ciclo de abertura/fechamento precisa seguir a ordem dos meses: não dá pra abrir um mês
-  // enquanto o anterior ainda está em rascunho, nem reabrir um mês enquanto algum posterior
-  // já foi fechado (senão os dois documentos fechados deixam de bater com a ordem real).
+  // enquanto o anterior não estiver aprovado, nem reabrir/desaprovar um mês enquanto algum
+  // posterior já foi criado (senão os documentos deixam de bater com a ordem real).
   const mesIdxAtual = months.findIndex(m => m.key === mesRefKey);
   const mesAnterior = mesIdxAtual > 0 ? months[mesIdxAtual - 1] : null;
-  const anteriorAberta = !!mesAnterior && statusPorMes[mesAnterior.key] === 'rascunho';
+  const statusAnterior = mesAnterior ? statusPorMes[mesAnterior.key] : undefined;
+  // Antes bastava o mês anterior estar 'fechada'; agora precisa estar 'aprovada' — fechar
+  // já não é mais suficiente pra liberar o mês seguinte, só aprovar (ver aprovarMedicao).
+  const anteriorNaoAprovada = !!mesAnterior && statusAnterior !== 'aprovada';
   // Cada mês só abre depois que o anterior já tem uma Reprogramação salva (o retrato do
   // cronograma antes de reprogramar pra frente) — sem isso, o previsto congelado na
   // abertura deste mês partiria de um cronograma que ainda não foi "fechado" pra trás.
   // Primeiro mês do cronograma (sem mesAnterior) não exige nada.
   const mesesComRep = React.useMemo(() => mesesComReprogramacao(reprogramacoes), [reprogramacoes]);
   const anteriorSemReprogramacao = !!mesAnterior && !mesesComRep.has(mesAnterior.key);
+  // 'aprovada' conta junto de 'fechada' aqui pelo mesmo motivo de `fechadas` acima: é um
+  // estado "mais fechado" ainda, então também tem que bloquear reabrir um mês anterior.
   const proximaFechadaPosterior = mesIdxAtual >= 0
-    ? months.slice(mesIdxAtual + 1).find(m => statusPorMes[m.key] === 'fechada')
+    ? months.slice(mesIdxAtual + 1).find(m => statusPorMes[m.key] === 'fechada' || statusPorMes[m.key] === 'aprovada')
     : undefined;
   const existePosteriorFechada = !!proximaFechadaPosterior;
   // Excluir também segue a ordem, mas ao contrário de abrir: é a operação inversa de
@@ -871,9 +941,9 @@ export default function MedicaoMensal({
   // "eu abro a medição para ela ser criada" — antes a linha nascia por efeito colateral
   // do primeiro salvamento, e um mês sem registro já vinha editável.
   const abrirMedicao = async () => {
-    if (readOnly || registro || anteriorAberta || anteriorSemReprogramacao) return;
+    if (readOnly || registro || anteriorNaoAprovada || anteriorSemReprogramacao) return;
     const { ok, pendentes } = validarAbertura(etapas, mesRefKey, wbsMap);
-    if (!ok) { setPendenciasAbertura(pendentes); return; }
+    if (!ok) { setPendenciasAbertura({ mesKey: mesRefKey, pendentes }); return; }
     setSalvando(true);
     const itens = montarDoCronograma(new Set());
     // Congela o previsto (mês e acumulado) neste exato momento — antes de qualquer
@@ -968,6 +1038,47 @@ export default function MedicaoMensal({
     setRegistro(data);
     setMostrarConfirmReabrir(false);
     toast('Medição reaberta', { tone: 'success', icon: 'check' });
+  };
+
+  // Aprova a medição já fechada: antes de abrir o modal de confirmação, checa se o mês
+  // SEGUINTE (não este) já pode ser aberto sem pendência — reaproveita validarAbertura
+  // mirando mesSeguinte.key, exatamente a mesma checagem que abrirMedicao já faz pro
+  // próprio mês. Sem mês seguinte (último mês do cronograma), nada a checar.
+  const aprovarMedicao = () => {
+    if (readOnly || !fechada || aprovada) return;
+    const mesSeguinte = mesIdxAtual >= 0 ? months[mesIdxAtual + 1] : null;
+    if (mesSeguinte) {
+      const { ok, pendentes } = validarAbertura(etapas, mesSeguinte.key, wbsMap);
+      if (!ok) { setPendenciasAbertura({ mesKey: mesSeguinte.key, pendentes }); return; }
+    }
+    setMostrarConfirmAprovar(true);
+  };
+  const confirmarAprovacao = async () => {
+    setSalvando(true);
+    const { data, error } = await medicaoMensalService.aprovar(obraId, mesRefKey, currentUser?.nome || currentUser?.email);
+    setSalvando(false);
+    if (error || !data) { toast('Não foi possível aprovar a medição (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
+    setRegistro(data);
+    setMostrarConfirmAprovar(false);
+    toast('Medição aprovada', { tone: 'success', icon: 'check' });
+  };
+
+  // Desfaz a aprovação, mas só até 'fechada' — não pula direto pra rascunho (reabrirMedicao
+  // é o passo seguinte, separado). Mesma guarda de ordem que excluirMedicao já usa: não dá
+  // pra desaprovar com um mês posterior já criado (ele só existe porque este foi aprovado).
+  const desaprovarMedicao = () => {
+    if (readOnly || !aprovada) return;
+    if (existePosteriorCriada) { toast(`Exclua ou desaprove primeiro a medição de ${mesLabel(proximaCriadaPosterior.key)}`, { tone: 'danger', icon: 'alert-triangle' }); return; }
+    setMostrarConfirmDesaprovar(true);
+  };
+  const confirmarDesaprovacao = async () => {
+    setSalvando(true);
+    const { data, error } = await medicaoMensalService.desaprovar(obraId, mesRefKey);
+    setSalvando(false);
+    if (error || !data) { toast('Não foi possível desaprovar a medição.', { tone: 'danger' }); return; }
+    setRegistro(data);
+    setMostrarConfirmDesaprovar(false);
+    toast('Aprovação desfeita — medição voltou para fechada', { tone: 'success', icon: 'check' });
   };
 
   // Zera o % medido de todos os itens da medição (mantém a lista de itens/manuais como
@@ -1221,7 +1332,7 @@ export default function MedicaoMensal({
           <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)} style={{ minWidth: 190 }}>
             {months.map(m => {
               const st = statusPorMes[m.key];
-              const sufixo = st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
+              const sufixo = st === 'aprovada' ? ' · aprovada' : st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
               return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;
             })}
           </select>
@@ -1367,8 +1478,19 @@ export default function MedicaoMensal({
           )}
           {fechada && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
-              <span className="badge success"><span className="dot" />Medição fechada</span>
-              {!readOnly && (
+              <span className="badge success"><span className="dot" />{aprovada ? 'Medição aprovada' : 'Medição fechada'}</span>
+              {!readOnly && !aprovada && (
+                <button type="button" className="btn" style={{ background: 'var(--success)', color: '#fff' }}
+                  onClick={aprovarMedicao}>
+                  <Icon name="check" size={15} />Aprovar
+                </button>
+              )}
+              {!readOnly && aprovada && (
+                <button type="button" className="btn btn-ghost" onClick={desaprovarMedicao}>
+                  <Icon name="refresh-cw" size={15} />Desaprovar
+                </button>
+              )}
+              {!readOnly && !aprovada && (
                 <button type="button" className="btn btn-ghost"
                   onClick={() => {
                     if (existePosteriorFechada) { toast(`Reabra primeiro a medição de ${mesLabel(proximaFechadaPosterior.key)}`, { tone: 'danger', icon: 'alert-triangle' }); return; }
@@ -1455,9 +1577,11 @@ export default function MedicaoMensal({
                         </div>
                         {readOnly ? (
                           <div style={{ fontSize: 12.5 }}>Você não tem permissão para abrir medições.</div>
-                        ) : anteriorAberta ? (
+                        ) : anteriorNaoAprovada ? (
                           <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
-                            Feche primeiro a medição de {mesLabel(mesAnterior.key)} para poder abrir esta.
+                            {statusAnterior === 'fechada'
+                              ? `Aprove primeiro a medição de ${mesLabel(mesAnterior.key)} para poder abrir esta.`
+                              : `Feche e aprove primeiro a medição de ${mesLabel(mesAnterior.key)} para poder abrir esta.`}
                           </div>
                         ) : anteriorSemReprogramacao ? (
                           <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
@@ -1646,6 +1770,7 @@ export default function MedicaoMensal({
                   <thead>
                     <tr>
                       <th style={{ position: 'sticky', top: 0, zIndex: 1 }}>MÊS</th>
+                      <th className="center" style={{ position: 'sticky', top: 0, zIndex: 1 }}>STATUS</th>
                       <th className="center" style={{ position: 'sticky', top: 0, zIndex: 1 }}>FECHADA EM</th>
                       <th style={{ position: 'sticky', top: 0, zIndex: 1 }}>FECHADA POR</th>
                       <th className="center" style={{ position: 'sticky', top: 0, zIndex: 1 }}>% MEDIDO</th>
@@ -1653,9 +1778,16 @@ export default function MedicaoMensal({
                     </tr>
                   </thead>
                   <tbody>
+                    {/* 'aprovada' entra nesta mesma lista (ver `fechadas`, acima) — a coluna
+                        STATUS é o que diferencia as duas dentro do histórico. */}
                     {fechadas.map(f => (
                       <tr key={f.mes_referencia}>
                         <td style={{ fontWeight: 600 }}>{mesLabel(f.mes_referencia)}</td>
+                        <td className="center">
+                          <span className={'badge' + (f.status === 'aprovada' ? ' success' : '')}>
+                            {f.status === 'aprovada' ? 'Aprovada' : 'Fechada'}
+                          </span>
+                        </td>
                         <td className="center num">{f.fechada_em ? new Date(f.fechada_em).toLocaleDateString('pt-BR') : '—'}</td>
                         <td>{f.fechada_por || '—'}</td>
                         {/* % do mês em relação à obra inteira (mesma escala do card "Executado
@@ -1687,7 +1819,7 @@ export default function MedicaoMensal({
             </div>
             {registro && (
               <span className={'badge' + (fechada ? '' : ' success')}>
-                <span className="dot" />{fechada ? 'Fechada' : 'Aberta'}
+                <span className="dot" />{aprovada ? 'Aprovada' : fechada ? 'Fechada' : 'Aberta'}
               </span>
             )}
           </div>
@@ -1702,8 +1834,11 @@ export default function MedicaoMensal({
               </button>
             </div>
           )}
-          {fechada && !readOnly && (
+          {fechada && !aprovada && !readOnly && (
             <div className="mm-mobile-actions-row">
+              <button type="button" className="btn" style={{ flex: 1, background: 'var(--success)', color: '#fff' }} onClick={aprovarMedicao}>
+                <Icon name="check" size={15} />Aprovar
+              </button>
               <button type="button" className="btn btn-ghost" style={{ flex: 1 }}
                 onClick={() => {
                   if (existePosteriorFechada) { toast(`Reabra primeiro a medição de ${mesLabel(proximaFechadaPosterior.key)}`, { tone: 'danger', icon: 'alert-triangle' }); return; }
@@ -1711,6 +1846,13 @@ export default function MedicaoMensal({
                 }}
                 title={existePosteriorFechada ? `Reabra primeiro a medição de ${mesLabel(proximaFechadaPosterior.key)}` : undefined}>
                 <Icon name="refresh-cw" size={15} />Reabrir medição
+              </button>
+            </div>
+          )}
+          {aprovada && !readOnly && (
+            <div className="mm-mobile-actions-row">
+              <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={desaprovarMedicao}>
+                <Icon name="refresh-cw" size={15} />Desaprovar
               </button>
             </div>
           )}
@@ -1730,7 +1872,7 @@ export default function MedicaoMensal({
             <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)}>
               {months.map(m => {
                 const st = statusPorMes[m.key];
-                const sufixo = st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
+                const sufixo = st === 'aprovada' ? ' · aprovada' : st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
                 return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;
               })}
             </select>
@@ -1770,8 +1912,12 @@ export default function MedicaoMensal({
                   <div>Nenhuma medição aberta para <strong>{mesLabel(mesRefKey)}</strong>.</div>
                   {readOnly ? (
                     <div className="mm-mobile-empty-note">Você não tem permissão para abrir medições.</div>
-                  ) : anteriorAberta ? (
-                    <div className="mm-mobile-empty-note danger">Feche primeiro a medição de {mesLabel(mesAnterior.key)} para poder abrir esta.</div>
+                  ) : anteriorNaoAprovada ? (
+                    <div className="mm-mobile-empty-note danger">
+                      {statusAnterior === 'fechada'
+                        ? `Aprove primeiro a medição de ${mesLabel(mesAnterior.key)} para poder abrir esta.`
+                        : `Feche e aprove primeiro a medição de ${mesLabel(mesAnterior.key)} para poder abrir esta.`}
+                    </div>
                   ) : anteriorSemReprogramacao ? (
                     <div className="mm-mobile-empty-note danger">Salve a reprogramação de {mesLabel(mesAnterior.key)} antes de abrir esta medição.</div>
                   ) : (
@@ -1910,6 +2056,24 @@ export default function MedicaoMensal({
         />
       )}
 
+      {mostrarConfirmAprovar && (
+        <ModalAprovarMedicao
+          mesRefKey={mesRefKey}
+          salvando={salvando}
+          onClose={() => setMostrarConfirmAprovar(false)}
+          onConfirmar={confirmarAprovacao}
+        />
+      )}
+
+      {mostrarConfirmDesaprovar && (
+        <ModalDesaprovarMedicao
+          mesRefKey={mesRefKey}
+          salvando={salvando}
+          onClose={() => setMostrarConfirmDesaprovar(false)}
+          onConfirmar={confirmarDesaprovacao}
+        />
+      )}
+
       {mostrarConfirmLimpar && (
         <ModalLimparMedicao
           mesRefKey={mesRefKey}
@@ -1931,8 +2095,8 @@ export default function MedicaoMensal({
 
       {pendenciasAbertura && (
         <ModalPendenciasAbertura
-          mesRefKey={mesRefKey}
-          pendentes={pendenciasAbertura}
+          mesRefKey={pendenciasAbertura.mesKey}
+          pendentes={pendenciasAbertura.pendentes}
           onClose={() => setPendenciasAbertura(null)}
         />
       )}
