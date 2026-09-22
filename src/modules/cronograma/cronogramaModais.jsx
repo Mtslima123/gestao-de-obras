@@ -6,6 +6,7 @@ import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, workEnd, dateToOffset } from "./cronogramaDateUtils";
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, mesAtualOuUltimo, mesesComReprogramacao } from "./scheduleEngine";
+import { medicaoMensalService } from "./medicaoMensal.service";
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
 export const AddColModal = ({ onClose, onAdd }) => {
@@ -1450,43 +1451,80 @@ export const FeriadosModal = ({ cfg, onChange, onClose }) => {
 };
 
 // ─── Modal: Salvar Reprogramação ─────────────────────────────────────────────
-export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], months = [], reprogramacoes = [], onClose, onCreate }) => {
+export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], months = [], reprogramacoes = [], obraId, onClose, onCreate }) => {
   const toast = useToast();
   // Sugere o mês real de hoje só se a obra realmente o tiver no cronograma; senão o
   // último mês do cronograma — mesma regra que a Medição Mensal usa pra abrir o mês
   // (ver mesAtualOuUltimo, scheduleEngine.js), pra não sugerir um mês que a obra nem tem.
   const mesSugeridoKey = mesAtualOuUltimo(months);
 
+  // Reprogramação representa "o cronograma logo depois de fechar/aprovar o mês" — criar
+  // pra um mês cuja Medição ainda não foi aprovada deixaria o retrato desalinhado do que
+  // vai ser realmente congelado. Mesma checagem que a Medição já faz pra liberar o mês
+  // seguinte (anteriorNaoAprovada, MedicaoMensal.jsx), só que aqui, pra travar o "Criar".
+  // Sem `itens` no select (mesmo endpoint que MedicaoMensal.jsx já usa pro cabeçalho de
+  // cada mês) — não precisa do JSONB pesado só pra saber o status.
+  const [statusPorMes, setStatusPorMes] = React.useState({});
+  React.useEffect(() => {
+    let vivo = true;
+    medicaoMensalService.listarMeses(obraId).then(r => {
+      if (vivo) setStatusPorMes(Object.fromEntries(r.map(m => [m.mes_referencia, m.status])));
+    });
+    return () => { vivo = false; };
+  }, [obraId]);
+
   const mesesCobertos = React.useMemo(() => mesesComReprogramacao(reprogramacoes), [reprogramacoes]);
   const mesesPendentes = React.useMemo(
     () => months.filter(m => !mesesCobertos.has(m.key)),
     [months, mesesCobertos]
   );
+  // Só os meses com Medição já aprovada podem de fato virar reprogramação — mesesPendentes
+  // continua mostrando TODOS os meses sem reprogramação (pra não esconder o que falta),
+  // mas só os liberados entram como opção no seletor de mês custom, abaixo.
+  const mesesLiberados = React.useMemo(
+    () => mesesPendentes.filter(m => statusPorMes[m.key] === 'aprovada'),
+    [mesesPendentes, statusPorMes]
+  );
+  // Mensagem de por que "Criar" está desabilitado pra um mês — mesmo padrão de 3 casos já
+  // usado em anteriorNaoAprovada (MedicaoMensal.jsx): sem medição nenhuma, só rascunho, ou
+  // fechada mas ainda não aprovada.
+  const motivoBloqueio = (key) => {
+    const st = statusPorMes[key];
+    if (st === 'aprovada') return null;
+    if (st === 'fechada')  return 'Aprove a medição deste mês antes de criar a reprogramação';
+    if (st === 'rascunho') return 'Feche e aprove a medição deste mês antes de criar a reprogramação';
+    return 'Abra, feche e aprove a medição deste mês antes de criar a reprogramação';
+  };
   // Mesmo salvando com nome personalizado, a reprogramação precisa ficar amarrada a um
-  // mês do cronograma — e só a um que AINDA não tem reprogramação, senão o seletor abre
-  // mostrando um mês que já saiu da lista de pendentes logo acima (confuso: parece que
-  // o mês "sumiu" sozinho). Prefere o mês sugerido se ele estiver pendente; senão o
-  // primeiro pendente; sem nenhum pendente, sobra o sugerido mesmo (não há o que evitar).
-  const mesCustomPadrao = mesesPendentes.some(m => m.key === mesSugeridoKey)
+  // mês do cronograma — e só a um LIBERADO (aprovado), senão o seletor abre mostrando um
+  // mês que já saiu da lista de liberados logo acima (confuso: parece que o mês "sumiu"
+  // sozinho). Prefere o mês sugerido se ele estiver liberado; senão o primeiro liberado;
+  // sem nenhum liberado, fica vazio (reprogramação avulsa, sem mês atrelado).
+  const mesCustomPadrao = mesesLiberados.some(m => m.key === mesSugeridoKey)
     ? mesSugeridoKey
-    : (mesesPendentes[0]?.key || mesSugeridoKey);
+    : (mesesLiberados[0]?.key || '');
   const [mesCustom, setMesCustom] = React.useState(mesCustomPadrao);
-  // Se o mês escolhido aqui sair da lista de pendentes (ex.: acabou de ser criado pelo
+  // Se o mês escolhido aqui sair da lista de liberados (ex.: acabou de ser usado pelo
   // botão "Criar" da lista acima, com o modal ainda aberto), troca sozinho pro próximo
-  // pendente — o seletor só pode oferecer mês que ainda não tem reprogramação. Reaproveita
-  // trocarMesCustom pra também re-sugerir o nome (mesma regra: só se não foi editado à mão).
+  // liberado — o seletor só pode oferecer mês aprovado e ainda sem reprogramação. Sem
+  // nenhum liberado, volta pra vazio (reprogramação sem mês). Reaproveita trocarMesCustom
+  // pra também re-sugerir o nome (mesma regra: só se não foi editado à mão).
   React.useEffect(() => {
-    if (mesesPendentes.length && !mesesPendentes.some(m => m.key === mesCustom)) {
-      trocarMesCustom(mesesPendentes[0].key);
+    if (mesesLiberados.length && !mesesLiberados.some(m => m.key === mesCustom)) {
+      trocarMesCustom(mesesLiberados[0].key);
+    } else if (!mesesLiberados.length && mesCustom) {
+      trocarMesCustom('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mesesPendentes, mesCustom]);
+  }, [mesesLiberados, mesCustom]);
   // Nome sugerido pra um mês: se já existe uma reprogramação/linha de base com esse nome
   // (ex.: já salvou uma "Reprogramação 09/2026" antes, no mesmo mês), sugere direto um
   // nome livre — sem isso o campo abria/trocava para um nome já usado, disparando o
   // aviso de duplicidade na hora. Mesma função tanto pro nome inicial quanto pro botão
-  // "Criar" de cada mês da lista.
+  // "Criar" de cada mês da lista. `key` vazio (nenhum mês liberado ainda, mesCustomPadrao
+  // cai em '') vira nome genérico, sem "undefined/" no meio.
   const nomeParaMes = (key) => {
+    if (!key) return nomesUsados.includes('reprogramação') ? `Reprogramação (${Date.now()})` : 'Reprogramação';
     const [y, m] = key.split('-');
     const base = `Reprogramação ${m}/${y}`;
     if (!nomesUsados.includes(base.toLowerCase())) return base;
@@ -1540,15 +1578,22 @@ export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], months 
               </p>
             ) : (
               <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 180, overflowY: 'auto' }}>
-                {mesesPendentes.map(m => (
-                  <div key={m.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <span style={{ fontSize: 12 }}>{m.label}</span>
-                    <button className="btn btn-primary" onClick={() => criarParaMes(m.key)}
-                      style={{ height: 22, padding: '0 8px', fontSize: 11, gap: 4 }}>
-                      <Icon name="check" size={10} />Criar
-                    </button>
-                  </div>
-                ))}
+                {mesesPendentes.map(m => {
+                  const bloqueio = motivoBloqueio(m.key);
+                  return (
+                    <div key={m.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                      <span style={{ fontSize: 12 }} title={bloqueio || undefined}>
+                        {m.label}
+                        {bloqueio && <Icon name="lock" size={10} style={{ marginLeft: 4, color: 'var(--text-faint)', verticalAlign: 'middle' }} />}
+                      </span>
+                      <button className="btn btn-primary" onClick={() => criarParaMes(m.key)}
+                        disabled={!!bloqueio} title={bloqueio || undefined}
+                        style={{ height: 22, padding: '0 8px', fontSize: 11, gap: 4 }}>
+                        <Icon name="check" size={10} />Criar
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1566,17 +1611,24 @@ export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], months 
                 placeholder="Ex: Reprogramação 07/2026"
                 style={{ width: '100%', marginBottom: 8 }}
               />
-              {mesesPendentes.length > 0 && (
+              {mesesLiberados.length > 0 ? (
                 <>
                   <label style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
                     Mês do cronograma que essa reprogramação representa
                   </label>
-                  {/* Só meses ainda sem reprogramação — assim que este é criado, some daqui
-                     e da lista acima junto (as duas vêm da mesma mesesPendentes). */}
+                  {/* Só meses sem reprogramação E com Medição já aprovada — assim que este é
+                     usado, some daqui e da lista acima junto (as duas vêm de mesesPendentes,
+                     esta filtrada por mesesLiberados). Sem nenhum liberado, fica sem seletor:
+                     ainda dá pra salvar, só que como reprogramação avulsa, sem mês atrelado. */}
                   <select className="input" value={mesCustom} onChange={e => trocarMesCustom(e.target.value)} style={{ width: '100%' }}>
-                    {mesesPendentes.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                    {mesesLiberados.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
                   </select>
                 </>
+              ) : mesesPendentes.length > 0 && (
+                <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: 0 }}>
+                  Nenhum mês liberado ainda (precisa da Medição Mensal aprovada) — esta
+                  reprogramação vai ficar avulsa, sem mês atrelado.
+                </p>
               )}
               {nomeDup && (
                 <p style={{ fontSize: 12, color: 'var(--danger, #dc2626)', margin: '6px 0 0' }}>

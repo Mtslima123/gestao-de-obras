@@ -3606,6 +3606,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
           nomesUsados={nomesUsados}
           months={months}
           reprogramacoes={reprogramacoes}
+          obraId={obraSel}
           onClose={() => setShowCriarRep(false)}
           onCreate={criarReprogramacao}
         />
