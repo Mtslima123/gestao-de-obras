@@ -2285,9 +2285,18 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     || null;
 
   const [obraSel,      setObraSel]      = React.useState(defaultObraId);
-  // initialTab: deep link do Mobile Gate ("Ir direto para Medição"). Sem ele, mantém
-  // o padrão de sempre abrir no Gantt (não persiste a sub-aba entre acessos ao módulo).
-  const [view,         setView]         = React.useState(initialTab || 'gantt');
+  // Sub-aba interna do Cronograma (Gantt/Lista/Uso da Tarefa/Curva Física/Medição
+  // Mensal) — sem persistir, um F5 sempre voltava pro Gantt mesmo estando em outra aba.
+  // `initialTab` (deep link, ex. vindo do Mobile Gate) continua tendo prioridade. Chave
+  // por obra (não uma chave fixa): senão a aba salva na Medição da obra A vazava pro F5
+  // dado na obra B, se as duas forem abertas na mesma aba do navegador.
+  const [view,         setView]         = React.useState(() =>
+    initialTab || (obraSel && sessionStorage.getItem(`cronograma_subtab_${obraSel}`)) || 'gantt'
+  );
+  React.useEffect(() => {
+    if (!obraSel) return;
+    try { sessionStorage.setItem(`cronograma_subtab_${obraSel}`, view); } catch { /* ignore */ }
+  }, [view, obraSel]);
   // Módulo inteiro OU só a aba ativa marcada como "Visualizar" no admin — recalcula a
   // cada troca de aba (view), então uma aba liberada pra editar volta a funcionar ao navegar pra ela.
   const readOnly = moduloSomenteLeitura(userProfile, 'cronograma') || abaSomenteLeitura(userProfile, 'cronograma', view);
