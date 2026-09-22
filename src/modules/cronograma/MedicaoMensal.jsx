@@ -1170,6 +1170,11 @@ export default function MedicaoMensal({
     setSalvando(false);
     if (error || !data) { toast('Não foi possível atualizar os valores (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
     setRegistro(data);
+    // itensTrabalho é o que a tabela renderiza de fato — só é resincronizado do registro
+    // dentro de gerarMedicao (ao montar/trocar de obra/mês), não sozinho quando `registro`
+    // muda por outro caminho. `itensFrescos` já é exatamente o que acabou de ser congelado
+    // em `data.itens`, então usa ele direto em vez de rehidratar de novo.
+    setItensTrabalho(itensFrescos);
     toast('Valores atualizados a partir do cronograma', { tone: 'success', icon: 'check' });
   };
 
