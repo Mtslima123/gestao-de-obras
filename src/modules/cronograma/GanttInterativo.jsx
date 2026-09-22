@@ -84,7 +84,6 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
   const editMode = readOnly ? false : editModeRaw;
-  const [lockDone,    setLock]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.lockDone   ?? true; } catch { return true; } });
   const [labelWidth,  setLabelW]   = React.useState(() => { try { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; } catch { return 220; } });
   const [zoom,        setZoom]     = React.useState('mes');
   const [search]      = React.useState(''); // busca removida do Gantt; mantido p/ matchesSearch (sempre passa)
@@ -250,7 +249,18 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
     if (!editMode) return;
     const etapa = etapasRef.current.find(et => et.id === id);
     if (!etapa) return;
-    if (lockDone && etapa.status === 'done') return;
+    // effStatus, não etapa.status: o campo status armazenado só chega a 'done' via
+    // Reprogramar Restante ou dado mock — digitar 100 na coluna AVANÇO da Lista nunca
+    // escreve 'done' nele (statusAposAvanco só reverte 'done'→'ongoing', nunca o contrário).
+    // effStatus deriva 'done' direto do avanço, a mesma fonte que já pinta a barra de
+    // verde (statusKey, abaixo).
+    // Incondicional, sem toggle: tarefa 100% concluída trava contra arraste/resize da
+    // PRÓPRIA barra sempre — mesma regra "igual ao MS Project" já aplicada em
+    // schedulePass/propagateDrag (scheduleEngine.js) pra não ser empurrada por
+    // predecessora, e em applyFieldToEtapa pra continuar aceitando edição direta de
+    // duração/data digitada na Lista (só o ARRASTE no Gantt é que vira trava dura, por
+    // ser mais fácil de acontecer sem querer que digitar um número).
+    if (effStatus(etapa) === 'done') return;
 
     const movedIds = (selected.has(id) && selected.size > 1) ? new Set(selected) : new Set([id]);
     const orig = {};
@@ -1042,9 +1052,9 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                         title={editModeRaw ? 'Clique para bloquear edição (modo Leitura)' : 'Clique para permitir edição'}>
                         <Icon name="edit" size={12} />{editModeRaw ? 'Editando' : 'Leitura'}
                       </button>
-                      <button style={tglStyle(lockDone)} onClick={() => { const nv = !lockDone; saveGanttCfg({ lockDone: nv }); setLock(nv); }} title="Bloquear edição de tarefas concluídas">
-                        <Icon name="shield" size={12} />Concluídas
-                      </button>
+                      {/* O antigo toggle "Concluídas" (bloquear edição de tarefa 100%) saiu: a
+                         trava agora é incondicional (ver onBarDown) — um toggle que não muda
+                         mais nada só confundiria, dando a entender que dá pra desligar. */}
                     </div>
                   </div>
                   <div style={caption}>Comportamento</div>
@@ -1493,7 +1503,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
             const bar    = getBar(e);
             const isSel  = selected.has(e.id);
             const isConf = conflictIds.has(e.id);
-            const isLock = lockDone && e.status === 'done';
+            const isLock = effStatus(e) === 'done'; // mesma fonte/regra do onBarDown, ver comentário lá
             const sc      = STATUS_COLORS[statusKey(e)];        // cores por status
             const isCrit  = showCritical && criticalIds.has(e.id);
             const borderCol = isConf ? '#d97706' : isCrit ? '#dc2626' : `${sc.fill}33`;
@@ -1910,7 +1920,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
               Depende de: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-soft)' }}>{formatDepList(tooltip.etapa.dep, etapas)}</span>
             </div>
           )}
-          {editMode && !(lockDone && tooltip.etapa.status === 'done') && !tooltip.etapa.milestone && (
+          {editMode && effStatus(tooltip.etapa) !== 'done' && !tooltip.etapa.milestone && (
             <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-faint)' }}>
               Arraste para mover · Bordas para redimensionar · Shift+clique para multi-seleção
             </div>
