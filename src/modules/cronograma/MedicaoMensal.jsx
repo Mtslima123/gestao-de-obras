@@ -604,10 +604,11 @@ export default function MedicaoMensal({
     const idsSalvos = new Set((reg?.itens || []).filter(i => i.manual || i.foraDoMes).map(i => i.id));
     setIdsManuais(idsSalvos);
     setRegistro(reg);
-    // Medição FECHADA é documento: renderiza do snapshot congelado, não do cronograma.
-    // Antes ela era recalculada a cada abertura, então mudar custo ou datas depois do
-    // fechamento alterava os valores exibidos e eles divergiam do histórico.
-    if (reg?.status === 'fechada') {
+    // Medição FECHADA (ou APROVADA, mais congelada ainda) é documento: renderiza do
+    // snapshot congelado, não do cronograma. Antes ela era recalculada a cada abertura,
+    // então mudar custo ou datas depois do fechamento alterava os valores exibidos e
+    // eles divergiam do histórico.
+    if (reg?.status === 'fechada' || reg?.status === 'aprovada') {
       setItensTrabalho(hidratarSnapshot(reg.itens, etapas, { wbsMap, disciplinaInfo }));
     } else if (reg) {
       setItensTrabalho(mergePercMedido(montarDoCronograma(idsSalvos), reg.itens));
