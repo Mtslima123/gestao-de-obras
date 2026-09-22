@@ -254,6 +254,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const listaScrollRef = React.useRef(null); // container rolável da lista (foco p/ navegação por setas)
 
   // Altura das linhas da lista (ajustável na UI, estilo MS Project), persistida no navegador.
+  // Mínimo 20 e não menos: o maior piso que sobra numa linha é o .lista-toggle de 18px (seta
+  // de recolher, só nas linhas de grupo e de pai) dentro de uma caixa útil de altura-1px, ou
+  // seja 19px. Abaixo disso o grupo voltaria a renderizar mais alto que a folha com o MESMO
+  // valor configurado, que é exatamente o bug que a altura autoritativa resolveu.
   const ROW_H_MIN = 20, ROW_H_MAX = 120;
   // Chave versionada (_v2): o padrão passou de 34 para 21px; a chave antiga já tinha 34
   // gravado no 1º render de todos, então bumpar a chave faz todos caírem no novo padrão.
@@ -545,7 +549,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const startRowResize = (ev, taskId) => {
     ev.preventDefault(); ev.stopPropagation();
     const startY = ev.clientY;
-    const startH = rowHeights[taskId] ?? rowH;
+    // Parte da altura REAL renderizada, não do valor salvo: se a linha estiver maior que o
+    // configurado (conteúdo empurrando), o arraste "pulava" pro valor salvo já no primeiro
+    // mousemove. getBoundingClientRect é border-box, a mesma medida que --lista-row-h.
+    const trH    = ev.currentTarget.closest('tr')?.getBoundingClientRect().height;
+    const startH = Math.round(trH || rowHeights[taskId] || rowH);
     let liveH = startH;
     const onMove = (e2) => {
       liveH = Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, startH + e2.clientY - startY));
@@ -3569,7 +3577,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
       <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} onPaste={handlePasteEvent} onScroll={() => { if (marquee) setMarquee(null); }} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none', position: 'relative' }}>
-        <table className="tbl tbl-lista" style={{ minWidth: 1780 + GUTTER_W, tableLayout: 'fixed', '--lista-row-h': rowH + 'px' }}>
+        <table className="tbl tbl-lista tbl-lista-grid" style={{ minWidth: 1780 + GUTTER_W, tableLayout: 'fixed', '--lista-row-h': rowH + 'px' }}>
           {/* Larguras autoritativas por coluna. Com table-layout: fixed as larguras vêm do
               colgroup (não do conteúdo montado), então as colunas param de "dançar" ao rolar
               com a virtualização. Mesma ordem e contagem que o corpo emite. */}
@@ -4012,7 +4020,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     ) : (() => {
                       const txt = formatDepList(e.dep, etapas, rowNumberMap);
                       return (
-                        <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={formatDepNames(e.dep) || undefined}>
+                        <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text' }} title={formatDepNames(e.dep) || undefined}>
                           {txt || <span className="text-faint">—</span>}
                         </div>
                       );
@@ -4039,7 +4047,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     ) : (() => {
                       const txt = formatSucc(e.id);
                       return (
-                        <div onDoubleClick={() => !readOnly && setEditingSucc(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text', minHeight: 20 }} title={formatSuccNames(e.id) || undefined}>
+                        <div onDoubleClick={() => !readOnly && setEditingSucc(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text' }} title={formatSuccNames(e.id) || undefined}>
                           {txt || <span className="text-faint">—</span>}
                         </div>
                       );
@@ -4050,8 +4058,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   <td key="modo" onClick={ev => ev.stopPropagation()} style={{ textAlign: 'center', position: 'relative', overflow: 'visible' }}>
                     {!e.isGroup && (() => {
                       const manual = e.modo === 'manual';
+                      // Wrapper em flex, e não inline-block: inline-block entra na caixa de linha
+                      // do <td> e é alinhado pela BASELINE, somando a descida da fonte aos 18px do
+                      // botão (~20,85px). Como esta célula só existe na linha de tarefa, isso era
+                      // um piso invisível que fazia tarefa e grupo com a MESMA altura configurada
+                      // renderizarem diferente. Flex não tem baseline.
                       return (
-                        <div ref={openModoMenu === e.id ? modoMenuRef : undefined} style={{ position: 'relative', display: 'inline-block' }}>
+                        <div ref={openModoMenu === e.id ? modoMenuRef : undefined} style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <button
                             title={manual ? 'Agendada Manualmente (datas fixas)' : 'Agendada Automaticamente (calculada por dependências)'}
                             onClick={ev => { ev.stopPropagation(); if (readOnly) return; setOpenModoMenu(openModoMenu === e.id ? null : e.id); }}
@@ -4095,10 +4108,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     {/* Tarefa-resumo de nível 0 (as grandes fases, ex.: FUNDAÇÃO/ESTRUTURA)
                        sempre entra na curva — só ela não precisa marcar. Sub-grupos (BL2 etc.)
                        e folhas podem ligar/desligar normalmente. */}
+                    {/* Checkbox em display:block (centrado pela margem) e não no inline-block
+                       padrão: como inline ele é alinhado pela BASELINE e soma a descida da fonte
+                       por baixo, estourando a altura em TODA linha — medido, a linha de 20px
+                       renderizava 22,25px, e a fração derrubava a gridline de 1px pro sub-pixel. */}
                     {(!e.isGroup || e.nivel > 0) && (
                       <input type="checkbox"
                         checked={e.showInDist === true}
-                        style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--brand)' }}
+                        style={{ width: 14, height: 14, display: 'block', margin: '0 auto', cursor: 'pointer', accentColor: 'var(--brand)' }}
                         onChange={ev => {
                           const novas = etapas.map(t =>
                             t.id === e.id ? { ...t, showInDist: ev.target.checked } : t
@@ -4257,13 +4274,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   </td>
                   {colOrder.filter(c => !hiddenCols.has(c)).map(colId => decorateCell(cells[colId], colId, e.id, e.fmt, rangeEdges.get(e.id + '|' + colId), rowIdx, rowIdx === filtrada.length - 1))}
 
-                  {/* Colunas personalizadas */}
+                  {/* Colunas personalizadas. Os selects abaixo casam a altura com a caixa útil do
+                     <td> (altura da linha menos a borda de 1px): com 26px fixos, qualquer coluna
+                     personalizada visível virava um piso de 27px na linha inteira. display:block
+                     pelo mesmo motivo do checkbox da Curva — select inline-block é alinhado pela
+                     baseline e sobrava meio pixel nas alturas ímpares. */}
                   {customCols.filter(col => !hiddenCols.has(col.id)).map(col => {
                     const cellVal = (e.customCols || {})[col.id] || '';
                     let cell;
                     if (col.type === 'boolean') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                        <select className="input" disabled={readOnly} style={{ height: 26, fontSize: 11, padding: '0 4px' }}
+                        <select className="input" disabled={readOnly} style={{ display: 'block', width: '100%', height: 'calc(var(--lista-row-h, 21px) - 1px)', fontSize: 11, padding: '0 4px' }}
                           value={cellVal} onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
                           <option value="">—</option>
                           <option value="sim">Sim</option>
@@ -4273,7 +4294,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     );
                     else if (col.type === 'list') cell = (
                       <td key={col.id} onClick={ev => ev.stopPropagation()}>
-                        <select className="input" disabled={readOnly} style={{ height: 26, fontSize: 11, padding: '0 4px' }}
+                        <select className="input" disabled={readOnly} style={{ display: 'block', width: '100%', height: 'calc(var(--lista-row-h, 21px) - 1px)', fontSize: 11, padding: '0 4px' }}
                           value={cellVal} onChange={ev => handleCellSave(e.id, col.id, ev.target.value)}>
                           <option value="">—</option>
                           {(col.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}

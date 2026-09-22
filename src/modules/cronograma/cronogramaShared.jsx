@@ -121,6 +121,15 @@ export const gmConflicts = (etapas, overrides) => {
 };
 
 // ─── EditableCell ─────────────────────────────────────────────────────────────
+// Fora de edição a célula mostra UMA linha só, estilo MS Project: a altura configurada da
+// linha é autoritativa, então o texto que não cabe ganha reticências em vez de quebrar em
+// duas linhas e empurrar a linha pra baixo (o `height` de um <td> é MÍNIMO, não fixo).
+// `display: block` é obrigatório: em span inline o overflow/text-overflow é ignorado.
+// Sem min-height aqui de propósito — a altura e a centralização vertical vêm da line-height
+// fixa herdada do <td> (.tbl-lista-grid, globals.css); um piso em px brigava com a altura
+// configurada e fazia 20 e 21 renderizarem exatamente igual.
+const SPAN_BASE = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' };
+
 export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, style, listId, onExitEdit }) => {
   const [editing, setEditing] = React.useState(false);
   const [draft,   setDraft]   = React.useState(value);
@@ -159,7 +168,8 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
     const raw     = value !== undefined && value !== null && value !== '' ? value : null;
     // Estilo MS Project: mostra a inicial do dia da semana antes da data ("Qui 03/09/2026").
     const display = type === 'date' && raw ? isoToBRWeekday(raw) : raw;
-    return <span style={style}>{display ?? <span style={{ color: 'var(--text-faint)' }}>—</span>}</span>;
+    // title com o valor inteiro: o texto pode sair cortado com reticências.
+    return <span title={display != null ? String(display) : undefined} style={{ ...SPAN_BASE, ...style }}>{display ?? <span style={{ color: 'var(--text-faint)' }}>—</span>}</span>;
   }
 
   if (!editing) {
@@ -169,8 +179,8 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
     return (
       <span
         onDoubleClick={() => { setDraft(value); setEditing(true); }}
-        title="Duplo-clique para editar"
-        style={{ cursor: type === 'date' ? 'pointer' : 'text', display: 'block', minHeight: 20, ...style }}
+        title={display != null ? `${display}\nDuplo-clique para editar` : 'Duplo-clique para editar'}
+        style={{ cursor: type === 'date' ? 'pointer' : 'text', ...SPAN_BASE, ...style }}
       >
         {display ?? <span style={{ color: 'var(--text-faint)' }}>—</span>}
       </span>

@@ -2810,6 +2810,34 @@ th.sticky-left { z-index: 4; }
 .tbl-lista tbody tr.lista-row-group.lista-row-group-l1 td { background: var(--brand-50); }
 .tbl-lista tbody tr.lista-row-group.lista-row-group-l2 td { background: var(--brand-tint); }
 
+/* Grade da Lista — classe própria, e não .tbl-lista, porque a Medição Mensal usa .tbl-lista
+   nas duas tabelas dela e tem um input de 24px numa linha de 24px: herdar estas regras
+   cresceria aquelas linhas sem necessidade.
+
+   `height` num <td> é MÍNIMO, não altura fixa: a linha real é max(height, conteúdo), e
+   overflow:hidden recorta na horizontal mas não impede a linha de crescer. Pra
+   --lista-row-h valer de verdade, a célula precisa caber sempre em UMA linha de texto.
+   Duas propriedades HERDADAS resolvem a grade inteira de uma vez, sem !important:
+     white-space: nowrap  → nenhuma coluna quebra em 2 linhas;
+     line-height em px    → a única linha de texto fica com a altura útil exata da célula
+                            (altura menos a borda de 1px; o padding vertical é zero acima),
+                            centrada pelo meio-leading e sem deixar altura fracionária.
+   A fração era também o que apagava a gridline: linha com altura quebrada joga o offset Y
+   das seguintes pra posição sub-pixel, e uma borda de 1px ali some no antialias.
+
+   Efeito colateral assumido: aumentar a fonte de uma célula pelo formatador (.fmt-size)
+   acima da altura da linha passa a recortar o glifo em vez de crescer a linha — aqui a
+   altura configurada manda, quem quer fonte maior aumenta a linha. */
+.tbl-lista-grid tbody td {
+  white-space: nowrap;
+  line-height: calc(var(--lista-row-h, 21px) - 1px);
+}
+/* Controles têm caixa própria (height/padding): herdar a line-height da linha faria eles
+   crescerem junto e empurrarem a altura de novo. */
+.tbl-lista-grid tbody td input,
+.tbl-lista-grid tbody td select,
+.tbl-lista-grid tbody td button { line-height: normal; }
+
 /* Botão escuro (Adicionar tarefa) */
 .btn-dark { background: var(--text); color: #fff; border-color: transparent; }
 .btn-dark:hover { background: #000; border-color: transparent; }
