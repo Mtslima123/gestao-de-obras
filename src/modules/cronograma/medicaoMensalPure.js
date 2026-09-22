@@ -352,6 +352,44 @@ export function validarAbertura(etapas, mesRefKey, wbsMap) {
   return { ok: pendentes.length === 0, pendentes };
 }
 
+// Compara o snapshot CONGELADO de uma medição fechada/aprovada com o que o cronograma
+// diria hoje — sem isso, mudar uma data/duração/vínculo depois de fechar fica invisível
+// pra quem está olhando a medição (ela é um documento, não recalcula sozinha, ver
+// gerarMedicao em MedicaoMensal.jsx). idsExtras é inferido do próprio snapshot (itens
+// com foraDoMes:true), mesma convenção que mergePercMedido já usa, pra comparar maçã com
+// maçã: as mesmas tarefas "fora do mês" que estavam na medição continuam entrando no
+// recálculo ao vivo.
+//
+// Só os campos que vêm do CRONOGRAMA entram na comparação (data/duração/valor/%executado)
+// — percMedido nunca, é o dado que o usuário digitou e tem que ficar como está até alguém
+// mexer de propósito (Reabrir, ou o próprio "Atualizar valores" preserva o que já foi
+// digitado, ver atualizarValores em MedicaoMensal.jsx).
+const CAMPOS_DEFASAGEM = ['dataInicio', 'dataTermino', 'duracaoDias', 'valor', 'percExecutado'];
+
+export function detectarDefasagem(itensCongelados, etapas, mesRefKey, { monthlyDist, wbsMap, disciplinaInfo, valorVinculadoMap = null } = {}) {
+  if (!itensCongelados?.length) return [];
+  const idsExtras = new Set(itensCongelados.filter(i => i.foraDoMes).map(i => i.id));
+  const aoVivo = buildItensMedicao(etapas, mesRefKey, { monthlyDist, wbsMap, disciplinaInfo, idsExtras, valorVinculadoMap });
+  const porIdVivo = new Map(aoVivo.map(i => [i.id, i]));
+  const porIdCongelado = new Map(itensCongelados.map(i => [i.id, i]));
+
+  const mudancas = [];
+  porIdCongelado.forEach((congelado, id) => {
+    const vivo = porIdVivo.get(id);
+    if (!vivo) {
+      mudancas.push({ id, wbs: congelado.wbs, descricao: congelado.descricao, tipo: 'removido' });
+      return;
+    }
+    const campos = CAMPOS_DEFASAGEM.filter(c => congelado[c] !== vivo[c]);
+    if (campos.length) mudancas.push({ id, wbs: congelado.wbs, descricao: congelado.descricao, tipo: 'alterado', campos });
+  });
+  porIdVivo.forEach((vivo, id) => {
+    if (!porIdCongelado.has(id)) mudancas.push({ id, wbs: vivo.wbs, descricao: vivo.descricao, tipo: 'novo' });
+  });
+
+  return mudancas.sort((a, b) => a.wbs.localeCompare(b.wbs, 'pt-BR', { numeric: true }));
+}
+
 // Aplica o %medido salvo (registro do banco) por id; itens sem registro salvo mantêm
 // o default (percExecutado) já aplicado em buildItensMedicao.
 export function mergePercMedido(itensBase, registroItens) {

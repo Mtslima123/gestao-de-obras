@@ -180,6 +180,29 @@ export const medicaoMensalService = {
     return { data, error: null };
   },
 
+  // Recongela os valores de uma medição fechada/aprovada sem mudar o status — pro botão
+  // "Atualizar valores" quando o cronograma mudou depois do fechamento (ver
+  // detectarDefasagem, medicaoMensalPure.js). Mesma RPC dedicada, mesmo motivo de
+  // aprovar/desaprovar: um UPDATE comum seria filtrado pela RESTRICTIVE de status.
+  async atualizarSnapshot(obraId, mesReferencia, snapshot) {
+    const { data, error } = await supabase
+      .rpc('atualizar_snapshot_medicao_mensal', {
+        p_obra_id: obraId,
+        p_mes_referencia: mesReferencia,
+        p_itens: snapshot.itens,
+        p_valor_total_medido: snapshot.valorTotalMedido,
+        p_perc_medido: snapshot.percMedido,
+        p_perc_previsto: snapshot.percPrevisto,
+        p_perc_previsto_acumulado: snapshot.percPrevistoAcumulado,
+      })
+      .maybeSingle();
+    if (error) {
+      logger.error('falha ao atualizar snapshot de medição mensal', { module: 'medicaoMensal', action: 'atualizarSnapshot', obraId, mesReferencia, err: error });
+      return { data: null, error };
+    }
+    return { data, error: null };
+  },
+
   // Apaga o boletim inteiro (a linha da tabela) — diferente de salvarRascunho com itens
   // vazios, que continuaria contando como "medição aberta". Sem policy própria por status:
   // a RESTRICTIVE de DELETE (medicoes_mensais_ro_del) só olha pro modo somente-leitura do

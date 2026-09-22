@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
-  computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento,
+  computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
@@ -458,5 +458,47 @@ describe('computeArvoreForaDoMes', () => {
 
   it('devolve vazio sem candidatas', () => {
     expect(computeArvoreForaDoMes([], etapas)).toEqual([]);
+  });
+});
+
+describe('detectarDefasagem', () => {
+  // Snapshot congelado no formato real (buildSnapshotFechamento também usa os mesmos
+  // nomes de campo que buildItensMedicao — dataInicio/dataTermino/duracaoDias/valor/
+  // percExecutado), pra comparar exatamente como a tela faz.
+  const congelarAgora = (etapasAlvo, mesAlvo, optsAlvo) => buildItensMedicao(etapasAlvo, mesAlvo, optsAlvo);
+
+  it('sem nenhuma mudança no cronograma, devolve vazio', () => {
+    const congelado = congelarAgora(etapas, MES, opts);
+    expect(detectarDefasagem(congelado, etapas, MES, opts)).toEqual([]);
+  });
+
+  it('tarefa com duração/data diferente entra como "alterado", com os campos que mudaram', () => {
+    const congelado = congelarAgora(etapas, MES, opts);
+    const etapasEditadas = etapas.map(e => (e.id === 'A' ? { ...e, dur: 20 } : e)); // A: 10 -> 20 dias
+    const resultado = detectarDefasagem(congelado, etapasEditadas, MES, opts);
+    expect(resultado).toHaveLength(1);
+    expect(resultado[0]).toMatchObject({ id: 'A', tipo: 'alterado' });
+    expect(resultado[0].campos).toEqual(expect.arrayContaining(['dataTermino', 'duracaoDias']));
+  });
+
+  it('tarefa que saiu do mês (monthlyDist não bate mais) entra como "removido"', () => {
+    const congelado = congelarAgora(etapas, MES, opts);
+    // B deixou de ter fatia no mês de referência — como se o cronograma tivesse mudado o
+    // bastante pra ela sair do período (mesma fonte que buildItensMedicao já usa: noMes).
+    const monthlyDistSemB = { ...monthlyDist, B: {} };
+    const resultado = detectarDefasagem(congelado, etapas, MES, { ...opts, monthlyDist: monthlyDistSemB });
+    expect(resultado).toEqual([{ id: 'B', wbs: wbsMap.B, descricao: 'Concreto', tipo: 'removido' }]);
+  });
+
+  it('tarefa nova no mês (passou a ter fatia) entra como "novo"', () => {
+    // Congela só A e B (como se C ainda não tivesse fatia no mês na época do fechamento).
+    const congelado = congelarAgora(etapas, MES, { ...opts, monthlyDist: { A: monthlyDist.A, B: monthlyDist.B } });
+    const resultado = detectarDefasagem(congelado, etapas, MES, opts); // opts já tem C no mês
+    expect(resultado).toEqual([{ id: 'C', wbs: wbsMap.C, descricao: 'pav1', tipo: 'novo' }]);
+  });
+
+  it('sem itens congelados (medição vazia), devolve vazio sem quebrar', () => {
+    expect(detectarDefasagem([], etapas, MES, opts)).toEqual([]);
+    expect(detectarDefasagem(null, etapas, MES, opts)).toEqual([]);
   });
 });

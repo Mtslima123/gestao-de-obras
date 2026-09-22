@@ -14,7 +14,7 @@ import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
-  hidratarSnapshot, computeArvoreForaDoMes,
+  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -131,6 +131,55 @@ function ModalDesaprovarMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
         Isso volta {mesLabel(mesRefKey)} para "fechada" e bloqueia de novo a abertura do mês
         seguinte, até aprovar novamente. O % medido continua travado — use "Reabrir medição"
         depois disso se também precisar editar os valores.
+      </p>
+    </Modal>
+  );
+}
+
+// Bloqueia "Aprovar" — não é só um aviso: sem atualizar, não tem como continuar. O botão
+// já resolve ali dentro (mesma ação do banner da tela, atualizarValores), sem precisar
+// fechar o modal pra ir procurar o botão em outro lugar.
+function ModalDefasagemAprovacao({ mesRefKey, defasagem, salvando, onClose, onAtualizar }) {
+  return (
+    <Modal
+      title="Medição desatualizada"
+      subtitle={mesLabel(mesRefKey)}
+      onClose={onClose}
+      overlay={false}
+      draggable
+      resizable
+      footer={
+        <>
+          <div className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button
+            className="btn"
+            style={{ background: 'var(--success)', color: '#fff' }}
+            disabled={salvando}
+            onClick={onAtualizar}
+          >
+            <Icon name="refresh-cw" size={14} />{salvando ? 'Atualizando…' : 'Atualizar valores'}
+          </button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--danger)', fontWeight: 600, marginBottom: 8 }}>
+        {defasagem.length} tarefa(s) mudaram no cronograma desde que esta medição foi fechada:
+      </p>
+      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-soft)' }}>
+        {defasagem.map(d => (
+          <li key={d.id}>
+            {d.wbs} — {d.descricao}
+            {d.tipo === 'removido' && ' — não faz mais parte deste mês'}
+            {d.tipo === 'novo' && ' — passou a fazer parte deste mês'}
+            {d.tipo === 'alterado' && ` — mudou: ${d.campos.join(', ')}`}
+          </li>
+        ))}
+      </ul>
+      <p style={{ fontSize: 13, color: 'var(--text-soft)', marginTop: 8 }}>
+        Atualize os valores antes de aprovar, pra quem aprovar não fechar em cima de um
+        número que já ficou pra trás. Depois de atualizar, confira a tela e clique em
+        "Aprovar" de novo.
       </p>
     </Modal>
   );
@@ -517,6 +566,7 @@ export default function MedicaoMensal({
   const [mostrarConfirmReabrir, setMostrarConfirmReabrir] = React.useState(false);
   const [mostrarConfirmAprovar, setMostrarConfirmAprovar] = React.useState(false);
   const [mostrarConfirmDesaprovar, setMostrarConfirmDesaprovar] = React.useState(false);
+  const [mostrarDefasagemAprovacao, setMostrarDefasagemAprovacao] = React.useState(false);
   const [mostrarConfirmLimpar, setMostrarConfirmLimpar] = React.useState(false);
   const [mostrarConfirmExcluir, setMostrarConfirmExcluir] = React.useState(false);
   // { mesKey, pendentes } — mesKey é o mês que a checagem mirou (pode ser o mês sendo
@@ -715,6 +765,16 @@ export default function MedicaoMensal({
   const valorTotalBase = React.useMemo(
     () => itensTrabalho.reduce((s, i) => s + (i.foraDoMes ? 0 : i.valor), 0),
     [itensTrabalho]
+  );
+  // Só roda pra medição fechada/aprovada (documento): compara o snapshot congelado com o
+  // que o cronograma diria hoje — sem isso, uma data/duração/vínculo que mudou depois do
+  // fechamento fica invisível na tela (ver gerarMedicao, mais acima). rascunho não entra
+  // aqui porque já lê o cronograma ao vivo o tempo todo, não pode "defasar" dele mesmo.
+  const defasagem = React.useMemo(
+    () => (fechada && registro?.itens)
+      ? detectarDefasagem(registro.itens, etapas, mesRefKey, { monthlyDist, wbsMap, disciplinaInfo, valorVinculadoMap: weightOverride })
+      : [],
+    [fechada, registro, etapas, mesRefKey, monthlyDist, wbsMap, disciplinaInfo, weightOverride]
   );
   const linhas = React.useMemo(
     () => computeArvoreMedicao(filtradas, etapas, valorTotalBase, collapsed),
@@ -1047,6 +1107,9 @@ export default function MedicaoMensal({
   // próprio mês. Sem mês seguinte (último mês do cronograma), nada a checar.
   const aprovarMedicao = () => {
     if (readOnly || !fechada || aprovada) return;
+    // Trava de verdade, não só o banner: sem isso, "Aprovar" congelaria a defasagem junto
+    // (aprovada é o estado MAIS definitivo, não devia nascer já desatualizada).
+    if (defasagem.length) { setMostrarDefasagemAprovacao(true); return; }
     const mesSeguinte = mesIdxAtual >= 0 ? months[mesIdxAtual + 1] : null;
     if (mesSeguinte) {
       const { ok, pendentes } = validarAbertura(etapas, mesSeguinte.key, wbsMap);
@@ -1080,6 +1143,34 @@ export default function MedicaoMensal({
     setRegistro(data);
     setMostrarConfirmDesaprovar(false);
     toast('Aprovação desfeita — medição voltou para fechada', { tone: 'success', icon: 'check' });
+  };
+
+  // Recongela os valores a partir do cronograma atual, sem sair de 'fechada'/'aprovada'
+  // nem passar por Reabrir — é o botão "Atualizar valores" do aviso de defasagem.
+  // idsExtras vem do PRÓPRIO snapshot antigo (itens foraDoMes), não de idsManuais (estado
+  // da tela, que fica vazio numa medição fechada — ver gerarMedicao): senão as tarefas
+  // incluídas manualmente desapareciam do recálculo. mergePercMedido preserva o % medido
+  // já digitado; só o que vem do cronograma (datas/duração/valor/%executado) é atualizado.
+  const atualizarValores = async () => {
+    if (!registro) return;
+    setSalvando(true);
+    const idsExtras = new Set((registro.itens || []).filter(i => i.foraDoMes).map(i => i.id));
+    const itensFrescos = mergePercMedido(
+      buildItensMedicao(etapas, mesRefKey, { monthlyDist, wbsMap, disciplinaInfo, idsExtras, valorVinculadoMap: weightOverride }),
+      registro.itens
+    );
+    const valorTotalBaseFresco = itensFrescos.reduce((s, i) => s + (i.foraDoMes ? 0 : i.valor), 0);
+    const totaisFrescos = computeTotaisMedicao(itensFrescos, valorTotalBaseFresco);
+    const previstoCongelado = {
+      percPrevisto: registro.perc_previsto != null ? registro.perc_previsto : (resumo.valorObra > 0 ? (valorTotalBaseFresco / resumo.valorObra) * 100 : 0),
+      percPrevistoAcumulado: registro.perc_previsto_acumulado != null ? registro.perc_previsto_acumulado : resumo.previstoAcumulado,
+    };
+    const snapshot = buildSnapshotFechamento(itensFrescos, totaisFrescos, previstoCongelado);
+    const { data, error } = await medicaoMensalService.atualizarSnapshot(obraId, mesRefKey, snapshot);
+    setSalvando(false);
+    if (error || !data) { toast('Não foi possível atualizar os valores (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
+    setRegistro(data);
+    toast('Valores atualizados a partir do cronograma', { tone: 'success', icon: 'check' });
   };
 
   // Zera o % medido de todos os itens da medição (mantém a lista de itens/manuais como
@@ -1531,6 +1622,25 @@ export default function MedicaoMensal({
           </div>
         )}
 
+        {/* Só pra medição fechada/aprovada — rascunho lê o cronograma ao vivo, nunca
+            defasa dele mesmo. Mesmo lugar/estilo do aviso de "fora do mês" acima, sempre
+            visível (não é preciso abrir "Aprovar" pra notar). O clique em "Aprovar" com
+            defasagem pendente também bloqueia (ver aprovarMedicao) — este banner é o aviso
+            antecipado, a trava é a garantia. */}
+        {defasagem.length > 0 && (
+          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span className="badge danger">
+              <Icon name="alert-triangle" size={12} />
+              {defasagem.length} {defasagem.length === 1 ? 'tarefa mudou' : 'tarefas mudaram'} no cronograma desde que esta medição foi {aprovada ? 'aprovada' : 'fechada'}
+            </span>
+            {!readOnly && (
+              <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={atualizarValores}>
+                <Icon name="refresh-cw" size={13} />{salvando ? 'Atualizando…' : 'Atualizar valores'}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* flex:1 + minHeight:0 dá a rolagem por dentro do card; sem o minHeight o
             flex item não encolhe e o scroll vaza para a página. */}
         <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
@@ -1898,6 +2008,20 @@ export default function MedicaoMensal({
             </span>
           )}
 
+          {defasagem.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span className="badge danger">
+                <Icon name="alert-triangle" size={12} />
+                {defasagem.length} {defasagem.length === 1 ? 'tarefa mudou' : 'tarefas mudaram'} no cronograma
+              </span>
+              {!readOnly && (
+                <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={atualizarValores}>
+                  <Icon name="refresh-cw" size={13} />Atualizar
+                </button>
+              )}
+            </div>
+          )}
+
           {linhas.length > 0 && (
             <div className="mm-mobile-hint">toque numa etapa para abrir só ela — as outras ficam resumidas em 1 linha</div>
           )}
@@ -2072,6 +2196,16 @@ export default function MedicaoMensal({
           salvando={salvando}
           onClose={() => setMostrarConfirmDesaprovar(false)}
           onConfirmar={confirmarDesaprovacao}
+        />
+      )}
+
+      {mostrarDefasagemAprovacao && (
+        <ModalDefasagemAprovacao
+          mesRefKey={mesRefKey}
+          defasagem={defasagem}
+          salvando={salvando}
+          onClose={() => setMostrarDefasagemAprovacao(false)}
+          onAtualizar={async () => { await atualizarValores(); setMostrarDefasagemAprovacao(false); }}
         />
       )}
 
