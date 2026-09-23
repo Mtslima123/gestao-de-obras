@@ -255,9 +255,9 @@ const LinhaFechamento = ({ item, total = false, striped = false }) => {
     <tr style={rowStyle}>
       <td className={strong} style={total ? { color: 'var(--brand)' } : undefined}>{item.codigo}</td>
       <td className={strong}>{item.nome}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.valorOrcamentoAtualizado)}</td>
       <td className={'right mono text-muted' + strong}>{formatBRL(item.valorOrcamentoBase)}</td>
       <td className={'right mono text-muted' + strong}>{formatNum(item.valorInccBase)}</td>
+      <td className={'right mono' + strong}>{formatBRL(item.valorOrcamentoAtualizado)}</td>
       <td className={'right mono text-muted' + strong}>{formatNum(item.previstoLinhaBase)}%</td>
       <td className={'right mono' + strong}>{formatNum(item.executadoFisico)}%</td>
       <td className={'right mono' + strong}>{formatNum(item.gastoPct)}%</td>
@@ -440,25 +440,25 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
                     <th colSpan={9} style={{ ...BANDA_CLARA, borderLeft: '2px solid var(--brand)', textAlign: 'center' }}>Fechamento</th>
                   </tr>
                   <tr>
-                    <th style={BANDA_CLARA}>Código</th>
-                    <th style={BANDA_CLARA}>Nome</th>
-                    <th className="right" style={BANDA_CLARA}>Atualizado (R$)</th>
-                    <th className="right" style={BANDA_CLARA}>Jun/25 (R$)</th>
-                    <th className="right" style={BANDA_CLARA}>INCC base</th>
-                    <th className="right" style={{ ...BANDA_ESCURA, borderLeft: '2px solid var(--brand)' }}>Previsto (%)</th>
-                    <th className="right" style={BANDA_ESCURA}>Exec. físico (%)</th>
-                    <th className="right" style={BANDA_ESCURA}>Gasto (%)</th>
-                    <th className="right" style={BANDA_ESCURA}>Gasto (INCC)</th>
-                    <th className="right" style={BANDA_ESCURA}>Gasto (R$)</th>
-                    <th className="right" style={{ ...BANDA_CLARA, borderLeft: '2px solid var(--brand)' }}>Tendência (R$)</th>
-                    <th className="right" style={BANDA_CLARA}>Créd. Modificações</th>
-                    <th className="right" style={BANDA_CLARA}>Ganhos (INCC)</th>
-                    <th className="right" style={BANDA_CLARA}>Saving</th>
-                    <th className="right" style={BANDA_CLARA}>Ganhos (INCC) Real</th>
-                    <th className="right" style={BANDA_CLARA}>Saving Real</th>
-                    <th className="right" style={BANDA_CLARA}>Reserva Financeira</th>
-                    <th className="right" style={BANDA_CLARA}>Saldo (R$)</th>
-                    <th className="right" style={BANDA_CLARA}>Saldo (INCC)</th>
+                    <th className="center" style={BANDA_CLARA}>Código</th>
+                    <th className="center" style={BANDA_CLARA}>Nome</th>
+                    <th className="center" style={BANDA_CLARA}>Orçamento</th>
+                    <th className="center" style={BANDA_CLARA}>Orçamento INCC</th>
+                    <th className="center" style={BANDA_CLARA}>Orçamento Atualizado</th>
+                    <th className="center" style={{ ...BANDA_ESCURA, borderLeft: '2px solid var(--brand)' }}>Previsto (%)</th>
+                    <th className="center" style={BANDA_ESCURA}>Exec. físico (%)</th>
+                    <th className="center" style={BANDA_ESCURA}>Gasto (%)</th>
+                    <th className="center" style={BANDA_ESCURA}>Gasto (INCC)</th>
+                    <th className="center" style={BANDA_ESCURA}>Gasto (R$)</th>
+                    <th className="center" style={{ ...BANDA_CLARA, borderLeft: '2px solid var(--brand)' }}>Tendência (R$)</th>
+                    <th className="center" style={BANDA_CLARA}>Créd. Modificações</th>
+                    <th className="center" style={BANDA_CLARA}>Ganhos (INCC)</th>
+                    <th className="center" style={BANDA_CLARA}>Saving</th>
+                    <th className="center" style={BANDA_CLARA}>Ganhos (INCC) Real</th>
+                    <th className="center" style={BANDA_CLARA}>Saving Real</th>
+                    <th className="center" style={BANDA_CLARA}>Reserva Financeira</th>
+                    <th className="center" style={BANDA_CLARA}>Saldo (R$)</th>
+                    <th className="center" style={BANDA_CLARA}>Saldo (INCC)</th>
                   </tr>
                 </thead>
                 <tbody>
