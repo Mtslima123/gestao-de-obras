@@ -5,7 +5,7 @@ import { fisicoFinanceiroService } from './fisicoFinanceiro.service';
 import {
   parseFechamentoSheet, getLinhaTotal, getDisciplinas, computeKPIs,
 } from './fisicoFinanceiroPure';
-import { formatBRL, formatNum, mesCurto, formatDateTime } from '../../utils/formatters';
+import { formatBRL, formatNum, mesCurto } from '../../utils/formatters';
 import { moduloSomenteLeitura } from '../../utils/permissions';
 import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
@@ -413,12 +413,12 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
                 <div className="kpi-foot-text">{formatBRL(kpis.savingReal)}</div>
               </div>
               <div className="kpi">
-                <div className="kpi-label"><span className="kpi-icon"><Icon name="trending-up" size={15} /></span>Ganhos em INCC (R$)</div>
+                <div className="kpi-label"><span className="kpi-icon"><Icon name="trending-up" size={15} /></span>Ganhos em INCC</div>
                 <div className="kpi-value" style={{ color: corCss(kpis.corGanhosInccReal) }}>{formatNum(kpis.ganhosInccRealPct)}<span className="unit">%</span></div>
                 <div className="kpi-foot-text">{formatBRL(kpis.ganhosInccReal)}</div>
               </div>
               <div className="kpi">
-                <div className="kpi-label"><span className="kpi-icon"><Icon name="flag" size={15} /></span>Fechamento</div>
+                <div className="kpi-label"><span className="kpi-icon"><Icon name="flag" size={15} /></span>Tendência de Fechamento</div>
                 <div className="kpi-value" style={{ color: corCss(kpis.corTendencia) }}>{formatNum(kpis.tendenciaFechamentoPct)}<span className="unit">%</span></div>
                 <div className="kpi-foot-text">{formatBRL(kpis.tendenciaFechamentoReal)}</div>
               </div>
@@ -428,11 +428,7 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
           <div className="card">
             <div className="card-header">
               <div>
-                <div className="card-title">Fechamento por disciplina</div>
-                <div className="card-subtitle">
-                  {registro.nome_arquivo ? `Importado de ${registro.nome_arquivo}` : 'Importado'}
-                  {registro.imported_at ? ` · ${formatDateTime(registro.imported_at)}` : ''}
-                </div>
+                <div className="card-title">Fechamento</div>
               </div>
             </div>
             <div className="card-body flush" style={{ overflowX: 'auto' }}>
