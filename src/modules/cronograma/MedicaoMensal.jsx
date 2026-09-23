@@ -35,6 +35,35 @@ const MEDICAO_COL_DEFWIDTH = {
   peso: 90, executado: 160, medido: 110, valorAMedir: 130, valorMedido: 130,
 };
 
+// Mesmos ids de MEDICAO_COL_IDS — usado pelo seletor "Colunas" do Exportar (Excel/PDF) e
+// pelo cabeçalho dos dois arquivos, ver linhasExport/exportarExcel/exportarPDF, abaixo.
+const MEDICAO_EXPORT_LABELS = {
+  servico: 'SERVIÇO', descricao: 'DESCRIÇÃO', pavimento: 'PAVIMENTO', inicio: 'INÍCIO',
+  termino: 'TÉRMINO', dur: 'DUR.', peso: 'PESO %', executado: '% EXECUTADO',
+  medido: '% MEDIDO', valorAMedir: 'VALOR A MEDIR', valorMedido: 'VALOR MEDIDO',
+};
+// Formato numérico Excel por coluna — só as que precisam (texto/número cru não entra aqui).
+const MEDICAO_EXCEL_FORMATO = {
+  inicio: 'DD/MM/YYYY', termino: 'DD/MM/YYYY',
+  peso: '0.00%', executado: '0.00%', medido: '0.00%',
+  valorAMedir: '#,##0.00', valorMedido: '#,##0.00',
+};
+// Largura de coluna no Excel (wch) — mesmos valores já usados hoje, só que por chave em
+// vez de posição, pra sobreviver a colunas ocultas/reordenadas.
+const MEDICAO_EXCEL_WCH = {
+  servico: 12, descricao: 46, pavimento: 14, inicio: 12, termino: 12, dur: 7,
+  peso: 10, executado: 13, medido: 11, valorAMedir: 16, valorMedido: 16,
+};
+// Alinhamento no PDF por coluna — texto (servico/descricao/pavimento) fica no padrão
+// (esquerda) do autoTable, só as numéricas/data precisam de override.
+const MEDICAO_PDF_ALIGN = {
+  dur: 'center', peso: 'center', executado: 'center', medido: 'center',
+  valorAMedir: 'right', valorMedido: 'right',
+};
+// Colunas que somam na linha TOTAL GERAL (as outras — serviço/descrição/pavimento/datas/
+// duração — não têm total, só a etiqueta "TOTAL GERAL · N atividades" no bloco inicial).
+const MEDICAO_TOTAL_COLS = new Set(['peso', 'executado', 'medido', 'valorAMedir', 'valorMedido']);
+
 const MES_NOMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 // Uma cor por etapa de topo no accordion mobile — só pra diferenciar visualmente uma
@@ -635,6 +664,22 @@ export default function MedicaoMensal({
   const [exportando, setExportando] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
   const exportRef = React.useRef(null);
+  // Quais colunas entram no Excel/PDF — mesmo padrão de usoHiddenCols (Cronograma.jsx,
+  // aba Uso da Tarefa): Set persistido por obra, vazio por padrão (exporta tudo até
+  // alguém desmarcar algo no popover "Colunas" do dropdown Exportar).
+  const [exportHiddenCols, setExportHiddenCols] = React.useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`medicao_export_hidden_${obraId}`) || '[]')); }
+    catch { return new Set(); }
+  });
+  React.useEffect(() => {
+    if (obraId) { try { localStorage.setItem(`medicao_export_hidden_${obraId}`, JSON.stringify([...exportHiddenCols])); } catch { /* ignore */ } }
+  }, [exportHiddenCols, obraId]);
+  const exportColsVisiveis = MEDICAO_COL_IDS.filter(id => !exportHiddenCols.has(id));
+  const toggleExportCol = (id) => setExportHiddenCols(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
   // wbsMap vem por prop, já calculado uma única vez em CronogramaFull (que nunca desmonta
   // ao trocar de aba) — evita recalcular do zero sobre todas as etapas a cada vez que o
@@ -1225,29 +1270,49 @@ export default function MedicaoMensal({
   };
 
   // ── Exportação ────────────────────────────────────────────────────────────
-  // Linhas da árvore no formato de planilha/PDF: mesma ordem e hierarquia da tela,
-  // com a indentação por nível que o projeto já usa nos outros exports.
-  const linhasExport = () => linhas.map(l => {
+  // Valor de UMA coluna pra uma linha da árvore — extraído em função própria (era código
+  // "na mão" dentro de linhasExport) pra poder montar só as colunas marcadas no popover
+  // "Colunas" do Exportar, em vez de sempre as 11.
+  const medicaoColVal = (l, colId) => {
     const grupo = l.tipo === 'grupo';
-    return {
-      grupo,
-      cells: [
-        l.wbs || '',
-        '  '.repeat(l.nivel || 0) + l.descricao + (l.foraDoMes ? ' (fora do mês)' : ''),
-        grupo ? '' : l.pavimento,
-        offsetToDate(l.inicioOff),
-        offsetToDate(l.terminoOff - 1), // terminoOff é exclusivo; -1 pra exibir/exportar
-        l.duracaoDias,
-        (l.peso ?? ((l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100)) / 100,
-        grupo ? null : l.percExecutado / 100,
-        (grupo ? l.med : l.percMedido) / 100,
-        l.valor,
-        grupo ? (l.valor * l.med) / 100 : (l.valor * l.percMedido) / 100,
-      ],
-    };
-  });
+    switch (colId) {
+      case 'servico':     return l.wbs || '';
+      case 'descricao':   return '  '.repeat(l.nivel || 0) + l.descricao + (l.foraDoMes ? ' (fora do mês)' : '');
+      case 'pavimento':   return grupo ? '' : l.pavimento;
+      case 'inicio':      return offsetToDate(l.inicioOff);
+      case 'termino':     return offsetToDate(l.terminoOff - 1); // terminoOff é exclusivo; -1 pra exibir/exportar
+      case 'dur':         return l.duracaoDias;
+      case 'peso':        return (l.peso ?? ((l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100)) / 100;
+      case 'executado':   return grupo ? null : l.percExecutado / 100;
+      case 'medido':      return (grupo ? l.med : l.percMedido) / 100;
+      case 'valorAMedir': return l.valor;
+      case 'valorMedido': return grupo ? (l.valor * l.med) / 100 : (l.valor * l.percMedido) / 100;
+      default:            return '';
+    }
+  };
+  // Valor de uma coluna na linha TOTAL GERAL. Nomes de campo de `totais` invertidos entre
+  // si de propósito (valorAMedir carrega o total MEDIDO, valor carrega o total A MEDIR) —
+  // confirmado contra o <tfoot> da tabela em tela, mantido igual aqui, não é bug.
+  const medicaoTotalVal = (colId) => {
+    switch (colId) {
+      case 'peso':        return totais.peso;
+      case 'executado':   return totais.exec;
+      case 'medido':      return totais.med;
+      case 'valorAMedir': return totais.valor;
+      case 'valorMedido': return totais.valorAMedir;
+      default:            return null; // sem total nessa coluna
+    }
+  };
 
-  const CABECALHOS = ['SERVIÇO', 'DESCRIÇÃO', 'PAVIMENTO', 'INÍCIO', 'TÉRMINO', 'DUR.', 'PESO %', '% EXECUTADO', '% MEDIDO', 'VALOR A MEDIR', 'VALOR MEDIDO'];
+  // Linhas da árvore no formato de planilha/PDF: mesma ordem e hierarquia da tela, com a
+  // indentação por nível que o projeto já usa nos outros exports. Só as colunas marcadas
+  // em exportColsVisiveis entram — ordem sempre a de MEDICAO_COL_IDS.
+  const linhasExport = () => linhas.map(l => ({
+    grupo: l.tipo === 'grupo',
+    cells: exportColsVisiveis.map(id => medicaoColVal(l, id)),
+  }));
+
+  const CABECALHOS = exportColsVisiveis.map(id => MEDICAO_EXPORT_LABELS[id]);
 
   const exportarExcel = async () => {
     setExportando(true);
@@ -1258,31 +1323,44 @@ export default function MedicaoMensal({
       const linhas2     = linhasExport();
       const groupRowIdx = [];
       linhas2.forEach((l, i) => { if (l.grupo) groupRowIdx.push(HEADER_ROW + 1 + i); });
-      // linhasExport() devolve objetos Date crus nas células 3/4 (Início/Término) porque o
-      // export em PDF usa esses mesmos Date via toLocaleDateString — só aqui, pro Excel,
-      // convertemos pro serial do Excel (ver dateToExcelSerial: entregar o Date object direto
-      // pro xlsx-js-style jogava a data 1 dia pra trás em fuso negativo, ex. Brasil).
-      const corpo = linhas2.map(l => l.cells.map((v, i) => (i === 3 || i === 4) && v instanceof Date ? dateToExcelSerial(v) : v));
+      // linhasExport() devolve objetos Date crus nas colunas inicio/termino porque o export
+      // em PDF usa esses mesmos Date via toLocaleDateString — só aqui, pro Excel, convertemos
+      // pro serial do Excel (ver dateToExcelSerial: entregar o Date object direto pro
+      // xlsx-js-style jogava a data 1 dia pra trás em fuso negativo, ex. Brasil).
+      const corpo = linhas2.map(l => l.cells.map((v, i) => {
+        const id = exportColsVisiveis[i];
+        return (id === 'inicio' || id === 'termino') && v instanceof Date ? dateToExcelSerial(v) : v;
+      }));
       const totalRowIdx = HEADER_ROW + 1 + corpo.length;
+      // Rótulo na 1ª coluna visível; nas outras, total (se a coluna tem total), null pra
+      // data (célula formatada como DD/MM/YYYY não gosta de string vazia) ou '' pro resto.
+      const totalRow = exportColsVisiveis.map((id, i) => {
+        if (i === 0) return `TOTAL GERAL · ${totais.qtd} atividades`;
+        if (MEDICAO_TOTAL_COLS.has(id)) {
+          const v = medicaoTotalVal(id);
+          return (id === 'valorAMedir' || id === 'valorMedido') ? v : v / 100;
+        }
+        return (id === 'inicio' || id === 'termino') ? null : '';
+      });
       const rows = [
         [`Medição Mensal · ${obraNome} · ${mesLabel(mesRefKey)}`],
         [`Gerado em ${new Date().toLocaleDateString('pt-BR')}`],
         [],
         CABECALHOS,
         ...corpo,
-        [`TOTAL GERAL · ${totais.qtd} atividades`, '', '', null, null, '',
-          totais.peso / 100, totais.exec / 100, totais.med / 100, totais.valor, totais.valorAMedir],
+        totalRow,
       ];
       const ws = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
       const rng = XLSX.utils.decode_range(ws['!ref']);
       // Números crus na célula + formato via .z (nunca string de moeda), padrão do projeto.
+      const formatosPorIdx = exportColsVisiveis.map((id, i) => [i, MEDICAO_EXCEL_FORMATO[id]]).filter(([, z]) => z);
       for (let R = HEADER_ROW + 1; R <= rng.e.r; R++) {
-        [[3, 'DD/MM/YYYY'], [4, 'DD/MM/YYYY'], [6, '0.00%'], [7, '0.00%'], [8, '0.00%'], [9, '#,##0.00'], [10, '#,##0.00']].forEach(([C, z]) => {
+        formatosPorIdx.forEach(([C, z]) => {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (ws[addr]) ws[addr].z = z;
         });
       }
-      ws['!cols'] = [{ wch: 12 }, { wch: 46 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 7 }, { wch: 10 }, { wch: 13 }, { wch: 11 }, { wch: 16 }, { wch: 16 }];
+      ws['!cols'] = exportColsVisiveis.map(id => ({ wch: MEDICAO_EXCEL_WCH[id] }));
       ws['!freeze'] = { xSplit: 2, ySplit: HEADER_ROW + 1 };
       ws['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: CABECALHOS.length - 1 } },
@@ -1322,26 +1400,44 @@ export default function MedicaoMensal({
       // % MEDIDO em branco quando zero — célula "sem nada preenchido" fica mais clara que
       // "0,00%" numa medição ainda por fazer.
       const fmtPMedido = (v) => (!v ? '' : fmtP(v));
+      const fmtCell = (colId, v) => {
+        if (colId === 'inicio' || colId === 'termino') return fmtD(v);
+        if (colId === 'peso' || colId === 'executado') return fmtP(v);
+        if (colId === 'medido') return fmtPMedido(v);
+        if (colId === 'valorAMedir' || colId === 'valorMedido') return formatBRL(v);
+        return v; // servico/descricao/pavimento/dur — texto/número cru
+      };
+      const columnStyles = Object.fromEntries(
+        exportColsVisiveis
+          .map((id, i) => [i, MEDICAO_PDF_ALIGN[id]])
+          .filter(([, align]) => align)
+          .map(([i, align]) => [i, { halign: align }])
+      );
+      // Rótulo ocupa as colunas antes da 1ª que tem total (colSpan); dali em diante, um
+      // total por coluna visível — % em branco só pra "medido" zerado (mesma regra do
+      // corpo, fmtPMedido), o resto sempre formatado.
+      const primeiroTotalIdx = exportColsVisiveis.findIndex(id => MEDICAO_TOTAL_COLS.has(id));
+      const colSpanLabel = Math.max(primeiroTotalIdx === -1 ? exportColsVisiveis.length : primeiroTotalIdx, 1);
+      const footFmt = (id) => {
+        const v = medicaoTotalVal(id);
+        if (id === 'valorAMedir' || id === 'valorMedido') return formatBRL(v);
+        if (id === 'medido') return v ? fmtPct100(v) : '';
+        return fmtPct100(v);
+      };
       autoTable(doc, {
         startY: 25,
         head: [CABECALHOS],
-        body: dados.map(l => [
-          l.cells[0], l.cells[1], l.cells[2], fmtD(l.cells[3]), fmtD(l.cells[4]), l.cells[5],
-          fmtP(l.cells[6]), fmtP(l.cells[7]), fmtPMedido(l.cells[8]), formatBRL(l.cells[9]), formatBRL(l.cells[10]),
-        ]),
+        body: dados.map(l => exportColsVisiveis.map((id, i) => fmtCell(id, l.cells[i]))),
         foot: [[
-          { content: `TOTAL GERAL · ${totais.qtd} atividades`, colSpan: 6, styles: { halign: 'left' } },
-          fmtPct100(totais.peso), fmtPct100(totais.exec), totais.med ? fmtPct100(totais.med) : '', formatBRL(totais.valor), formatBRL(totais.valorAMedir),
+          { content: `TOTAL GERAL · ${totais.qtd} atividades`, colSpan: colSpanLabel, styles: { halign: 'left' } },
+          ...exportColsVisiveis.slice(colSpanLabel).map(footFmt),
         ]],
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
         bodyStyles: { fontSize: 7, textColor: 40 },
         footStyles: { fillColor: [225, 232, 242], textColor: 20, fontStyle: 'bold', fontSize: 7, halign: 'right' },
         alternateRowStyles: { fillColor: [248, 249, 250] },
-        columnStyles: {
-          5: { halign: 'center' }, 6: { halign: 'center' }, 7: { halign: 'center' },
-          8: { halign: 'center' }, 9: { halign: 'right' }, 10: { halign: 'right' },
-        },
+        columnStyles,
         margin: { top: 25, right: 14, bottom: 14, left: 14 },
         didParseCell: (data) => {
           if (data.section === 'body' && dados[data.row.index]?.grupo) {
@@ -1468,11 +1564,36 @@ export default function MedicaoMensal({
                     {PDF_FORMATOS.map(f => <option key={f} value={f}>{f.toUpperCase()}</option>)}
                   </select>
                 </label>
-                <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', marginTop: 4 }}
+                {/* Vale pros dois formatos (Excel e PDF) — mesmo padrão de "Colunas" da aba
+                    Uso da Tarefa (Cronograma.jsx): Set de ocultas, persistido por obra. */}
+                <div style={{ borderTop: '1px solid var(--border)', marginTop: 8, paddingTop: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                      Colunas do arquivo
+                    </span>
+                    {exportHiddenCols.size > 0 && (
+                      <button type="button" className="btn btn-ghost" style={{ height: 'auto', padding: '1px 6px', fontSize: 10.5 }}
+                        onClick={() => setExportHiddenCols(new Set())}>
+                        Mostrar todas
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {MEDICAO_COL_IDS.map(id => (
+                      <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', padding: '2px 4px' }}>
+                        <input type="checkbox" checked={!exportHiddenCols.has(id)} onChange={() => toggleExportCol(id)} />
+                        {MEDICAO_EXPORT_LABELS[id]}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', marginTop: 8 }}
+                  disabled={exportColsVisiveis.length === 0}
                   onClick={() => { setExportOpen(false); exportarExcel(); }}>
                   <Icon name="download" size={14} />Excel
                 </button>
                 <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', marginTop: 2 }}
+                  disabled={exportColsVisiveis.length === 0}
                   onClick={() => { setExportOpen(false); exportarPDF(); }}>
                   <Icon name="download" size={14} />PDF
                 </button>
