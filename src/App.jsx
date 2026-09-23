@@ -23,6 +23,8 @@ const CronogramaFull            = React.lazy(() => import('./modules/cronograma/
 const OrcamentoCronogramaScreen = React.lazy(() => import('./modules/financeiro/OrcamentoCronograma').then(m => ({ default: m.OrcamentoCronogramaScreen })));
 const UsuariosScreen            = React.lazy(() => import('./modules/admin/Usuarios').then(m => ({ default: m.UsuariosScreen })));
 const AuditoriaScreen           = React.lazy(() => import('./modules/admin/Auditoria').then(m => ({ default: m.AuditoriaScreen })));
+const FisicoFinanceiroList      = React.lazy(() => import('./modules/fisicoFinanceiro/FisicoFinanceiroList').then(m => ({ default: m.FisicoFinanceiroList })));
+const FisicoFinanceiroDetail    = React.lazy(() => import('./modules/fisicoFinanceiro/FisicoFinanceiroDetail').then(m => ({ default: m.FisicoFinanceiroDetail })));
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
 // Um módulo (React.lazy) que já estava carregado na aba e o site foi atualizado (novo
@@ -100,9 +102,10 @@ const AppInner = () => {
   const [userProfile, setUserProfile] = React.useState(null);
   const [view, setView] = React.useState(() => {
     const saved = sessionStorage.getItem('nav_view');
-    return (saved && saved !== 'obra-detail') ? saved : 'dashboard';
+    return (saved && saved !== 'obra-detail' && saved !== 'fisico-financeiro-detail') ? saved : 'dashboard';
   });
   const [selectedObra, setSelectedObra] = React.useState(null);
+  const [selectedObraFF, setSelectedObraFF] = React.useState(null);
   const [modal, setModal] = React.useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
@@ -279,6 +282,18 @@ const AppInner = () => {
     }
   }, []);
 
+  // Restaura fisico-financeiro-detail após reload (mesmo mecanismo de obra-detail acima,
+  // chave própria — nav_obra_ff não colide com o nav_obra de Obras).
+  React.useEffect(() => {
+    if (sessionStorage.getItem('nav_view') === 'fisico-financeiro-detail') {
+      try {
+        const obra = JSON.parse(sessionStorage.getItem('nav_obra_ff') || 'null');
+        if (obra) { setSelectedObraFF(obra); setView('fisico-financeiro-detail'); }
+        else setView('fisico-financeiro');
+      } catch { setView('fisico-financeiro'); }
+    }
+  }, []);
+
   // Reseta a rolagem ao trocar de tela/obra — sem isso a janela mantinha a
   // posição de scroll anterior (nenhum container tem overflow próprio, quem
   // rola é o window), fazendo a tela nova abrir "no meio".
@@ -303,6 +318,7 @@ const AppInner = () => {
   const handleNavigate = (v) => {
     sessionStorage.setItem('nav_view', v);
     setSelectedObra(null);
+    setSelectedObraFF(null);
     setView(v);
   };
 
@@ -312,6 +328,13 @@ const AppInner = () => {
     setSelectedObra(obra);
     setSelectedObraInitialTab(tab);
     setView('obra-detail');
+  };
+
+  const handleOpenObraFF = (obra) => {
+    sessionStorage.setItem('nav_view', 'fisico-financeiro-detail');
+    try { sessionStorage.setItem('nav_obra_ff', JSON.stringify(obra)); } catch {}
+    setSelectedObraFF(obra);
+    setView('fisico-financeiro-detail');
   };
 
   const handleOpenCronograma = (obraId, tab) => {
@@ -343,6 +366,8 @@ const AppInner = () => {
     'orcamentos': '05 Orçamentos',
     'cronograma': '06 Cronograma',
     'admin':      'Administração',
+    'fisico-financeiro':        'Físico Financeiro — Lista',
+    'fisico-financeiro-detail': 'Físico Financeiro — Detalhe',
   };
 
   const buildBreadcrumb = () => {
@@ -353,10 +378,16 @@ const AppInner = () => {
       { label: 'Obras', onClick: () => handleNavigate('obras') },
       { label: selectedObra ? selectedObra.nome : AppData.obraAtual.nome },
     ];
+    if (view === 'fisico-financeiro-detail') return [
+      home,
+      { label: 'Físico Financeiro', onClick: () => handleNavigate('fisico-financeiro') },
+      { label: selectedObraFF ? selectedObraFF.nome : AppData.obraAtual.nome },
+    ];
     const map = {
       obras: 'Obras',
       orcamentos: 'Orçamentos', cronograma: 'Cronogramas',
       admin: 'Administração',
+      'fisico-financeiro': 'Físico Financeiro',
     };
     return [home, { label: map[view] || view }];
   };
@@ -372,11 +403,12 @@ const AppInner = () => {
   const VIEW_MODULO = {
     dashboard: 'dashboard', obras: 'obras', 'obra-detail': 'obras',
     orcamentos: 'orcamentos', cronograma: 'cronograma',
+    'fisico-financeiro': 'fisico-financeiro', 'fisico-financeiro-detail': 'fisico-financeiro',
   };
   const moduloDaView = VIEW_MODULO[view];
   const viewBloqueada = !!moduloDaView && !moduloLiberado(userProfile, moduloDaView);
   const primeiraViewLiberada =
-    ['dashboard', 'obras', 'orcamentos', 'cronograma']
+    ['dashboard', 'obras', 'orcamentos', 'cronograma', 'fisico-financeiro']
       .find(v => moduloLiberado(userProfile, v)) || 'dashboard';
 
   const showMobileGate = isMobile && !mobileGateBypassed && !mobileFocus;
@@ -445,7 +477,7 @@ const AppInner = () => {
       {authed && !acessoNegado && !showMobileGate && !mobileFocus && (
     <div className={'app' + (sidebarPinned ? ' sidebar-pinned' : '')} data-screen-label={screenLabels[view] || view}>
       <Sidebar
-        currentView={view === 'obra-detail' ? 'obras' : view}
+        currentView={view === 'obra-detail' ? 'obras' : view === 'fisico-financeiro-detail' ? 'fisico-financeiro' : view}
         onNavigate={handleNavigate}
         user={user}
         userProfile={userProfile}
@@ -498,6 +530,16 @@ const AppInner = () => {
               {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} userProfile={userProfile} />}
             </>
           )}
+          {view === 'fisico-financeiro' && (
+            <FisicoFinanceiroList onOpenObra={handleOpenObraFF} obras={obrasVisiveis} />
+          )}
+          {view === 'fisico-financeiro-detail' && (
+            <FisicoFinanceiroDetail
+              obra={selectedObraFF}
+              userProfile={userProfile}
+              onBack={() => handleNavigate('fisico-financeiro')}
+            />
+          )}
           {/* 🔒 SEGURANÇA [VULN-3]: telas admin bloqueadas para não-admin no frontend */}
           {view === 'admin' && (
             userProfile?.perfil === 'admin' ? (
@@ -513,7 +555,8 @@ const AppInner = () => {
           )}
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' &&
-           view !== 'cronograma' && view !== 'admin' && (
+           view !== 'cronograma' && view !== 'admin' &&
+           view !== 'fisico-financeiro' && view !== 'fisico-financeiro-detail' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </>

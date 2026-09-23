@@ -24,6 +24,7 @@ export const MODULOS = [
       { id: 'fluxo', label: 'Fluxo Executivo' },
   ] },
   { id: 'orc-x-cron',  label: 'Orç. × Cronograma', icon: 'link', subDe: 'cronograma' },
+  { id: 'fisico-financeiro', label: 'Físico Financeiro', icon: 'chart' },
 ];
 
 // Módulos de nível superior no menu (exclui sub-itens, ex.: orc-x-cron)
