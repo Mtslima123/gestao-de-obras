@@ -543,6 +543,9 @@ export default function MedicaoMensal({
   const hasVinc = Object.keys(valorVinculadoMap).length > 0;
   const weightOverride = hasVinc ? valorVinculadoMap : null;
 
+  // Chute inicial, só pra tela não nascer vazia enquanto listarMeses não volta do banco:
+  // assim que a lista de medições chega, o efeito mais abaixo reposiciona no mês da
+  // medição mais recente (ver autoMesRefObraRef).
   const [mesRefKey, setMesRefKey] = React.useState(() => {
     const salvo = carregarMesRefMedicao(obraId);
     if (salvo && months.some(m => m.key === salvo)) return salvo;
@@ -696,6 +699,22 @@ export default function MedicaoMensal({
     medicaoMensalService.listarMeses(obraId).then(r => { if (vivo) setMesesComMedicao(r); });
     return () => { vivo = false; };
   }, [obraId, registro]);
+
+  // Ao entrar na tela, cai sempre na medição mais recente que existe no banco — aberta,
+  // fechada ou aprovada, tanto faz: é o mês onde o trabalho realmente está, e não o mês
+  // do calendário (mesAtualOuUltimo) nem o último mês que o usuário olhou (localStorage),
+  // que ficavam apontando pra um mês sem medição nenhuma. Só na 1ª carga de cada obra: a
+  // ref impede de reposicionar o seletor depois, já que listarMeses roda de novo a cada
+  // salvamento e jogaria o usuário de volta pra cá no meio da navegação.
+  const autoMesRefObraRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!obraId || autoMesRefObraRef.current === obraId) return;
+    if (!months.length || !mesesComMedicao.length) return;
+    autoMesRefObraRef.current = obraId;
+    // "AAAA-MM" ordena como string; não depende da ordenação que veio do banco.
+    const ultima = mesesComMedicao.reduce((a, m) => (m.mes_referencia > a ? m.mes_referencia : a), '');
+    if (ultima && months.some(m => m.key === ultima)) setMesRefKey(ultima);
+  }, [obraId, months, mesesComMedicao]);
 
   // Estado por mês, para marcar o seletor: 'fechada' | 'rascunho' | undefined.
   const statusPorMes = React.useMemo(
