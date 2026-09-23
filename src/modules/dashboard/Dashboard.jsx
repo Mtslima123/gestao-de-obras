@@ -8,7 +8,7 @@ import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { migrateEtapas, offsetToISO, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { computeAvancoFisico, computeMonthlyDist } from '../cronograma/scheduleEngine';
 import { mesCurto, formatBRL, formatNum } from '../../utils/formatters';
-import { orcamentoDaCarteira, avancoDaCarteira, curvaPrevista, indiceDoMes } from './carteiraPure';
+import { orcamentoDaCarteira, curvaPrevista, indiceDoMes } from './carteiraPure';
 import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
 import {
   getLinhaTotal, computeKPIs, computeKPIsFromTotal, somarTotaisCarteira, corPorSinal,
@@ -16,6 +16,11 @@ import {
 
 const mesAtualISO = () => new Date().toISOString().slice(0, 7);
 const corCss = (sem) => (sem === 'neutral' ? 'var(--text-muted)' : `var(--${sem})`);
+// Mesmas cores de banda de FisicoFinanceiroDetail.jsx — cabeçalho em 2 linhas
+// (grupo + coluna) formando um bloco contínuo de cor por grupo.
+const BANDA_CLARA  = { background: '#c3d3ea', color: 'var(--brand)' };
+const BANDA_ESCURA = { background: 'var(--brand)', color: '#ffffff' };
+const badgeNovo = { background: 'var(--brand)', color: '#fff' };
 
 // ─── Dashboard Executivo ──────────────────────────────────────────────────────
 // Todo número desta tela sai do banco. O que não tem lastro foi removido em vez de
@@ -187,8 +192,6 @@ const Dashboard = ({ obras = [] }) => {
         hojeIdx: indiceDoMes(curva),
         distsPorObra,
         orcamentoTotal,
-        vinculadoTotal: porObra.reduce((s, o) => s + o.valorVinculado, 0),
-        avanco: avancoDaCarteira(porObra),
         fechamentosPorObra,
       });
       setAtualizadoEm(new Date());
@@ -201,13 +204,11 @@ const Dashboard = ({ obras = [] }) => {
 
   const {
     loading, erro, vazio, porObra = [], curva = [], hojeIdx = -1, distsPorObra = {},
-    orcamentoTotal = 0, vinculadoTotal = 0, avanco = 0, fechamentosPorObra = {},
+    orcamentoTotal = 0, fechamentosPorObra = {},
   } = carga;
 
   const ativas = obrasAtivas.length;
   const comOrcamento = porObra.filter(o => o.orcamento > 0).length;
-  const comCronograma = porObra.filter(o => o.temCronograma).length;
-  const cobertura = orcamentoTotal > 0 ? (vinculadoTotal / orcamentoTotal) * 100 : 0;
 
   // ── Físico Financeiro da carteira (ou de 1 obra, via obraFiltro) ──────────────
   const obraSelecionadaFF = obraFiltro !== 'carteira' ? obrasAtivas.find(o => o.id === obraFiltro) : null;
@@ -251,25 +252,19 @@ const Dashboard = ({ obras = [] }) => {
       ) : (
         <>
           {/* KPIs — todos derivados do banco */}
-          <div className="kpi-grid">
+          <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(2,1fr)' }}>
             <KPI label="Obras ativas" value={ativas} unit={ativas === 1 ? 'em execução' : 'em execução'}
                  icon="building"
                  foot={`${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra na carteira' : 'obras na carteira'}`} />
             <KPI label="Orçamento contratado" value={loading ? '—' : brl(orcamentoTotal, { compact: true })}
                  icon="briefcase"
                  foot={loading ? 'carregando…' : `${comOrcamento} de ${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra com orçamento' : 'obras com orçamento'}`} />
-            <KPI label="Avanço físico da carteira" value={loading ? '—' : avanco.toFixed(2)} unit={loading ? '' : '%'}
-                 icon="trending-up"
-                 foot={loading ? 'carregando…' : `ponderado pelo orçamento · ${comCronograma} com cronograma`} />
-            <KPI label="Orçamento vinculado" value={loading ? '—' : cobertura.toFixed(1)} unit={loading ? '' : '%'}
-                 icon="wallet"
-                 foot={loading ? 'carregando…' : `${brl(vinculadoTotal, { compact: true })} amarrados ao cronograma`} />
           </div>
 
           {/* Físico Financeiro — consolidado dos fechamentos mensais importados */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Físico Financeiro da carteira</h2>
-            <span className="badge info">Novo</span>
+            <span className="badge" style={badgeNovo}>Novo</span>
             <div style={{ marginLeft: 'auto' }}>
               <select className="input" value={obraFiltro} onChange={(e) => setObraFiltro(e.target.value)}>
                 <option value="carteira">Toda a carteira</option>
@@ -353,19 +348,23 @@ const Dashboard = ({ obras = [] }) => {
             <div className="card">
               <div className="card-header">
                 <div>
-                  <div className="card-title">Avanço Físico × Financeiro por obra <span className="badge info" style={{ marginLeft: 8 }}>Novo</span></div>
+                  <div className="card-title">Avanço Físico × Financeiro por obra <span className="badge" style={{ ...badgeNovo, marginLeft: 8 }}>Novo</span></div>
                 </div>
               </div>
               <div className="card-body flush" style={{ overflow: 'auto' }}>
                 <table className="tbl">
                   <thead>
                     <tr>
-                      <th>Obra</th>
-                      <th>Avanço físico</th>
-                      <th className="right">Exec. físico</th>
-                      <th className="right">Gasto</th>
-                      <th className="right">Delta</th>
-                      <th className="center">Mês</th>
+                      <th colSpan={2} style={{ ...BANDA_CLARA, textAlign: 'center' }}>Cronograma</th>
+                      <th colSpan={4} style={{ ...BANDA_ESCURA, textAlign: 'center', borderLeft: '2px solid var(--brand)' }}>Físico Financeiro</th>
+                    </tr>
+                    <tr>
+                      <th className="center" style={BANDA_CLARA}>Obra</th>
+                      <th className="center" style={BANDA_CLARA}>Avanço físico</th>
+                      <th className="center" style={{ ...BANDA_ESCURA, borderLeft: '2px solid var(--brand)' }}>Exec. físico</th>
+                      <th className="center" style={BANDA_ESCURA}>Gasto</th>
+                      <th className="center" style={BANDA_ESCURA}>Delta</th>
+                      <th className="center" style={BANDA_ESCURA}>Mês</th>
                     </tr>
                   </thead>
                   <tbody>
