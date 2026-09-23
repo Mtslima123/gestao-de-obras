@@ -3,16 +3,19 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
-import { notificacoesService } from '../../services/notificacoes.service';
 import { orcamentosService } from '../financeiro/orcamentos.service';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { migrateEtapas, offsetToISO, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { computeAvancoFisico, computeMonthlyDist } from '../cronograma/scheduleEngine';
-import { tempoRelativo, mesCurto } from '../../utils/formatters';
+import { mesCurto, formatBRL, formatNum } from '../../utils/formatters';
+import { orcamentoDaCarteira, avancoDaCarteira, curvaPrevista, indiceDoMes } from './carteiraPure';
+import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
 import {
-  orcamentoDaCarteira, avancoDaCarteira, curvaPrevista,
-  indiceDoMes, distribuicaoPorStatus, pendenciasDaCarteira,
-} from './carteiraPure';
+  getLinhaTotal, computeKPIs, computeKPIsFromTotal, somarTotaisCarteira, corPorSinal,
+} from '../fisicoFinanceiro/fisicoFinanceiroPure';
+
+const mesAtualISO = () => new Date().toISOString().slice(0, 7);
+const corCss = (sem) => (sem === 'neutral' ? 'var(--text-muted)' : `var(--${sem})`);
 
 // ─── Dashboard Executivo ──────────────────────────────────────────────────────
 // Todo número desta tela sai do banco. O que não tem lastro foi removido em vez de
@@ -89,48 +92,22 @@ const CurvaPrevista = React.memo(({ curva, hojeIdx }) => {
   );
 });
 
-// ----- Donut de distribuição -----
-const Donut = React.memo(({ data, size = 170 }) => {
-  const total = data.reduce((a, b) => a + b.value, 0);
-  const r = size / 2 - 8;
-  const r2 = r - 22;
-  const cx = size / 2, cy = size / 2;
-  if (!total) return <div style={{ width: size, height: size, display: 'grid', placeItems: 'center', color: 'var(--text-faint)', fontSize: 12 }}>sem obras</div>;
-  let ang = -Math.PI / 2;
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {data.map((d, i) => {
-        const frac = d.value / total;
-        const ini = ang, fim = ang + frac * Math.PI * 2;
-        ang = fim;
-        // Fatia única (100%): o arco degenera porque início e fim coincidem — desenha o anel inteiro
-        if (frac >= 0.9999) {
-          return <circle key={i} cx={cx} cy={cy} r={(r + r2) / 2} fill="none" stroke={d.color} strokeWidth={r - r2} />;
-        }
-        const p = (raio, a) => [cx + raio * Math.cos(a), cy + raio * Math.sin(a)];
-        const [x1, y1] = p(r, ini), [x2, y2] = p(r, fim);
-        const [x3, y3] = p(r2, fim), [x4, y4] = p(r2, ini);
-        const grande = fim - ini > Math.PI ? 1 : 0;
-        return (
-          <path key={i} fill={d.color}
-            d={`M${x1},${y1} A${r},${r} 0 ${grande} 1 ${x2},${y2} L${x3},${y3} A${r2},${r2} 0 ${grande} 0 ${x4},${y4} Z`} />
-        );
-      })}
-      <text x={cx} y={cy - 2} textAnchor="middle" fontSize="24" fontWeight="700" fill="var(--text)">{total}</text>
-      <text x={cx} y={cy + 14} textAnchor="middle" fontSize="9" fill="var(--text-muted)" letterSpacing="1">OBRAS</text>
-    </svg>
-  );
-});
-
 // ----- Dashboard main -----
-const Dashboard = ({ obras = [], onOpenObra }) => {
+const Dashboard = ({ obras = [] }) => {
   const [carga, setCarga] = React.useState({ loading: true, erro: null });
   const [atualizadoEm, setAtualizadoEm] = React.useState(null);
+  const [obraFiltro, setObraFiltro] = React.useState('carteira');
 
-  const obrasKey = obras.map(o => o.id).join(',');
+  // Obra concluída some do Dashboard inteiro — KPIs, tabelas e as seções de Físico
+  // Financeiro abaixo. Só existem 2 status no sistema (em_andamento/concluida), então
+  // "ativa" aqui é só "não concluída".
+  const obrasAtivas = obras.filter(o => o.status !== 'concluida');
+  const mesRefFF = mesAtualISO();
+
+  const obrasKey = obrasAtivas.map(o => o.id).join(',');
 
   React.useEffect(() => {
-    const ids = obras.map(o => o.id);
+    const ids = obrasAtivas.map(o => o.id);
     if (!ids.length) { setCarga({ loading: false, erro: null, vazio: true }); return; }
     let cancelado = false;
     setCarga(c => ({ ...c, loading: true }));
@@ -139,8 +116,8 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
       supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids),
       vinculoService.listarPorObras(ids),
       orcamentosService.listar(ids),
-      notificacoesService.listar(8),
-    ]).then(([cronRes, vincRes, orcRes, notifRes]) => {
+      fisicoFinanceiroService.buscarPorObras(ids, mesAtualISO()),
+    ]).then(([cronRes, vincRes, orcRes, ffRes]) => {
       if (cancelado) return;
       const erro = cronRes.error || vincRes.error || orcRes.error;
       if (erro) {
@@ -148,6 +125,9 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
         setCarga({ loading: false, erro });
         return;
       }
+
+      const fechamentosPorObra = {};
+      (ffRes.data || []).forEach(r => { fechamentosPorObra[r.obra_id] = r.itens || []; });
 
       // Vínculos e valores dos itens, agrupados por obra — mesmo preparo da ObrasList
       const vincPorObra = {}, itensMapPorObra = {};
@@ -164,14 +144,19 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
       (cronRes.data || []).forEach(r => { cronPorObra[r.obra_id] = r.etapas; });
 
       const dists = [];
-      const porObra = obras.map(o => {
+      const distsPorObra = {};
+      const porObra = obrasAtivas.map(o => {
         const etapas = migrateEtapas(cronPorObra[o.id] || []);
         const vincMap = computeValorVinculadoMap(etapas, vincPorObra[o.id] || [], itensMapPorObra[o.id] || {});
         const custoMap = computeCustoOrcadoMap(etapas, vincMap);
         const folhas = etapas.filter(e => !e.isGroup);
         const peso = folhas.reduce((s, e) => s + (custoMap[e.id] || 0), 0);
         const valorVinculado = folhas.reduce((s, e) => s + (vincMap[e.id] || 0), 0);
-        if (etapas.length) dists.push(computeMonthlyDist(etapas, custoMap));
+        if (etapas.length) {
+          const dist = computeMonthlyDist(etapas, custoMap);
+          dists.push(dist);
+          distsPorObra[o.id] = dist;
+        }
         return {
           id: o.id,
           nome: o.nome,
@@ -200,12 +185,11 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
         porObra,
         curva,
         hojeIdx: indiceDoMes(curva),
+        distsPorObra,
         orcamentoTotal,
         vinculadoTotal: porObra.reduce((s, o) => s + o.valorVinculado, 0),
         avanco: avancoDaCarteira(porObra),
-        distribuicao: distribuicaoPorStatus(obras),
-        pendencias: pendenciasDaCarteira(porObra),
-        notificacoes: notifRes.error ? [] : (notifRes.data || []),
+        fechamentosPorObra,
       });
       setAtualizadoEm(new Date());
     });
@@ -216,22 +200,27 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
   }, [obrasKey]);
 
   const {
-    loading, erro, vazio, porObra = [], curva = [], hojeIdx = -1,
-    orcamentoTotal = 0, vinculadoTotal = 0, avanco = 0,
-    distribuicao = [], pendencias = [], notificacoes = [],
+    loading, erro, vazio, porObra = [], curva = [], hojeIdx = -1, distsPorObra = {},
+    orcamentoTotal = 0, vinculadoTotal = 0, avanco = 0, fechamentosPorObra = {},
   } = carga;
 
-  const ativas = obras.filter(o => o.status === 'em_andamento').length;
+  const ativas = obrasAtivas.length;
   const comOrcamento = porObra.filter(o => o.orcamento > 0).length;
   const comCronograma = porObra.filter(o => o.temCronograma).length;
   const cobertura = orcamentoTotal > 0 ? (vinculadoTotal / orcamentoTotal) * 100 : 0;
-  // Notificação real primeiro; pendência derivada da carteira completa a lista
-  const alertas = [
-    ...notificacoes.map(n => ({
-      tipo: n.tipo || 'info', titulo: n.titulo, sub: n.subtitulo || '', tempo: tempoRelativo(n.created_at),
-    })),
-    ...pendencias.map(p => ({ ...p, tempo: '' })),
-  ].slice(0, 8);
+
+  // ── Físico Financeiro da carteira (ou de 1 obra, via obraFiltro) ──────────────
+  const obraSelecionadaFF = obraFiltro !== 'carteira' ? obrasAtivas.find(o => o.id === obraFiltro) : null;
+  const kpisFF = obraFiltro === 'carteira'
+    ? computeKPIsFromTotal(somarTotaisCarteira(
+        Object.values(fechamentosPorObra).map(itens => getLinhaTotal(itens)),
+      ))
+    : computeKPIs(fechamentosPorObra[obraFiltro] || []);
+  const distsParaCurva = obraFiltro === 'carteira'
+    ? Object.values(distsPorObra)
+    : (distsPorObra[obraFiltro] ? [distsPorObra[obraFiltro]] : []);
+  const curvaExibida = obraFiltro === 'carteira' ? curva : curvaPrevista(distsParaCurva);
+  const hojeIdxExibido = obraFiltro === 'carteira' ? hojeIdx : indiceDoMes(curvaExibida);
 
   return (
     <>
@@ -265,10 +254,10 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
           <div className="kpi-grid">
             <KPI label="Obras ativas" value={ativas} unit={ativas === 1 ? 'em execução' : 'em execução'}
                  icon="building"
-                 foot={`${obras.length} ${obras.length === 1 ? 'obra na carteira' : 'obras na carteira'}`} />
+                 foot={`${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra na carteira' : 'obras na carteira'}`} />
             <KPI label="Orçamento contratado" value={loading ? '—' : brl(orcamentoTotal, { compact: true })}
                  icon="briefcase"
-                 foot={loading ? 'carregando…' : `${comOrcamento} de ${obras.length} ${obras.length === 1 ? 'obra com orçamento' : 'obras com orçamento'}`} />
+                 foot={loading ? 'carregando…' : `${comOrcamento} de ${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra com orçamento' : 'obras com orçamento'}`} />
             <KPI label="Avanço físico da carteira" value={loading ? '—' : avanco.toFixed(2)} unit={loading ? '' : '%'}
                  icon="trending-up"
                  foot={loading ? 'carregando…' : `ponderado pelo orçamento · ${comCronograma} com cronograma`} />
@@ -277,8 +266,62 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
                  foot={loading ? 'carregando…' : `${brl(vinculadoTotal, { compact: true })} amarrados ao cronograma`} />
           </div>
 
-          {/* Curva + distribuição */}
-          <div className="grid-cols-3-2" style={{ marginBottom: 'var(--gap)' }}>
+          {/* Físico Financeiro — consolidado dos fechamentos mensais importados */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Físico Financeiro da carteira</h2>
+            <span className="badge info">Novo</span>
+            <div style={{ marginLeft: 'auto' }}>
+              <select className="input" value={obraFiltro} onChange={(e) => setObraFiltro(e.target.value)}>
+                <option value="carteira">Toda a carteira</option>
+                {obrasAtivas.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="kpi-grid">
+            {!kpisFF ? (
+              <div className="card" style={{ gridColumn: '1 / -1' }}>
+                <div className="card-body" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                  {loading ? 'Carregando…' : obraSelecionadaFF
+                    ? `${obraSelecionadaFF.nome} ainda não tem fechamento de ${mesCurto(mesRefFF)} importado.`
+                    : `Nenhuma obra da carteira tem fechamento de ${mesCurto(mesRefFF)} importado ainda.`}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="kpi">
+                  <div className="kpi-label"><span className="kpi-icon"><Icon name="measure" size={16} /></span>Delta (%) Físico × Financeiro</div>
+                  <div className="kpi-value" style={{ color: corCss(kpisFF.corDeltaFisicoFinanceiro) }}>
+                    <span className="num">{formatNum(kpisFF.deltaFisicoFinanceiroPct)}</span><span className="unit">%</span>
+                  </div>
+                  <div className="kpi-foot"><span className="kpi-foot-text">{formatBRL(kpisFF.deltaFisicoFinanceiroReal)}</span></div>
+                </div>
+                <div className="kpi">
+                  <div className="kpi-label"><span className="kpi-icon"><Icon name="briefcase" size={16} /></span>Saving</div>
+                  <div className="kpi-value" style={{ color: corCss(kpisFF.corSavingReal) }}>
+                    <span className="num">{formatNum(kpisFF.savingRealPct)}</span><span className="unit">%</span>
+                  </div>
+                  <div className="kpi-foot"><span className="kpi-foot-text">{formatBRL(kpisFF.savingReal)}</span></div>
+                </div>
+                <div className="kpi">
+                  <div className="kpi-label"><span className="kpi-icon"><Icon name="trending-up" size={16} /></span>Ganhos em INCC</div>
+                  <div className="kpi-value" style={{ color: corCss(kpisFF.corGanhosInccReal) }}>
+                    <span className="num">{formatNum(kpisFF.ganhosInccRealPct)}</span><span className="unit">%</span>
+                  </div>
+                  <div className="kpi-foot"><span className="kpi-foot-text">{formatBRL(kpisFF.ganhosInccReal)}</span></div>
+                </div>
+                <div className="kpi">
+                  <div className="kpi-label"><span className="kpi-icon"><Icon name="flag" size={16} /></span>Tendência de Fechamento</div>
+                  <div className="kpi-value" style={{ color: corCss(kpisFF.corTendencia) }}>
+                    <span className="num">{formatNum(kpisFF.tendenciaFechamentoPct)}</span><span className="unit">%</span>
+                  </div>
+                  <div className="kpi-foot"><span className="kpi-foot-text">{formatBRL(kpisFF.tendenciaFechamentoReal)}</span></div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Físico previsto acumulado */}
+          <div style={{ marginBottom: 'var(--gap)' }}>
             <div className="card">
               <div className="card-header">
                 <div>
@@ -288,6 +331,10 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
                   </div>
                 </div>
                 <div className="card-actions">
+                  <select className="input" value={obraFiltro} onChange={(e) => setObraFiltro(e.target.value)} style={{ marginRight: 10 }}>
+                    <option value="carteira">Toda a carteira</option>
+                    {obrasAtivas.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                  </select>
                   <div className="legend">
                     <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Previsto</span>
                   </div>
@@ -296,43 +343,17 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
               <div className="card-body">
                 {loading
                   ? <div style={{ height: 200, display: 'grid', placeItems: 'center', color: 'var(--text-faint)', fontSize: 13 }}>Carregando…</div>
-                  : <CurvaPrevista curva={curva} hojeIdx={hojeIdx} />}
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">
-                <div>
-                  <div className="card-title">Distribuição da carteira</div>
-                  <div className="card-subtitle">Por situação</div>
-                </div>
-              </div>
-              <div className="card-body">
-                <div className="donut-wrap">
-                  <Donut data={distribuicao} size={170} />
-                  <div className="donut-legend">
-                    {distribuicao.map((d) => (
-                      <div className="row" key={d.status} style={{ justifyContent: 'space-between' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <span className="sw" style={{ background: d.color }}></span>
-                          <span style={{ color: 'var(--text-soft)' }}>{d.label}</span>
-                        </span>
-                        <span className="mono num" style={{ color: 'var(--text)', fontWeight: 600 }}>{d.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                  : <CurvaPrevista curva={curvaExibida} hojeIdx={hojeIdxExibido} />}
               </div>
             </div>
           </div>
 
-          {/* Obras + alertas */}
-          <div className="grid-cols-3-2">
+          {/* Avanço Físico × Financeiro — cronograma ao lado do último fechamento importado */}
+          <div style={{ marginBottom: 'var(--gap)' }}>
             <div className="card">
               <div className="card-header">
                 <div>
-                  <div className="card-title">Obras da carteira</div>
-                  <div className="card-subtitle">Clique em uma obra para abrir o detalhamento</div>
+                  <div className="card-title">Avanço Físico × Financeiro por obra <span className="badge info" style={{ marginLeft: 8 }}>Novo</span></div>
                 </div>
               </div>
               <div className="card-body flush" style={{ overflow: 'auto' }}>
@@ -341,10 +362,10 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
                     <tr>
                       <th>Obra</th>
                       <th>Avanço físico</th>
-                      <th className="right">Orçamento</th>
-                      <th className="right">Vinculado</th>
-                      <th className="right">Tarefas</th>
-                      <th>Fim do cronograma</th>
+                      <th className="right">Exec. físico</th>
+                      <th className="right">Gasto</th>
+                      <th className="right">Delta</th>
+                      <th className="center">Mês</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -352,16 +373,15 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
                       <tr><td colSpan={6} style={{ color: 'var(--text-faint)', fontSize: 13 }}>Carregando…</td></tr>
                     )}
                     {!loading && porObra.map((o) => {
-                      const obraOriginal = obras.find(x => x.id === o.id);
+                      const totalObra = fechamentosPorObra[o.id] ? getLinhaTotal(fechamentosPorObra[o.id]) : null;
+                      const delta = totalObra ? (totalObra.executadoFisico || 0) - (totalObra.gastoPct || 0) : null;
                       return (
-                        <tr key={o.id} onClick={() => obraOriginal && onOpenObra(obraOriginal)}
-                            role="button" tabIndex={0}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); obraOriginal && onOpenObra(obraOriginal); } }}>
+                        <tr key={o.id}>
                           <td>
                             <div className="strong" style={{ marginBottom: 2 }}>{o.nome}</div>
                             <div className="text-xs text-muted mono">{o.sigla}</div>
                           </td>
-                          <td style={{ minWidth: 160 }}>
+                          <td style={{ minWidth: 150 }}>
                             <div className="progress-row">
                               <div className={'progress' + (o.avanco >= 100 ? ' success' : '')}>
                                 <span style={{ width: Math.min(100, o.avanco) + '%' }}></span>
@@ -369,50 +389,25 @@ const Dashboard = ({ obras = [], onOpenObra }) => {
                               <span className="pct">{o.avanco.toFixed(1)}%</span>
                             </div>
                           </td>
-                          <td className="right strong num">{o.orcamento ? brl(o.orcamento, { compact: true }) : '—'}</td>
-                          <td className="right num">{o.valorVinculado ? brl(o.valorVinculado, { compact: true }) : '—'}</td>
-                          <td className="right num mono text-sm">{o.tarefas || '—'}</td>
-                          <td className="mono text-sm text-soft">
-                            {o.fimCronograma ? o.fimCronograma.split('-').reverse().join('/') : '—'}
+                          <td className="right num">
+                            {totalObra ? `${formatNum(totalObra.executadoFisico)}%` : <span style={{ color: 'var(--text-faint)' }}>—</span>}
+                          </td>
+                          <td className="right num">
+                            {totalObra ? `${formatNum(totalObra.gastoPct)}%` : <span style={{ color: 'var(--text-faint)' }}>—</span>}
+                          </td>
+                          <td className="right num" style={delta == null ? undefined : { color: corCss(corPorSinal(delta)), fontWeight: 600 }}>
+                            {delta == null ? <span style={{ color: 'var(--text-faint)' }}>—</span> : `${delta >= 0 ? '+' : ''}${formatNum(delta)}%`}
+                          </td>
+                          <td className="center">
+                            {totalObra
+                              ? <span className="badge info">{mesCurto(mesRefFF)}</span>
+                              : <span className="badge neutral">Sem fechamento</span>}
                           </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">
-                <div>
-                  <div className="card-title">Alertas e pendências</div>
-                  <div className="card-subtitle">
-                    {loading ? 'carregando…'
-                      : alertas.length === 0 ? 'nada pendente'
-                      : `${alertas.length} ${alertas.length === 1 ? 'item requer' : 'itens requerem'} atenção`}
-                  </div>
-                </div>
-              </div>
-              <div className="card-body flush">
-                {!loading && alertas.length === 0 && (
-                  <div style={{ padding: '14px 16px', color: 'var(--text-faint)', fontSize: 13 }}>
-                    Nenhuma notificação e nenhuma lacuna de cadastro na carteira.
-                  </div>
-                )}
-                {alertas.map((a, i) => (
-                  <div className={'alert-item ' + a.tipo} key={i}>
-                    <div className={'alert-pill ' + a.tipo}></div>
-                    <div className="alert-icon">
-                      <Icon name={a.tipo === 'danger' ? 'alert-triangle' : a.tipo === 'warning' ? 'alert' : 'flag'} size={15} />
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="alert-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.titulo}</div>
-                      <div className="alert-sub">{a.sub}</div>
-                    </div>
-                    <div className="alert-time">{a.tempo}</div>
-                  </div>
-                ))}
               </div>
             </div>
           </div>

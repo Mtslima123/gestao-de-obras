@@ -239,9 +239,12 @@ export function corPorSinal(n) {
   return 'neutral';
 }
 
-// KPIs de resumo (cards do topo da tela), derivados só da linha de total.
-export function computeKPIs(itens) {
-  const total = getLinhaTotal(itens);
+// KPIs de resumo (cards do topo da tela) a partir da linha de total já extraída —
+// separado de computeKPIs pra poder alimentar tanto uma obra (getLinhaTotal de verdade)
+// quanto a carteira inteira (um total sintético, ver somarTotaisCarteira): as duas
+// situações usam exatamente a mesma fórmula, nunca podem divergir em como calculam a
+// mesma métrica.
+export function computeKPIsFromTotal(total) {
   if (!total) return null;
   // Delta (%) Físico × Financeiro = Executado Físico − Gasto (o quanto a produção
   // está à frente ou atrás do gasto, em pontos percentuais); em R$, esse delta
@@ -282,5 +285,40 @@ export function computeKPIs(itens) {
     tendenciaFechamentoReal,
     saldoDistribuirReal: total.saldoDistribuirReal,
     reservaFinanceira: total.reservaFinanceira,
+  };
+}
+
+// KPIs de uma obra, a partir dos itens importados (linha de total extraída por dentro).
+export function computeKPIs(itens) {
+  return computeKPIsFromTotal(getLinhaTotal(itens));
+}
+
+// Combina as linhas de total de várias obras (cada uma já extraída via getLinhaTotal)
+// num total sintético da carteira, pra alimentar computeKPIsFromTotal. executadoFisico
+// e gastoPct são percentuais — não dá pra somar direto, ponderam pelo orçamento
+// atualizado de cada obra (mesma técnica já usada em avancoDaCarteira, em
+// carteiraPure.js — e a mesma razão: usar sempre a coluna de % como autoritativa,
+// nunca re-derivar de outra coluna, é a convenção já validada no resto do módulo).
+// Com 1 obra só a média ponderada degenera pro valor dela mesma, então
+// computeKPIsFromTotal(somarTotaisCarteira([total])) sempre bate com computeKPIs
+// daquela obra sozinha — testado em fisicoFinanceiroPure.test.js.
+export function somarTotaisCarteira(totais) {
+  const lista = (totais || []).filter(Boolean);
+  if (!lista.length) return null;
+  const somar = (campo) => lista.reduce((s, t) => s + (t[campo] || 0), 0);
+  const somaOrc = somar('valorOrcamentoAtualizado');
+  const ponderado = (campo) => (somaOrc
+    ? lista.reduce((s, t) => s + (t[campo] || 0) * (t.valorOrcamentoAtualizado || 0), 0) / somaOrc
+    : 0);
+  return {
+    valorOrcamentoAtualizado: somaOrc,
+    executadoFisico: ponderado('executadoFisico'),
+    gastoPct: ponderado('gastoPct'),
+    gastoReal: somar('gastoReal'),
+    savingReal: somar('savingReal'),
+    ganhosInccReal: somar('ganhosInccReal'),
+    tendencia: somar('tendencia'),
+    saldoDistribuirReal: somar('saldoDistribuirReal'),
+    reservaFinanceira: somar('reservaFinanceira'),
   };
 }

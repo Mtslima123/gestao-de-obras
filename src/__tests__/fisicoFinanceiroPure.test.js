@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   detectarHeaderRowIndex, mapearColunas, parsePtBR, parseCampo, parseFechamentoSheet,
   getLinhaTotal, getDisciplinas, corGasto, corTendencia, corPorSinal, computeKPIs,
+  computeKPIsFromTotal, somarTotaisCarteira,
 } from '../modules/fisicoFinanceiro/fisicoFinanceiroPure';
 
 // Cabeçalho embaralhado de propósito (ordem diferente da planilha de origem) — prova
@@ -313,5 +314,67 @@ describe('computeKPIs', () => {
   });
   it('sem linha de total: null', () => {
     expect(computeKPIs([{ codigo: '001.01', nome: 'x' }])).toBeNull();
+  });
+});
+
+describe('somarTotaisCarteira / computeKPIsFromTotal', () => {
+  // 2 obras sintéticas com orçamentos bem diferentes, pra deixar claro quando um campo
+  // está sendo ponderado pelo orçamento (executadoFisico) vs. só somado (o resto).
+  const obraA = { valorOrcamentoAtualizado: 1000000, executadoFisico: 40, gastoPct: 30, gastoReal: 300000, savingReal: 5000, ganhosInccReal: 8000, tendencia: 950000 };
+  const obraB = { valorOrcamentoAtualizado: 500000, executadoFisico: 20, gastoPct: 25, gastoReal: 125000, savingReal: -1000, ganhosInccReal: 2000, tendencia: 480000 };
+
+  it('soma valores absolutos (orçamento, gastoReal, savingReal, ganhosInccReal, tendência) direto', () => {
+    const t = somarTotaisCarteira([obraA, obraB]);
+    expect(t.valorOrcamentoAtualizado).toBeCloseTo(1500000, 2);
+    expect(t.gastoReal).toBeCloseTo(425000, 2);
+    expect(t.savingReal).toBeCloseTo(4000, 2);
+    expect(t.ganhosInccReal).toBeCloseTo(10000, 2);
+    expect(t.tendencia).toBeCloseTo(1430000, 2);
+  });
+
+  it('executadoFisico (%) é ponderado pelo orçamento atualizado de cada obra, não média simples', () => {
+    const t = somarTotaisCarteira([obraA, obraB]);
+    // (40*1.000.000 + 20*500.000) / 1.500.000 = 33,33...% — não (40+20)/2=30%
+    expect(t.executadoFisico).toBeCloseTo(100 / 3, 5);
+  });
+
+  it('gastoPct (%) também é ponderado pelo orçamento atualizado, igual executadoFisico', () => {
+    const t = somarTotaisCarteira([obraA, obraB]);
+    // (30*1.000.000 + 25*500.000) / 1.500.000 = 28,33...%
+    expect(t.gastoPct).toBeCloseTo(85 / 3, 5);
+  });
+
+  it('computeKPIsFromTotal do total combinado usa a MESMA fórmula do card por obra', () => {
+    const kpis = computeKPIsFromTotal(somarTotaisCarteira([obraA, obraB]));
+    expect(kpis.deltaFisicoFinanceiroPct).toBeCloseTo(5, 5); // 33,33...% - 28,33...% = 5%
+    expect(kpis.deltaFisicoFinanceiroReal).toBeCloseTo(75000, 2); // 5% * 1.500.000
+    expect(kpis.savingRealPct).toBeCloseTo((4000 / 1500000) * 100, 5);
+    expect(kpis.ganhosInccRealPct).toBeCloseTo((10000 / 1500000) * 100, 5);
+    expect(kpis.tendenciaFechamentoPct).toBeCloseTo((1 - 1430000 / 1500000) * 100, 5);
+    expect(kpis.tendenciaFechamentoReal).toBeCloseTo(70000, 2); // 1.500.000 - 1.430.000
+  });
+
+  it('obra sem fechamento (null/undefined na lista) não entra na soma', () => {
+    const comBuraco = somarTotaisCarteira([obraA, null, obraB, undefined]);
+    const semBuraco = somarTotaisCarteira([obraA, obraB]);
+    expect(comBuraco).toEqual(semBuraco);
+  });
+
+  it('lista vazia ou só null/undefined: null', () => {
+    expect(somarTotaisCarteira([])).toBeNull();
+    expect(somarTotaisCarteira([null, undefined])).toBeNull();
+    expect(somarTotaisCarteira(null)).toBeNull();
+  });
+
+  it('computeKPIsFromTotal(null): null', () => {
+    expect(computeKPIsFromTotal(null)).toBeNull();
+  });
+
+  it('1 obra só: computeKPIsFromTotal(somarTotaisCarteira([total])) bate exatamente com computeKPIs(itens) dessa obra', () => {
+    const { itens } = parseFechamentoSheet(AOA);
+    const total = getLinhaTotal(itens);
+    const viaCarteira = computeKPIsFromTotal(somarTotaisCarteira([total]));
+    const viaObra = computeKPIs(itens);
+    expect(viaCarteira).toEqual(viaObra);
   });
 });

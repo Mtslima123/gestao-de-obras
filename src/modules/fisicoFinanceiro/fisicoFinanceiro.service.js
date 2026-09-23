@@ -24,6 +24,23 @@ export const fisicoFinanceiroService = {
     return { data: data || [], error: null };
   },
 
+  // Fechamentos de VÁRIAS obras no mesmo mês, numa só chamada — mesmo padrão de
+  // vinculoService.listarPorObras/orcamentosService.listar, usado pelo Dashboard
+  // Executivo pra montar a visão de carteira sem 1 query por obra.
+  async buscarPorObras(obraIds, mesReferencia) {
+    if (!obraIds?.length || !mesReferencia) return { data: [], error: null };
+    const { data, error } = await supabase
+      .from('fechamentos_mensais')
+      .select('obra_id, itens')
+      .in('obra_id', obraIds)
+      .eq('mes_referencia', mesReferencia);
+    if (error) {
+      logger.error('falha ao listar fechamentos da carteira', { module: 'fisicoFinanceiro', action: 'buscarPorObras', mesReferencia, err: error });
+      return { data: [], error };
+    }
+    return { data: data || [], error: null };
+  },
+
   async buscarPorMes(obraId, mesReferencia) {
     if (!obraId || !mesReferencia) return { data: null, error: null };
     const { data, error } = await supabase
