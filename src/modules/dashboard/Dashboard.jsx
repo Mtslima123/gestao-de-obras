@@ -14,7 +14,6 @@ import {
   getLinhaTotal, computeKPIs, computeKPIsFromTotal, somarTotaisCarteira, corPorSinal,
 } from '../fisicoFinanceiro/fisicoFinanceiroPure';
 
-const mesAtualISO = () => new Date().toISOString().slice(0, 7);
 const corCss = (sem) => (sem === 'neutral' ? 'var(--text-muted)' : `var(--${sem})`);
 // Mesmas cores de banda de FisicoFinanceiroDetail.jsx — cabeçalho em 2 linhas
 // (grupo + coluna) formando um bloco contínuo de cor por grupo.
@@ -107,7 +106,6 @@ const Dashboard = ({ obras = [] }) => {
   // Financeiro abaixo. Só existem 2 status no sistema (em_andamento/concluida), então
   // "ativa" aqui é só "não concluída".
   const obrasAtivas = obras.filter(o => o.status !== 'concluida');
-  const mesRefFF = mesAtualISO();
 
   const obrasKey = obrasAtivas.map(o => o.id).join(',');
 
@@ -121,7 +119,7 @@ const Dashboard = ({ obras = [] }) => {
       supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids),
       vinculoService.listarPorObras(ids),
       orcamentosService.listar(ids),
-      fisicoFinanceiroService.buscarPorObras(ids, mesAtualISO()),
+      fisicoFinanceiroService.buscarUltimosPorObras(ids),
     ]).then(([cronRes, vincRes, orcRes, ffRes]) => {
       if (cancelado) return;
       const erro = cronRes.error || vincRes.error || orcRes.error;
@@ -131,8 +129,13 @@ const Dashboard = ({ obras = [] }) => {
         return;
       }
 
-      const fechamentosPorObra = {};
-      (ffRes.data || []).forEach(r => { fechamentosPorObra[r.obra_id] = r.itens || []; });
+      // Último fechamento importado de cada obra (não um mês fixo) — mesmo critério da
+      // tela de Físico Financeiro, que abre sempre no mês mais recente.
+      const fechamentosPorObra = {}, mesFechamentoPorObra = {};
+      (ffRes.data || []).forEach(r => {
+        fechamentosPorObra[r.obra_id] = r.itens || [];
+        mesFechamentoPorObra[r.obra_id] = r.mes_referencia;
+      });
 
       // Vínculos e valores dos itens, agrupados por obra — mesmo preparo da ObrasList
       const vincPorObra = {}, itensMapPorObra = {};
@@ -193,6 +196,7 @@ const Dashboard = ({ obras = [] }) => {
         distsPorObra,
         orcamentoTotal,
         fechamentosPorObra,
+        mesFechamentoPorObra,
       });
       setAtualizadoEm(new Date());
     });
@@ -204,7 +208,7 @@ const Dashboard = ({ obras = [] }) => {
 
   const {
     loading, erro, vazio, porObra = [], curva = [], hojeIdx = -1, distsPorObra = {},
-    orcamentoTotal = 0, fechamentosPorObra = {},
+    orcamentoTotal = 0, fechamentosPorObra = {}, mesFechamentoPorObra = {},
   } = carga;
 
   const ativas = obrasAtivas.length;
@@ -265,6 +269,9 @@ const Dashboard = ({ obras = [] }) => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Físico Financeiro da carteira</h2>
             <span className="badge" style={badgeNovo}>Novo</span>
+            {obraSelecionadaFF && mesFechamentoPorObra[obraFiltro] && (
+              <span className="text-xs text-muted">Fechamento de {mesCurto(mesFechamentoPorObra[obraFiltro])}</span>
+            )}
             <div style={{ marginLeft: 'auto' }}>
               <select className="input" value={obraFiltro} onChange={(e) => setObraFiltro(e.target.value)}>
                 <option value="carteira">Toda a carteira</option>
@@ -277,8 +284,8 @@ const Dashboard = ({ obras = [] }) => {
               <div className="card" style={{ gridColumn: '1 / -1' }}>
                 <div className="card-body" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
                   {loading ? 'Carregando…' : obraSelecionadaFF
-                    ? `${obraSelecionadaFF.nome} ainda não tem fechamento de ${mesCurto(mesRefFF)} importado.`
-                    : `Nenhuma obra da carteira tem fechamento de ${mesCurto(mesRefFF)} importado ainda.`}
+                    ? `${obraSelecionadaFF.nome} ainda não tem fechamento importado.`
+                    : 'Nenhuma obra da carteira tem fechamento importado ainda.'}
                 </div>
               </div>
             ) : (
@@ -399,7 +406,7 @@ const Dashboard = ({ obras = [] }) => {
                           </td>
                           <td className="center">
                             {totalObra
-                              ? <span className="badge info">{mesCurto(mesRefFF)}</span>
+                              ? <span className="badge info">{mesCurto(mesFechamentoPorObra[o.id])}</span>
                               : <span className="badge neutral">Sem fechamento</span>}
                           </td>
                         </tr>

@@ -24,18 +24,33 @@ export const fisicoFinanceiroService = {
     return { data: data || [], error: null };
   },
 
-  // Fechamentos de VÁRIAS obras no mesmo mês, numa só chamada — mesmo padrão de
-  // vinculoService.listarPorObras/orcamentosService.listar, usado pelo Dashboard
-  // Executivo pra montar a visão de carteira sem 1 query por obra.
-  async buscarPorObras(obraIds, mesReferencia) {
-    if (!obraIds?.length || !mesReferencia) return { data: [], error: null };
+  // Fechamento MAIS RECENTE de cada obra, numa só ida ao banco por etapa (usado pelo
+  // Dashboard Executivo pra visão de carteira, sem 1 query por obra) — mesmo critério da tela
+  // de detalhe, que abre sempre no último mês importado. Duas etapas: primeiro só os
+  // cabeçalhos (leves, sem `itens`) pra descobrir o último mês de cada obra, depois
+  // busca o JSONB apenas desses pares obra+mês, em vez de trazer o histórico inteiro.
+  async buscarUltimosPorObras(obraIds) {
+    if (!obraIds?.length) return { data: [], error: null };
+    const { data: cabecalhos, error: errCab } = await supabase
+      .from('fechamentos_mensais')
+      .select('obra_id, mes_referencia')
+      .in('obra_id', obraIds)
+      .order('mes_referencia', { ascending: false });
+    if (errCab) {
+      logger.error('falha ao listar últimos fechamentos da carteira', { module: 'fisicoFinanceiro', action: 'buscarUltimosPorObras', err: errCab });
+      return { data: [], error: errCab };
+    }
+    const ultimoPorObra = {};
+    (cabecalhos || []).forEach(c => { if (!ultimoPorObra[c.obra_id]) ultimoPorObra[c.obra_id] = c.mes_referencia; });
+    const pares = Object.entries(ultimoPorObra);
+    if (!pares.length) return { data: [], error: null };
+    const filtro = pares.map(([obra, mes]) => `and(obra_id.eq.${obra},mes_referencia.eq.${mes})`).join(',');
     const { data, error } = await supabase
       .from('fechamentos_mensais')
-      .select('obra_id, itens')
-      .in('obra_id', obraIds)
-      .eq('mes_referencia', mesReferencia);
+      .select('obra_id, mes_referencia, itens')
+      .or(filtro);
     if (error) {
-      logger.error('falha ao listar fechamentos da carteira', { module: 'fisicoFinanceiro', action: 'buscarPorObras', mesReferencia, err: error });
+      logger.error('falha ao buscar últimos fechamentos da carteira', { module: 'fisicoFinanceiro', action: 'buscarUltimosPorObras', err: error });
       return { data: [], error };
     }
     return { data: data || [], error: null };
