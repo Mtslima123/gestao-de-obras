@@ -1117,7 +1117,11 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   // Etapas disponíveis: exclui as já vinculadas E todas as descendentes de uma tarefa-pai
   // já vinculada — usar a tarefa-pai já cobre o valor dela e dos filhos (via distribuição de
   // pesos), então eles não devem continuar aparecendo como pendentes de vínculo.
+  // Exceção: uma descendente com peso zerado ("Retirar da distribuição" no modal de pesos)
+  // não recebe mais valor herdado do ancestral vinculado — fica livre pra receber um vínculo
+  // próprio, e a exclusão não desce mais fundo a partir dela.
   const etapasDisponiveis = React.useMemo(() => {
+    const pesoMap = new Map(etapas.map(e => [e.id, Number(e.fator_peso ?? 1)]));
     const escondidas = new Set(linkedEtapaIds);
     const filhosDe = new Map();
     etapas.forEach(e => {
@@ -1130,7 +1134,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     while (pilha.length) {
       const id = pilha.pop();
       (filhosDe.get(id) || []).forEach(filhoId => {
-        if (!escondidas.has(filhoId)) { escondidas.add(filhoId); pilha.push(filhoId); }
+        if (escondidas.has(filhoId) || pesoMap.get(filhoId) === 0) return;
+        escondidas.add(filhoId); pilha.push(filhoId);
       });
     }
     return etapas.filter(et => !escondidas.has(et.id));
