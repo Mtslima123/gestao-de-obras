@@ -319,9 +319,10 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     sigla:        obra?.sigla || obra?.id || '',
     status:       obra?.status      || 'em_andamento',
     endereco:     obra?.endereco    || '',
+    area:         obra?.area ?? '',
     dataPrevista: obra?.previsto    || '',
     dataFimObra:  obra?.dataFimObra || '',
-    // Campos futuros: cliente, tipo, area, orcamento, risco, observacoes
+    // Campos futuros: cliente, tipo, orcamento, risco, observacoes
   });
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -336,6 +337,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         sigla:       form.sigla.trim() || obra.sigla || obra.id,
         status:      form.status,
         endereco:    form.endereco,
+        area:        form.area === '' ? null : Number(form.area),
         previsto:    form.dataPrevista || obra.previsto,
         dataFimObra: form.dataFimObra || null,
         // id não é sobrescrito — permanece imutável
@@ -347,7 +349,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         tipo:             'Incorporação Vertical',
         cliente:          '',
         endereco:         form.endereco,
-        area:             0,
+        area:             form.area === '' ? 0 : Number(form.area),
         orcamento:        0,
         gasto:            0,
         avancoFisico:     0,
@@ -436,7 +438,18 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
             onChange={e => set('dataFimObra', e.target.value)}
           />
         </div>
-        {/* Campos futuros: cliente, tipo, área, orçamento, risco, observações */}
+        <div className="field">
+          <label>Área construída (m²)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="Ex.: 1500"
+            value={form.area}
+            onChange={e => set('area', e.target.value)}
+          />
+        </div>
+        {/* Campos futuros: cliente, tipo, orçamento, risco, observações */}
       </div>
     </Modal>
   );

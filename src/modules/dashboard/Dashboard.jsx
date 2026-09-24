@@ -127,6 +127,7 @@ const Dashboard = ({ obras = [] }) => {
           peso,
           valorVinculado,
           orcamento: orcPorObra[o.id] || 0,
+          area: Number(o.area) || 0,
           // -1: (inicio+dur) é o offset EXCLUSIVO (dia seguinte ao término). Mantido em
           // dias corridos (sem workEnd/taskEnd) de propósito: esta tela agrega várias
           // obras de uma vez e WORK_CAL é um estado de módulo único — usar o calendário
@@ -159,6 +160,8 @@ const Dashboard = ({ obras = [] }) => {
 
   const ativas = obrasAtivas.length;
   const comOrcamento = porObra.filter(o => o.orcamento > 0).length;
+  const comArea = porObra.filter(o => o.area > 0).length;
+  const areaTotal = porObra.reduce((s, o) => s + (o.area || 0), 0);
 
   // ── Físico Financeiro e Curva S: sempre de UMA obra (sem visão consolidada
   // da carteira). Sem escolha explícita (ou se a obra escolhida saiu da lista), cai na
@@ -195,12 +198,15 @@ const Dashboard = ({ obras = [] }) => {
       ) : (
         <>
           {/* KPIs — todos derivados do banco */}
-          <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(2,1fr)' }}>
+          <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
             <KPI label="Obras ativas" value={ativas} unit={ativas === 1 ? 'em execução' : 'em execução'}
                  icon="building" />
             <KPI label="Orçamento contratado" value={loading ? '—' : brl(orcamentoTotal, { compact: true })}
                  icon="briefcase"
                  foot={loading ? 'carregando…' : `${comOrcamento} de ${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra com orçamento' : 'obras com orçamento'}`} />
+            <KPI label="Área construída" value={loading ? '—' : formatNum(areaTotal)} unit={loading ? '' : 'm²'}
+                 icon="maximize"
+                 foot={loading ? 'carregando…' : `${comArea} de ${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra com área informada' : 'obras com área informada'}`} />
           </div>
 
           {/* Físico Financeiro — último fechamento mensal importado da obra selecionada */}

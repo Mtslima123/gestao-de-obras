@@ -213,28 +213,41 @@ const ImportarFechamentoModal = ({ obraId, obraNome, mesInicial, mesesExistentes
 
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
             <div style={{ padding: '8px 14px', fontWeight: 600, fontSize: 12, background: 'var(--surface-muted)', borderBottom: '1px solid var(--border)' }}>
-              Pré-visualização ({disciplinas.length} linhas)
+              Pré-visualização ({disciplinas.length} linhas) — arraste para o lado pra ver as demais colunas
             </div>
-            <div style={{ maxHeight: 240, overflowY: 'auto' }}>
-              <table className="tbl" style={{ fontSize: 12.5 }}>
+            <div style={{ maxHeight: 320, overflow: 'auto' }}>
+              <table className="tbl" style={{ minWidth: 2000, whiteSpace: 'nowrap', fontSize: 12.5 }}>
                 <thead>
-                  <tr><th>Código</th><th>Nome</th><th className="right">Orçamento atualizado</th><th className="right">Executado físico</th></tr>
+                  <tr className="band-row">
+                    <th colSpan={5} style={{ ...BANDA_CLARA, textAlign: 'center' }}>Orçamento</th>
+                    <th colSpan={5} style={{ ...BANDA_ESCURA, borderLeft: '2px solid var(--brand)', textAlign: 'center' }}>Acumulado até {mesCurto(mesEscolhido)}</th>
+                    <th colSpan={9} style={{ ...BANDA_CLARA, borderLeft: '2px solid var(--brand)', textAlign: 'center' }}>Fechamento</th>
+                  </tr>
+                  <tr>
+                    <th className="center" style={BANDA_CLARA}>Código</th>
+                    <th className="center" style={BANDA_CLARA}>Nome</th>
+                    <th className="center" style={BANDA_CLARA}>Orçamento</th>
+                    <th className="center" style={BANDA_CLARA}>Orçamento INCC</th>
+                    <th className="center" style={BANDA_CLARA}>Orçamento Atualizado</th>
+                    <th className="center" style={{ ...BANDA_ESCURA, borderLeft: '2px solid var(--brand)' }}>Previsto (%)</th>
+                    <th className="center" style={BANDA_ESCURA}>Exec. físico (%)</th>
+                    <th className="center" style={BANDA_ESCURA}>Gasto (%)</th>
+                    <th className="center" style={BANDA_ESCURA}>Gasto (INCC)</th>
+                    <th className="center" style={BANDA_ESCURA}>Gasto (R$)</th>
+                    <th className="center" style={{ ...BANDA_CLARA, borderLeft: '2px solid var(--brand)' }}>Tendência (R$)</th>
+                    <th className="center" style={BANDA_CLARA}>Créd. Modificações</th>
+                    <th className="center" style={BANDA_CLARA}>Ganhos (INCC)</th>
+                    <th className="center" style={BANDA_CLARA}>Saving</th>
+                    <th className="center" style={BANDA_CLARA}>Ganhos (INCC) Real</th>
+                    <th className="center" style={BANDA_CLARA}>Saving Real</th>
+                    <th className="center" style={BANDA_CLARA}>Reserva Financeira</th>
+                    <th className="center" style={BANDA_CLARA}>Saldo (R$)</th>
+                    <th className="center" style={BANDA_CLARA}>Saldo (INCC)</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {total && (
-                    <tr style={{ background: 'var(--brand-tint)', fontWeight: 700 }}>
-                      <td>{total.codigo}</td><td>{total.nome}</td>
-                      <td className="right mono">{formatBRL(total.valorOrcamentoAtualizado)}</td>
-                      <td className="right mono">{formatNum(total.executadoFisico)}%</td>
-                    </tr>
-                  )}
-                  {disciplinas.map(it => (
-                    <tr key={it.codigo}>
-                      <td>{it.codigo}</td><td>{it.nome}</td>
-                      <td className="right mono">{formatBRL(it.valorOrcamentoAtualizado)}</td>
-                      <td className="right mono">{formatNum(it.executadoFisico)}%</td>
-                    </tr>
-                  ))}
+                  {total && <LinhaFechamento key={total.codigo} item={total} total />}
+                  {disciplinas.map((it, i) => <LinhaFechamento key={it.codigo} item={it} striped={i % 2 === 1} />)}
                 </tbody>
               </table>
             </div>
