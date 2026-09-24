@@ -323,8 +323,6 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     dataFimObra:  obra?.dataFimObra || '',
     // Indicadores digitados à mão (o sistema não calcula nenhum deles hoje)
     avancoFinanceiro:      obra?.avancoFinanceiro ?? '',
-    deltaFisicoFinanceiro: obra?.deltaFisicoFinanceiro ?? '',
-    tendenciaFechamento:   obra?.tendenciaFechamento ?? '',
     // Campos futuros: cliente, tipo, area, orcamento, risco, observacoes
   });
 
@@ -334,8 +332,7 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     const n = parseFloat(String(v).replace(',', '.'));
     return Number.isFinite(n) ? n : null;
   };
-  // Financeiro (%) é progresso 0-100 de verdade — Delta e Tendência NÃO usam isto (são
-  // variações com sinal, negativo é um valor válido e esperado ali, não um erro).
+  // Financeiro (%) é progresso 0-100 de verdade.
   const numPercentOuNull = (v) => {
     const n = numOuNull(v);
     return n == null ? null : Math.min(100, Math.max(0, n));
@@ -356,8 +353,6 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         previsto:    form.dataPrevista || obra.previsto,
         dataFimObra: form.dataFimObra || null,
         avancoFinanceiro:      numPercentOuNull(form.avancoFinanceiro),
-        deltaFisicoFinanceiro: numOuNull(form.deltaFisicoFinanceiro),
-        tendenciaFechamento:   numOuNull(form.tendenciaFechamento),
         // id não é sobrescrito — permanece imutável
       };
     } else {
@@ -462,22 +457,6 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
             type="number" step="any" placeholder="ex.: 60,5"
             value={form.avancoFinanceiro}
             onChange={e => set('avancoFinanceiro', e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label>Delta (%) Físico × Financeiro</label>
-          <input
-            type="number" step="any" placeholder="ex.: -3,5"
-            value={form.deltaFisicoFinanceiro}
-            onChange={e => set('deltaFisicoFinanceiro', e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label>Tendência de fechamento (%)</label>
-          <input
-            type="number" step="any" placeholder="ex.: 98,2"
-            value={form.tendenciaFechamento}
-            onChange={e => set('tendenciaFechamento', e.target.value)}
           />
         </div>
         {/* Campos futuros: cliente, tipo, área, orçamento, risco, observações */}
