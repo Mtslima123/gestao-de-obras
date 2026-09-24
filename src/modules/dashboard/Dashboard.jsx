@@ -11,7 +11,7 @@ import { mesCurto, formatBRL, formatNum } from '../../utils/formatters';
 import { orcamentoDaCarteira, curvaPrevista, indiceDoMes } from './carteiraPure';
 import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
 import {
-  getLinhaTotal, computeKPIs, computeKPIsFromTotal, somarTotaisCarteira, corPorSinal,
+  getLinhaTotal, computeKPIs, corPorSinal,
 } from '../fisicoFinanceiro/fisicoFinanceiroPure';
 
 const corCss = (sem) => (sem === 'neutral' ? 'var(--text-muted)' : `var(--${sem})`);
@@ -100,7 +100,7 @@ const CurvaPrevista = React.memo(({ curva, hojeIdx }) => {
 const Dashboard = ({ obras = [] }) => {
   const [carga, setCarga] = React.useState({ loading: true, erro: null });
   const [atualizadoEm, setAtualizadoEm] = React.useState(null);
-  const [obraFiltro, setObraFiltro] = React.useState('carteira');
+  const [obraFiltro, setObraFiltro] = React.useState(null);
 
   // Obra concluída some do Dashboard inteiro — KPIs, tabelas e as seções de Físico
   // Financeiro abaixo. Só existem 2 status no sistema (em_andamento/concluida), então
@@ -151,7 +151,6 @@ const Dashboard = ({ obras = [] }) => {
       const cronPorObra = {};
       (cronRes.data || []).forEach(r => { cronPorObra[r.obra_id] = r.etapas; });
 
-      const dists = [];
       const distsPorObra = {};
       const porObra = obrasAtivas.map(o => {
         const etapas = migrateEtapas(cronPorObra[o.id] || []);
@@ -161,9 +160,7 @@ const Dashboard = ({ obras = [] }) => {
         const peso = folhas.reduce((s, e) => s + (custoMap[e.id] || 0), 0);
         const valorVinculado = folhas.reduce((s, e) => s + (vincMap[e.id] || 0), 0);
         if (etapas.length) {
-          const dist = computeMonthlyDist(etapas, custoMap);
-          dists.push(dist);
-          distsPorObra[o.id] = dist;
+          distsPorObra[o.id] = computeMonthlyDist(etapas, custoMap);
         }
         return {
           id: o.id,
@@ -187,12 +184,9 @@ const Dashboard = ({ obras = [] }) => {
         };
       });
 
-      const curva = curvaPrevista(dists);
       setCarga({
         loading: false, erro: null,
         porObra,
-        curva,
-        hojeIdx: indiceDoMes(curva),
         distsPorObra,
         orcamentoTotal,
         fechamentosPorObra,
@@ -207,25 +201,23 @@ const Dashboard = ({ obras = [] }) => {
   }, [obrasKey]);
 
   const {
-    loading, erro, vazio, porObra = [], curva = [], hojeIdx = -1, distsPorObra = {},
+    loading, erro, vazio, porObra = [], distsPorObra = {},
     orcamentoTotal = 0, fechamentosPorObra = {}, mesFechamentoPorObra = {},
   } = carga;
 
   const ativas = obrasAtivas.length;
   const comOrcamento = porObra.filter(o => o.orcamento > 0).length;
 
-  // ── Físico Financeiro da carteira (ou de 1 obra, via obraFiltro) ──────────────
-  const obraSelecionadaFF = obraFiltro !== 'carteira' ? obrasAtivas.find(o => o.id === obraFiltro) : null;
-  const kpisFF = obraFiltro === 'carteira'
-    ? computeKPIsFromTotal(somarTotaisCarteira(
-        Object.values(fechamentosPorObra).map(itens => getLinhaTotal(itens)),
-      ))
-    : computeKPIs(fechamentosPorObra[obraFiltro] || []);
-  const distsParaCurva = obraFiltro === 'carteira'
-    ? Object.values(distsPorObra)
-    : (distsPorObra[obraFiltro] ? [distsPorObra[obraFiltro]] : []);
-  const curvaExibida = obraFiltro === 'carteira' ? curva : curvaPrevista(distsParaCurva);
-  const hojeIdxExibido = obraFiltro === 'carteira' ? hojeIdx : indiceDoMes(curvaExibida);
+  // ── Físico Financeiro e curva prevista: sempre de UMA obra (sem visão consolidada
+  // da carteira). Sem escolha explícita (ou se a obra escolhida saiu da lista), cai na
+  // primeira obra que já tem fechamento importado; sem nenhuma, na primeira da lista.
+  const obraFiltroEfetivo = obrasAtivas.some(o => o.id === obraFiltro)
+    ? obraFiltro
+    : (obrasAtivas.find(o => fechamentosPorObra[o.id]) || obrasAtivas[0])?.id ?? '';
+  const obraSelecionadaFF = obrasAtivas.find(o => o.id === obraFiltroEfetivo) || null;
+  const kpisFF = computeKPIs(fechamentosPorObra[obraFiltroEfetivo] || []);
+  const curvaExibida = curvaPrevista(distsPorObra[obraFiltroEfetivo] ? [distsPorObra[obraFiltroEfetivo]] : []);
+  const hojeIdxExibido = indiceDoMes(curvaExibida);
 
   return (
     <>
@@ -265,16 +257,15 @@ const Dashboard = ({ obras = [] }) => {
                  foot={loading ? 'carregando…' : `${comOrcamento} de ${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra com orçamento' : 'obras com orçamento'}`} />
           </div>
 
-          {/* Físico Financeiro — consolidado dos fechamentos mensais importados */}
+          {/* Físico Financeiro — último fechamento mensal importado da obra selecionada */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Físico Financeiro da carteira</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Físico Financeiro</h2>
             <span className="badge" style={badgeNovo}>Novo</span>
-            {obraSelecionadaFF && mesFechamentoPorObra[obraFiltro] && (
-              <span className="text-xs text-muted">Fechamento de {mesCurto(mesFechamentoPorObra[obraFiltro])}</span>
+            {obraSelecionadaFF && mesFechamentoPorObra[obraFiltroEfetivo] && (
+              <span className="text-xs text-muted">Fechamento de {mesCurto(mesFechamentoPorObra[obraFiltroEfetivo])}</span>
             )}
             <div style={{ marginLeft: 'auto' }}>
-              <select className="input" value={obraFiltro} onChange={(e) => setObraFiltro(e.target.value)}>
-                <option value="carteira">Toda a carteira</option>
+              <select className="input" value={obraFiltroEfetivo} onChange={(e) => setObraFiltro(e.target.value)}>
                 {obrasAtivas.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
               </select>
             </div>
@@ -285,7 +276,7 @@ const Dashboard = ({ obras = [] }) => {
                 <div className="card-body" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
                   {loading ? 'Carregando…' : obraSelecionadaFF
                     ? `${obraSelecionadaFF.nome} ainda não tem fechamento importado.`
-                    : 'Nenhuma obra da carteira tem fechamento importado ainda.'}
+                    : 'Nenhuma obra disponível.'}
                 </div>
               </div>
             ) : (
@@ -329,12 +320,11 @@ const Dashboard = ({ obras = [] }) => {
                 <div>
                   <div className="card-title">Físico previsto acumulado</div>
                   <div className="card-subtitle">
-                    Distribuição mensal do orçamento vinculado ao cronograma — carteira consolidada
+                    Distribuição mensal do orçamento vinculado ao cronograma{obraSelecionadaFF ? ` — ${obraSelecionadaFF.nome}` : ''}
                   </div>
                 </div>
                 <div className="card-actions">
-                  <select className="input" value={obraFiltro} onChange={(e) => setObraFiltro(e.target.value)} style={{ marginRight: 10 }}>
-                    <option value="carteira">Toda a carteira</option>
+                  <select className="input" value={obraFiltroEfetivo} onChange={(e) => setObraFiltro(e.target.value)} style={{ marginRight: 10 }}>
                     {obrasAtivas.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                   </select>
                   <div className="legend">
@@ -392,7 +382,7 @@ const Dashboard = ({ obras = [] }) => {
                               <div className={'progress' + (o.avanco >= 100 ? ' success' : '')}>
                                 <span style={{ width: Math.min(100, o.avanco) + '%' }}></span>
                               </div>
-                              <span className="pct">{o.avanco.toFixed(1)}%</span>
+                              <span className="pct">{formatNum(o.avanco)}%</span>
                             </div>
                           </td>
                           <td className="right num">
