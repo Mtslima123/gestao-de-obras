@@ -159,8 +159,6 @@ const Dashboard = ({ obras = [] }) => {
   } = carga;
 
   const ativas = obrasAtivas.length;
-  const comOrcamento = porObra.filter(o => o.orcamento > 0).length;
-  const comArea = porObra.filter(o => o.area > 0).length;
   const areaTotal = porObra.reduce((s, o) => s + (o.area || 0), 0);
 
   // ── Físico Financeiro e Curva S: sempre de UMA obra (sem visão consolidada
@@ -201,12 +199,10 @@ const Dashboard = ({ obras = [] }) => {
           <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
             <KPI label="Obras ativas" value={ativas} unit={ativas === 1 ? 'em execução' : 'em execução'}
                  icon="building" />
-            <KPI label="Orçamento contratado" value={loading ? '—' : brl(orcamentoTotal, { compact: true })}
-                 icon="briefcase"
-                 foot={loading ? 'carregando…' : `${comOrcamento} de ${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra com orçamento' : 'obras com orçamento'}`} />
+            <KPI label="Orçamento Total" value={loading ? '—' : brl(orcamentoTotal, { compact: true })}
+                 icon="briefcase" />
             <KPI label="Área construída" value={loading ? '—' : formatNum(areaTotal)} unit={loading ? '' : 'm²'}
-                 icon="maximize"
-                 foot={loading ? 'carregando…' : `${comArea} de ${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra com área informada' : 'obras com área informada'}`} />
+                 icon="maximize" />
           </div>
 
           {/* Físico Financeiro — último fechamento mensal importado da obra selecionada */}
