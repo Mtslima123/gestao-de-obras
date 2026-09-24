@@ -260,7 +260,6 @@ const Dashboard = ({ obras = [] }) => {
           {/* Físico Financeiro — último fechamento mensal importado da obra selecionada */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Físico Financeiro</h2>
-            <span className="badge" style={badgeNovo}>Novo</span>
             {obraSelecionadaFF && mesFechamentoPorObra[obraFiltroEfetivo] && (
               <span className="text-xs text-muted">Fechamento de {mesCurto(mesFechamentoPorObra[obraFiltroEfetivo])}</span>
             )}
