@@ -30,6 +30,9 @@ const fmtPctSinal = (v) => {
 };
 import { pavimentosService } from '../../services/pavimentos.service';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
+import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
+import { computeKPIs } from '../fisicoFinanceiro/fisicoFinanceiroPure';
+import { mesCurto } from '../../utils/formatters';
 import { capaCache } from '../../services/capaCache';
 
 // Obra Detail Page
@@ -1769,6 +1772,23 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     return () => { cancelled = true; };
   }, [o.id]);
 
+  // Último fechamento do Físico Financeiro da obra — fonte do Delta e da Tendência do
+  // cabeçalho (mesmo cálculo e mesmo mês que o Dashboard e a tela de Físico Financeiro
+  // mostram). Sem fechamento importado, cai no valor informado à mão no modal Editar.
+  const [fechamentoObra, setFechamentoObra] = React.useState(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    setFechamentoObra(null);
+    fisicoFinanceiroService.buscarUltimosPorObras([o.id]).then(({ data }) => {
+      if (cancelled || !data?.[0]) return;
+      const kpis = computeKPIs(data[0].itens || []);
+      if (kpis) setFechamentoObra({ mes: data[0].mes_referencia, kpis });
+    });
+    return () => { cancelled = true; };
+  }, [o.id]);
+  const deltaHero = fechamentoObra ? fechamentoObra.kpis.deltaFisicoFinanceiroPct : o.deltaFisicoFinanceiro;
+  const tendenciaHero = fechamentoObra ? fechamentoObra.kpis.tendenciaFechamentoPct : o.tendenciaFechamento;
+
   const cronFinalISO = etapasObra.length
     ? offsetToISO(Math.max(...etapasObra.map(e => taskEndDisplay({ isGroup: e.isGroup, inicio: e.inicio || 0, dur: e.dur || 0 }))))
     : null;
@@ -1875,23 +1895,24 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
                   pra sempre aparecerem juntos, logo abaixo do Avanço físico — independente de
                   quantas colunas o grid (auto-fit) couber em cada largura de tela, o que antes
                   podia jogar essa célula pra outro canto, longe do Avanço físico.
-                  Indicadores informados no modal Editar — o sistema não calcula nenhum dos
-                  dois: não há avanço financeiro acumulado real nem projeção de fechamento.
+                  Vêm do último fechamento do Físico Financeiro (fechamentoObra); sem
+                  fechamento, do valor informado no modal Editar.
                   Cor pelo sinal: positivo verde, negativo vermelho, zero neutro. */}
               <div style={{ display: 'flex', gap: 20, marginTop: 10 }}>
                 <div>
                   <div className="label" style={{ whiteSpace: 'normal' }}>Delta (%) Físico × Financeiro</div>
-                  <div className="value num" style={{ color: corPorSinal(o.deltaFisicoFinanceiro) }}>
-                    {fmtPctSinal(o.deltaFisicoFinanceiro)}
+                  <div className="value num" style={{ color: corPorSinal(deltaHero) }}>
+                    {fmtPctSinal(deltaHero)}
                   </div>
                 </div>
                 <div>
                   <div className="label" style={{ whiteSpace: 'normal' }}>Tendência de fechamento</div>
-                  <div className="value num" style={{ color: corPorSinal(o.tendenciaFechamento) }}>
-                    {fmtPctSinal(o.tendenciaFechamento)}
+                  <div className="value num" style={{ color: corPorSinal(tendenciaHero) }}>
+                    {fmtPctSinal(tendenciaHero)}
                   </div>
                 </div>
               </div>
+              {fechamentoObra && <div className="meta">Fechamento de {mesCurto(fechamentoObra.mes)}</div>}
             </div>
             {/* Financeiro (%): mesmo indicador informado à mão no modal Editar do Delta/
                 Tendência — não é calculado pelo sistema. */}
