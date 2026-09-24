@@ -321,22 +321,8 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     endereco:     obra?.endereco    || '',
     dataPrevista: obra?.previsto    || '',
     dataFimObra:  obra?.dataFimObra || '',
-    // Indicadores digitados à mão (o sistema não calcula nenhum deles hoje)
-    avancoFinanceiro:      obra?.avancoFinanceiro ?? '',
     // Campos futuros: cliente, tipo, area, orcamento, risco, observacoes
   });
-
-  // Campo vazio grava NULL; número inválido não vira NaN no payload.
-  const numOuNull = (v) => {
-    if (v === '' || v == null) return null;
-    const n = parseFloat(String(v).replace(',', '.'));
-    return Number.isFinite(n) ? n : null;
-  };
-  // Financeiro (%) é progresso 0-100 de verdade.
-  const numPercentOuNull = (v) => {
-    const n = numOuNull(v);
-    return n == null ? null : Math.min(100, Math.max(0, n));
-  };
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -352,7 +338,6 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
         endereco:    form.endereco,
         previsto:    form.dataPrevista || obra.previsto,
         dataFimObra: form.dataFimObra || null,
-        avancoFinanceiro:      numPercentOuNull(form.avancoFinanceiro),
         // id não é sobrescrito — permanece imutável
       };
     } else {
@@ -449,14 +434,6 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
             type="date"
             value={form.dataFimObra}
             onChange={e => set('dataFimObra', e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label>Financeiro (%)</label>
-          <input
-            type="number" step="any" placeholder="ex.: 60,5"
-            value={form.avancoFinanceiro}
-            onChange={e => set('avancoFinanceiro', e.target.value)}
           />
         </div>
         {/* Campos futuros: cliente, tipo, área, orçamento, risco, observações */}
