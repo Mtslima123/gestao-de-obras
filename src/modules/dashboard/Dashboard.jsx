@@ -6,9 +6,10 @@ import { logger } from '../../services/logger';
 import { orcamentosService } from '../financeiro/orcamentos.service';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { migrateEtapas, offsetToISO, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
-import { computeAvancoFisico, computeMonthlyDist } from '../cronograma/scheduleEngine';
+import { computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { mesCurto, formatBRL, formatNum } from '../../utils/formatters';
-import { orcamentoDaCarteira, curvaPrevista, indiceDoMes } from './carteiraPure';
+import { orcamentoDaCarteira } from './carteiraPure';
+import { CurvaSObra } from './CurvaSObra';
 import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
 import {
   getLinhaTotal, computeKPIs, corPorSinal,
@@ -45,56 +46,6 @@ const KPI = React.memo(({ label, value, unit, icon, foot }) => (
   </div>
 ));
 
-// ----- Curva do previsto acumulado -----
-// Uma série só. O previsto vem da distribuição mensal do orçamento vinculado ao
-// cronograma; não há série de realizado financeiro para comparar.
-const CurvaPrevista = React.memo(({ curva, hojeIdx }) => {
-  const w = 720, h = 260;
-  const pad = { l: 40, r: 16, t: 16, b: 30 };
-  const innerW = w - pad.l - pad.r;
-  const innerH = h - pad.t - pad.b;
-  if (curva.length < 2) {
-    return (
-      <div style={{ height: 200, display: 'grid', placeItems: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
-        Cronograma insuficiente para montar a curva.
-      </div>
-    );
-  }
-  const x = (i) => pad.l + (i / (curva.length - 1)) * innerW;
-  const y = (v) => pad.t + innerH - (v / 100) * innerH;
-  const linha = curva.map((p, i) => (i === 0 ? 'M' : 'L') + x(i).toFixed(1) + ',' + y(p.pct).toFixed(1)).join(' ');
-  const area = `${linha} L ${x(curva.length - 1).toFixed(1)},${pad.t + innerH} L ${pad.l},${pad.t + innerH} Z`;
-  // Rótulos a cada N meses: com 24+ meses de cronograma todos juntos ficam ilegíveis
-  const passo = Math.max(1, Math.ceil(curva.length / 8));
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: 'auto' }}>
-      <defs>
-        <linearGradient id="curva-prev" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--brand)" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="var(--brand)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[0, 25, 50, 75, 100].map(t => (
-        <g key={t}>
-          <line x1={pad.l} y1={y(t)} x2={w - pad.r} y2={y(t)} stroke="var(--border)" strokeDasharray="3 3" />
-          <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="10" fill="var(--text-muted)">{t}%</text>
-        </g>
-      ))}
-      {hojeIdx >= 0 && (
-        <g>
-          <line x1={x(hojeIdx)} y1={pad.t} x2={x(hojeIdx)} y2={pad.t + innerH} stroke="var(--danger)" strokeDasharray="4 3" strokeWidth="1.2" />
-          <text x={x(hojeIdx) + 4} y={pad.t + 10} fontSize="9.5" fill="var(--danger)">hoje</text>
-        </g>
-      )}
-      <path d={area} fill="url(#curva-prev)" />
-      <path d={linha} stroke="var(--brand)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      {curva.map((p, i) => (i % passo === 0 || i === curva.length - 1) && (
-        <text key={p.mes} x={x(i)} y={h - 10} textAnchor="middle" fontSize="10" fill="var(--text-muted)">{mesCurto(p.mes)}</text>
-      ))}
-    </svg>
-  );
-});
-
 // ----- Dashboard main -----
 const Dashboard = ({ obras = [] }) => {
   const [carga, setCarga] = React.useState({ loading: true, erro: null });
@@ -114,7 +65,7 @@ const Dashboard = ({ obras = [] }) => {
     setCarga(c => ({ ...c, loading: true }));
 
     Promise.all([
-      supabase.from('cronogramas').select('obra_id, etapas').in('obra_id', ids),
+      supabase.from('cronogramas').select('obra_id, etapas, baselines, reprogramacoes').in('obra_id', ids),
       vinculoService.listarPorObras(ids),
       orcamentosService.listar(ids),
       fisicoFinanceiroService.buscarUltimosPorObras(ids),
@@ -147,19 +98,23 @@ const Dashboard = ({ obras = [] }) => {
 
       const { total: orcamentoTotal, porObra: orcPorObra } = orcamentoDaCarteira(orcRes.data);
       const cronPorObra = {};
-      (cronRes.data || []).forEach(r => { cronPorObra[r.obra_id] = r.etapas; });
+      (cronRes.data || []).forEach(r => { cronPorObra[r.obra_id] = r; });
 
-      const distsPorObra = {};
+      // Insumos da Curva S por obra (o cálculo das séries fica em CurvaSObra, só pra
+      // obra selecionada).
+      const curvaPorObra = {};
       const porObra = obrasAtivas.map(o => {
-        const etapas = migrateEtapas(cronPorObra[o.id] || []);
+        const cron = cronPorObra[o.id];
+        const etapas = migrateEtapas(cron?.etapas || []);
         const vincMap = computeValorVinculadoMap(etapas, vincPorObra[o.id] || [], itensMapPorObra[o.id] || {});
         const custoMap = computeCustoOrcadoMap(etapas, vincMap);
         const folhas = etapas.filter(e => !e.isGroup);
         const peso = folhas.reduce((s, e) => s + (custoMap[e.id] || 0), 0);
         const valorVinculado = folhas.reduce((s, e) => s + (vincMap[e.id] || 0), 0);
-        if (etapas.length) {
-          distsPorObra[o.id] = computeMonthlyDist(etapas, custoMap);
-        }
+        curvaPorObra[o.id] = {
+          etapas, valorVinculadoMap: vincMap, custoOrcadoMap: custoMap,
+          baselines: cron?.baselines || [], reprogramacoes: cron?.reprogramacoes || [],
+        };
         return {
           id: o.id,
           nome: o.nome,
@@ -185,7 +140,7 @@ const Dashboard = ({ obras = [] }) => {
       setCarga({
         loading: false, erro: null,
         porObra,
-        distsPorObra,
+        curvaPorObra,
         orcamentoTotal,
         fechamentosPorObra,
         mesFechamentoPorObra,
@@ -198,14 +153,14 @@ const Dashboard = ({ obras = [] }) => {
   }, [obrasKey]);
 
   const {
-    loading, erro, vazio, porObra = [], distsPorObra = {},
+    loading, erro, vazio, porObra = [], curvaPorObra = {},
     orcamentoTotal = 0, fechamentosPorObra = {}, mesFechamentoPorObra = {},
   } = carga;
 
   const ativas = obrasAtivas.length;
   const comOrcamento = porObra.filter(o => o.orcamento > 0).length;
 
-  // ── Físico Financeiro e curva prevista: sempre de UMA obra (sem visão consolidada
+  // ── Físico Financeiro e Curva S: sempre de UMA obra (sem visão consolidada
   // da carteira). Sem escolha explícita (ou se a obra escolhida saiu da lista), cai na
   // primeira obra que já tem fechamento importado; sem nenhuma, na primeira da lista.
   const obraFiltroEfetivo = obrasAtivas.some(o => o.id === obraFiltro)
@@ -213,8 +168,7 @@ const Dashboard = ({ obras = [] }) => {
     : (obrasAtivas.find(o => fechamentosPorObra[o.id]) || obrasAtivas[0])?.id ?? '';
   const obraSelecionadaFF = obrasAtivas.find(o => o.id === obraFiltroEfetivo) || null;
   const kpisFF = computeKPIs(fechamentosPorObra[obraFiltroEfetivo] || []);
-  const curvaExibida = curvaPrevista(distsPorObra[obraFiltroEfetivo] ? [distsPorObra[obraFiltroEfetivo]] : []);
-  const hojeIdxExibido = indiceDoMes(curvaExibida);
+  const curvaObra = curvaPorObra[obraFiltroEfetivo];
 
   return (
     <>
@@ -305,28 +259,15 @@ const Dashboard = ({ obras = [] }) => {
             )}
           </div>
 
-          {/* Físico previsto acumulado */}
+          {/* Curva S da obra selecionada — mesmo gráfico da aba Curva Física do Cronograma */}
           <div style={{ marginBottom: 'var(--gap)' }}>
-            <div className="card">
-              <div className="card-header">
-                <div>
-                  <div className="card-title">Físico previsto acumulado</div>
-                  <div className="card-subtitle">
-                    Distribuição mensal do orçamento vinculado ao cronograma{obraSelecionadaFF ? ` — ${obraSelecionadaFF.nome}` : ''}
-                  </div>
-                </div>
-                <div className="card-actions">
-                  <div className="legend">
-                    <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Previsto</span>
-                  </div>
-                </div>
+            {loading ? (
+              <div className="card">
+                <div className="card-body" style={{ height: 200, display: 'grid', placeItems: 'center', color: 'var(--text-faint)', fontSize: 13 }}>Carregando…</div>
               </div>
-              <div className="card-body">
-                {loading
-                  ? <div style={{ height: 200, display: 'grid', placeItems: 'center', color: 'var(--text-faint)', fontSize: 13 }}>Carregando…</div>
-                  : <CurvaPrevista curva={curvaExibida} hojeIdx={hojeIdxExibido} />}
-              </div>
-            </div>
+            ) : (
+              <CurvaSObra key={obraFiltroEfetivo} obraId={obraFiltroEfetivo} obraNome={obraSelecionadaFF?.nome} {...(curvaObra || {})} />
+            )}
           </div>
 
           {/* Avanço Físico × Financeiro — cronograma ao lado do último fechamento importado */}

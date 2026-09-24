@@ -19,6 +19,10 @@ import {
 } from './scheduleEngine';
 import MedicaoMensal from './MedicaoMensal';
 import {
+  computeCurvaSeries, defaultRepId, defaultBlId,
+  carregarBlVisivel, carregarRepVisivel, carregarMesRef, mesAtualKey,
+} from './curvaFisica';
+import {
   CriarLinhaModal, GerenciarLinhasModal, FeriadosModal,
   CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal, DataInicioProjetoModal,
 } from './cronogramaModais';
@@ -947,28 +951,11 @@ const CurvaFisicaView = ({ etapas, obraNome = 'Projeto', months, monthlyDist, re
 
   const hasData = months.length > 0 && Object.values(filteredPlanned).some(v => v > 0);
 
-  // Recomputa séries mensais (usadas no export e no render)
-  const computeSeries = () => {
-    const totalPlanned = months.reduce((s, m) => s + (filteredPlanned[m.key] || 0), 0);
-    const hasBL  = baselineDist != null;
-    const refBLT = baselineTotal || totalPlanned || 1;
-    const refRep = totalPlanned || 1;
-    const todayKey2 = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-    let apBL = 0, apRep = 0, apRR = 0;
-    const blM=[], blA=[], repM=[], repA=[], rrM=[], rrA=[], difBL=[], difRep=[];
-    months.forEach(m => {
-      const vBL  = hasBL ? (baselineDist[m.key] || 0) : 0;
-      const vRep = hasRep ? (repDist[m.key] || 0) : (filteredPlanned[m.key] || 0);
-      const vRR  = filteredPlanned[m.key] || 0; // Real = plano ao vivo (igual ao Uso da Tarefa)
-      apBL += vBL; apRep += vRep; apRR += vRR;
-      blM.push(vBL  / refBLT * 100); blA.push(apBL / refBLT * 100);
-      repM.push(vRep / refRep * 100); repA.push(apRep / refRep * 100);
-      rrM.push(vRR  / refRep * 100); rrA.push(apRR  / refRep * 100);
-      difBL.push(hasBL ? rrA[rrA.length-1] - blA[blA.length-1] : null);
-      difRep.push(rrA[rrA.length-1] - repA[repA.length-1]);
-    });
-    return { blM, blA, repM, repA, rrM, rrA, difBL, difRep };
-  };
+  // Recomputa séries mensais (usadas no export e no render) — fórmula compartilhada com o
+  // Dashboard Executivo em ./curvaFisica.js.
+  const computeSeries = () => computeCurvaSeries({
+    months, planned: filteredPlanned, baselineDist, repDist: hasRep ? repDist : null,
+  });
 
   const exportExcel = () => {
     import('xlsx-js-style').then(mod => {
@@ -2122,37 +2109,8 @@ function carregarReprogramacoes(obraId) {
 function salvarReprogramacoesLocal(obraId, reps) {
   localStorage.setItem(`cronograma_reprogramacoes_${obraId}`, JSON.stringify(reps));
 }
-// Entre as reprogramações anteriores ao mês atual, a mais recente; sem nenhuma
-// anterior, a mais recente entre todas; lista vazia, null.
-function defaultRepId(reps, refMonthKey) {
-  if (!reps.length) return null;
-  const ref = refMonthKey || new Date().toISOString().slice(0, 7);
-  const anteriores = reps.filter(r => r.criadaEm.slice(0, 7) < ref);
-  const pool = anteriores.length ? anteriores : reps;
-  return pool.reduce((best, r) => (!best || r.criadaEm > best.criadaEm) ? r : best, null)?.id ?? null;
-}
-
-// Entre as linhas de base, a mais recente por criadaEm; lista vazia, null. Não tem o
-// conceito de "mês de referência" que a reprogramação tem (defaultRepId acima).
-function defaultBlId(baselines) {
-  if (!baselines.length) return null;
-  return baselines.reduce((best, b) => (!best || b.criadaEm > best.criadaEm) ? b : best, null)?.id ?? null;
-}
-
-// ─── Seleção visível da Curva (Linha de Base / Reprogramação), persistida por obra ──
-function carregarBlVisivel(obraId) {
-  try { return localStorage.getItem('crono_bl_visivel_' + obraId) || null; } catch { return null; }
-}
-function carregarRepVisivel(obraId) {
-  try { return localStorage.getItem('crono_rep_visivel_' + obraId) || null; } catch { return null; }
-}
-function carregarMesRef(obraId) {
-  try { return localStorage.getItem('crono_mesref_' + obraId) || null; } catch { return null; }
-}
-function mesAtualKey() {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
-}
+// defaultRepId/defaultBlId e a seleção visível da Curva (carregarBlVisivel etc.) moram
+// em ./curvaFisica.js — o Dashboard Executivo usa as mesmas regras.
 
 // updated_at que acreditamos ser o vigente por obra (última carga ou último save nosso).
 // Base do bloqueio otimista: se o banco divergir disso, outra pessoa salvou no meio.
