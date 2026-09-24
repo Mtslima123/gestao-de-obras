@@ -10,7 +10,6 @@ const FisicoFinanceiroList = ({ onOpenObra, obras = [] }) => {
       <div className="page-header">
         <div>
           <h1 className="page-title">Físico Financeiro</h1>
-          <div className="page-subtitle">Fechamentos mensais importados por obra</div>
         </div>
       </div>
 
