@@ -1090,7 +1090,6 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     // Abrir e salvar sem mexer em nada não precisa de escrita: bater o updated_at à toa
     // derrubaria o lock otimista de quem estiver com a Lista aberta em outra aba.
     if (!unidadeMudou && !Object.keys(pesosDelta).length && !Object.keys(travasDelta).length) {
-      setDistribuirEtapaId(null);
       setSalvandoPeso(false);
       return;
     }
@@ -1098,7 +1097,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     const ok = await salvarPesosDelta(novasEtapas, pesosDelta, travasDelta, unidadeMudou ? distribuirEtapaId : null, unidade);
     setSalvandoPeso(false);
     if (!ok) return;
-    setDistribuirEtapaId(null);
+    // Salvar não fecha o modal — deixa o usuário continuar ajustando pesos (ex.: outra
+    // subárvore do mesmo grupo) sem precisar reabrir. Fecha só pelo X ou "Cancelar".
     toast('Distribuição de pesos salva', { tone: 'success', icon: 'check' });
   };
 
