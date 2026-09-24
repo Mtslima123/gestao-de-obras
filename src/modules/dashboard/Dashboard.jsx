@@ -19,7 +19,6 @@ const corCss = (sem) => (sem === 'neutral' ? 'var(--text-muted)' : `var(--${sem}
 // (grupo + coluna) formando um bloco contínuo de cor por grupo.
 const BANDA_CLARA  = { background: '#c3d3ea', color: 'var(--brand)' };
 const BANDA_ESCURA = { background: 'var(--brand)', color: '#ffffff' };
-const badgeNovo = { background: 'var(--brand)', color: '#fff' };
 
 // ─── Dashboard Executivo ──────────────────────────────────────────────────────
 // Todo número desta tela sai do banco. O que não tem lastro foi removido em vez de
@@ -344,7 +343,7 @@ const Dashboard = ({ obras = [] }) => {
             <div className="card">
               <div className="card-header">
                 <div>
-                  <div className="card-title">Avanço Físico × Financeiro <span className="badge" style={{ ...badgeNovo, marginLeft: 8 }}>Novo</span></div>
+                  <div className="card-title">Avanço Físico × Financeiro</div>
                 </div>
               </div>
               <div className="card-body flush" style={{ overflow: 'auto' }}>
