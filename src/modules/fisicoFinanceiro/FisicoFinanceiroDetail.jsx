@@ -115,11 +115,15 @@ const ImportarFechamentoModal = ({ obraId, obraNome, mesInicial, mesesExistentes
           <button
             className="btn btn-primary"
             onClick={handleConfirmar}
-            disabled={erros.length > 0 || !mesEscolhido || !total || saving}
-            title={erros.length > 0 ? 'Corrija os erros antes de importar' : !total ? 'A planilha precisa ter a linha de total da obra' : ''}
+            disabled={erros.length > 0 || !mesEscolhido || !total || saving || jaExiste}
+            title={
+              jaExiste ? 'Exclua o fechamento deste mês antes de importar de novo'
+                : erros.length > 0 ? 'Corrija os erros antes de importar'
+                : !total ? 'A planilha precisa ter a linha de total da obra' : ''
+            }
           >
             <Icon name="check" size={14} />
-            {saving ? 'Salvando…' : jaExiste ? 'Sobrescrever mês' : 'Confirmar importação'}
+            {saving ? 'Salvando…' : 'Confirmar importação'}
           </button>
         )}
       </div>
@@ -171,9 +175,9 @@ const ImportarFechamentoModal = ({ obraId, obraNome, mesInicial, mesesExistentes
           </div>
 
           {jaExiste && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 14px', borderRadius: 8, background: 'var(--warning-bg)', color: 'var(--warning)', fontSize: 13 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 14px', borderRadius: 8, background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13 }}>
               <Icon name="alert-triangle" size={16} />
-              <span>Este mês já tem um fechamento importado. Confirmar vai <strong>sobrescrever</strong> os dados existentes.</span>
+              <span>Este mês já tem um fechamento importado. Não é possível sobrescrever — <strong>feche este modal, exclua o fechamento existente</strong> (botão "Excluir mês" na tela) e importe de novo.</span>
             </div>
           )}
 

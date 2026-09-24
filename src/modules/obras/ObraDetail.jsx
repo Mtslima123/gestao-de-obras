@@ -5,6 +5,7 @@ import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
+import { formatBytes } from '../../utils/formatters';
 import { Modal, ObraFormModal, useToast } from '../../components/Modals';
 import { podeVerAba, moduloSomenteLeitura, isAdmin, abaSomenteLeitura } from '../../utils/permissions';
 import { useIsMobile } from '../../utils/useIsMobile';
@@ -669,6 +670,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   const [fotos,        setFotos]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
   const [totalCount,   setTotalCount]   = React.useState(0);
+  const [tamanhoTotal, setTamanhoTotal] = React.useState(null);
   const [pagina,       setPagina]       = React.useState(1);
   const [showUpload,   setShowUpload]   = React.useState(false);
   const [uploadingCount, setUploadingCount] = React.useState(0);
@@ -724,6 +726,18 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
     setPavimentosComFoto([...new Set((data || []).map(f => f.pavimento).filter(Boolean))].sort());
   }, [obra.id]);
   React.useEffect(() => { carregarPavimentosComFoto(); }, [carregarPavimentosComFoto]);
+
+  // Tamanho total ocupado pelas fotos desta obra (original + thumbnail de cada uma) —
+  // não tem coluna de tamanho em fotos_obra (nunca foi salvo), mas o Storage já guarda
+  // o tamanho de cada arquivo sozinho, então lista direto do bucket em vez de precisar
+  // de migration/backfill. `limit` alto porque 64 fotos já viram 128 arquivos (original
+  // + thumb) — o padrão do list() é só 100.
+  const carregarTamanhoTotal = React.useCallback(async () => {
+    const { data, error } = await supabase.storage.from('obras-images').list(`obras/${obra.id}/fotos`, { limit: 1000 });
+    if (error) { logger.error('falha ao calcular tamanho total das fotos', { module: 'obra', action: 'carregarTamanhoTotal', err: error }); return; }
+    setTamanhoTotal((data || []).reduce((s, f) => s + (f.metadata?.size || 0), 0));
+  }, [obra.id]);
+  React.useEffect(() => { carregarTamanhoTotal(); }, [carregarTamanhoTotal]);
 
   // Busca a página pedida (1-indexed) já filtrada/ordenada — sempre TROCA o conteúdo
   // da galeria pelo da página, nunca acumula com a anterior (isso é o que torna
@@ -813,6 +827,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
     // Fotos novas entram no topo (ordenação por data/criação desc) — volta pra 1ª página.
     if (pagina === 1) carregarPagina(1); else setPagina(1);
     carregarPavimentosComFoto();
+    carregarTamanhoTotal();
   };
 
   const atualizarFoto = async (id, metadados) => {
@@ -846,6 +861,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
     }
     toast('Foto excluída', { tone: 'neutral' });
     carregarPavimentosComFoto();
+    carregarTamanhoTotal();
     // Era a última foto desta página (e não é a 1ª página): volta uma página em vez de
     // ficar numa página vazia.
     if (pagina > 1 && fotos.length === 1) setPagina(p => p - 1);
@@ -909,7 +925,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
                                      position: 'sticky', top: FOTOS_STICKY_TOP, zIndex: 2 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-2)',
                        padding: '3px 10px', borderRadius: 20, fontWeight: 500 }}>
-          {totalCount} foto{totalCount !== 1 ? 's' : ''}
+          {totalCount} foto{totalCount !== 1 ? 's' : ''}{tamanhoTotal != null && ` · ${formatBytes(tamanhoTotal)}`}
         </span>
         {!loading && (totalCount > 0 || !semFiltro) && (
           <>
@@ -983,7 +999,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
           </button>
         )}
 
-        <span className="fotos-mobile-count">{totalCount} foto{totalCount !== 1 ? 's' : ''}</span>
+        <span className="fotos-mobile-count">{totalCount} foto{totalCount !== 1 ? 's' : ''}{tamanhoTotal != null && ` · ${formatBytes(tamanhoTotal)}`}</span>
       </div>
       )}
 

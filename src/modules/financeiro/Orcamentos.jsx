@@ -19,22 +19,9 @@ const brlFull = formatBRL;
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
-const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDelete, userProfile, pagina = 1, total = 0, perPage = 12, onPagina, busca = '', onBusca, buscando = false }) => {
+const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, userProfile, pagina = 1, total = 0, perPage = 12, onPagina, busca = '', onBusca, buscando = false }) => {
   const filtered = orcamentos;
   const totalPaginas = Math.max(1, Math.ceil(total / perPage));
-  const readOnly = moduloSomenteLeitura(userProfile, 'orcamentos');
-  const [deleteOrc, setDeleteOrc] = React.useState(null);
-  const [deleteStep, setDeleteStep] = React.useState(1);
-
-  const handleDeleteConfirm = () => {
-    if (!deleteOrc) return;
-    if (deleteStep === 1) { setDeleteStep(2); return; }
-    onDelete(deleteOrc.id, deleteOrc.obra_id);
-    setDeleteOrc(null);
-    setDeleteStep(1);
-  };
-
-  const handleDeleteCancel = () => { setDeleteOrc(null); setDeleteStep(1); };
 
   return (
     <>
@@ -49,119 +36,71 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, onDe
         )}
       </div>
 
-      <div className="card" style={{ marginTop: 'var(--gap)' }}>
-        <div className="card-header">
-          <div className="card-actions">
-            <input className="input input-search" placeholder="Buscar por código ou obra…" style={{ width: 300 }}
-              value={busca} onChange={e => onBusca?.(e.target.value)} />
-          </div>
-        </div>
-        <div className="card-body flush">
-          <table className="tbl">
-            <colgroup>
-              <col style={{ width: 160 }} />
-              <col />
-              <col style={{ width: 160 }} />
-              <col style={{ width: 90 }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Código</th>
-                <th>Obra</th>
-                <th>Data</th>
-                <th style={{ textAlign: 'right' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={i} style={{ pointerEvents: 'none' }}>
-                    {Array.from({ length: 4 }).map((__, j) => (
-                      <td key={j}><div className="skeleton" style={{ height: 14 }} /></td>
-                    ))}
-                  </tr>
-                ))
-              ) : filtered.length === 0 ? (
-                <tr style={{ pointerEvents: 'none' }}>
-                  <td colSpan={4} style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-faint)', fontSize: 13 }}>
-                    {buscando ? 'Nenhum orçamento encontrado' : 'Nenhum orçamento cadastrado'}
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((o) => (
-                  <tr key={o.id} onClick={() => onOpen(o)}>
-                    <td className="strong mono">{o.id}</td>
-                    <td className="strong">{o.obra}</td>
-                    <td className="mono text-sm text-muted">{isoToBR(o.data)}</td>
-                    <td>
-                      {isAdmin(userProfile) && (
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                        <button
-                          className="icon-btn"
-                          style={{ width: 28, height: 28 }}
-                          title="Excluir orçamento"
-                          onClick={(e) => { e.stopPropagation(); setDeleteOrc(o); setDeleteStep(1); }}
-                        >
-                          <Icon name="trash" size={14} />
-                        </button>
-                      </div>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        {!loading && (buscando || total > 0) && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
-            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-              {buscando
-                ? `${filtered.length} resultado${filtered.length !== 1 ? 's' : ''}`
-                : `Mostrando ${(pagina - 1) * perPage + 1}–${Math.min(pagina * perPage, total)} de ${total} orçamento${total !== 1 ? 's' : ''}`}
-            </span>
-            {!buscando && totalPaginas > 1 && (
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <button className="icon-btn" disabled={pagina === 1} onClick={() => onPagina(pagina - 1)} title="Página anterior"><Icon name="chevron-left" size={14} /></button>
-                <span style={{ fontSize: 12.5, minWidth: 60, textAlign: 'center' }}>{pagina} / {totalPaginas}</span>
-                <button className="icon-btn" disabled={pagina >= totalPaginas} onClick={() => onPagina(pagina + 1)} title="Próxima página"><Icon name="chevron-right" size={14} /></button>
-              </div>
-            )}
-          </div>
-        )}
+      <div className="row" style={{ gap: 12, marginTop: 'var(--gap)', marginBottom: 'var(--gap)' }}>
+        <div style={{ flex: 1 }} />
+        <input className="input input-search" placeholder="Buscar por código ou obra…" style={{ width: 300 }}
+          value={busca} onChange={e => onBusca?.(e.target.value)} />
       </div>
 
-      {deleteOrc && (
-        <Modal
-          title={deleteStep === 1 ? 'Excluir orçamento' : 'Confirmação final'}
-          onClose={handleDeleteCancel}
-          footer={
-            <>
-              <button className="btn btn-ghost" onClick={handleDeleteCancel}>Cancelar</button>
-              <button
-                className="btn"
-                style={{ background: 'var(--danger)', color: 'white', fontWeight: 600 }}
-                onClick={handleDeleteConfirm}
-              >
-                {deleteStep === 1 ? 'Sim, excluir' : 'Confirmar exclusão'}
-              </button>
-            </>
-          }
-        >
-          {deleteStep === 1 ? (
-            <p style={{ fontSize: 14 }}>
-              Tem certeza que deseja excluir o orçamento <strong>{deleteOrc.id}</strong> ({deleteOrc.obra})?
-            </p>
-          ) : (
-            <div>
-              <p style={{ fontSize: 14, marginBottom: 10 }}>
-                Esta ação é <strong style={{ color: 'var(--danger)' }}>irreversível</strong>. Todos os itens do orçamento serão removidos.
-              </p>
-              <p style={{ fontSize: 14, marginTop: 12, fontWeight: 600 }}>Deseja realmente continuar?</p>
+      {loading ? (
+        <div className="obra-card-grid">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="obra-card" style={{ paddingTop: 18, pointerEvents: 'none' }}>
+              <div className="skeleton" style={{ height: 14, width: '40%', marginBottom: 8 }} />
+              <div className="skeleton" style={{ height: 18, width: '70%' }} />
+            </div>
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)', fontSize: 14 }}>
+          {buscando ? 'Nenhum orçamento encontrado' : 'Nenhum orçamento cadastrado'}
+        </div>
+      ) : (
+        <div className="obra-card-grid">
+          {filtered.map((o) => (
+            <div
+              key={o.id}
+              className="obra-card"
+              style={{ paddingTop: 18 }}
+              onClick={() => onOpen(o)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(o); } }}
+            >
+              <div className="obra-card-head">
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="obra-card-id">{o.obraSigla || ' '}</div>
+                  <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)', marginBottom: 3 }}>
+                    {o.id}
+                  </div>
+                  <div className="obra-card-name">{o.obra}</div>
+                </div>
+                <span className={'badge ' + (o.obraStatus === 'concluida' ? 'success' : 'info')} style={{ flexShrink: 0 }}>
+                  {o.obraStatus === 'concluida' ? 'Concluída' : 'Em execução'}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && (buscando || total > 0) && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--gap)', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+            {buscando
+              ? `${filtered.length} resultado${filtered.length !== 1 ? 's' : ''}`
+              : `Mostrando ${(pagina - 1) * perPage + 1}–${Math.min(pagina * perPage, total)} de ${total} orçamento${total !== 1 ? 's' : ''}`}
+          </span>
+          {!buscando && totalPaginas > 1 && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button className="icon-btn" disabled={pagina === 1} onClick={() => onPagina(pagina - 1)} title="Página anterior"><Icon name="chevron-left" size={14} /></button>
+              <span style={{ fontSize: 12.5, minWidth: 60, textAlign: 'center' }}>{pagina} / {totalPaginas}</span>
+              <button className="icon-btn" disabled={pagina >= totalPaginas} onClick={() => onPagina(pagina + 1)} title="Próxima página"><Icon name="chevron-right" size={14} /></button>
             </div>
           )}
-        </Modal>
+        </div>
       )}
+
     </>
   );
 };
@@ -558,7 +497,7 @@ const ORCA_COLS = [
   { id: 'acoes',  label: '',            defWidth: 104 },
 ];
 
-const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
+const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) => {
   const toast         = useToast();
   const readOnly       = moduloSomenteLeitura(userProfile, 'orcamentos');
   const [items, setItems]           = React.useState([]);
@@ -566,6 +505,15 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
   const [dirty, setDirty]           = React.useState(false);
   const [showImport, setShowImport] = React.useState(false);
   const [pendingDelete, setPendingDelete] = React.useState(null); // item aguardando confirmação de exclusão
+  const [showDeleteOrc, setShowDeleteOrc] = React.useState(false);
+  const [deletingOrc, setDeletingOrc]     = React.useState(false);
+
+  const handleDeleteOrcamento = async () => {
+    setDeletingOrc(true);
+    await onDelete(orcamento.id, orcamento.obra_id);
+    setDeletingOrc(false);
+    setShowDeleteOrc(false);
+  };
 
   // Formata número com separadores pt-BR (ex: 1.234,56)
   const fmtNum = (n, dec = 2) =>
@@ -1372,6 +1320,11 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
           {orcamento.status === 'pendente' && !readOnly && (
             <button className="btn btn-primary"><Icon name="check" size={15} />Aprovar</button>
           )}
+          {isAdmin(userProfile) && (
+            <button className="btn btn-ghost" onClick={() => setShowDeleteOrc(true)}>
+              <Icon name="trash" size={15} />Excluir orçamento
+            </button>
+          )}
         </div>
       </div>
 
@@ -1741,6 +1694,31 @@ const OrcamentoDetalhe = ({ orcamento, onBack, user, userProfile }) => {
           </p>
         </Modal>
       )}
+
+      {showDeleteOrc && (
+        <Modal
+          title="Excluir orçamento"
+          onClose={() => setShowDeleteOrc(false)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setShowDeleteOrc(false)}>Cancelar</button>
+              <button
+                className="btn"
+                style={{ background: 'var(--danger)', color: 'white', fontWeight: 600 }}
+                onClick={handleDeleteOrcamento}
+                disabled={deletingOrc}
+              >
+                {deletingOrc ? 'Excluindo…' : 'Sim, excluir'}
+              </button>
+            </>
+          }
+        >
+          <p style={{ fontSize: 14 }}>
+            Tem certeza que deseja excluir o orçamento <strong>{orcamento.id}</strong> ({orcamento.obra})?
+            Esta ação é <strong style={{ color: 'var(--danger)' }}>irreversível</strong>.
+          </p>
+        </Modal>
+      )}
     </>
   );
 };
@@ -1776,7 +1754,10 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
     setLoading(true);
     orcamentosService.listarPaginado({ page: pagina, perPage: PER_PAGE_ORC, obraIds }).then(({ data, count, error }) => {
       if (!error && data) {
-        setOrcamentos(data.map(o => ({ ...o, obra: obras.find(ob => ob.id === o.obra_id)?.nome || '—' })));
+        setOrcamentos(data.map(o => {
+          const ob = obras.find(ob => ob.id === o.obra_id);
+          return { ...o, obra: ob?.nome || '—', obraSigla: ob?.sigla || '', obraStatus: ob?.status || '' };
+        }));
         setTotal(count ?? 0);
       } else {
         setOrcamentos([]); setTotal(0);
@@ -1791,7 +1772,10 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
   // traz apenas a página atual, então filtrar por código/obra precisa do conjunto todo.
   const refetchTodos = React.useCallback(() => {
     orcamentosService.listar(obraIds).then(({ data, error }) => {
-      if (!error && data) setTodos(data.map(o => ({ ...o, obra: obras.find(ob => ob.id === o.obra_id)?.nome || '—' })));
+      if (!error && data) setTodos(data.map(o => {
+        const ob = obras.find(ob => ob.id === o.obra_id);
+        return { ...o, obra: ob?.nome || '—', obraSigla: ob?.sigla || '', obraStatus: ob?.status || '' };
+      }));
       else setTodos([]);
     });
   }, [obras, obraIds]);
@@ -1860,6 +1844,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
       <OrcamentoDetalhe
         orcamento={selected}
         onBack={() => { setSelected(null); refetch(); refetchTodos(); }}
+        onDelete={handleDelete}
         user={user}
         userProfile={userProfile}
       />
@@ -1872,7 +1857,6 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
       onNovo={onNovoOrcamento}
       orcamentos={lista}
       loading={loading}
-      onDelete={handleDelete}
       userProfile={userProfile}
       pagina={pagina}
       total={total}

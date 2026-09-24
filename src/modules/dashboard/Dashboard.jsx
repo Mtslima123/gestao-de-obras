@@ -316,13 +316,13 @@ const Dashboard = ({ obras = [] }) => {
                               <span className="pct">{formatNum(o.avanco)}%</span>
                             </div>
                           </td>
-                          <td className="right num">
+                          <td className="center num">
                             {totalObra ? `${formatNum(totalObra.executadoFisico)}%` : <span style={{ color: 'var(--text-faint)' }}>—</span>}
                           </td>
-                          <td className="right num">
+                          <td className="center num">
                             {totalObra ? `${formatNum(totalObra.gastoPct)}%` : <span style={{ color: 'var(--text-faint)' }}>—</span>}
                           </td>
-                          <td className="right num" style={delta == null ? undefined : { color: corCss(corPorSinal(delta)), fontWeight: 600 }}>
+                          <td className="center num" style={delta == null ? undefined : { color: corCss(corPorSinal(delta)), fontWeight: 600 }}>
                             {delta == null ? <span style={{ color: 'var(--text-faint)' }}>—</span> : `${delta >= 0 ? '+' : ''}${formatNum(delta)}%`}
                           </td>
                           <td className="center">
