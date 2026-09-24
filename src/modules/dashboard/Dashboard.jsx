@@ -345,7 +345,7 @@ const Dashboard = ({ obras = [] }) => {
             <div className="card">
               <div className="card-header">
                 <div>
-                  <div className="card-title">Avanço Físico × Financeiro por obra <span className="badge" style={{ ...badgeNovo, marginLeft: 8 }}>Novo</span></div>
+                  <div className="card-title">Avanço Físico × Financeiro <span className="badge" style={{ ...badgeNovo, marginLeft: 8 }}>Novo</span></div>
                 </div>
               </div>
               <div className="card-body flush" style={{ overflow: 'auto' }}>
