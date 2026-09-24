@@ -1763,9 +1763,24 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     const valorVinculadoMapObra = computeValorVinculadoMap(etapasObra, vinculosObra, orcamentoItensMapObra);
     return computeCustoOrcadoMap(etapasObra, valorVinculadoMapObra);
   }, [etapasObra, vinculosObra, orcamentoItensMapObra]);
-  const heroStats = React.useMemo(() => ({
-    avancoFisico: computeAvancoFisico(etapasObra, custoOrcadoMapObra),
-  }), [etapasObra, custoOrcadoMapObra]);
+  const heroStats = React.useMemo(() => {
+    const avancoFisico = computeAvancoFisico(etapasObra, custoOrcadoMapObra);
+    const months = getMonthRange(etapasObra);
+    let planejadoHoje = 0;
+    if (months.length) {
+      const durW = {}; etapasObra.forEach(e => { if (!e.isGroup) durW[e.id] = Math.max(1, e.dur || 1); });
+      const dist = computeMonthlyDist(etapasObra, durW);
+      const t = {}; months.forEach(m => { t[m.key] = 0; });
+      Object.values(dist).forEach(d => months.forEach(m => { t[m.key] += (d[m.key] || 0); }));
+      const grand = months.reduce((s, m) => s + t[m.key], 0) || 1;
+      const now = new Date();
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      let acc = 0;
+      for (const m of months) { acc += t[m.key]; if (m.key >= todayKey) break; }
+      planejadoHoje = acc / grand * 100;
+    }
+    return { avancoFisico, planejadoHoje };
+  }, [etapasObra, custoOrcadoMapObra]);
 
   // Valores agregados dos grupos (avanço/início/dur a partir dos filhos) — para a mini-Lista.
   const groupValsObra = React.useMemo(() => computeGroupValues(etapasObra, custoOrcadoMapObra), [etapasObra, custoOrcadoMapObra]);
@@ -1839,6 +1854,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
             <div className="hero-stat">
               <div className="label">Avanço físico</div>
               <div className="value num" style={{ color: 'var(--brand)' }}>{heroStats.avancoFisico.toFixed(2)}%</div>
+              <div className="meta">vs planejado {heroStats.planejadoHoje.toFixed(2)}%</div>
             </div>
             {/* Financeiro (%): mesmo indicador informado à mão no modal Editar do Delta/
                 Tendência — não é calculado pelo sistema. */}
