@@ -13,27 +13,8 @@ import { isoToBR, taskEnd, taskEndDisplay } from '../cronograma/cronogramaDateUt
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
 import { SCurveChart2 } from '../cronograma/SCurveChart2';
 
-// Indicadores percentuais do cabeçalho da obra (informados à mão no modal Editar).
-// Zero fica neutro de propósito: não é nem ganho nem perda, e pintar de verde daria a
-// impressão de resultado positivo.
-const corPorSinal = (v) => {
-  const n = Number(v);
-  if (v == null || !Number.isFinite(n) || n === 0) return undefined;
-  return n > 0 ? 'var(--success)' : 'var(--danger)';
-};
-// Positivo leva sinal explícito: sem ele, "3,50%" e "-3,50%" só se distinguem pela cor,
-// que some na impressão e para quem não distingue verde de vermelho.
-const fmtPctSinal = (v) => {
-  const n = Number(v);
-  if (v == null || !Number.isFinite(n)) return '—';
-  return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
-};
 import { pavimentosService } from '../../services/pavimentos.service';
-import { vinculoService, itemValor } from '../financeiro/vinculoService';
-import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
-import { computeKPIs } from '../fisicoFinanceiro/fisicoFinanceiroPure';
-import { mesCurto } from '../../utils/formatters';
-import { capaCache } from '../../services/capaCache';
+import { vinculoService, itemValor } from '../financeiro/vinculoService';import { capaCache } from '../../services/capaCache';
 
 // Obra Detail Page
 const { brl: brlD } = AppData;
@@ -1772,23 +1753,6 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     return () => { cancelled = true; };
   }, [o.id]);
 
-  // Último fechamento do Físico Financeiro da obra — fonte do Delta e da Tendência do
-  // cabeçalho (mesmo cálculo e mesmo mês que o Dashboard e a tela de Físico Financeiro
-  // mostram). Sem fechamento importado, cai no valor informado à mão no modal Editar.
-  const [fechamentoObra, setFechamentoObra] = React.useState(null);
-  React.useEffect(() => {
-    let cancelled = false;
-    setFechamentoObra(null);
-    fisicoFinanceiroService.buscarUltimosPorObras([o.id]).then(({ data }) => {
-      if (cancelled || !data?.[0]) return;
-      const kpis = computeKPIs(data[0].itens || []);
-      if (kpis) setFechamentoObra({ mes: data[0].mes_referencia, kpis });
-    });
-    return () => { cancelled = true; };
-  }, [o.id]);
-  const deltaHero = fechamentoObra ? fechamentoObra.kpis.deltaFisicoFinanceiroPct : o.deltaFisicoFinanceiro;
-  const tendenciaHero = fechamentoObra ? fechamentoObra.kpis.tendenciaFechamentoPct : o.tendenciaFechamento;
-
   const cronFinalISO = etapasObra.length
     ? offsetToISO(Math.max(...etapasObra.map(e => taskEndDisplay({ isGroup: e.isGroup, inicio: e.inicio || 0, dur: e.dur || 0 }))))
     : null;
@@ -1799,24 +1763,9 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     const valorVinculadoMapObra = computeValorVinculadoMap(etapasObra, vinculosObra, orcamentoItensMapObra);
     return computeCustoOrcadoMap(etapasObra, valorVinculadoMapObra);
   }, [etapasObra, vinculosObra, orcamentoItensMapObra]);
-  const heroStats = React.useMemo(() => {
-    const avancoFisico = computeAvancoFisico(etapasObra, custoOrcadoMapObra);
-    const months = getMonthRange(etapasObra);
-    let planejadoHoje = 0;
-    if (months.length) {
-      const durW = {}; etapasObra.forEach(e => { if (!e.isGroup) durW[e.id] = Math.max(1, e.dur || 1); });
-      const dist = computeMonthlyDist(etapasObra, durW);
-      const t = {}; months.forEach(m => { t[m.key] = 0; });
-      Object.values(dist).forEach(d => months.forEach(m => { t[m.key] += (d[m.key] || 0); }));
-      const grand = months.reduce((s, m) => s + t[m.key], 0) || 1;
-      const now = new Date();
-      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      let acc = 0;
-      for (const m of months) { acc += t[m.key]; if (m.key >= todayKey) break; }
-      planejadoHoje = acc / grand * 100;
-    }
-    return { avancoFisico, planejadoHoje };
-  }, [etapasObra, custoOrcadoMapObra]);
+  const heroStats = React.useMemo(() => ({
+    avancoFisico: computeAvancoFisico(etapasObra, custoOrcadoMapObra),
+  }), [etapasObra, custoOrcadoMapObra]);
 
   // Valores agregados dos grupos (avanço/início/dur a partir dos filhos) — para a mini-Lista.
   const groupValsObra = React.useMemo(() => computeGroupValues(etapasObra, custoOrcadoMapObra), [etapasObra, custoOrcadoMapObra]);
@@ -1890,29 +1839,6 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
             <div className="hero-stat">
               <div className="label">Avanço físico</div>
               <div className="value num" style={{ color: 'var(--brand)' }}>{heroStats.avancoFisico.toFixed(2)}%</div>
-              <div className="meta">vs planejado {heroStats.planejadoHoje.toFixed(2)}%</div>
-              {/* Delta/Tendência ficam ANINHADOS aqui dentro (não como célula própria do grid)
-                  pra sempre aparecerem juntos, logo abaixo do Avanço físico — independente de
-                  quantas colunas o grid (auto-fit) couber em cada largura de tela, o que antes
-                  podia jogar essa célula pra outro canto, longe do Avanço físico.
-                  Vêm do último fechamento do Físico Financeiro (fechamentoObra); sem
-                  fechamento, do valor informado no modal Editar.
-                  Cor pelo sinal: positivo verde, negativo vermelho, zero neutro. */}
-              <div style={{ display: 'flex', gap: 20, marginTop: 10 }}>
-                <div>
-                  <div className="label" style={{ whiteSpace: 'normal' }}>Delta (%) Físico × Financeiro</div>
-                  <div className="value num" style={{ color: corPorSinal(deltaHero) }}>
-                    {fmtPctSinal(deltaHero)}
-                  </div>
-                </div>
-                <div>
-                  <div className="label" style={{ whiteSpace: 'normal' }}>Tendência de fechamento</div>
-                  <div className="value num" style={{ color: corPorSinal(tendenciaHero) }}>
-                    {fmtPctSinal(tendenciaHero)}
-                  </div>
-                </div>
-              </div>
-              {fechamentoObra && <div className="meta">Fechamento de {mesCurto(fechamentoObra.mes)}</div>}
             </div>
             {/* Financeiro (%): mesmo indicador informado à mão no modal Editar do Delta/
                 Tendência — não é calculado pelo sistema. */}
