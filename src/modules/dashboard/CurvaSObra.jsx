@@ -11,7 +11,7 @@ import {
 // Curva Física do Cronograma (fórmula em cronograma/curvaFisica.js). Linha de Base,
 // Reprogramação e mês de referência seguem a mesma seleção que o usuário deixou salva
 // no Cronograma daquela obra (ou o padrão, se nunca escolheu).
-export const CurvaSObra = ({ obraId, obraNome, etapas = [], valorVinculadoMap = {}, custoOrcadoMap = {}, baselines = [], reprogramacoes = [] }) => {
+export const CurvaSObra = ({ obraId, etapas = [], valorVinculadoMap = {}, custoOrcadoMap = {}, baselines = [], reprogramacoes = [] }) => {
   const [curvaSel, setCurvaSel] = React.useState('c1');
   const [showSerie, setShowSerie] = React.useState({ bl: true, rep: true, real: true });
   const [showBarras, setShowBarras] = React.useState(true);
@@ -65,9 +65,6 @@ export const CurvaSObra = ({ obraId, obraNome, etapas = [], valorVinculadoMap = 
               <option value="c2">Curva 2</option>
             </select>
             <div className="card-title">Curva S — Produção física acumulada</div>
-          </div>
-          <div className="card-subtitle">
-            Distribuição mensal do custo planejado e realizado{obraNome ? ` — ${obraNome}` : ''}
           </div>
         </div>
         {hasData && (

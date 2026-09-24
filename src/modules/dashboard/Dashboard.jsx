@@ -197,8 +197,7 @@ const Dashboard = ({ obras = [] }) => {
           {/* KPIs — todos derivados do banco */}
           <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(2,1fr)' }}>
             <KPI label="Obras ativas" value={ativas} unit={ativas === 1 ? 'em execução' : 'em execução'}
-                 icon="building"
-                 foot={`${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra na carteira' : 'obras na carteira'}`} />
+                 icon="building" />
             <KPI label="Orçamento contratado" value={loading ? '—' : brl(orcamentoTotal, { compact: true })}
                  icon="briefcase"
                  foot={loading ? 'carregando…' : `${comOrcamento} de ${obrasAtivas.length} ${obrasAtivas.length === 1 ? 'obra com orçamento' : 'obras com orçamento'}`} />
@@ -266,7 +265,7 @@ const Dashboard = ({ obras = [] }) => {
                 <div className="card-body" style={{ height: 200, display: 'grid', placeItems: 'center', color: 'var(--text-faint)', fontSize: 13 }}>Carregando…</div>
               </div>
             ) : (
-              <CurvaSObra key={obraFiltroEfetivo} obraId={obraFiltroEfetivo} obraNome={obraSelecionadaFF?.nome} {...(curvaObra || {})} />
+              <CurvaSObra key={obraFiltroEfetivo} obraId={obraFiltroEfetivo} {...(curvaObra || {})} />
             )}
           </div>
 
