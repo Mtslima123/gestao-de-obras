@@ -13,6 +13,8 @@ import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVin
 import { isoToBR, taskEnd, taskEndDisplay } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
 import { SCurveChart2 } from '../cronograma/SCurveChart2';
+import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
+import { getLinhaTotal } from '../fisicoFinanceiro/fisicoFinanceiroPure';
 
 import { pavimentosService } from '../../services/pavimentos.service';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';import { capaCache } from '../../services/capaCache';
@@ -1769,6 +1771,22 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     return () => { cancelled = true; };
   }, [o.id]);
 
+  // Financeiro (%) do cabeçalho = Gasto (%) do último fechamento físico-financeiro
+  // importado desta obra (mesma fonte que alimenta a tabela "Avanço Físico × Financeiro"
+  // do Dashboard) — não é mais um valor digitado à mão.
+  const [financeiroPct, setFinanceiroPct] = React.useState(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    setFinanceiroPct(null);
+    fisicoFinanceiroService.buscarUltimosPorObras([o.id]).then(({ data }) => {
+      if (cancelled) return;
+      const itens = data?.[0]?.itens;
+      const total = itens ? getLinhaTotal(itens) : null;
+      setFinanceiroPct(total ? total.gastoPct : null);
+    });
+    return () => { cancelled = true; };
+  }, [o.id]);
+
   const cronFinalISO = etapasObra.length
     ? offsetToISO(Math.max(...etapasObra.map(e => taskEndDisplay({ isGroup: e.isGroup, inicio: e.inicio || 0, dur: e.dur || 0 }))))
     : null;
@@ -1872,11 +1890,10 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
               <div className="value num" style={{ color: 'var(--brand)' }}>{heroStats.avancoFisico.toFixed(2)}%</div>
               <div className="meta">vs planejado {heroStats.planejadoHoje.toFixed(2)}%</div>
             </div>
-            {/* Financeiro (%): mesmo indicador informado à mão no modal Editar do Delta/
-                Tendência — não é calculado pelo sistema. */}
             <div className="hero-stat">
               <div className="label">Financeiro</div>
-              <div className="value num">{o.avancoFinanceiro != null ? `${Number(o.avancoFinanceiro).toFixed(2)}%` : '—'}</div>
+              <div className="value num">{financeiroPct != null ? `${financeiroPct.toFixed(2)}%` : '—'}</div>
+              {financeiroPct == null && <div className="meta">Sem fechamento importado</div>}
             </div>
             <div className="hero-stat">
               <div className="label">Fim do cronograma</div>

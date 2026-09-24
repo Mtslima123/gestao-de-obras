@@ -9,6 +9,7 @@ import { offsetToISO, migrateEtapas, computeValorVinculadoMap, computeCustoOrcad
 import { computeAvancoFisico } from '../cronograma/scheduleEngine';
 import { isAdmin } from '../../utils/permissions';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
+import { formatNum } from '../../utils/formatters';
 
 // Cache por módulo (persiste enquanto o app está aberto) — evita o delay de recalcular
 // término/avanço e reassinar capas toda vez que a lista de Obras é reaberta.
@@ -269,6 +270,10 @@ const ObrasList = ({ onOpenObra, obras, onObraCreate, onObraUpdate, onObraDelete
                   <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Entrega (cliente)">
                     <Icon name="calendar" size={12} />
                     <span className="mono">{o.previsto ? o.previsto.split('-').reverse().join('/') : '—'}</span>
+                  </span>
+                  <span className="row" style={{ gap: 5, fontSize: 12, color: 'var(--text-muted)' }} title="Área construída">
+                    <Icon name="maximize" size={12} />
+                    <span className="mono">{o.area ? `${formatNum(o.area)} m²` : '—'}</span>
                   </span>
                 </div>
                 {o.alertas > 0 && (

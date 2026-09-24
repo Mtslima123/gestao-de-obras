@@ -257,7 +257,20 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
   // "removidas" (chips), sem apagar a tarefa do cronograma — só zera o fator peso dela
   // (e da própria subárvore, se tiver filhos) pra não receber nenhuma fatia do valor do
   // grupo. "Adicionar de volta" restaura o peso que a linha tinha antes de remover.
-  const [removidos, setRemovidos] = React.useState(() => new Set());
+  // Reabrir o modal depois de salvar precisa reconhecer quem já foi removido antes: o
+  // banco só guarda fator_peso = 0 (não existe uma flag "removido" própria), então a raiz
+  // de cada subárvore zerada é achada aqui pelo mesmo critério — peso 0 com o pai não-zero.
+  const [removidos, setRemovidos] = React.useState(() => {
+    const pesoDe = new Map(descendentes.map(n => [n.etapa.id, Number(n.etapa.fator_peso ?? 1)]));
+    const set = new Set();
+    descendentes.forEach(n => {
+      const f = n.etapa;
+      if ((pesoDe.get(f.id) ?? 1) !== 0) return;
+      const pesoPai = f.parentId === etapa.id ? 1 : (pesoDe.get(f.parentId) ?? 1);
+      if (pesoPai !== 0) set.add(f.id);
+    });
+    return set;
+  });
   const pesoAntesRemocaoRef = React.useRef({});
   const subarvoreIds = React.useCallback(
     (id) => [id, ...flattenTree(id, childrenOf).map(n => n.etapa.id)],
