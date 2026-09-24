@@ -322,9 +322,6 @@ const Dashboard = ({ obras = [] }) => {
                   </div>
                 </div>
                 <div className="card-actions">
-                  <select className="input" value={obraFiltroEfetivo} onChange={(e) => setObraFiltro(e.target.value)} style={{ marginRight: 10 }}>
-                    {obrasAtivas.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                  </select>
                   <div className="legend">
                     <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Previsto</span>
                   </div>
