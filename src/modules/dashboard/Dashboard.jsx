@@ -98,7 +98,6 @@ const CurvaPrevista = React.memo(({ curva, hojeIdx }) => {
 // ----- Dashboard main -----
 const Dashboard = ({ obras = [] }) => {
   const [carga, setCarga] = React.useState({ loading: true, erro: null });
-  const [atualizadoEm, setAtualizadoEm] = React.useState(null);
   const [obraFiltro, setObraFiltro] = React.useState(null);
 
   // Obra concluída some do Dashboard inteiro — KPIs, tabelas e as seções de Físico
@@ -191,7 +190,6 @@ const Dashboard = ({ obras = [] }) => {
         fechamentosPorObra,
         mesFechamentoPorObra,
       });
-      setAtualizadoEm(new Date());
     });
 
     return () => { cancelado = true; };
@@ -223,10 +221,6 @@ const Dashboard = ({ obras = [] }) => {
       <div className="page-header">
         <div>
           <h1 className="page-title">Dashboard Executivo</h1>
-          <div className="page-subtitle">
-            Carteira de obras, orçamento e cronograma
-            {atualizadoEm && ` · atualizado às ${atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
-          </div>
         </div>
       </div>
 
