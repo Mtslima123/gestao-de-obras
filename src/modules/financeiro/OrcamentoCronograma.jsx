@@ -363,36 +363,82 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
     if (patch) setPesos(p => ({ ...p, ...patch }));
   };
 
+  // Baseline para o aviso de "alterações não salvas": guarda o valor dos 4 estados de
+  // edição (pesos, travas, unidade, removidos) na 1ª leitura, aproveitando os mesmos
+  // valores que os useState acima já inicializaram (não recalcula a lógica de removidos
+  // de novo). Só é reatribuído quando um save é confirmado (handleSalvar abaixo), nunca
+  // quando o modal fecha, porque "Salvar" não fecha o modal (decisão já tomada).
+  const baselineRef = React.useRef(null);
+  if (baselineRef.current === null) {
+    baselineRef.current = { pesos, travas, unidade, removidos };
+  }
+
+  // Comparação por valor, não por referência (setPesos/setTravas/setRemovidos sempre criam
+  // objeto/Set novo, então === acusaria alteração mesmo sem edição real). Calculado direto
+  // a cada render, sem useMemo: o baseline vive num ref, e mutar um ref não invalida um
+  // useMemo cujas deps não mudaram — o resultado ficaria preso no valor de antes do save.
+  const baseline = baselineRef.current;
+  const pesosMudou = Object.keys(baseline.pesos).some(id => Number(baseline.pesos[id]) !== Number(pesos[id]));
+  const travasMudou = baseline.travas.size !== travas.size || [...baseline.travas].some(id => !travas.has(id));
+  const removidosMudou = baseline.removidos.size !== removidos.size || [...baseline.removidos].some(id => !removidos.has(id));
+  const isDirty = pesosMudou || travasMudou || removidosMudou || baseline.unidade !== unidade;
+
   // Peso só fica de fora do payload quando a regra de negócio bloqueia mesmo (concluída
   // ou valor fixo): o cadeado do usuário só impede a redistribuição automática entre
   // irmãos daqui pra frente, não o salvamento do que já está digitado na linha — excluir
   // também as travadas aqui descartava silenciosamente uma edição feita antes de travar.
   // O estado do cadeado em si vai à parte, para todas as linhas.
-  const handleSalvar = () => onSave(
-    Object.fromEntries(
-      descendentes
-        .filter(n => !travado(n.etapa))
-        .map(n => [n.etapa.id, pesos[n.etapa.id]])
-    ),
-    unidade,
-    Object.fromEntries(descendentes.map(n => [n.etapa.id, travas.has(n.etapa.id)]))
-  );
+  const handleSalvar = async () => {
+    const ok = await onSave(
+      Object.fromEntries(
+        descendentes
+          .filter(n => !travado(n.etapa))
+          .map(n => [n.etapa.id, pesos[n.etapa.id]])
+      ),
+      unidade,
+      Object.fromEntries(descendentes.map(n => [n.etapa.id, travas.has(n.etapa.id)]))
+    );
+    // onSave devolve true tanto em sucesso quanto no no-op de "nada mudou": os dois casos
+    // significam que os valores atuais já refletem o servidor.
+    if (ok) baselineRef.current = { pesos, travas, unidade, removidos };
+  };
+
+  // X do Modal, Escape ou "Cancelar": fecha direto se não há edição pendente. Com edição
+  // pendente, não fecha ainda — troca o footer normal por uma confirmação inline (mesmo
+  // motivo do confirmRemoveId/confirmRemoveTodos: modal sobre modal quebra o Escape e o
+  // scroll do fundo).
+  const [confirmFecharSemSalvar, setConfirmFecharSemSalvar] = React.useState(false);
+  const tentarFechar = () => {
+    if (!isDirty) { onClose(); return; }
+    setConfirmFecharSemSalvar(true);
+  };
 
   return (
     <Modal
       title={`Distribuir pesos — ${etapa.etapa}`}
       subtitle={`Valor do grupo: ${formatBRL(valorGrupo)} · ajuste o fator peso ou digite o valor de cada linha`}
-      onClose={onClose}
+      onClose={tentarFechar}
       draggable
       resizable
       overlay={false}
       footer={
-        <>
-          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleSalvar} disabled={saving || descendentes.length === 0}>
-            {saving ? 'Salvando…' : 'Salvar distribuição'}
-          </button>
-        </>
+        confirmFecharSemSalvar && isDirty ? (
+          <>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 200, fontSize: 12.5, color: 'var(--danger)' }}>
+              <Icon name="alert-triangle" size={14} />
+              Você tem alterações não salvas nesta distribuição.
+            </span>
+            <button className="btn btn-ghost" onClick={() => setConfirmFecharSemSalvar(false)} disabled={saving}>Voltar</button>
+            <button className="btn btn-danger" onClick={onClose} disabled={saving}>Fechar sem salvar</button>
+          </>
+        ) : (
+          <>
+            <button className="btn btn-ghost" onClick={tentarFechar} disabled={saving}>Cancelar</button>
+            <button className="btn btn-primary" onClick={handleSalvar} disabled={saving || descendentes.length === 0}>
+              {saving ? 'Salvando…' : 'Salvar distribuição'}
+            </button>
+          </>
+        )
       }
     >
       {descendentes.length === 0 ? (
@@ -1091,15 +1137,16 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
     // derrubaria o lock otimista de quem estiver com a Lista aberta em outra aba.
     if (!unidadeMudou && !Object.keys(pesosDelta).length && !Object.keys(travasDelta).length) {
       setSalvandoPeso(false);
-      return;
+      return true; // nada a persistir, mas os valores atuais já refletem o servidor
     }
 
     const ok = await salvarPesosDelta(novasEtapas, pesosDelta, travasDelta, unidadeMudou ? distribuirEtapaId : null, unidade);
     setSalvandoPeso(false);
-    if (!ok) return;
+    if (!ok) return false;
     // Salvar não fecha o modal — deixa o usuário continuar ajustando pesos (ex.: outra
     // subárvore do mesmo grupo) sem precisar reabrir. Fecha só pelo X ou "Cancelar".
     toast('Distribuição de pesos salva', { tone: 'success', icon: 'check' });
+    return true;
   };
 
   // ── Filtros da tabela ──────────────────────────────────────────────────────
