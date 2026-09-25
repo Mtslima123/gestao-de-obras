@@ -408,10 +408,17 @@ const DistribuirPesosModal = ({ etapa, etapas, vinculos, orcamentoItensMap, savi
   // motivo do confirmRemoveId/confirmRemoveTodos: modal sobre modal quebra o Escape e o
   // scroll do fundo).
   const [confirmFecharSemSalvar, setConfirmFecharSemSalvar] = React.useState(false);
-  const tentarFechar = () => {
+  // O <Modal> só registra o listener de Escape uma vez, no mount (o efeito dele depende só
+  // de `overlay`, que aqui nunca muda) — se passássemos uma função nova a cada render, o
+  // Escape ficaria preso pra sempre na 1ª versão (isDirty sempre false, de quando o modal
+  // abriu). Por isso a função exposta ao <Modal>/Escape é estável (identidade fixa) e só
+  // delega pro ref, que é reatribuído a cada render com a lógica mais atual.
+  const tentarFecharRef = React.useRef();
+  tentarFecharRef.current = () => {
     if (!isDirty) { onClose(); return; }
     setConfirmFecharSemSalvar(true);
   };
+  const tentarFechar = React.useCallback(() => tentarFecharRef.current(), []);
 
   return (
     <Modal
