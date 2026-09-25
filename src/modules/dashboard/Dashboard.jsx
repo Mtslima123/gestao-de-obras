@@ -229,7 +229,7 @@ const Dashboard = ({ obras = [] }) => {
             ) : (
               <>
                 <div className="kpi">
-                  <div className="kpi-label"><span className="kpi-icon"><Icon name="measure" size={16} /></span>Delta (%) Físico × Financeiro</div>
+                  <div className="kpi-label"><span className="kpi-icon"><Icon name="measure" size={16} /></span>Delta Físico × Financeiro</div>
                   <div className="kpi-value" style={{ color: corCss(kpisFF.corDeltaFisicoFinanceiro) }}>
                     <span className="num">{formatNum(kpisFF.deltaFisicoFinanceiroPct)}</span><span className="unit">%</span>
                   </div>
