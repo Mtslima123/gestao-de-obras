@@ -97,6 +97,13 @@ export function todayOffset() {
   return dateToOffset(iso);
 }
 
+// Offset do início do projeto (menor início entre as tarefas) — onde nasce toda tarefa
+// nova, padrão MS Project. Sem tarefas ainda, cai em hoje.
+export function projectStartOffset(etapas) {
+  const ini = (etapas || []).map(e => e.inicio).filter(Number.isFinite);
+  return ini.length ? Math.min(...ini) : todayOffset();
+}
+
 // Offset (em DIAS desde GM_REF) do dia 1 do mês seguinte ao mês que contém `fromOffset`.
 export function nextMonthStartOffset(fromOffset) {
   const d0 = offsetToDate(fromOffset);

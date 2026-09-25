@@ -4,7 +4,7 @@
 // têm state, JSX nem efeitos colaterais. Datas/dias úteis vêm de ./cronogramaDateUtils.
 
 import { formatBRL as formatBRLUtil } from '../../utils/formatters';
-import { offsetToDate, offsetToISO, dateToOffset, parseAnyDateToISO, taskEnd, workStart, workDur, todayOffset, nextMonthStartOffset } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, dateToOffset, parseAnyDateToISO, taskEnd, workStart, workDur, projectStartOffset, nextMonthStartOffset } from './cronogramaDateUtils';
 
 // ─── Funções puras de dados ──────────────────────────────────────────────────
 
@@ -217,7 +217,7 @@ export function createTask(afterId, etapas, customCols) {
     id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Nova tarefa',
     nivel: after ? after.nivel : 0, parentId: after ? after.parentId : null,
     isGroup: false, collapsed: false,
-    inicio: todayOffset(),
+    inicio: projectStartOffset(etapas),
     dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
@@ -243,7 +243,7 @@ export function createSubtask(parentId, etapas, customCols) {
     id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Nova subtarefa',
     nivel: (parent.nivel || 0) + 1, parentId,
     isGroup: false, collapsed: false,
-    inicio: todayOffset(), dur: 30, avanco: 0, status: 'upcoming',
+    inicio: projectStartOffset(etapas), dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
     restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
@@ -259,7 +259,7 @@ export function createGroup(afterId, etapas, customCols) {
     id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: 'Novo grupo',
     nivel: after ? after.nivel : 0, parentId: after ? after.parentId : null,
     isGroup: true, collapsed: false,
-    inicio: todayOffset(),
+    inicio: projectStartOffset(etapas),
     dur: 30, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,

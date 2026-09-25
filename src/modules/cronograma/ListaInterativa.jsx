@@ -13,7 +13,7 @@ const ehCampoDeEdicao = (el) =>
   !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
-import { offsetToDate, offsetToISO, isoToBR, todayOffset, workEnd, taskEnd, taskEndDisplay, dateToOffset, dateToExcelSerial } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, projectStartOffset, workEnd, taskEnd, taskEndDisplay, dateToOffset, dateToExcelSerial } from './cronogramaDateUtils';
 import {
   fmtBRL, indentTasks, outdentTasks,
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
@@ -871,7 +871,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const newLeafTask = (base, etapa) => ({
     id: nextEtapaId(base), displayId: nextDisplayId(base), etapa,
     nivel: 0, parentId: null, isGroup: false, collapsed: false,
-    inicio: todayOffset(), dur: 1, avanco: 0, status: 'upcoming',
+    inicio: projectStartOffset(etapas), dur: 1, avanco: 0, status: 'upcoming',
     dep: [], milestone: false, responsavel: '',
     customCols: emptyCustomCols(customCols), custo: 0,
     restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
@@ -1328,7 +1328,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const mk = (base, etapa) => ({
       id: nextEtapaId(base), displayId: nextDisplayId(base), etapa,
       nivel: 0, parentId: null, isGroup: false, collapsed: false,
-      inicio: todayOffset(), dur: 1, avanco: 0, status: 'upcoming',
+      inicio: projectStartOffset(etapas), dur: 1, avanco: 0, status: 'upcoming',
       dep: [], milestone: false, responsavel: '',
       customCols: emptyCustomCols(customCols), custo: 0,
       restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
@@ -2090,7 +2090,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         id:            nextEtapaId(base),
         displayId:     nextDisplayId(base),
         etapa:         milestone ? 'Novo Marco' : 'Nova Tarefa',
-        inicio:        todayOffset(),
+        inicio:        projectStartOffset(etapas),
         dur:           milestone ? 0 : 1,
         avanco:        0,
         status:        'upcoming',

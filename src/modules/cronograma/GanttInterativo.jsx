@@ -6,7 +6,7 @@ import { Icon } from '../../components/Icons';
 import { useToast, Modal } from '../../components/Modals';
 import { buildCalendarMonths, buildCalendarQuarters, buildCalendarYears,
          buildCalendarWeeks, buildCalendarDays } from './ganttUtils';
-import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, taskEndDisplay, todayOffset, dateToExcelSerial } from './cronogramaDateUtils';
+import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, taskEndDisplay, projectStartOffset, dateToExcelSerial } from './cronogramaDateUtils';
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
@@ -718,7 +718,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
     const novo = {
       id: nextEtapaId(etapas), displayId: nextDisplayId(etapas), etapa: milestone ? 'Novo Marco' : 'Nova Tarefa',
       nivel: ref ? (ref.nivel || 0) : 0, parentId: ref ? (ref.parentId ?? null) : null,
-      isGroup: false, collapsed: false, inicio: todayOffset(), dur: milestone ? 0 : 1, avanco: 0,
+      isGroup: false, collapsed: false, inicio: projectStartOffset(etapas), dur: milestone ? 0 : 1, avanco: 0,
       status: 'upcoming', dep: [], milestone, responsavel: '',
       customCols: emptyCustomCols(customCols), custo: 0,
       restricaoTipo: 'asap', restricaoData: '', fator_peso: 1,
