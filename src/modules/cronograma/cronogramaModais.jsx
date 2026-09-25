@@ -443,12 +443,15 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
       }
     >
       {step === 1 && (
-        <div>
-          <p style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <p style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-muted)', flexShrink: 0 }}>
             Informe os nomes dos pavimentos. Use "Salvar pré-cadastro" para deixá-los disponíveis na obra (para reutilizar em inserções e fotos), ou "Próximo" para já criá-los como subtarefas das tarefas que você selecionar.
           </p>
-          {/* Altura fixa: a caixa não cresce ao adicionar pavimentos, o rodapé não pula de lugar. */}
-          <div style={{ height: 132, overflowY: 'auto', paddingRight: 4 }}>
+          {/* flex-basis (não 0%) garante a altura padrão de 132px de hoje quando o modal ainda
+              não foi redimensionado (altura indefinida); flex-grow é o que faz essa lista
+              crescer de verdade ao arrastar o canto do modal — mesmo padrão já usado na lista
+              de tarefas do Passo 2 abaixo (ver <Modal resizable>). */}
+          <div style={{ flex: '1 1 132px', minHeight: 120, overflowY: 'auto', paddingRight: 4 }}>
             {floors.map((f, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                 <span style={{ width: 20, textAlign: 'right', fontSize: 12, color: 'var(--text-faint)', flexShrink: 0 }}>{i + 1}.</span>
@@ -477,12 +480,12 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
               </div>
             ))}
           </div>
-          <button className="btn btn-ghost" style={{ fontSize: 12, marginTop: 4, gap: 5 }} onClick={() => setFloors(fl => [...fl, ''])}>
+          <button className="btn btn-ghost" style={{ fontSize: 12, marginTop: 4, gap: 5, flexShrink: 0 }} onClick={() => setFloors(fl => [...fl, ''])}>
             <Icon name="plus" size={12} /> Adicionar pavimento
           </button>
 
           {pavimentosSalvos.filter(n => !floors.includes(n)).length > 0 && (
-            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)', flexShrink: 0 }}>
               <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-soft)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.04em' }}>
                 Pavimentos já usados nesta obra
               </div>
