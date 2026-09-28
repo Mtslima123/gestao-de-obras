@@ -904,6 +904,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     customCols: emptyCustomCols(customCols), custo: 0,
     restricaoTipo: 'asap', restricaoData: '', fator_peso: 1, modo: 'auto',
   });
+  // O Excel sempre termina o texto copiado com uma quebra de linha depois do último valor —
+  // mesmo copiando 1 célula só. Sem descartar essa linha fantasma, colar "95048,29" virava
+  // duas linhas coladas (["95048,29"], [""]) e a 2ª (vazia) sobrescrevia a tarefa de BAIXO na
+  // mesma coluna, apagando o valor dela. Usado por pasteExternalText e pasteCreateTasks.
+  const parseGridColado = (text) => {
+    const linhas = text.replace(/\r/g, '').split('\n');
+    if (linhas.length > 1 && linhas[linhas.length - 1] === '') linhas.pop();
+    return linhas.map(line => line.split('\t'));
+  };
   // Cola texto vindo de FORA do app (Excel, outro programa etc.) — sem formatação,
   // só valores. Mesma estrutura de pasteCell(), lendo de um texto TSV em vez de cellClipRef.
   // Linhas coladas que ultrapassam o fim da lista viram tarefas NOVAS (em vez de descartadas).
@@ -914,7 +923,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const r0 = rows.indexOf(selectedCell.taskId);
     const c0 = cols.indexOf(selectedCell.colId);
     if (r0 < 0 || c0 < 0) return;
-    const grid = text.replace(/\r/g, '').split('\n').map(line => line.split('\t'));
+    const grid = parseGridColado(text);
     const etapaDc = cols.indexOf('etapa') - c0; // posição de 'etapa' dentro da linha colada, se houver
     const edits = [];
     const novos = [];
@@ -975,7 +984,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // pasteExternalText usa, só que a partir de 'etapa' (não há coluna selecionada como âncora).
   const pasteCreateTasks = (text) => {
     if (readOnly) return;
-    const grid = text.replace(/\r/g, '').split('\n').map(line => line.split('\t'));
+    const grid = parseGridColado(text);
     const cols = visibleColIds();
     const c0 = cols.indexOf('etapa');
     if (c0 < 0) return;
