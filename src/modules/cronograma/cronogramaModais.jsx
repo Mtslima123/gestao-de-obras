@@ -4,7 +4,7 @@
 import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
-import { isoToBR, todayOffset, workEnd, dateToOffset } from "./cronogramaDateUtils";
+import { isoToBR, todayOffset, dateToOffset } from "./cronogramaDateUtils";
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, mesAtualOuUltimo, mesesComReprogramacao } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
 
@@ -347,24 +347,19 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
         if (isDesc) insertIdx = i; else break;
       }
 
-      // Cria subtarefas para cada pavimento, uma seguindo a outra em dias úteis (o pavimento
-      // seguinte começa exatamente onde o anterior termina, via workEnd — mesma função usada
-      // no encadeamento de dependências) — soma dos raw `inicio + fi*subDur` antes ignorava
-      // fins de semana/feriados, então os pavimentos ficavam todos espremidos em poucos dias
-      // corridos (às vezes até começando num sábado/domingo) em vez de um atrás do outro.
-      const subDur = Math.max(1, Math.round(task.dur / paraInserir.length));
-      let cursor = task.inicio;
+      // Cria subtarefas para cada pavimento, todas na MESMA data de início da tarefa-pai e
+      // com 1 dia de duração fixo — pavimentos rodam em paralelo (equipes diferentes), sem
+      // vínculo de Predecessora entre eles; o usuário ajusta data/duração de cada um depois,
+      // na Lista/Gantt, conforme a necessidade real de cada pavimento.
       const toInsert = paraInserir.map((nome, fi) => {
-        const inicio = cursor;
-        cursor = workEnd(inicio, subDur);
         return {
           id:         nextEtapaId([...novas, ...paraInserir.slice(0, fi).map((_, j) => ({ id: `E${9000 + j}` }))]),
           etapa:      `${task.etapa} - ${nome}`,
           nivel:      (task.nivel || 0) + 1,
           parentId:   taskId,
           isGroup:    false, collapsed: false,
-          inicio,
-          dur:        subDur,
+          inicio:     task.inicio,
+          dur:        1,
           avanco:     0, status: 'upcoming',
           dep:        [], milestone: false, responsavel: '',
           pavimento:  nome,

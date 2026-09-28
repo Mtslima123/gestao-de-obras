@@ -1623,7 +1623,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       // usam EditableCell: dispara o mesmo caminho do duplo-clique.
       const sc = listaScrollRef.current;
       const td = sc?.querySelector(`td[data-ck="${taskId}|${colId}"]`);
-      td?.querySelector('[title="Duplo-clique para editar"]')
+      // Contém, não igual: o title real é "<valor>\nDuplo-clique para editar" quando a célula
+      // tem conteúdo (cronogramaShared.jsx) — um seletor de igualdade exata só achava a célula
+      // VAZIA, então digitar direto/F2 parou de abrir a edição em qualquer célula preenchida.
+      td?.querySelector('[title*="Duplo-clique para editar"]')
         ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
     }
     if (seedChar === undefined) return;
