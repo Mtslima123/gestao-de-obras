@@ -599,7 +599,7 @@ function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar, mobileVi
 }
 
 export default function MedicaoMensal({
-  etapas, months, monthlyDist, monthlyTotals, valorVinculadoMap = {}, wbsMap,
+  etapas, months, monthlyDist, monthlyTotals, valorVinculadoMap = {}, wbsMap, rowNumberMap = {},
   obraId, readOnly, currentUser, onEnviarAvanco,
   reprogramacoes = [], obraNome = 'Projeto', hideChrome = false,
 }) {
@@ -611,6 +611,9 @@ export default function MedicaoMensal({
   const mobileView = isMobile && hideChrome;
   const hasVinc = Object.keys(valorVinculadoMap).length > 0;
   const weightOverride = hasVinc ? valorVinculadoMap : null;
+  // Coluna SERVIÇO: número da linha (mesma numeração da Lista/Gantt), não mais o código WBS
+  // — fallback pro wbs só se a tarefa não constar no mapa (não deveria acontecer em uso normal).
+  const numeroServico = (l) => rowNumberMap[l.id] ?? l.wbs;
 
   // Chute inicial, só pra tela não nascer vazia enquanto listarMeses não volta do banco:
   // assim que a lista de medições chega, o efeito mais abaixo reposiciona no mês da
@@ -1353,7 +1356,7 @@ export default function MedicaoMensal({
   const medicaoColVal = (l, colId) => {
     const grupo = l.tipo === 'grupo';
     switch (colId) {
-      case 'servico':     return l.wbs || '';
+      case 'servico':     return String(numeroServico(l) ?? '');
       case 'descricao':   return '  '.repeat(l.nivel || 0) + l.descricao + (l.foraDoMes ? ' (fora do mês)' : '');
       case 'pavimento':   return grupo ? '' : l.pavimento;
       case 'inicio':      return offsetToDate(l.inicioOff);
@@ -1956,7 +1959,7 @@ export default function MedicaoMensal({
                   const groupLevelClass = groupLvl <= 0 ? 'lista-row-group-l0' : groupLvl === 1 ? 'lista-row-group-l1' : 'lista-row-group-l2';
                   return (
                     <tr key={'g' + l.id} className={`lista-row-group ${groupLevelClass}`} style={{ fontWeight: 600 }}>
-                      <td className="num">{l.wbs}</td>
+                      <td className="num">{numeroServico(l)}</td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', paddingLeft: indent }}>
                           <button className="lista-toggle" onClick={() => alternarGrupo(l.id)}
@@ -1983,7 +1986,7 @@ export default function MedicaoMensal({
                 const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
                 return (
                   <tr key={l.id} style={l.foraDoMes ? { background: 'var(--warning-bg)' } : undefined}>
-                    <td className="num">{l.wbs}</td>
+                    <td className="num">{numeroServico(l)}</td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: indent }}>
                         {/* Espaçador da largura da seta: alinha a folha com o nome do grupo do mesmo nível. */}

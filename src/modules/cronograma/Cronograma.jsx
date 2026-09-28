@@ -3581,7 +3581,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   etapas={etapas} months={months} monthlyDist={monthlyDist} monthlyTotals={monthlyTotals}
                   valorVinculadoMap={valorVinculadoMapFull} obraId={obraSel} readOnly={readOnly}
                   currentUser={currentUser}
-                  onEnviarAvanco={aplicarMedicaoNoAvanco} wbsMap={wbsMap}
+                  onEnviarAvanco={aplicarMedicaoNoAvanco} wbsMap={wbsMap} rowNumberMap={rowNumberMap}
                   reprogramacoes={reprogramacoes}
                   obraNome={obra?.nome || 'Projeto'}
                   hideChrome={hideChrome}
