@@ -553,14 +553,17 @@ export function reprogramarRestante(etapaId, etapas) {
 // (posição no array, não um id fixo — ver computeRowNumberMap): "1, 2TT+3d".
 // `rowNumberMap` é opcional; se não vier, calcula na hora (chamadas fora do caminho
 // quente da grade, ex.: TaskFormPanel, não precisam se preocupar em pré-calcular).
-export function formatDepList(dep, etapas, rowNumberMap) {
+// `fullMap` (opcional): a numeração completa já pronta — quem chama por linha (Lista) passa
+// a dele, senão o fallback abaixo recalculava computeRowNumberMap(etapas) a CADA linha com
+// predecessora oculta (O(n²) com grupo recolhido/resumo oculto).
+export function formatDepList(dep, etapas, rowNumberMap, fullMap) {
   const map = rowNumberMap || (etapas ? computeRowNumberMap(etapas) : {});
   // `rowNumberMap` só numera o que está VISÍVEL na grade agora (respeita grupo recolhido e
   // filtro de busca/coluna — ver ListaInterativa.jsx): uma predecessora escondida atrás de
   // um grupo recolhido não tem número aí. Fallback: numeração completa (ignora colapso/
   // filtro, computada em cima de TODAS as etapas), calculada uma vez só e só se precisar —
   // mantém a célula sempre com um NÚMERO (nunca o id interno cru nem o nome da tarefa).
-  let mapCompleto = null;
+  let mapCompleto = fullMap || null;
   const numeroCompleto = (id) => {
     if (!etapas) return undefined;
     if (!mapCompleto) mapCompleto = computeRowNumberMap(etapas);
@@ -823,6 +826,32 @@ export function getGroupMonthlyDist(groupId, etapas, monthlyDist) {
     });
   descend(groupId);
   return total;
+}
+
+// Mesma soma de getGroupMonthlyDist, mas pra TODOS os grupos de uma vez: um mapa de filhos
+// e uma passada de baixo pra cima (memoizada). Chamar getGroupMonthlyDist por linha de grupo
+// refazia etapas.filter a cada nível, em cada render — pesado com ~1400 tarefas.
+// Retorna { [groupId]: { [mesKey]: valor } }.
+export function computeAllGroupMonthlyDist(etapas, monthlyDist) {
+  const filhos = new Map();
+  etapas.forEach(e => {
+    if (!e.parentId) return;
+    if (!filhos.has(e.parentId)) filhos.set(e.parentId, []);
+    filhos.get(e.parentId).push(e);
+  });
+  const out = {};
+  const somar = (g) => {
+    if (out[g.id]) return out[g.id];
+    const total = {};
+    (filhos.get(g.id) || []).forEach(f => {
+      const d = f.isGroup ? somar(f) : (monthlyDist[f.id] || {});
+      Object.entries(d).forEach(([k, v]) => { total[k] = (total[k] || 0) + v; });
+    });
+    out[g.id] = total;
+    return total;
+  };
+  etapas.forEach(e => { if (e.isGroup) somar(e); });
+  return out;
 }
 
 // Verifica restrições e retorna lista de violações

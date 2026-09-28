@@ -1,12 +1,18 @@
 // Formatadores centralizados — evita duplicação entre módulos
 
-export const formatBRL = (value, decimals = 2) =>
-  (Number(value) || 0).toLocaleString('pt-BR', {
+// Um Intl.NumberFormat por nº de casas, reaproveitado: toLocaleString com opções monta um
+// formatador novo a cada chamada, e telas como Uso da Tarefa chamam isso dezenas de milhares
+// de vezes por render. Mesmo resultado, só sem recriar o formatador.
+const _brlFmt = {};
+export const formatBRL = (value, decimals = 2) => {
+  const f = _brlFmt[decimals] || (_brlFmt[decimals] = new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  });
+  }));
+  return f.format(Number(value) || 0);
+};
 
 export const formatNum = (value, decimals = 2) =>
   isFinite(Number(value))

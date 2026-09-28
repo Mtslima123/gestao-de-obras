@@ -14,7 +14,7 @@ import { podeVerAba, moduloSomenteLeitura, abaSomenteLeitura, isAdmin } from '..
 import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay, dateToOffset, dateToExcelSerial } from './cronogramaDateUtils';
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, statusAposAvanco, autoScheduleFromDeps,
-  getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist,
+  getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist, computeAllGroupMonthlyDist,
   computeGroupValues, computeSuccessors, computeAvancoFisico, computeRowNumberMap,
 } from './scheduleEngine';
 import MedicaoMensal from './MedicaoMensal';
@@ -270,9 +270,12 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
     return mx || 1;
   }, [dist2, etapas, months]);
 
+  // Distribuição de todos os grupos calculada uma vez (antes getGroupMonthlyDist por linha
+  // de grupo, a cada render — inclusive ao só clicar numa linha).
+  const groupDist = React.useMemo(() => computeAllGroupMonthlyDist(etapas, dist2), [etapas, dist2]);
   const getDist = (e) =>
     e.isGroup
-      ? getGroupMonthlyDist(e.id, etapas, dist2)
+      ? (groupDist[e.id] || {})
       : (dist2[e.id] || {});
 
   // Totais das colunas (soma de todas as tarefas-folha por mês) e total geral
@@ -283,6 +286,12 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
     return t;
   }, [dist2, months]);
   const grandTotal = React.useMemo(() => months.reduce((s, m) => s + (monthTotals[m.key] || 0), 0), [monthTotals, months]);
+  // % acumulado: soma corrida de monthTotals até cada mês, sobre o total geral — mesma
+  // ideia da coluna Conc. % da Curva Física, aqui por mês em vez de por tarefa.
+  const monthCumPcts = React.useMemo(() => {
+    let acc = 0;
+    return months.map(m => { acc += monthTotals[m.key] || 0; return grandTotal > 0 ? acc / grandTotal : 0; });
+  }, [months, monthTotals, grandTotal]);
 
   // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto (raiz da EAP),
   // enfraquecendo a cada nível mais fundo — mesma escala usada no Gantt, na Lista e na Curva
@@ -394,15 +403,17 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
       });
       const totalGeralIdx = HEADER_ROW + 1 + dataRows.length;
       const pctTotalIdx   = totalGeralIdx + 1;
+      const pctAcumIdx    = pctTotalIdx + 1;
       const rows = [
         [`Uso da Tarefa · ${obraNome}`],
         [`Gerado em ${new Date().toLocaleDateString('pt-BR')}`],
         [],
         hdrs,
         ...dataRows,
-        // Linhas de total: "Total geral" (R$) e "% do total"
+        // Linhas de total: "Total geral" (R$), "% do total" e "% acumulado"
         ['Total geral', ...Array(nFixed).fill(''), ...months.map(m => monthTotals[m.key] || 0), grandTotal],
         ['% do total', ...Array(nFixed).fill(''), ...months.map(m => grandTotal > 0 ? monthTotals[m.key] / grandTotal : 0), grandTotal > 0 ? 1 : 0],
+        ['% acumulado', ...Array(nFixed).fill(''), ...monthCumPcts, grandTotal > 0 ? 1 : 0],
       ];
       const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
       const rng = XLSX.utils.decode_range(ws['!ref']);
@@ -421,11 +432,13 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
           if (ws[addr]) ws[addr].z = '#,##0.00';
         }
       }
-      // Última linha ("% do total") formatada como porcentagem
-      for (let C = nFixed + 1; C <= rng.e.c; C++) {
-        const addr = XLSX.utils.encode_cell({ r: rng.e.r, c: C });
-        if (ws[addr]) ws[addr].z = '0.00%';
-      }
+      // Últimas duas linhas ("% do total" e "% acumulado") formatadas como porcentagem
+      [pctTotalIdx, pctAcumIdx].forEach(R => {
+        for (let C = nFixed + 1; C <= rng.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (ws[addr]) ws[addr].z = '0.00%';
+        }
+      });
       ws['!cols']   = [...usoColOrderVisible.map(k => ({ wch: Math.max(8, Math.round(getUsoW(k) / 7)) })), { wch: 16 }, ...months.map(() => ({ wch: 16 })), { wch: 16 }];
       ws['!freeze'] = { xSplit: Math.min(3, nFixed), ySplit: HEADER_ROW + 1 };
       ws['!merges'] = [
@@ -438,6 +451,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
       groupRowIdx.forEach(r => aplicarEstiloLinha(XLSX, ws, r, hdrs.length, XLSX_GROUP_ROW_STYLE));
       aplicarEstiloLinha(XLSX, ws, totalGeralIdx, hdrs.length, XLSX_TOTAL_ROW_STYLE);
       aplicarEstiloLinha(XLSX, ws, pctTotalIdx, hdrs.length, XLSX_TOTAL_ROW_STYLE);
+      aplicarEstiloLinha(XLSX, ws, pctAcumIdx, hdrs.length, XLSX_TOTAL_ROW_STYLE);
       XLSX.utils.book_append_sheet(wb, ws, 'Uso da Tarefa');
       XLSX.writeFile(wb, `uso-tarefa-${new Date().toISOString().slice(0, 10)}.xlsx`);
     });
@@ -493,6 +507,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
         foot: [
           [{ content: 'Total geral', colSpan: nFixed + 1, styles: { halign: 'left' } }, ...months.map(m => monthTotals[m.key] > 0 ? fmtBRL(monthTotals[m.key]) : '—'), grandTotal > 0 ? fmtBRL(grandTotal) : '—'],
           [{ content: '% do total', colSpan: nFixed + 1, styles: { halign: 'left' } }, ...months.map(m => grandTotal > 0 ? (monthTotals[m.key] / grandTotal * 100).toFixed(2) + '%' : '—'), grandTotal > 0 ? '100%' : '—'],
+          [{ content: '% acumulado', colSpan: nFixed + 1, styles: { halign: 'left' } }, ...monthCumPcts.map(p => grandTotal > 0 ? (p * 100).toFixed(2) + '%' : '—'), grandTotal > 0 ? '100%' : '—'],
         ],
         theme: 'grid',
         headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold', halign: 'center' },
@@ -689,6 +704,9 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
               <tr style={{ height: usoRowH }}>
                 <td colSpan={usoColOrderVisible.length} style={{ ...totalBotTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>% do total</td>
               </tr>
+              <tr style={{ height: usoRowH }}>
+                <td colSpan={usoColOrderVisible.length} style={{ ...totalBotTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>% acumulado</td>
+              </tr>
             </tbody>
           </table>
           {/* Reserva o mesmo espaço da barra de rolagem horizontal do painel direito */}
@@ -758,6 +776,14 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
                 ))}
                 <td style={{ ...totalBotTd, minWidth: 112 }}>{grandTotal > 0 ? '100%' : '—'}</td>
               </tr>
+              <tr style={{ height: usoRowH }}>
+                {months.map((m, i) => (
+                  <td key={m.key} style={{ ...totalBotTd, minWidth: 92 }}>
+                    {grandTotal > 0 ? (monthCumPcts[i] * 100).toFixed(2) + '%' : '—'}
+                  </td>
+                ))}
+                <td style={{ ...totalBotTd, minWidth: 112 }}>{grandTotal > 0 ? '100%' : '—'}</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -768,8 +794,34 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
 };
 
 // ─── CurvaFisicaView — Curva S + Histograma ──────────────────────────────────
-const CurvaFisicaView = ({ etapas, obraNome = 'Projeto', months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, selMonKey, setSelMonKey, valorVinculadoMap = {}, onCommit, topbarH }) => {
+const CurvaFisicaView = ({ etapas, obraId, obraNome = 'Projeto', months, monthlyDist, realizedTotals, baselines, blVisivelId, onSelectBaseline, reprogramacoes, repVisivelId, onSelectReprogramacao, selMonKey, setSelMonKey, valorVinculadoMap = {}, onCommit, topbarH }) => {
   const toast = useToast();
+  // Largura da coluna Atividade da tabela "Distribuição por tarefa" — persistida por obra,
+  // mesmo padrão de usoColW (Uso da Tarefa). Nomes de tarefa mais longos/curtos por obra
+  // justificam o ajuste manual em vez de uma largura fixa.
+  const [distActW, setDistActW] = React.useState(() => {
+    try { return Number(localStorage.getItem(`dist_actw_${obraId}`)) || 220; }
+    catch { return 220; }
+  });
+  React.useEffect(() => {
+    try { setDistActW(Number(localStorage.getItem(`dist_actw_${obraId}`)) || 220); } catch { setDistActW(220); }
+  }, [obraId]);
+  const startDistActResize = (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const startX = ev.clientX;
+    const startW = distActW;
+    const onMove = (e2) => {
+      const w = Math.max(120, Math.min(600, startW + e2.clientX - startX));
+      setDistActW(w);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      setDistActW(w => { try { localStorage.setItem(`dist_actw_${obraId}`, String(w)); } catch { /* ignore */ } return w; });
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
   // Colapso LOCAL da tabela "Distribuição por tarefa" — não mexe no `collapsed` da Lista.
   const [collapsedCurva, setCollapsedCurva] = React.useState(() => new Set());
   // Congela o card "Distribuição por tarefa" sob a topbar ao rolar a página — mesmo mecanismo
@@ -1813,13 +1865,19 @@ const CurvaFisicaView = ({ etapas, obraNome = 'Projeto', months, monthlyDist, re
         // senão, marcar depois de criar a reprogramação não apareceria na tabela.
         const liveShown   = new Set(etapas.filter(e => e.showInDist === true).map(e => e.id));
         // Esconde descendentes de grupos recolhidos LOCALMENTE nesta tabela (sem tocar na Lista).
+        // Map pai por id: subir a árvore com visibleRows.find por ancestral, pra cada linha,
+        // era O(n² × profundidade). Nada recolhido: nem sobe.
+        const paiDe = collapsedCurva.size ? new Map(visibleRows.map(x => [x.id, x.parentId])) : null;
         const isHiddenCurva = (e) => {
+          if (!paiDe) return false;
           let p = e.parentId;
-          while (p) { if (collapsedCurva.has(p)) return true; p = visibleRows.find(x => x.id === p)?.parentId; }
+          while (p) { if (collapsedCurva.has(p)) return true; p = paiDe.get(p); }
           return false;
         };
         const distRows    = visibleRows.filter(e => ((e.isGroup && !(e.nivel > 0)) || liveShown.has(e.id) || e.showInDist === true) && !isHiddenCurva(e));
-        const ACT_W = 220, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 58, TOT_W = 68;
+        // ACT_W ajustável pelo usuário (arrasta a borda do cabeçalho Atividade) — as demais
+        // colunas continuam fixas.
+        const ACT_W = distActW, VAL_W = 100, PESO_W = 64, CONC_W = 56, MON_W = 58, TOT_W = 68;
         // Colunas congeladas: Atividade, Valor, Peso e Conc. ficam fixas à esquerda ao
         // rolar horizontal (mesma técnica das colunas congeladas da Lista) — só os meses
         // e o Total rolam por baixo delas.
@@ -1902,6 +1960,13 @@ const CurvaFisicaView = ({ etapas, obraNome = 'Projeto', months, monthlyDist, re
                     <th style={{ ...thBase, textAlign: 'left', position: 'sticky', left: 0, top: 0, zIndex: 3, isolation: 'isolate', padding: '8px 14px',
                       boxShadow: '2px 0 0 0 var(--brand)' }}>
                       Atividade
+                      {/* Alça de arraste — mesmo padrão da Lista (startColResize/ListaInterativa.jsx):
+                          largura livre, persistida por obra (distActW). */}
+                      <div
+                        onMouseDown={startDistActResize}
+                        onClick={(ev) => ev.stopPropagation()}
+                        style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
+                      />
                     </th>
                     <th style={{ ...thBase, textAlign: 'right', position: 'sticky', left: COL2_LEFT, top: 0, zIndex: 3, isolation: 'isolate',
                       boxShadow: '2px 0 0 0 var(--brand)' }}>Valor (R$)</th>
@@ -1944,19 +2009,16 @@ const CurvaFisicaView = ({ etapas, obraNome = 'Projeto', months, monthlyDist, re
                     const concAteRef = taskCusto > 0
                       ? months.reduce((s, m, i) => i <= selIdx ? s + (taskDist[m.key] || 0) : s, 0) / taskCusto * 100
                       : 0;
-                    // Tarefa-pai dentro de outra tarefa-pai: tom mais forte pro nível mais alto
-                    // (raiz da EAP), enfraquecendo a cada nível mais fundo — assim dá pra
-                    // distinguir visualmente quem está aninhado dentro de quem, em vez de todo
-                    // grupo cair no mesmo azul plano.
-                    const groupBg = e.nivel <= 0 ? 'var(--brand-100)' : e.nivel === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
-                    const rowBg = e.isGroup ? groupBg : (ri % 2 === 0 ? undefined : 'rgba(0,0,0,0.013)');
-                    // Fundo sticky sempre opaco (backgroundColor); o tom zebra (rowBg,
-                    // quase transparente) entra por cima via backgroundImage — nunca como
-                    // `background` sozinho, senão as colunas de mês vazam por baixo ao rolar.
-                    const stickyBg = {
-                      backgroundColor: e.isGroup ? groupBg : 'var(--surface)',
-                      backgroundImage: (!e.isGroup && rowBg) ? `linear-gradient(${rowBg}, ${rowBg})` : undefined,
-                    };
+                    // Cor pelo NÍVEL da EAP (padrão fixo pedido pela obra): grupos de nível 0-1
+                    // em azul, nível 2 em cinza, e o resto (grupo mais fundo ou tarefa) sem
+                    // preenchimento. Como depende só do nível, item novo já nasce com a cor
+                    // certa, sem configurar nada.
+                    const rowBg = !e.isGroup ? undefined
+                      : (e.nivel || 0) <= 1 ? 'var(--dist-nivel-1)'
+                      : e.nivel === 2 ? 'var(--dist-nivel-2)'
+                      : undefined;
+                    // Fundo sticky sempre opaco, senão as colunas de mês vazam por baixo ao rolar.
+                    const stickyBg = { backgroundColor: rowBg || 'var(--surface)' };
                     return (
                       <tr key={e.id} style={{ background: rowBg }}>
                         {/* Atividade (sticky) */}
@@ -2021,12 +2083,13 @@ const CurvaFisicaView = ({ etapas, obraNome = 'Projeto', months, monthlyDist, re
                               {empty ? '—' : fmt(pct)}
                             </td>
                           );
-                          // Folhas: intensidade por peso, SEM negrito; célula vazia no mês selecionado fica azul claro.
+                          // Folhas: sem preenchimento (padrão por nível — só grupos 0-2 têm cor), SEM
+                          // negrito; só o mês selecionado ganha o azul claro de destaque da coluna.
                           return (
                             <td key={m.key}
                               className={'heat-cell' + (empty ? ' empty' : (f > 0.4 ? ' hot' : ''))}
                               style={{ ...tdBase, textAlign: 'right', fontSize: 10.5, fontWeight: 400, '--f': f,
-                                ...(empty && sel ? { background: 'rgba(1,67,134,0.06)' } : {}) }}>
+                                background: sel ? 'rgba(1,67,134,0.06)' : 'transparent' }}>
                               {empty ? '—' : fmt(pct)}
                             </td>
                           );
@@ -3128,10 +3191,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                 const maxEnd = leaves.length ? Math.max(...leaves.map(e => taskEnd(e))) - 1 : 0;
                 const termino = leaves.length ? offsetToDate(maxEnd).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }) : '—';
                 // ── Derivações por-view da Curva Física (aba view === 'curva') ────────
-                const mesAtual     = todayKey; // "YYYY-MM" do mês corrente
-                const realAcum     = Object.entries(realizedTotals).reduce((s, [k, v]) => k <= mesAtual ? s + v : s, 0);
                 const previstoPct  = plannedPct; // planToDate / totalPlan (%)
-                const desvioPp     = totalPlan > 0 ? (Math.round(realAcum / totalPlan * 100) - Math.round(previstoPct)) : 0;
                 return (
                   view === 'curva' ? (
                   <div className="kpi-grid">
@@ -3153,11 +3213,6 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                           {baselines.length > 0 ? `realizado × previsto (${previstoPct.toFixed(2)}%)` : 'sem linha de base salva'}
                         </span>
                       </div>
-                    </div>
-                    <div className="kpi risk" style={{ padding: '18px 20px' }}>
-                      <div className="kpi-label">Desvio acumulado</div>
-                      <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4, color: 'var(--danger)' }}>{desvioPp >= 0 ? '+' : ''}{desvioPp}<span className="unit">pp</span></div>
-                      <div className="kpi-foot" style={{ marginTop: 6 }}><span className="kpi-foot-text" style={{ color: desvioPp < 0 ? 'var(--danger)' : undefined }}>{desvioPp < 0 ? 'obra atrasada' : 'obra no prazo'}</span></div>
                     </div>
                     <div className="kpi" style={{ padding: '18px 20px' }}>
                       <div className="kpi-label">Término projetado</div>
@@ -3447,6 +3502,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
               {view === 'curva' && (
                 <CurvaFisicaView
                   etapas={etapas}
+                  obraId={obraSel}
                   obraNome={obra?.nome || 'Projeto'}
                   months={months}
                   monthlyDist={monthlyDist}

@@ -29,7 +29,7 @@ import { substituirTokens } from './spellcheckPure';
 import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, VIRT_MIN,
-  ColumnHeaderFilterMenu, resolveColType, FILTER_BLANK_KEY,
+  ColumnHeaderFilterMenu, resolveColType, FILTER_BLANK_KEY, passaFiltroColuna,
   buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter, gmConflicts,
   XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
@@ -432,10 +432,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return (label === '' || label == null) ? FILTER_BLANK_KEY : label;
   }, [colFilterValue, customCols]);
 
+  // `included` (o que está marcado) tem prioridade sobre `excluded` — ver passaFiltroColuna.
+  const passaFiltro = React.useCallback((colId, f, e) =>
+    passaFiltroColuna(f, filterKeyOf(colId, e), resolveColType(colId, customCols) === 'date'),
+  [filterKeyOf, customCols]);
   const passesColumnFilters = React.useCallback((e) =>
-    Object.entries(columnFilters).every(([colId, f]) =>
-      !f?.excluded?.length || !f.excluded.includes(filterKeyOf(colId, e))),
-  [columnFilters, filterKeyOf]);
+    Object.entries(columnFilters).every(([colId, f]) => passaFiltro(colId, f, e)),
+  [columnFilters, passaFiltro]);
 
   // Comparador por tipo resolvido — em branco sempre por último, nas duas direções.
   const compareByType = (type) => (a, b) => {
@@ -487,10 +490,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const rows = visible.filter(e =>
       (showSummaryTasks || !e.isGroup) &&
       passesGlobal(e) &&
-      Object.entries(rest).every(([cid, f]) => !f?.excluded?.length || !f.excluded.includes(filterKeyOf(cid, e)))
+      Object.entries(rest).every(([cid, f]) => passaFiltro(cid, f, e))
     );
     return rows.map(e => colFilterValue(e, colId));
-  }, [columnFilters, visible, showSummaryTasks, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, filterKeyOf, colFilterValue]);
+  }, [columnFilters, visible, showSummaryTasks, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, passaFiltro, colFilterValue]);
 
   const dragColRef = React.useRef(null);
   const [dragOverCol, setDragOverCol] = React.useState(null); // { id, side: 'before' | 'after' }
@@ -665,9 +668,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             activeFilter={columnFilters[colId] || null}
             sortDir={sortSpec?.colId === colId ? sortSpec.dir : null}
             onSort={(dir) => setSortSpec({ colId, dir })}
-            onApplyFilter={(excluded) => setColumnFilters(prev => {
+            onApplyFilter={(excluded, included) => setColumnFilters(prev => {
               if (!excluded.length) { const n = { ...prev }; delete n[colId]; return n; }
-              return { ...prev, [colId]: { excluded } };
+              return { ...prev, [colId]: { excluded, included } };
             })}
             onClearFilter={() => setColumnFilters(prev => { const n = { ...prev }; delete n[colId]; return n; })}
             getDomainEntries={() => buildDomainEntries(colId)}
@@ -697,6 +700,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // incluso), em vez da posição na lista inteira — ver computeRowNumberMap.
   const rowNumberMap = React.useMemo(() => computeRowNumberMap(filtrada), [filtrada]);
   const idToDisplayId = rowNumberMap;
+  // Tarefa fora da grade agora (resumo oculto, grupo recolhido, filtro) não tem número em
+  // rowNumberMap — cai na numeração completa, igual formatDepList faz pra Predecessora.
+  // Sem isso a Sucessora mostrava o id interno cru (TSK-xxx) em vez de um número.
+  const fullRowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+  const numeroDaLinha = (id) => idToDisplayId[id] ?? fullRowNumberMap[id] ?? id;
+  // Busca por id em O(1) pras colunas Predecessora/Sucessora — etapas.find por vínculo, por
+  // linha, no texto e no title, somava milhões de comparações a cada render da Lista.
+  const etapaById = React.useMemo(() => new Map(etapas.map(e => [e.id, e])), [etapas]);
 
   // Conflitos de precedência (mesmo indicador do Gantt) — mantém a lista bruta pra
   // alimentar o popover que detalha cada par pred/suces em violação.
@@ -712,16 +723,33 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     estimateSize: (i) => rowHeights[filtrada[i]?.id] ?? rowH,
     overscan: 24, // buffer maior: rolagem rápida (inércia) não expõe as linhas de spacer (em branco)
     getItemKey: (i) => filtrada[i]?.id ?? i,
+    // Sem isso o 1º render (ao abrir a aba) não tem altura do scroll ainda, a janela vinha
+    // vazia e a rede de segurança abaixo renderizava as ~1400 linhas de uma vez — era o
+    // travamento ao trocar de aba. Com um retângulo inicial a janela já nasce preenchida.
+    initialRect: { width: 1, height: typeof window !== 'undefined' ? window.innerHeight : 800 },
   });
   const vItems  = rowVirt.getVirtualItems();
   // Rede de segurança: se a janela virtual ficar vazia por um instante (relayout ao editar/
-  // confirmar ou ao fixar o card), renderiza a lista inteira neste frame para nunca ficar em
-  // branco nem perder a marcação da célula; measureElement repovoa a janela no frame seguinte.
-  const winRows = !virtualize
-    ? filtrada.map((e, i) => [e, i])
-    : (vItems.length ? vItems.map(vi => [filtrada[vi.index], vi.index]) : filtrada.map((e, i) => [e, i]));
-  const topPad  = virtualize && vItems.length ? vItems[0].start : 0;
-  const botPad  = virtualize && vItems.length ? rowVirt.getTotalSize() - vItems[vItems.length - 1].end : 0;
+  // confirmar ou ao fixar o card), reaproveita a ÚLTIMA janela válida neste frame para não
+  // ficar em branco nem perder a marcação da célula; measureElement repovoa no frame
+  // seguinte. Antes renderizava a lista INTEIRA (1392 linhas medidas e descartadas).
+  const ultimaJanelaRef = React.useRef(null); // { ini, fim, topPad, botPad }
+  let winRows, topPad, botPad;
+  if (!virtualize) {
+    winRows = filtrada.map((e, i) => [e, i]); topPad = 0; botPad = 0;
+  } else if (vItems.length) {
+    winRows = vItems.map(vi => [filtrada[vi.index], vi.index]);
+    topPad  = vItems[0].start;
+    botPad  = rowVirt.getTotalSize() - vItems[vItems.length - 1].end;
+    ultimaJanelaRef.current = { ini: vItems[0].index, fim: vItems[vItems.length - 1].index, topPad, botPad };
+  } else {
+    const j = ultimaJanelaRef.current;
+    const ini = j ? Math.min(j.ini, Math.max(0, filtrada.length - 1)) : 0;
+    const fim = j ? Math.min(j.fim, filtrada.length - 1) : Math.min(59, filtrada.length - 1);
+    winRows = filtrada.slice(ini, fim + 1).map((e, k) => [e, ini + k]);
+    topPad  = j ? j.topPad : 0;
+    botPad  = j ? j.botPad : 0;
+  }
   // Conjunto de ids que são pai de alguém — evita o scan O(n) por linha (etapas.some(...))
   // dentro do render de cada linha, que alonga o commit e piora o branco na rolagem rápida.
   const parentIdSet = React.useMemo(
@@ -745,7 +773,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // e.isGroup ? '' : ...: mesmo branco que a célula já mostra pra grupo em todo canto da
     // Lista (duplo-clique, F2, colFilterValue) — sem isso, Ctrl+C numa linha de grupo
     // copiava o texto do vínculo antigo mesmo a célula aparecendo vazia na tela.
-    dep:       { kind: 'text',   get: e => e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap), field: 'dep' },
+    dep:       { kind: 'text',   get: e => e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap), field: 'dep' },
     // Sucessora é derivada (vínculo reverso, gravado no `dep` de OUTRAS tarefas) — colar aqui
     // não usa applyFieldToEtapa como as demais colunas; ver applySuccEdits/applyBlockEdits.
     succ:      { kind: 'text',   get: e => e.isGroup ? '' : formatSucc(e.id),                  field: 'succ' },
@@ -2529,9 +2557,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Sucessora exibida como texto (estilo Project): displayId + tipo(≠TI) + lag,
   // lidos do link reverso (a predecessora que a etapa sucessora tem apontando para taskId).
   const formatSucc = (taskId) => (succMap[taskId] || []).map(sid => {
-    const s = etapas.find(x => x.id === sid);
+    const s = etapaById.get(sid);
     const link = (s?.dep || []).find(d => (typeof d === 'string' ? d : d.id) === taskId);
-    const disp = idToDisplayId[sid] ?? sid;
+    const disp = numeroDaLinha(sid);
     const tipo = link && typeof link !== 'string' && link.tipo && link.tipo !== 'TI' ? link.tipo : '';
     const lag  = link && typeof link !== 'string' && link.lag ? ((link.lag > 0 ? '+' : '') + link.lag + 'd') : '';
     return disp + tipo + lag;
@@ -2544,14 +2572,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const l = d.lag ? ((d.lag > 0 ? '+' : '') + d.lag + 'd') : '';
     return [t, l].filter(Boolean).join(' ');
   };
-  const nomeDaTarefa = (id) => etapas.find(x => x.id === id)?.etapa || (idToDisplayId[id] ?? id);
+  const nomeDaTarefa = (id) => etapaById.get(id)?.etapa || numeroDaLinha(id);
   const formatDepNames = (dep) => (dep || []).map(d => {
     const id = typeof d === 'string' ? d : d.id;
     const tl = depTipoLag(d);
     return nomeDaTarefa(id) + (tl ? ` (${tl})` : '');
   }).join('; ');
   const formatSuccNames = (taskId) => (succMap[taskId] || []).map(sid => {
-    const s = etapas.find(x => x.id === sid);
+    const s = etapaById.get(sid);
     const link = (s?.dep || []).find(d => (typeof d === 'string' ? d : d.id) === taskId);
     const tl = depTipoLag(link);
     return nomeDaTarefa(sid) + (tl ? ` (${tl})` : '');
@@ -2745,8 +2773,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custoOrcado') return custoOrcadoMap[e.id] || 0;
         if (cid === 'saldo')    return cst - realCst;
         if (cid === 'resp')     return e.responsavel || '';
-        if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap);
-        if (cid === 'succ')     return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; ');
+        if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap);
+        if (cid === 'succ')     return (succMap[e.id] || []).map(numeroDaLinha).join('; ');
         if (cid === 'status')   return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return e.restricaoData ? dateToExcelSerial(offsetToDate(dateToOffset(e.restricaoData))) : '';
         if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
@@ -2846,8 +2874,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custoOrcado') return fmtBRL(custoOrcadoMap[e.id] || 0);
         if (cid === 'saldo')     return fmtBRL(cst - realCst);
         if (cid === 'resp')      return e.responsavel || '';
-        if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap);
-        if (cid === 'succ')      return (succMap[e.id] || []).map(id => idToDisplayId[id] ?? id).join('; ');
+        if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap);
+        if (cid === 'succ')      return (succMap[e.id] || []).map(numeroDaLinha).join('; ');
         if (cid === 'status')    return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return e.restricaoData ? isoToBR(e.restricaoData) : '';
         if (cid === 'participa') return e.showInDist ? 'Sim' : 'Não';
@@ -3011,14 +3039,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                               onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--surface-muted)'; }}
                               onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', flexShrink: 0 }}>{rowNumberMap[c.pred] ?? c.pred}</span>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', flexShrink: 0 }}>{numeroDaLinha(c.pred)}</span>
                                 <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pred?.etapa ?? '(tarefa removida)'}</span>
                               </div>
                               <div style={{ fontSize: 10.5, color: 'var(--text-faint)', margin: '2px 0 2px 2px' }}>
                                 ↳ {TIPO_LABEL[c.tipo] || c.tipo}{c.lag ? `, lag ${c.lag > 0 ? '+' : ''}${c.lag}d` : ''}
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#b45309', flexShrink: 0 }}>{rowNumberMap[c.succ] ?? c.succ}</span>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#b45309', flexShrink: 0 }}>{numeroDaLinha(c.succ)}</span>
                                 <span style={{ fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{succ?.etapa ?? '(tarefa removida)'}</span>
                               </div>
                             </button>
@@ -3638,9 +3666,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       activeFilter={columnFilters[col.id] || null}
                       sortDir={sortSpec?.colId === col.id ? sortSpec.dir : null}
                       onSort={(dir) => setSortSpec({ colId: col.id, dir })}
-                      onApplyFilter={(excluded) => setColumnFilters(prev => {
+                      onApplyFilter={(excluded, included) => setColumnFilters(prev => {
                         if (!excluded.length) { const n = { ...prev }; delete n[col.id]; return n; }
-                        return { ...prev, [col.id]: { excluded } };
+                        return { ...prev, [col.id]: { excluded, included } };
                       })}
                       onClearFilter={() => setColumnFilters(prev => { const n = { ...prev }; delete n[col.id]; return n; })}
                       getDomainEntries={() => buildDomainEntries(col.id)}
@@ -3999,7 +4027,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 dep: (
                   <td key="dep" onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? null : editingDep === e.id ? (
-                      <input autoFocus defaultValue={formatDepList(e.dep, etapas, rowNumberMap)}
+                      <input autoFocus defaultValue={formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap)}
                         style={{ width: '100%', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); }}
                         onKeyDown={ev => {
@@ -4018,7 +4046,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
-                      const txt = formatDepList(e.dep, etapas, rowNumberMap);
+                      const txt = formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap);
                       return (
                         <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text' }} title={formatDepNames(e.dep) || undefined}>
                           {txt || <span className="text-faint">—</span>}

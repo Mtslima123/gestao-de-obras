@@ -5,7 +5,7 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
 import { offsetToISO, taskEndDisplay } from './cronogramaDateUtils';
-import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors } from './scheduleEngine';
+import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors, computeRowNumberMap } from './scheduleEngine';
 
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 const PANEL_H = 220; // também serve de altura mínima ao arrastar
@@ -20,6 +20,10 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   const [novoSuccId, setNovoSuccId] = React.useState('');
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
   const succMap = React.useMemo(() => computeSuccessors(etapas), [etapas]);
+  // Sem rowNumberMap (a Lista não passa) ou tarefa fora dele: numeração completa, a mesma
+  // que resolveRef usa pro número digitado — nunca o id interno cru (TSK-xxx).
+  const fullRowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+  const numeroDaLinha = (id) => rowNumberMap[id] ?? fullRowNumberMap[id] ?? id;
   // Altura arrastável (borda de cima, estilo Excel) — persiste entre sessões, igual a
   // colWidths na Lista. PANEL_H (valor original fixo) vira o mínimo/altura padrão.
   const [panelH, setPanelH] = React.useState(() => {
@@ -185,7 +189,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                 const pred = etapas.find(e => e.id === d.id);
                 return (
                   <tr key={i}>
-                    <td style={{ ...tdSt, width: 30 }}>{rowNumberMap[d.id] ?? d.id}</td>
+                    <td style={{ ...tdSt, width: 30 }}>{numeroDaLinha(d.id)}</td>
                     <td style={{ ...tdSt, textAlign: 'left' }} title={paiNome(pred) ? `${paiNome(pred)} · ${pred?.etapa ?? ''}` : (pred?.etapa ?? '')}>
                       {pred?.etapa ?? '—'}
                       {paiNome(pred) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(pred)}</div>}
@@ -248,7 +252,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                 const lag = typeof link === 'string' ? 0 : (link?.lag ?? 0);
                 return (
                   <tr key={sid}>
-                    <td style={{ ...tdSt, width: 30 }}>{rowNumberMap[sid] ?? sid}</td>
+                    <td style={{ ...tdSt, width: 30 }}>{numeroDaLinha(sid)}</td>
                     <td style={{ ...tdSt, textAlign: 'left' }} title={paiNome(st) ? `${paiNome(st)} · ${st?.etapa ?? ''}` : (st?.etapa ?? '')}>
                       {st?.etapa ?? '—'}
                       {paiNome(st) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(st)}</div>}

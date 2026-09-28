@@ -10,7 +10,7 @@ import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, tas
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
-         nextEtapaId, nextDisplayId, emptyCustomCols } from './scheduleEngine';
+         nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap } from './scheduleEngine';
 import { PavimentosModal } from './cronogramaModais';
 import { TaskFormPanel } from './TaskFormPanel';
 import { logger } from '../../services/logger';
@@ -80,6 +80,10 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   // aba) e repassados por prop — evita recalcular sobre todas as etapas a cada remontagem.
   custoOrcadoMap = {}, groupVals = {} }) => {
   const toast = useToast();
+  // Tarefa fora do rowNumberMap (oculta/recolhida) cai na numeração completa — nunca
+  // mostra o id interno cru (TSK-xxx), mesma regra de formatDepList.
+  const fullRowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+  const numeroDaLinha = (id) => rowNumberMap[id] ?? fullRowNumberMap[id] ?? id;
   const [selected,    setSel]      = React.useState(new Set());
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
@@ -361,7 +365,9 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
       : e;
     return draft && draft[e.id] ? { ...base, ...draft[e.id] } : base;
   };
-  const findEt = (id) => etapas.find(e => e.id === id);
+  // Map por id: findEt roda por vínculo nas setas de dependência (antes etapas.find, O(n)).
+  const etapaById = React.useMemo(() => new Map(etapas.map(e => [e.id, e])), [etapas]);
+  const findEt = (id) => etapaById.get(id);
   const idxEt  = (id) => etapas.findIndex(e => e.id === id);
 
   const barColor = (e, isConf) => {
@@ -417,7 +423,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           av / 100,
           e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura'),
           cst,
-          e.isGroup ? '' : formatDepList(e.dep, etapas),
+          e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap),
         ];
       });
       const rows = [
@@ -924,14 +930,14 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                           onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--surface-muted)'; }}
                           onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', flexShrink: 0 }}>{rowNumberMap[c.pred] ?? c.pred}</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', flexShrink: 0 }}>{numeroDaLinha(c.pred)}</span>
                             <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pred?.etapa ?? '(tarefa removida)'}</span>
                           </div>
                           <div style={{ fontSize: 10.5, color: 'var(--text-faint)', margin: '2px 0 2px 2px' }}>
                             ↳ {TIPO_LABEL[c.tipo] || c.tipo}{c.lag ? `, lag ${c.lag > 0 ? '+' : ''}${c.lag}d` : ''}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#b45309', flexShrink: 0 }}>{rowNumberMap[c.succ] ?? c.succ}</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#b45309', flexShrink: 0 }}>{numeroDaLinha(c.succ)}</span>
                             <span style={{ fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{succ?.etapa ?? '(tarefa removida)'}</span>
                           </div>
                         </button>
@@ -1808,6 +1814,13 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                 const lag  = typeof depObj === 'string' ? 0 : (depObj.lag || 0);
                 const depIdx = visIdx.get(dId);
                 if (depIdx === undefined) return null; // predecessor recolhido: sem seta
+                // Com virtualização, só desenha a seta se ela cruza a janela visível (as duas
+                // pontas fora e do mesmo lado = fora da tela). Antes desenhava ~2000 setas a
+                // cada render/rolagem, mesmo as de linhas que nem estavam no DOM.
+                if (virtualize && vItems.length) {
+                  const jIni = vItems[0].index, jFim = vItems[vItems.length - 1].index;
+                  if (Math.max(i, depIdx) < jIni || Math.min(i, depIdx) > jFim) return null;
+                }
                 const dep  = findEt(dId);
                 if (!dep) return null;
                 const dBar = getBar(dep);

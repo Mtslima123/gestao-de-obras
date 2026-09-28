@@ -203,6 +203,35 @@ export const medicaoMensalService = {
     return { data, error: null };
   },
 
+  // Mês inicial da medição da obra ('YYYY-MM' ou null). Coluna da migration
+  // 20260928000001 — enquanto o TI não aplicar, o SELECT falha por coluna ausente e
+  // devolve null (comportamento antigo: medição começa no 1º mês do cronograma).
+  async buscarMesInicial(obraId) {
+    if (!obraId) return null;
+    const { data, error } = await supabase
+      .from('obras')
+      .select('medicao_mes_inicial')
+      .eq('id', obraId)
+      .maybeSingle();
+    if (error) {
+      if (!colunaAusente(error)) logger.error('falha ao buscar mês inicial da medição', { module: 'medicaoMensal', action: 'buscarMesInicial', obraId, err: error });
+      return null;
+    }
+    return data?.medicao_mes_inicial || null;
+  },
+
+  // Grava o mês inicial via RPC (SECURITY DEFINER) — quem mede não precisa poder editar
+  // a obra inteira. A RPC recusa se já existir medição antes do mês escolhido.
+  async definirMesInicial(obraId, mes) {
+    const { data, error } = await supabase
+      .rpc('definir_medicao_mes_inicial', { p_obra_id: obraId, p_mes: mes || null });
+    if (error) {
+      logger.error('falha ao definir mês inicial da medição', { module: 'medicaoMensal', action: 'definirMesInicial', obraId, mes, err: error });
+      return { data: null, error };
+    }
+    return { data: data || null, error: null };
+  },
+
   // Apaga o boletim inteiro (a linha da tabela) — diferente de salvarRascunho com itens
   // vazios, que continuaria contando como "medição aberta". Sem policy própria por status:
   // a RESTRICTIVE de DELETE (medicoes_mensais_ro_del) só olha pro modo somente-leitura do

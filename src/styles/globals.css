@@ -14,6 +14,11 @@
   --brand-100: #d5e2f0;
   --brand-tint: #f2f6fc;
 
+  /* Curva Física › Distribuição por tarefa: fundo dos grupos por nível da EAP
+     (nível 0-1 azul, nível 2 cinza; o resto sem preenchimento). */
+  --dist-nivel-1: #b7cbe6;
+  --dist-nivel-2: #e5e7eb;
+
   /* Neutrals (cool, hue 250) */
   --bg: #ffffff;
   --bg-app: #f6f8fb;
@@ -116,6 +121,8 @@
   --brand-tint: #142446;
   --brand-50: #14223e;
   --brand-100: #1b2e54;
+  --dist-nivel-1: #25406e;
+  --dist-nivel-2: #222b3b;
   --success-bg: #102a1f;
   --warning-bg: #2c1f0c;
   --danger-bg: #2a1110;

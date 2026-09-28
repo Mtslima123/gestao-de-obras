@@ -5,6 +5,7 @@ import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
   computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
+  mesesDaMedicao,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
@@ -500,5 +501,17 @@ describe('detectarDefasagem', () => {
   it('sem itens congelados (medição vazia), devolve vazio sem quebrar', () => {
     expect(detectarDefasagem([], etapas, MES, opts)).toEqual([]);
     expect(detectarDefasagem(null, etapas, MES, opts)).toEqual([]);
+  });
+});
+
+describe('mesesDaMedicao', () => {
+  const months = [{ key: '2026-07' }, { key: '2026-08' }, { key: '2026-09' }, { key: '2026-10' }];
+
+  it('sem mês inicial devolve o cronograma inteiro', () => {
+    expect(mesesDaMedicao(months, null)).toEqual(months);
+  });
+
+  it('corta os meses antes do mês inicial (lançamento retroativo)', () => {
+    expect(mesesDaMedicao(months, '2026-09').map(m => m.key)).toEqual(['2026-09', '2026-10']);
   });
 });

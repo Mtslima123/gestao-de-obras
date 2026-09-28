@@ -14,7 +14,7 @@ import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
-  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem,
+  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -105,6 +105,46 @@ function ModalReabrirMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
         para edição de novo. Os valores desta medição saem do histórico de "Medições
         fechadas" até você fechar de novo.
       </p>
+    </Modal>
+  );
+}
+
+// Define a partir de qual mês a medição da obra começa. Os meses anteriores saem da
+// cadeia de aprovação — pensado pra lançamento retroativo, em que os primeiros meses
+// do cronograma nunca vão ter medição. Não deixa escolher um mês que esconderia uma
+// medição já criada (a RPC definir_medicao_mes_inicial também recusa).
+function ModalMesInicial({ months, mesInicial, mesesComMedicao, salvando, onClose, onConfirmar }) {
+  const [escolha, setEscolha] = React.useState(mesInicial || '');
+  const criadas = mesesComMedicao.map(m => m.mes_referencia);
+  const bloqueio = escolha
+    ? (criadas.some(k => k < escolha) ? `Já existe medição criada antes de ${mesLabel(escolha)}.` : '')
+    : (criadas.length ? 'A obra já tem medição criada: não dá para voltar ao primeiro mês do cronograma.' : '');
+  const semMudanca = (escolha || null) === (mesInicial || null);
+  return (
+    <Modal
+      title="Início da medição"
+      onClose={onClose}
+      overlay={false}
+      footer={
+        <>
+          <div className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" disabled={salvando || !!bloqueio || semMudanca} onClick={() => onConfirmar(escolha || null)}>
+            <Icon name="check" size={14} />{salvando ? 'Salvando…' : 'Salvar'}
+          </button>
+        </>
+      }
+    >
+      <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Medição começa em</label>
+      <select className="input" value={escolha} onChange={e => setEscolha(e.target.value)} style={{ width: '100%' }}>
+        <option value="">Primeiro mês do cronograma</option>
+        {months.map(m => <option key={m.key} value={m.key}>{mesLabel(m.key)}</option>)}
+      </select>
+      <p style={{ fontSize: 13, color: 'var(--text-soft)', marginTop: 12 }}>
+        Os meses antes deste ficam fora da medição: não precisam ser abertos nem aprovados,
+        e o primeiro mês abre direto. O cronograma não é alterado.
+      </p>
+      {bloqueio && <p style={{ fontSize: 12.5, color: 'var(--danger)', marginTop: 8 }}>{bloqueio}</p>}
     </Modal>
   );
 }
@@ -745,6 +785,39 @@ export default function MedicaoMensal({
     return () => { vivo = false; };
   }, [obraId, registro]);
 
+  // Mês inicial da medição da obra (obras.medicao_mes_inicial) — null = cronograma inteiro.
+  const [mesInicial, setMesInicial] = React.useState(null);
+  const [mostrarMesInicial, setMostrarMesInicial] = React.useState(false);
+  React.useEffect(() => {
+    let vivo = true;
+    setMesInicial(null);
+    medicaoMensalService.buscarMesInicial(obraId).then(r => {
+      if (!vivo) return;
+      setMesInicial(r);
+      // Não deixa a tela nascer num mês fora do período (chute inicial/localStorage).
+      if (r) setMesRefKey(k => (k && k < r ? r : k));
+    });
+    return () => { vivo = false; };
+  }, [obraId]);
+  const salvarMesInicial = async (mes) => {
+    setSalvando(true);
+    const { error } = await medicaoMensalService.definirMesInicial(obraId, mes);
+    setSalvando(false);
+    if (error) {
+      // PGRST202 = RPC ainda não existe no banco (migration 20260928000001 pendente com o TI).
+      const pendente = error.code === 'PGRST202' || /function .* does not exist/i.test(error.message || '');
+      toast(pendente
+        ? 'Início da medição ainda não liberado no banco — aguardando o TI aplicar a atualização.'
+        : `Não foi possível salvar o início da medição: ${error.message || 'erro desconhecido'}`,
+        { tone: 'danger', icon: 'alert-triangle' });
+      return;
+    }
+    setMesInicial(mes);
+    setMostrarMesInicial(false);
+    if (mes && mesRefKey < mes) setMesRefKey(mes);
+    toast(mes ? `Medição começa em ${mesLabel(mes)}` : 'Medição volta a começar no primeiro mês do cronograma', { tone: 'success', icon: 'check' });
+  };
+
   // Ao entrar na tela, cai sempre na medição mais recente que existe no banco — aberta,
   // fechada ou aprovada, tanto faz: é o mês onde o trabalho realmente está, e não o mês
   // do calendário (mesAtualOuUltimo) nem o último mês que o usuário olhou (localStorage),
@@ -781,8 +854,12 @@ export default function MedicaoMensal({
   // Ciclo de abertura/fechamento precisa seguir a ordem dos meses: não dá pra abrir um mês
   // enquanto o anterior não estiver aprovado, nem reabrir/desaprovar um mês enquanto algum
   // posterior já foi criado (senão os documentos deixam de bater com a ordem real).
-  const mesIdxAtual = months.findIndex(m => m.key === mesRefKey);
-  const mesAnterior = mesIdxAtual > 0 ? months[mesIdxAtual - 1] : null;
+  // A cadeia só conta do mês inicial da obra em diante: o 1º mês de medição fica sem
+  // mesAnterior, então abre sem exigir aprovação/reprogramação dos meses de antes.
+  const mesesCadeia = React.useMemo(() => mesesDaMedicao(months, mesInicial), [months, mesInicial]);
+  const foraDoPeriodo = !!mesInicial && mesRefKey < mesInicial;
+  const mesIdxAtual = mesesCadeia.findIndex(m => m.key === mesRefKey);
+  const mesAnterior = mesIdxAtual > 0 ? mesesCadeia[mesIdxAtual - 1] : null;
   const statusAnterior = mesAnterior ? statusPorMes[mesAnterior.key] : undefined;
   // Antes bastava o mês anterior estar 'fechada'; agora precisa estar 'aprovada' — fechar
   // já não é mais suficiente pra liberar o mês seguinte, só aprovar (ver aprovarMedicao).
@@ -796,7 +873,7 @@ export default function MedicaoMensal({
   // 'aprovada' conta junto de 'fechada' aqui pelo mesmo motivo de `fechadas` acima: é um
   // estado "mais fechado" ainda, então também tem que bloquear reabrir um mês anterior.
   const proximaFechadaPosterior = mesIdxAtual >= 0
-    ? months.slice(mesIdxAtual + 1).find(m => statusPorMes[m.key] === 'fechada' || statusPorMes[m.key] === 'aprovada')
+    ? mesesCadeia.slice(mesIdxAtual + 1).find(m => statusPorMes[m.key] === 'fechada' || statusPorMes[m.key] === 'aprovada')
     : undefined;
   const existePosteriorFechada = !!proximaFechadaPosterior;
   // Excluir também segue a ordem, mas ao contrário de abrir: é a operação inversa de
@@ -804,7 +881,7 @@ export default function MedicaoMensal({
   // direção de reabrir) — só dá pra excluir o mês mais NOVO já criado, senão abre um
   // buraco no meio da sequência (o posterior fica criado, este alvo fica sem nada).
   const proximaCriadaPosterior = mesIdxAtual >= 0
-    ? months.slice(mesIdxAtual + 1).find(m => !!statusPorMes[m.key])
+    ? mesesCadeia.slice(mesIdxAtual + 1).find(m => !!statusPorMes[m.key])
     : undefined;
   const existePosteriorCriada = !!proximaCriadaPosterior;
   // Excluir apaga tudo sem deixar rastro (ao contrário de Limpar) — com % já preenchido
@@ -1066,7 +1143,7 @@ export default function MedicaoMensal({
   // "eu abro a medição para ela ser criada" — antes a linha nascia por efeito colateral
   // do primeiro salvamento, e um mês sem registro já vinha editável.
   const abrirMedicao = async () => {
-    if (readOnly || registro || anteriorNaoAprovada || anteriorSemReprogramacao) return;
+    if (readOnly || registro || foraDoPeriodo || anteriorNaoAprovada || anteriorSemReprogramacao) return;
     const { ok, pendentes } = validarAbertura(etapas, mesRefKey, wbsMap);
     if (!ok) { setPendenciasAbertura({ mesKey: mesRefKey, pendentes }); return; }
     setSalvando(true);
@@ -1174,7 +1251,7 @@ export default function MedicaoMensal({
     // Trava de verdade, não só o banner: sem isso, "Aprovar" congelaria a defasagem junto
     // (aprovada é o estado MAIS definitivo, não devia nascer já desatualizada).
     if (defasagem.length) { setMostrarDefasagemAprovacao(true); return; }
-    const mesSeguinte = mesIdxAtual >= 0 ? months[mesIdxAtual + 1] : null;
+    const mesSeguinte = mesIdxAtual >= 0 ? mesesCadeia[mesIdxAtual + 1] : null;
     if (mesSeguinte) {
       const { ok, pendentes } = validarAbertura(etapas, mesSeguinte.key, wbsMap);
       if (!ok) { setPendenciasAbertura({ mesKey: mesSeguinte.key, pendentes }); return; }
@@ -1548,6 +1625,15 @@ export default function MedicaoMensal({
               return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;
             })}
           </select>
+          {/* Início da medição (lançamento retroativo): meses antes dele saem da cadeia de
+              aprovação. Só mostra quem pode mudar, ou quando já tem um mês definido. */}
+          {(!readOnly || mesInicial) && (
+            <button type="button" className="btn btn-ghost" disabled={readOnly}
+              onClick={() => setMostrarMesInicial(true)}
+              title="Mês a partir do qual a medição desta obra começa">
+              <Icon name="calendar" size={14} />Início: {mesInicial ? mesLabel(mesInicial) : 'cronograma'}
+            </button>
+          )}
           <div ref={exportRef} style={{ position: 'relative' }}>
             <button type="button" className="btn btn-ghost" onClick={() => setExportOpen(o => !o)} disabled={exportando}>
               <Icon name="download" size={15} />{exportando ? 'Exportando…' : 'Exportar'}<Icon name="chevron-down" size={13} />
@@ -1833,6 +1919,10 @@ export default function MedicaoMensal({
                         </div>
                         {readOnly ? (
                           <div style={{ fontSize: 12.5 }}>Você não tem permissão para abrir medições.</div>
+                        ) : foraDoPeriodo ? (
+                          <div style={{ fontSize: 12.5 }}>
+                            Fora do período de medição (a medição desta obra começa em {mesLabel(mesInicial)}).
+                          </div>
                         ) : anteriorNaoAprovada ? (
                           <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>
                             {statusAnterior === 'fechada'
@@ -2182,6 +2272,8 @@ export default function MedicaoMensal({
                   <div>Nenhuma medição aberta para <strong>{mesLabel(mesRefKey)}</strong>.</div>
                   {readOnly ? (
                     <div className="mm-mobile-empty-note">Você não tem permissão para abrir medições.</div>
+                  ) : foraDoPeriodo ? (
+                    <div className="mm-mobile-empty-note">Fora do período de medição (começa em {mesLabel(mesInicial)}).</div>
                   ) : anteriorNaoAprovada ? (
                     <div className="mm-mobile-empty-note danger">
                       {statusAnterior === 'fechada'
@@ -2323,6 +2415,17 @@ export default function MedicaoMensal({
           salvando={salvando}
           onClose={() => setMostrarConfirmReabrir(false)}
           onConfirmar={reabrirMedicao}
+        />
+      )}
+
+      {mostrarMesInicial && (
+        <ModalMesInicial
+          months={months}
+          mesInicial={mesInicial}
+          mesesComMedicao={mesesComMedicao}
+          salvando={salvando}
+          onClose={() => setMostrarMesInicial(false)}
+          onConfirmar={salvarMesInicial}
         />
       )}
 

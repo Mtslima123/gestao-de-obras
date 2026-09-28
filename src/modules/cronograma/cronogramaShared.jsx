@@ -261,6 +261,25 @@ export const resolveColType = (colId, customCols) => {
 // Sentinela para "valor em branco" nas listas de filtro — não pode colidir com nenhum
 // valor real exibido em célula.
 export const FILTER_BLANK_KEY = ' blank';
+
+// Filtro de coluna: { excluded, included? }. `included` guarda o que está MARCADO — sem
+// isso (só `excluded`), um valor que nasceu depois de aplicar o filtro (ex.: data nova
+// criada por uma restrição que reagendou a tarefa e as sucessoras) não estava na lista de
+// desmarcados e passava, "marcando sozinho" no filtro. Em coluna de data, `included` vem
+// compactado: 'AAAA' (ano inteiro), 'AAAA-M' (mês inteiro) ou 'AAAA-M-D' (dia) — assim
+// "Ago" marcado continua pegando uma tarefa que só trocou de dia dentro de agosto.
+// Filtro antigo (localStorage, sem `included`) segue pela regra de `excluded`.
+export const keyNoIncluded = (included, key, isDate) => {
+  if (included.has(key)) return true;
+  if (!isDate || key === FILTER_BLANK_KEY) return false;
+  const [y, m] = key.split('-');
+  return included.has(`${y}-${m}`) || included.has(y);
+};
+export const passaFiltroColuna = (f, key, isDate) => {
+  if (!f) return true;
+  if (Array.isArray(f.included)) return keyNoIncluded(new Set(f.included), key, isDate);
+  return !f.excluded?.length || !f.excluded.includes(key);
+};
 export const LISTA_BAND_LABELS = { etapa: 'Etapa / Tarefa', prazo: 'Prazo', avanco: 'Avanço', fin: 'Financeiro', seq: 'Sequenciamento', custom: 'Personalizadas' };
 
 // ─── Filtro global (aba "Filtro" da Lista, também aplicado no Gantt) ─────────
@@ -465,6 +484,9 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
     if (!open) return;
     const entries = getDomainEntries();
     const excluded = new Set(activeFilter?.excluded || []);
+    const included = Array.isArray(activeFilter?.included) ? new Set(activeFilter.included) : null;
+    // Com `included`, só fica marcado o que foi marcado de fato — valor novo nasce desmarcado.
+    const marcado = (k) => (included ? keyNoIncluded(included, k, type === 'date') : !excluded.has(k));
     setExpandedYears(new Set());
     setExpandedMonths(new Set());
     if (type === 'date') {
@@ -482,7 +504,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
       const allKeys = [];
       years.forEach((mm, y) => mm.forEach((days, m) => days.forEach(d => allKeys.push(`${y}-${m + 1}-${d}`))));
       if (hasBlank) allKeys.push(FILTER_BLANK_KEY);
-      setDraftChecked(new Set(allKeys.filter(k => !excluded.has(k))));
+      setDraftChecked(new Set(allKeys.filter(marcado)));
     } else {
       const seen = new Map(); // label -> raw (representante, para ordenar number)
       let hasBlank = false;
@@ -496,7 +518,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
         : a.localeCompare(b, 'pt-BR', { numeric: true, sensitivity: 'base' }));
       if (hasBlank) keys.push(FILTER_BLANK_KEY);
       setFlatKeys(keys);
-      setDraftChecked(new Set(keys.filter(k => !excluded.has(k))));
+      setDraftChecked(new Set(keys.filter(marcado)));
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -530,8 +552,27 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
   const toggleDay = (key) => toggleKeys([key], !draftChecked.has(key));
   const toggleFlat = (key) => toggleKeys([key], !draftChecked.has(key));
 
+  // Marcados, compactados por nível em coluna de data (ano/mês inteiro vira uma chave só)
+  // — ver passaFiltroColuna: é isso que faz o filtro não "ganhar" datas novas sozinho.
+  const incluidos = () => {
+    if (type !== 'date' || !dateTree) return allKeys.filter(k => draftChecked.has(k));
+    const out = [];
+    dateTree.years.forEach((mm, y) => {
+      const diasAno = [];
+      mm.forEach((days, m) => days.forEach(d => diasAno.push(`${y}-${m + 1}-${d}`)));
+      if (diasAno.every(k => draftChecked.has(k))) { out.push(String(y)); return; }
+      mm.forEach((days, m) => {
+        const diasMes = [...days].map(d => `${y}-${m + 1}-${d}`);
+        if (diasMes.every(k => draftChecked.has(k))) out.push(`${y}-${m + 1}`);
+        else diasMes.forEach(k => { if (draftChecked.has(k)) out.push(k); });
+      });
+    });
+    if (dateTree.hasBlank && draftChecked.has(FILTER_BLANK_KEY)) out.push(FILTER_BLANK_KEY);
+    return out;
+  };
+
   const applyOk = () => {
-    onApplyFilter(allKeys.filter(k => !draftChecked.has(k)));
+    onApplyFilter(allKeys.filter(k => !draftChecked.has(k)), incluidos());
     setOpen(false);
   };
 

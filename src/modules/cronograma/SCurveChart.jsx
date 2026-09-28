@@ -6,17 +6,25 @@ import React from 'react';
 export const SCurveChart = ({ months = [], reprogramado = [], real = [], baseline = null, monthlyPct = [], todayIdx = -1,
   show = { bl: true, rep: true, real: true }, height = 300,
   previstoM = [], replanM = [], execM = [], showBarras = false, showLines = true, repDashed = false }) => {
-  const [hover, setHover] = React.useState(null); // { cx, cy, text, color, kind }
+  const [hover, setHover] = React.useState(null); // { cx, cy, text, color, kind } | { cx, lines, kind: 'mes' }
   const N = months.length || 1;
+  // Largura real do card (px). Antes o viewBox era fixo em 1000 e, com altura fixa, o
+  // desenho ficava preso nesses 1000px no meio do card: com ~36 meses sobravam ~5px por
+  // barra e as colunas/rótulos embolavam. Agora viewBox = tamanho em px (nada esticado).
+  const wrapRef = React.useRef(null);
+  const [wrapW, setWrapW] = React.useState(1000);
+  React.useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([entry]) => {
+      const w = Math.round(entry.contentRect.width);
+      if (w > 0) setWrapW(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const pL = 54, pR = showBarras ? 50 : 20, pT = 18, pB = 52;
-  const svgW = 1000, svgH = height;
-  const chartW = svgW - pL - pR, chartH = svgH - pT - pB;
-  const xC = (i) => pL + (chartW / N) * (i + 0.5);
-  const yS = (pct) => pT + (1 - pct / 100) * chartH;
-  const ptsOf = (arr) => arr.map((v, i) => v != null ? `${xC(i).toFixed(1)},${yS(v).toFixed(1)}` : null).filter(Boolean).join(' ');
-  const baselinePts = (showLines && show.bl && baseline) ? ptsOf(baseline) : '';
-  const repPts  = (showLines && show.rep)  ? ptsOf(reprogramado) : '';
-  const realPts = (showLines && show.real) ? ptsOf(real) : '';
+  const svgH = height;
   // ── Barras mensais agrupadas (Previsto/Replanejado/Executado) — eixo secundário ──
   const barSeries = [];
   // Barras em tons mais claros que as linhas (mesma família de cor), para não se confundirem
@@ -26,6 +34,20 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
   if (showBarras && show.bl && baseline && hasVals(previstoM)) barSeries.push({ data: previstoM, color: '#cbd5e1', label: '#64748b', name: 'Previsto' });
   if (showBarras && show.rep && hasVals(replanM))              barSeries.push({ data: replanM,  color: '#9bb8e0', label: 'var(--brand)', name: 'Replanejado' });
   if (showBarras && show.real && hasVals(execM))               barSeries.push({ data: execM,    color: '#74c99a', label: '#15803d', name: 'Real' });
+  const nb = barSeries.length;
+  // Piso de largura por mês: com barras, cada barra precisa de ~11px pro % girado (fonte
+  // 8,5) não encostar no rótulo da vizinha — o grupo ocupa 72% do mês, daí o /0.72. Os
+  // rótulos ficam sempre visíveis; se a obra tiver meses demais pro card, rola na horizontal.
+  // 40px no mínimo mesmo sem barras: é o que cabe o nome do mês ("Set/24") sem encostar.
+  const minPorMes = nb ? Math.max(44, Math.ceil((nb * 11) / 0.72)) : 40;
+  const svgW = Math.max(wrapW, 600, N * minPorMes);
+  const chartW = svgW - pL - pR, chartH = svgH - pT - pB;
+  const xC = (i) => pL + (chartW / N) * (i + 0.5);
+  const yS = (pct) => pT + (1 - pct / 100) * chartH;
+  const ptsOf = (arr) => arr.map((v, i) => v != null ? `${xC(i).toFixed(1)},${yS(v).toFixed(1)}` : null).filter(Boolean).join(' ');
+  const baselinePts = (showLines && show.bl && baseline) ? ptsOf(baseline) : '';
+  const repPts  = (showLines && show.rep)  ? ptsOf(reprogramado) : '';
+  const realPts = (showLines && show.real) ? ptsOf(real) : '';
   const niceCeil = (v) => {
     if (!(v > 0)) return 1;
     const base = Math.pow(10, Math.floor(Math.log10(v)));
@@ -38,11 +60,18 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
   const barMax = niceCeil(barPeak * 1.08); // topo justo ao pico, com folga para o rótulo
   const yBar = (v) => (pT + chartH) - (v / barMax) * chartH;
   const fmtPct = (v) => v.toFixed(2).replace('.', ',') + '%';
-  const groupW = (chartW / N) * 0.6;
-  const nb = barSeries.length;
+  const groupW = (chartW / N) * 0.72;
   const subW = nb ? groupW / nb : groupW;
+  // 1px de respiro entre as barras do mesmo mês — coladas, viravam um bloco só.
+  const bw = Math.max(subW - 1, 1);
+  // Tooltip do mês inteiro: todas as séries de barra daquele mês num balão só.
+  const linhasDoMes = (i) => barSeries
+    .map(s => ({ v: (s.data || [])[i], s }))
+    .filter(({ v }) => v != null && v > 0)
+    .map(({ v, s }) => ({ text: `${s.name}: ${fmtPct(v)}`, color: s.color }));
   return (
-    <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={svgH} style={{ display: 'block', minWidth: Math.max(600, N * (showBarras ? 44 : 36)) }}>
+    <div ref={wrapRef} style={{ width: '100%' }}>
+    <svg viewBox={`0 0 ${svgW} ${svgH}`} width={svgW} height={svgH} style={{ display: 'block' }}>
       {[0, 20, 40, 60, 80, 100].map(pct => (
         <g key={pct}>
           <line x1={pL} y1={yS(pct)} x2={pL + chartW} y2={yS(pct)} stroke="var(--border)" strokeWidth="1" strokeDasharray={pct === 0 || pct === 100 ? undefined : '3,4'} />
@@ -50,6 +79,17 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
           {showBarras && <text x={pL + chartW + 6} y={yS(pct) + 4} textAnchor="start" fontSize="9" fill="var(--text-muted)" fontFamily="var(--font-mono)">{(barMax * pct / 100).toFixed(1).replace('.', ',')}%</text>}
         </g>
       ))}
+      {/* Área invisível de cada mês, atrás das barras/pontos (que têm tooltip próprio):
+          passar o mouse no mês mostra todas as séries de barra dele de uma vez. */}
+      {showBarras && nb > 0 && months.map((m, i) => {
+        const linhas = linhasDoMes(i);
+        if (!linhas.length) return null;
+        return (
+          <rect key={'hm' + i} x={pL + (chartW / N) * i} y={pT} width={chartW / N} height={chartH} fill="transparent"
+            onMouseEnter={() => setHover({ cx: xC(i), lines: [{ text: m.label || '' }, ...linhas], kind: 'mes' })}
+            onMouseLeave={() => setHover(null)} />
+        );
+      })}
       {/* Barras: só os retângulos aqui — os rótulos de % ficam num passe à parte, desenhado
           DEPOIS das linhas/pontos (mais abaixo), pra ficarem sempre por cima e legíveis em
           vez de passarem por baixo do traço quando a linha cruza a barra. */}
@@ -63,7 +103,6 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
                 // invisível — mantém uma lasca mínima (2px) pra sempre dar pra ver que
                 // existe algo ali, com o rótulo do % de qualquer jeito.
                 const y = Math.min(yBar(v), (pT + chartH) - 2);
-                const bw = Math.max(subW * 0.82, 1);
                 const cx = x + bw / 2;
                 const tip = `${s.name} · ${months[i]?.label || ''}: ${fmtPct(v)}`;
                 return (
@@ -107,7 +146,6 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
             if (v == null || v <= 0) return null;
             const x = xC(i) - groupW / 2 + si * subW;
             const y = Math.min(yBar(v), (pT + chartH) - 2);
-            const bw = Math.max(subW * 0.82, 1);
             const cx = x + bw / 2;
             return (
               <text key={i} transform={`rotate(-90 ${cx.toFixed(1)} ${(y - 3).toFixed(1)})`} x={cx.toFixed(1)} y={(y - 3).toFixed(1)}
@@ -116,14 +154,33 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
           })}
         </g>
       ))}
+      {/* Todo mês rotulado — o piso de largura por mês (minPorMes) garante espaço pro "Set/24". */}
       {months.map((m, i) => {
-        if (N > 18 && i % 2 !== 0) return null;
-        if (N > 30 && i % 3 !== 0) return null;
         return <text key={m.key} x={xC(i)} y={pT + chartH + 18} textAnchor="middle" fontSize="9.5" fill="var(--text-muted)">{m.label}</text>;
       })}
       <line x1={pL} y1={pT + chartH} x2={pL + chartW} y2={pT + chartH} stroke="var(--border)" strokeWidth="1" />
+      {/* Tooltip do mês (várias linhas, uma por série) — desenhado por último, por cima. */}
+      {hover?.lines && (() => {
+        const lh = 15;
+        const w = Math.max(60, Math.max(...hover.lines.map(l => l.text.length)) * 6.6 + 30);
+        const h = hover.lines.length * lh + 8;
+        const bx = Math.max(pL, Math.min(hover.cx - w / 2, pL + chartW - w));
+        const by = pT;
+        return (
+          <g pointerEvents="none">
+            <rect x={bx} y={by} width={w} height={h} rx="4" fill="#0f172a" opacity="0.94" />
+            {hover.lines.map((l, k) => (
+              <g key={k}>
+                {k > 0 && <rect x={bx + 8} y={by + 4 + lh * k + 3} width="8" height="8" rx="1.5" fill={l.color} />}
+                <text x={bx + (k > 0 ? 22 : 8)} y={by + 4 + lh * (k + 1) - 4} fontSize="11" fontWeight={k === 0 ? 700 : 600}
+                  fill="#fff" fontFamily="var(--font-mono)">{l.text}</text>
+              </g>
+            ))}
+          </g>
+        );
+      })()}
       {/* Tooltip destacado no hover de pontos/colunas — desenhado por último (fica por cima). */}
-      {hover && (() => {
+      {hover && !hover.lines && (() => {
         const w = Math.max(44, hover.text.length * 6.2 + 16);
         const h = 20;
         const bx = Math.max(pL, Math.min(hover.cx - w / 2, pL + chartW - w));
@@ -137,5 +194,6 @@ export const SCurveChart = ({ months = [], reprogramado = [], real = [], baselin
         );
       })()}
     </svg>
+    </div>
   );
 };

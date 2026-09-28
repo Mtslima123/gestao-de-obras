@@ -19,6 +19,33 @@ const corCss = (sem) => (sem === 'neutral' ? 'var(--text-muted)' : `var(--${sem}
 const BANDA_CLARA  = { background: '#c3d3ea', color: 'var(--brand)' };
 const BANDA_ESCURA = { background: 'var(--brand)', color: '#ffffff' };
 
+// Colunas do PDF — mesma ordem e mesmo formato de LinhaFechamento (tela). Ficam aqui em
+// vez de derivadas do JSX porque o autoTable precisa de texto pronto por célula.
+const pctFmt = (v) => `${formatNum(v)}%`;
+const PDF_COLS = [
+  { label: 'Código',               campo: 'codigo' },
+  { label: 'Nome',                 campo: 'nome' },
+  { label: 'Orçamento',            campo: 'valorOrcamentoBase',       fmt: formatBRL },
+  { label: 'Orçamento INCC',       campo: 'valorInccBase',            fmt: formatNum },
+  { label: 'Orçamento Atualizado', campo: 'valorOrcamentoAtualizado', fmt: formatBRL },
+  { label: 'Previsto (%)',         campo: 'previstoLinhaBase',        fmt: pctFmt },
+  { label: 'Exec. físico (%)',     campo: 'executadoFisico',          fmt: pctFmt },
+  { label: 'Gasto (%)',            campo: 'gastoPct',                 fmt: pctFmt },
+  { label: 'Gasto (INCC)',         campo: 'gastoIncc',                fmt: formatNum },
+  { label: 'Gasto (R$)',           campo: 'gastoReal',                fmt: formatBRL },
+  { label: 'Tendência (R$)',       campo: 'tendencia',                fmt: formatBRL },
+  { label: 'Créd. Modificações',   campo: 'creditoModificacoes',      fmt: formatBRL },
+  { label: 'Ganhos (INCC)',        campo: 'ganhosIncc',               fmt: formatBRL },
+  { label: 'Saving',               campo: 'saving',                   fmt: formatBRL },
+  { label: 'Ganhos (INCC) Real',   campo: 'ganhosInccReal',           fmt: formatBRL },
+  { label: 'Saving Real',          campo: 'savingReal',               fmt: formatBRL },
+  { label: 'Reserva Financeira',   campo: 'reservaFinanceira',        fmt: formatBRL },
+  { label: 'Saldo (R$)',           campo: 'saldoDistribuirReal',      fmt: formatBRL },
+  { label: 'Saldo (INCC)',         campo: 'saldoDistribuirIncc',      fmt: formatNum },
+];
+const PDF_BRAND = [28, 69, 132];   // #1C4584 (identidade Soter) = BANDA_ESCURA
+const PDF_CLARA = [195, 211, 234]; // #c3d3ea = BANDA_CLARA
+
 // ── Importação da planilha de fechamento (Excel/CSV) ───────────────────────────
 const ImportarFechamentoModal = ({ obraId, obraNome, mesInicial, mesesExistentes, onImported, onClose }) => {
   const toast = useToast();
@@ -369,6 +396,92 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
   const kpis = computeKPIs(itens);
   const mesesExistentes = React.useMemo(() => new Set(meses.map(m => m.mes_referencia)), [meses]);
 
+  // Exporta KPIs + tabela de fechamento do mês em PDF (A3 paisagem: 19 colunas não cabem
+  // legíveis em A4). Mesmo padrão de exportarPDF da Medição Mensal (jspdf sob demanda).
+  const [exportando, setExportando] = React.useState(false);
+  const exportarPDF = async () => {
+    if (!registro) return;
+    setExportando(true);
+    try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      doc.setFontSize(14); doc.setTextColor(...PDF_BRAND);
+      doc.text(`Físico Financeiro · ${obra?.nome || 'Obra'} · ${mesCurto(mesSel)}`, 14, 15);
+      doc.setFontSize(8); doc.setTextColor(130);
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 21);
+      doc.setTextColor(0);
+
+      let y = 27;
+      if (kpis) {
+        // Faixa de KPIs: 4 caixas lado a lado, % grande e R$ embaixo (igual aos cards).
+        const cards = [
+          ['Delta (%) Físico × Financeiro', kpis.deltaFisicoFinanceiroPct, kpis.deltaFisicoFinanceiroReal],
+          ['Saving', kpis.savingRealPct, kpis.savingReal],
+          ['Ganhos em INCC', kpis.ganhosInccRealPct, kpis.ganhosInccReal],
+          ['Tendência de Fechamento', kpis.tendenciaFechamentoPct, kpis.tendenciaFechamentoReal],
+        ];
+        const gap = 4, cw = (W - 28 - gap * 3) / 4, ch = 18;
+        cards.forEach(([rot, pct, real], i) => {
+          const x = 14 + i * (cw + gap);
+          doc.setDrawColor(220); doc.roundedRect(x, y, cw, ch, 1.5, 1.5);
+          doc.setFontSize(7); doc.setTextColor(110); doc.text(rot.toUpperCase(), x + 4, y + 5);
+          doc.setFontSize(13); doc.setTextColor(20); doc.text(pctFmt(pct), x + 4, y + 12);
+          doc.setFontSize(7); doc.setTextColor(120); doc.text(formatBRL(real), x + 4, y + 16);
+        });
+        doc.setTextColor(0);
+        y += ch + 6;
+      }
+
+      const linhas = [...(total ? [total] : []), ...disciplinas];
+      const cel = (it, c) => (c.fmt ? c.fmt(it[c.campo]) : (it[c.campo] ?? ''));
+      const banda = (content, colSpan, escura) => ({
+        content, colSpan,
+        styles: { halign: 'center', fillColor: escura ? PDF_BRAND : PDF_CLARA, textColor: escura ? 255 : PDF_BRAND },
+      });
+      autoTable(doc, {
+        startY: y,
+        head: [
+          [banda('ORÇAMENTO', 5, false), banda(`ACUMULADO ATÉ ${mesCurto(mesSel).toUpperCase()}`, 5, true), banda('FECHAMENTO', 9, false)],
+          PDF_COLS.map((c, i) => ({
+            content: c.label.toUpperCase(),
+            styles: (i >= 5 && i < 10)
+              ? { fillColor: PDF_BRAND, textColor: 255 }
+              : { fillColor: PDF_CLARA, textColor: PDF_BRAND },
+          })),
+        ],
+        body: linhas.map(it => PDF_COLS.map(c => cel(it, c))),
+        theme: 'grid',
+        headStyles: { fontSize: 6.5, fontStyle: 'bold', halign: 'center', valign: 'middle' },
+        bodyStyles: { fontSize: 7, textColor: 40 },
+        alternateRowStyles: { fillColor: [248, 249, 250] },
+        columnStyles: Object.fromEntries(PDF_COLS.map((c, i) => [i, { halign: i < 2 ? 'left' : 'right' }])),
+        margin: { top: 14, right: 14, bottom: 14, left: 14 },
+        didParseCell: (data) => {
+          // Linha de total da obra (1ª do corpo): negrito com fundo azul claro, como na tela.
+          if (data.section === 'body' && total && data.row.index === 0) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [232, 240, 252];
+            data.cell.styles.textColor = 20;
+          }
+        },
+        didDrawPage: ({ pageNumber }) => {
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text(`Página ${pageNumber}`, W - 24, H - 6);
+          doc.setTextColor(0);
+        },
+      });
+      const slug = String(obra?.nome || 'obra').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      doc.save(`fisico-financeiro-${slug}-${mesSel}.pdf`);
+    } catch (e) {
+      logger.error('erro ao exportar PDF do físico financeiro', { module: 'fisicoFinanceiro', action: 'exportarPDF', obraId, err: e });
+      toast('Erro ao exportar para PDF', { tone: 'error', icon: 'alert' });
+    } finally {
+      setExportando(false);
+    }
+  };
+
   return (
     <>
       <div className="page-header" style={{ marginBottom: 6 }}>
@@ -384,6 +497,12 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
             <select className="input" value={mesSel || ''} onChange={e => setMesSel(e.target.value)} style={{ minWidth: 160 }}>
               {meses.map(m => <option key={m.mes_referencia} value={m.mes_referencia}>{mesCurto(m.mes_referencia)}</option>)}
             </select>
+          )}
+          {/* Exportar não altera nada: aparece também em somente leitura. */}
+          {mesSel && registro && (
+            <button className="btn btn-ghost" title="Exportar KPIs e fechamento deste mês em PDF" onClick={exportarPDF} disabled={exportando}>
+              <Icon name="download" size={14} />{exportando ? 'Exportando…' : 'Exportar PDF'}
+            </button>
           )}
           {!readOnly && mesSel && registro && (
             <button className="btn btn-ghost" title="Excluir o fechamento deste mês" onClick={() => setExcluirStep(1)}>

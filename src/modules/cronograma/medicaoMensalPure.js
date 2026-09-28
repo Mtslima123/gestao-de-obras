@@ -306,6 +306,15 @@ export function validarFechamento(itens) {
   return { ok: violacoes.length === 0, violacoes };
 }
 
+// Meses que fazem parte da cadeia da medição: do mês inicial da obra em diante
+// (obras.medicao_mes_inicial). Em obra com lançamento retroativo os meses antes dele
+// ficam fora — não precisam ser abertos/aprovados pra liberar o primeiro mês real.
+// Sem mês inicial (null), vale o cronograma inteiro, como sempre foi.
+export function mesesDaMedicao(months, mesInicial) {
+  if (!mesInicial) return months;
+  return months.filter(m => m.key >= mesInicial);
+}
+
 // Bloqueia a abertura se alguma folha com término num mês anterior a mesRefKey ainda não
 // chegou a 100% de avanço — abrir o mês seguinte com pendência do passado escondia que a
 // tarefa precisa ser reprogramada. Só folhas (grupo é média dos filhos, não é reprogramável)
