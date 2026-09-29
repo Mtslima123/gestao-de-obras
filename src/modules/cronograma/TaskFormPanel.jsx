@@ -4,7 +4,7 @@
 // Recursos nem "Controlada pelo empenho"/"Tipo de tarefa" (não existem neste sistema).
 import React from 'react';
 import { Icon } from '../../components/Icons';
-import { offsetToISO, taskEndDisplay } from './cronogramaDateUtils';
+import { offsetToISO, taskEndDisplay, isoToBR } from './cronogramaDateUtils';
 import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors, computeRowNumberMap } from './scheduleEngine';
 
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
@@ -94,6 +94,16 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   // Sucessoras: gravadas no dep da tarefa sucessora, apontando para esta tarefa (escrita reversa).
   const depId = (d) => (typeof d === 'string' ? d : d.id);
   const paiNome = (t) => (t?.parentId ? (etapas.find(e => e.id === t.parentId)?.etapa || '') : '');
+  // Início/término de uma predecessora/sucessora pra exibir nas tabelas de vínculo — mesma
+  // resolução do envelope de grupo já usada pra tarefa atual (eInicio/eFim, acima), aplicada
+  // a QUALQUER tarefa vinculada (também pode ser um grupo).
+  const datasDe = (t) => {
+    if (!t) return null;
+    const gvT = t.isGroup ? groupVals[t.id] : null;
+    const ini = gvT ? gvT.inicio : t.inicio;
+    const dur = gvT ? gvT.dur : t.dur;
+    return { ini: isoToBR(offsetToISO(ini)), fim: isoToBR(offsetToISO(taskEndDisplay({ ...t, inicio: ini, dur }))) };
+  };
   const succIds = succMap[task.id] || [];
   const reschedule = (novas) => onCommit(autoScheduleFromDeps(novas));
   const updateSucc = (sid, patch) => reschedule(etapas.map(e => {
@@ -179,6 +189,8 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
             <thead>
               <tr>
                 <th style={{ ...thSt, textAlign: 'left', paddingLeft: 8 }} colSpan={2}>Predecessoras</th>
+                <th style={thSt}>Início</th>
+                <th style={thSt}>Término</th>
                 <th style={thSt}>Tipo</th>
                 <th style={thSt}>Lat.</th>
                 <th style={{ ...thSt, width: 24 }}></th>
@@ -187,6 +199,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
             <tbody>
               {(task.dep || []).map((d, i) => {
                 const pred = etapas.find(e => e.id === d.id);
+                const datas = datasDe(pred);
                 return (
                   <tr key={i}>
                     <td style={{ ...tdSt, width: 30 }}>{numeroDaLinha(d.id)}</td>
@@ -194,6 +207,8 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                       {pred?.etapa ?? '—'}
                       {paiNome(pred) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(pred)}</div>}
                     </td>
+                    <td style={{ ...tdSt, whiteSpace: 'nowrap' }}>{datas?.ini ?? '—'}</td>
+                    <td style={{ ...tdSt, whiteSpace: 'nowrap' }}>{datas?.fim ?? '—'}</td>
                     <td style={tdSt}>
                       <select value={d.tipo || 'TI'} disabled={locked} onChange={e => updatePred(i, { tipo: e.target.value })}
                         style={{ fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4 }}>
@@ -218,7 +233,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
               })}
               {!locked && (
                 <tr>
-                  <td colSpan={5} style={{ ...tdSt, textAlign: 'left' }}>
+                  <td colSpan={7} style={{ ...tdSt, textAlign: 'left' }}>
                     <input placeholder="Nº da linha da predecessora + Enter" value={novoPredId}
                       onChange={e => setNovoPredId(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') addPred(); }}
@@ -227,7 +242,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                 </tr>
               )}
               {!(task.dep || []).length && locked && (
-                <tr><td colSpan={5} style={{ ...tdSt, textAlign: 'center', color: 'var(--text-faint)' }}>Sem predecessoras</td></tr>
+                <tr><td colSpan={7} style={{ ...tdSt, textAlign: 'center', color: 'var(--text-faint)' }}>Sem predecessoras</td></tr>
               )}
             </tbody>
           </table>
@@ -239,6 +254,8 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
             <thead>
               <tr>
                 <th style={{ ...thSt, textAlign: 'left', paddingLeft: 8 }} colSpan={2}>Sucessoras</th>
+                <th style={thSt}>Início</th>
+                <th style={thSt}>Término</th>
                 <th style={thSt}>Tipo</th>
                 <th style={thSt}>Lat.</th>
                 <th style={{ ...thSt, width: 24 }}></th>
@@ -250,6 +267,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                 const link = (st?.dep || []).find(d => depId(d) === task.id);
                 const tipo = typeof link === 'string' ? 'TI' : (link?.tipo || 'TI');
                 const lag = typeof link === 'string' ? 0 : (link?.lag ?? 0);
+                const datas = datasDe(st);
                 return (
                   <tr key={sid}>
                     <td style={{ ...tdSt, width: 30 }}>{numeroDaLinha(sid)}</td>
@@ -257,6 +275,8 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                       {st?.etapa ?? '—'}
                       {paiNome(st) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(st)}</div>}
                     </td>
+                    <td style={{ ...tdSt, whiteSpace: 'nowrap' }}>{datas?.ini ?? '—'}</td>
+                    <td style={{ ...tdSt, whiteSpace: 'nowrap' }}>{datas?.fim ?? '—'}</td>
                     <td style={tdSt}>
                       <select value={tipo} disabled={locked} onChange={e => updateSucc(sid, { tipo: e.target.value })}
                         style={{ fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4 }}>
@@ -281,7 +301,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
               })}
               {!locked && (
                 <tr>
-                  <td colSpan={5} style={{ ...tdSt, textAlign: 'left' }}>
+                  <td colSpan={7} style={{ ...tdSt, textAlign: 'left' }}>
                     <input placeholder="Nº da linha da sucessora + Enter" value={novoSuccId}
                       onChange={e => setNovoSuccId(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') addSucc(); }}
@@ -290,7 +310,7 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                 </tr>
               )}
               {!succIds.length && locked && (
-                <tr><td colSpan={5} style={{ ...tdSt, textAlign: 'center', color: 'var(--text-faint)' }}>Sem sucessoras</td></tr>
+                <tr><td colSpan={7} style={{ ...tdSt, textAlign: 'center', color: 'var(--text-faint)' }}>Sem sucessoras</td></tr>
               )}
             </tbody>
           </table>

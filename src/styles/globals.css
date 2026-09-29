@@ -72,8 +72,8 @@
      normal (sans) para todos os números/códigos ficarem com o zero limpo, igual ao cronograma */
   --font-mono: var(--font-sans);
 
-  /* Sidebar (dark by default per brief) */
-  --sb-bg: linear-gradient(180deg, #123f8c 0%, #0e357a 100%);
+  /* Sidebar (dark by default per brief) — cor oficial Soter (#1C4584, Pantone 281 C) */
+  --sb-bg: #1c4584;
   --sb-border: rgba(255,255,255,0.12);
   --sb-text: rgba(255,255,255,0.78);
   --sb-text-strong: #ffffff;
