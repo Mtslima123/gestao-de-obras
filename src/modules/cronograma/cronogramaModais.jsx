@@ -4,7 +4,7 @@
 import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
-import { isoToBR, todayOffset, dateToOffset } from "./cronogramaDateUtils";
+import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay } from "./cronogramaDateUtils";
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, mesAtualOuUltimo, mesesComReprogramacao } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
 
@@ -913,7 +913,13 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                               quando ela também está marcada do lado das predecessoras. */}
                           {predSelected.filter(pid => pid !== s.id).map(pid => {
                             const p = etapas.find(e => e.id === pid);
-                            return <option key={pid} value={pid}>{p?.etapa ?? pid}</option>;
+                            // Início/término junto do nome — <option> nativo só aceita texto puro
+                            // (sem segunda linha/coluna própria), então entra tudo na mesma label.
+                            // predSelected só guarda folha (o checkbox de grupo marca os
+                            // descendentes, nunca o próprio grupo), então p.inicio/dur bastam,
+                            // sem precisar do envelope de grupo (groupVals).
+                            const datas = p ? `${isoToBR(offsetToISO(p.inicio))} → ${isoToBR(offsetToISO(taskEndDisplay(p)))}` : '';
+                            return <option key={pid} value={pid}>{(p?.etapa ?? pid) + (datas ? ` · ${datas}` : '')}</option>;
                           })}
                         </select>
                       </td>
