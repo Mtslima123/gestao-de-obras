@@ -492,8 +492,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       passesGlobal(e) &&
       Object.entries(rest).every(([cid, f]) => passaFiltro(cid, f, e))
     );
-    return rows.map(e => colFilterValue(e, colId));
-  }, [columnFilters, visible, showSummaryTasks, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, passaFiltro, colFilterValue]);
+    // Mesma ordem da grade (applySiblingSort — hierarquia da EAP, ou o sortSpec ativo): o
+    // menu do cabeçalho lista os valores "como está na Lista", não em ordem alfabética à
+    // parte (ColumnHeaderFilterMenu só ordena números; texto preserva a ordem de chegada).
+    return applySiblingSort(rows, sortSpec).map(e => colFilterValue(e, colId));
+  }, [columnFilters, visible, showSummaryTasks, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, passaFiltro, colFilterValue, sortSpec]);
 
   const dragColRef = React.useRef(null);
   const [dragOverCol, setDragOverCol] = React.useState(null); // { id, side: 'before' | 'after' }
@@ -1912,7 +1915,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       const linhas = sc.querySelectorAll('tr[data-taskid]');
       if (!linhas.length) return;
 
-      let alvo = document.elementFromPoint(ptr.x, ptr.y)?.closest?.('tr[data-taskid]');
+      const elAlvo = document.elementFromPoint(ptr.x, ptr.y);
+      let alvo = elAlvo?.closest?.('tr[data-taskid]');
       if (!alvo || !sc.contains(alvo)) {
         // Ponteiro fora de qualquer linha (ao lado da tabela, além do fim, acima do
         // cabeçalho): fixa no extremo do lado em que saiu, em vez de largar a seleção.
@@ -1925,9 +1929,18 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       const linha = ctx.filtrada.find(x => String(x.id) === attr);
       if (!linha) return;
 
-      // Arraste pela calha cobre a linha inteira; a partir de uma célula mantém a coluna
-      // em que o arraste começou.
-      const colId = rowSelectingRef.current ? cols[cols.length - 1] : (ctx.selectedCell?.colId ?? cols[cols.length - 1]);
+      // Arraste pela calha cobre a linha inteira (última coluna). Arraste a partir de uma
+      // célula segue a coluna sob o ponteiro DE VERDADE (lida do data-ck da célula, igual à
+      // linha acima) — antes reusava ctx.selectedCell?.colId, uma referência que só atualiza
+      // depois do próximo render. Este mousemove no document dispara bem mais rápido que um
+      // render completo da grade, então ele "vencia a corrida" e reescrevia de volta pra
+      // coluna inicial a cada quadro — a seleção parecia grudada, nunca acompanhava o mouse
+      // indo pro lado (só o onMouseEnter da célula, mais raro, chegava a marcar a coluna
+      // nova, e este efeito desfazia no quadro seguinte).
+      const colId = rowSelectingRef.current
+        ? cols[cols.length - 1]
+        : (elAlvo?.closest?.('td[data-ck]')?.getAttribute('data-ck')?.split('|')[1]
+           ?? ctx.selectedCell?.colId ?? cols[cols.length - 1]);
       setSelectedCell(prev => (prev && prev.taskId === linha.id && prev.colId === colId ? prev : { taskId: linha.id, colId }));
     };
 
@@ -3894,7 +3907,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     ) : readOnly ? (
                       <span className="mono" style={{ fontSize: 12, display: 'block', textAlign: 'right' }}>{fmtBRL(e.custo || 0)}</span>
                     ) : editingCusto === e.id + '_custo' ? (
-                      <input autoFocus type="number" min="0" defaultValue={e.custo || 0}
+                      // type="text", não "number": um <input type="number"> devolve o valor no
+                      // formato canônico (ponto decimal, "341346.23"), mas handleCellSave manda
+                      // pro mesmo parseBRL usado no colar do Excel — que espera texto BR (ponto =
+                      // milhar) e APAGA o ponto decimal, virando 34134623. Editando o texto já
+                      // formatado (fmtBRL) em vez do número cru, o valor que chega no parseBRL é
+                      // sempre BR de verdade, do mesmo jeito que colar do Excel já funciona.
+                      <input autoFocus type="text" defaultValue={fmtBRL(e.custo || 0)}
+                        onFocus={ev => ev.target.select()}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => {
@@ -3981,7 +4001,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         {fmtBRL(e.custoRealizado || 0)}
                       </span>
                     ) : editingCusto === e.id + '_real' ? (
-                      <input autoFocus type="number" min="0" defaultValue={e.custoRealizado || 0}
+                      // Mesmo motivo do campo "custo" acima: texto formatado (fmtBRL), não
+                      // type="number" cru — parseBRL (handleCellSave) espera formato BR.
+                      <input autoFocus type="text" defaultValue={fmtBRL(e.custoRealizado || 0)}
+                        onFocus={ev => ev.target.select()}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); }}
                         onKeyDown={ev => {

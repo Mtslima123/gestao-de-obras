@@ -469,6 +469,10 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
   const [dateTree, setDateTree] = React.useState(null);         // colunas data: { years: Map, hasBlank }
   const [expandedYears, setExpandedYears] = React.useState(() => new Set());
   const [expandedMonths, setExpandedMonths] = React.useState(() => new Set());
+  // Busca por texto dentro do checklist (colunas não-data) — só filtra o que é EXIBIDO/o que
+  // "(Selecionar Todos)" alcança; nunca mexe em draftChecked, mesmo padrão do
+  // TaskMultiSelectFilter (busca 'e 'Aplicar' abaixo, neste arquivo).
+  const [busca, setBusca] = React.useState('');
   const ref = React.useRef(null);
 
   React.useEffect(() => {
@@ -489,6 +493,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
     const marcado = (k) => (included ? keyNoIncluded(included, k, type === 'date') : !excluded.has(k));
     setExpandedYears(new Set());
     setExpandedMonths(new Set());
+    setBusca('');
     if (type === 'date') {
       const years = new Map();
       let hasBlank = false;
@@ -512,10 +517,13 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
         if (lbl === '' || lbl == null) { hasBlank = true; return; }
         if (!seen.has(lbl)) seen.set(lbl, raw);
       });
+      // Texto (e outros tipos não-número): mantém a ordem de CHEGADA de `entries` — a mesma
+      // ordem da grade, já que buildDomainEntries (ListaInterativa.jsx) aplica o sortSpec/
+      // hierarquia atual antes de montar as entradas (Map preserva ordem de inserção). Só
+      // número continua ordenado numericamente — "ordem da grade" não ajudaria numa lista de
+      // valores tipo 1, 3, 5, 7, 10, e o usuário espera ver ordenado mesmo.
       let keys = [...seen.keys()];
-      keys.sort((a, b) => type === 'number'
-        ? (seen.get(a) ?? 0) - (seen.get(b) ?? 0)
-        : a.localeCompare(b, 'pt-BR', { numeric: true, sensitivity: 'base' }));
+      if (type === 'number') keys.sort((a, b) => (seen.get(a) ?? 0) - (seen.get(b) ?? 0));
       if (hasBlank) keys.push(FILTER_BLANK_KEY);
       setFlatKeys(keys);
       setDraftChecked(new Set(keys.filter(marcado)));
@@ -543,9 +551,19 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
     return { checked: n === keys.length, indeterminate: n > 0 && n < keys.length };
   };
 
+  // Chaves do checklist não-data filtradas pela busca — só afeta o que é RENDERIZADO e o
+  // alcance de "(Selecionar Todos)"; a resposta final do OK (applyOk, abaixo) continua
+  // olhando allKeys/draftChecked por inteiro, então itens marcados que saem de vista com
+  // uma busca nova continuam marcados (mesma garantia do TaskMultiSelectFilter).
+  const buscaLower = busca.trim().toLowerCase();
+  const flatKeysVisiveis = (type === 'date' || !buscaLower)
+    ? flatKeys
+    : flatKeys.filter(k => k !== FILTER_BLANK_KEY && k.toLowerCase().includes(buscaLower));
+
   const toggleAll = () => {
-    const st = stateOf(allKeys);
-    toggleKeys(allKeys, !st.checked);
+    const keys = type === 'date' ? allKeys : flatKeysVisiveis;
+    const st = stateOf(keys);
+    toggleKeys(keys, !st.checked);
   };
   const toggleYear = (y, dayKeys) => { const st = stateOf(dayKeys); toggleKeys(dayKeys, !st.checked); };
   const toggleMonth = (dayKeys) => { const st = stateOf(dayKeys); toggleKeys(dayKeys, !st.checked); };
@@ -586,7 +604,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
         ▾
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: 240, cursor: 'default' }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: 260, cursor: 'default' }}>
           <div onClick={() => { onSort('asc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[0]}</div>
           <div onClick={() => { onSort('desc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[1]}</div>
           <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
@@ -596,9 +614,18 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
             Limpar Filtro de {label}
           </div>
           <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
+          {/* Busca só faz sentido pra lista simples (data continua pelo ano/mês/dia, que já
+              navega por clique) — filtra o que aparece embaixo, sem mexer no que já tá marcado. */}
+          {type !== 'date' && (
+            <input
+              value={busca} onChange={ev => setBusca(ev.target.value)}
+              placeholder={`Buscar em ${label}...`} onClick={ev => ev.stopPropagation()}
+              className="input" style={{ height: 26, fontSize: 12, marginBottom: 6, width: '100%', boxSizing: 'border-box' }}
+            />
+          )}
           <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
             <label style={{ ...optRow, fontWeight: 600 }}>
-              <TriCheckbox {...stateOf(allKeys)} onChange={toggleAll} />
+              <TriCheckbox {...stateOf(type === 'date' ? allKeys : flatKeysVisiveis)} onChange={toggleAll} />
               (Selecionar Todos)
             </label>
             {type === 'date' && dateTree && [...dateTree.years.keys()].sort((a, b) => a - b).map(y => {
@@ -647,12 +674,17 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
                 (Em branco)
               </label>
             )}
-            {type !== 'date' && flatKeys.map(k => (
+            {/* FILTER_BLANK_KEY sempre visível, mesmo com busca ativa (não tem "nome" pra buscar,
+                e sumir com "(Em branco)" tiraria a única forma de filtrar valor vazio). */}
+            {type !== 'date' && flatKeys.filter(k => k === FILTER_BLANK_KEY || flatKeysVisiveis.includes(k)).map(k => (
               <label key={k} style={optRow}>
                 <input type="checkbox" checked={draftChecked?.has(k) || false} onChange={() => toggleFlat(k)} />
                 {k === FILTER_BLANK_KEY ? '(Em branco)' : k}
               </label>
             ))}
+            {type !== 'date' && buscaLower && !flatKeysVisiveis.length && (
+              <div style={{ padding: '6px 6px', fontSize: 11, color: 'var(--text-faint)' }}>Nada encontrado</div>
+            )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 8 }}>
             <button onClick={() => setOpen(false)} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>Cancelar</button>
@@ -696,11 +728,16 @@ export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onAppl
   });
 
   const buscaLower = busca.trim().toLowerCase();
-  const visiveis = etapas.filter(e => {
+  const bateBusca = (e) => {
     if (!buscaLower) return true;
     const wbs = wbsMap[e.id] || '';
     return e.etapa?.toLowerCase().includes(buscaLower) || wbs.includes(buscaLower);
-  });
+  };
+  // Já marcadas ficam sempre visíveis, mesmo sem bater com a busca atual — senão marcar um
+  // item, digitar outro termo de busca e marcar mais um dava a impressão de que a escolha
+  // anterior tinha sumido (só saía da lista, mas continuava marcada em `draft` — o Aplicar já
+  // mandava as duas; faltava só a pessoa CONSEGUIR VER isso enquanto busca de novo).
+  const visiveis = etapas.filter(e => bateBusca(e) || draft.has(e.id));
 
   const nVisChecked = visiveis.filter(e => draft.has(e.id)).length;
   const allVisChecked = visiveis.length > 0 && nVisChecked === visiveis.length;
@@ -739,12 +776,20 @@ export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onAppl
             {visiveis.length === 0 && (
               <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 6px' }}>Nenhuma tarefa encontrada.</div>
             )}
-            {visiveis.map(e => (
-              <label key={e.id} style={{ ...optRow, marginLeft: (e.nivel || 0) * 14, fontWeight: e.isGroup ? 600 : 400 }}>
-                <input type="checkbox" checked={draft.has(e.id)} onChange={() => toggle(e.id)} />
-                {wbsMap[e.id] ? `${wbsMap[e.id]} — ${e.etapa}` : e.etapa}
-              </label>
-            ))}
+            {visiveis.map(e => {
+              // Marcada antes de uma busca DIFERENTE da atual: mostra por que ela ainda
+              // aparece (senão parece um item solto no meio da lista, sem explicação).
+              const foraDaBusca = buscaLower && !bateBusca(e);
+              return (
+                <label key={e.id} style={{ ...optRow, marginLeft: (e.nivel || 0) * 14, fontWeight: e.isGroup ? 600 : 400 }}>
+                  <input type="checkbox" checked={draft.has(e.id)} onChange={() => toggle(e.id)} />
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {wbsMap[e.id] ? `${wbsMap[e.id]} — ${e.etapa}` : e.etapa}
+                  </span>
+                  {foraDaBusca && <span style={{ fontSize: 9.5, color: 'var(--text-faint)', flexShrink: 0 }} title="Selecionada numa busca anterior">já marcada</span>}
+                </label>
+              );
+            })}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 8 }}>
             <button onClick={() => { onApply([]); setOpen(false); }} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 6px', height: 26 }}>

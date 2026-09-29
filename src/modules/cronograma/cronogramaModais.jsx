@@ -613,6 +613,11 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
   );
 };
 
+// Mesmos 4 tipos de vínculo do Formulário de Tarefa (TaskFormPanel.jsx: DEP_TIPOS) — TI é o
+// padrão (Término → Início); repetido aqui em vez de importado porque os dois arquivos não
+// compartilham essa constante hoje.
+const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
+
 // ─── VincularTarefasModal — cria vínculos de Predecessora/Sucessora em lote ───
 // Duas listas com busca (predecessoras candidatas à esquerda, sucessoras candidatas à
 // direita); pra cada sucessora marcada, um dropdown escolhe manualmente qual das
@@ -628,6 +633,11 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
   const [predSelected, setPredSelected] = React.useState([]);
   const [succSelected, setSuccSelected] = React.useState([]);
   const [links, setLinks] = React.useState({}); // succId -> predId ('' = "Nenhuma")
+  // Tipo/folga por vínculo — separado de `links` de propósito: `links[succId]` continua só
+  // o id (string), então o filtro "tem vínculo" (Object.values(links).filter(Boolean)) não
+  // muda. Sem entrada aqui = padrão TI/0, igual o comportamento de antes desta tela ganhar
+  // escolha de tipo.
+  const [linkMeta, setLinkMeta] = React.useState({}); // succId -> { tipo, lag }
   // Grupos recolhidos em cada lista (independentes uma da outra) — reduz a rolagem em
   // EAPs grandes, escondendo as folhas de um grupo que já foi todo marcado/descartado.
   const [predCollapsed, setPredCollapsed] = React.useState(() => new Set());
@@ -704,11 +714,18 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     setSuccSelected(cur => checked
       ? [...new Set([...cur, ...alvo])]
       : cur.filter(x => !alvo.includes(x)));
-    if (!checked) setLinks(l => {
-      const next = { ...l };
-      alvo.forEach(id => delete next[id]);
-      return next;
-    });
+    if (!checked) {
+      setLinks(l => {
+        const next = { ...l };
+        alvo.forEach(id => delete next[id]);
+        return next;
+      });
+      setLinkMeta(m => {
+        const next = { ...m };
+        alvo.forEach(id => delete next[id]);
+        return next;
+      });
+    }
   };
 
   const handleConfirm = () => {
@@ -722,7 +739,8 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
         const dep = e.dep || [];
         const jaTem = dep.some(d => (typeof d === 'string' ? d : d.id) === predId);
         if (jaTem) { jaExistiam++; return e; }
-        return { ...e, dep: [...dep, { id: predId, tipo: 'TI', lag: 0 }] };
+        const meta = linkMeta[succId];
+        return { ...e, dep: [...dep, { id: predId, tipo: meta?.tipo || 'TI', lag: meta?.lag ?? 0 }] };
       });
     });
     onCommit(autoScheduleFromDeps(novas));
@@ -738,6 +756,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     setPredSelected([]);
     setSuccSelected([]);
     setLinks({});
+    setLinkMeta({});
   };
 
   // Mesma escala de cor por nível de aninhamento usada na Lista/Gantt/Curva Física pras
@@ -863,6 +882,8 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                 <tr>
                   <th style={{ textAlign: 'left', padding: '6px 12px' }}>Sucessora</th>
                   <th style={{ textAlign: 'left', padding: '6px 12px' }}>Predecessora</th>
+                  <th style={{ textAlign: 'left', padding: '6px 12px' }}>Tipo</th>
+                  <th style={{ textAlign: 'left', padding: '6px 12px' }}>Lat.</th>
                 </tr>
               </thead>
               <tbody>
@@ -895,6 +916,21 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                             return <option key={pid} value={pid}>{p?.etapa ?? pid}</option>;
                           })}
                         </select>
+                      </td>
+                      {/* Tipo/folga só fazem sentido com uma Predecessora escolhida na linha —
+                          desabilitados até lá, mesmo padrão "TI/0 por padrão" do Formulário de
+                          Tarefa (TaskFormPanel.jsx), só que aqui valendo pro lote inteiro de uma vez. */}
+                      <td style={{ padding: '6px 12px' }}>
+                        <select className="input" value={linkMeta[s.id]?.tipo || 'TI'} disabled={!links[s.id]}
+                          onChange={ev => setLinkMeta(m => ({ ...m, [s.id]: { ...m[s.id], tipo: ev.target.value } }))}
+                          style={{ width: 62 }}>
+                          {DEP_TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: '6px 12px' }}>
+                        <input type="number" className="input" value={linkMeta[s.id]?.lag ?? 0} disabled={!links[s.id]}
+                          onChange={ev => setLinkMeta(m => ({ ...m, [s.id]: { ...m[s.id], lag: parseInt(ev.target.value, 10) || 0 } }))}
+                          style={{ width: 52, textAlign: 'right' }} />
                       </td>
                     </tr>
                   );
