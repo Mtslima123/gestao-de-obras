@@ -131,7 +131,12 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   return (
     <div style={{ height: panelH, flexShrink: 0, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border)', background: 'var(--surface)', overflow: 'hidden' }}>
       {resizeHandle}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '10px 16px', gap: 8, overflow: 'hidden', maxWidth: 900, width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+      {/* Sem maxWidth/margin auto (antes travava em 900px, centralizado): as tabelas de
+          Predecessoras/Sucessoras ganharam as colunas Início/Término e o nome da tarefa
+          passou a quebrar em várias linhas dentro do espaço apertado que sobrava. Usa a
+          largura inteira do painel — que já acompanha a tela (a Lista/Gantt por trás é
+          bem mais larga que 900px na maioria dos monitores). */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '10px 16px', gap: 8, overflow: 'hidden', width: '100%', boxSizing: 'border-box' }}>
       {/* Linha 1 */}
       <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 260px', minWidth: 180 }}>

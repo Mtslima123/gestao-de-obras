@@ -4603,6 +4603,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           <TaskFormPanel
             task={idx >= 0 ? visible[idx] : null}
             etapas={etapas}
+            rowNumberMap={rowNumberMap}
             onCommit={onCommit}
             readOnly={readOnly}
             canPrev={idx > 0}
