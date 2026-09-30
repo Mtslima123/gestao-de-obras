@@ -13,6 +13,7 @@ import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVin
 import { isoToBR, taskEnd, taskEndDisplay } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
 import { SCurveChart2 } from '../cronograma/SCurveChart2';
+import { agregarDist, distDeRetrato, computeCurvaSeries } from '../cronograma/curvaFisica';
 import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
 import { getLinhaTotal } from '../fisicoFinanceiro/fisicoFinanceiroPure';
 
@@ -206,7 +207,7 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
 };
 
 // ----- Visão Geral tab -----
-const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
+const VisaoGeral = ({ etapas, etapasLoaded, baselines = [], custoOrcadoMap = {}, valorVinculadoMap = {} }) => {
   // Card "Cronograma resumido" gruda sob a topbar ao rolar, mesmo padrão do card
   // "Cronograma físico" (aba Cronograma) e da toolbar da aba Fotos: STICKY_TOP =
   // topbar 60px + 32px de respiro. O corpo (mini-Gantt) ganha scroll próprio limitado
@@ -240,39 +241,17 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
       : null
   ), [baselines]);
 
-  // Curva S faseada (mesma lógica do Cronograma → Curva Física, "Real + Reprogramado"):
-  // uma única distribuição acumulada do cronograma AO VIVO (peso = duração de cada folha),
-  // colorida verde (Executado) até o mês atual e azul (Replanejado) dali em diante, comparada
-  // com o "Previsto" (linha de base), quando existir.
+  // Curva S faseada (MESMA fórmula do Cronograma → Curva Física / Dashboard, ver
+  // cronograma/curvaFisica.js): peso por Custo Orçado — não por duração — senão os %
+  // divergem dos números oficiais mostrados nessas duas telas. "Real" (rrA) é o plano ao
+  // vivo, colorido verde (Executado) até o mês atual e azul (Replanejado) dali em diante,
+  // comparado com o "Previsto" (linha de base), quando existir.
   const curva = React.useMemo(() => {
     const months = getMonthRange(etapas);
-    if (!months.length) return { months: [], acumulado: [], previsto: null, todayIdx: -1 };
-    const durW = {};
-    etapas.forEach(e => { if (!e.isGroup) durW[e.id] = Math.max(1, e.dur || 1); });
-    const distPlan = computeMonthlyDist(etapas, durW); // { folhaId: { mês: dias no mês } }
-    const pMon = {};
-    months.forEach(m => { pMon[m.key] = 0; });
-    Object.values(distPlan).forEach(d => {
-      months.forEach(m => { pMon[m.key] += d[m.key] || 0; });
-    });
-    const grand = months.reduce((s, m) => s + pMon[m.key], 0) || 1;
-    let accP = 0;
-    const acumulado = months.map(m => { accP += pMon[m.key]; return accP / grand * 100; });
-
-    let previsto = null;
-    if (baseline?.etapas?.length) {
-      const durWB = {};
-      baseline.etapas.forEach(e => { if (!e.isGroup) durWB[e.id] = Math.max(1, e.dur || 1); });
-      const distB = computeMonthlyDist(baseline.etapas, durWB);
-      const bMon = {};
-      months.forEach(m => { bMon[m.key] = 0; });
-      Object.values(distB).forEach(d => {
-        months.forEach(m => { bMon[m.key] += d[m.key] || 0; });
-      });
-      const grandB = months.reduce((s, m) => s + bMon[m.key], 0) || 1;
-      let accB = 0;
-      previsto = months.map(m => { accB += bMon[m.key]; return accB / grandB * 100; });
-    }
+    if (!months.length) return { months: [], series: null, hasBL: false, todayIdx: -1 };
+    const planned = agregarDist(computeMonthlyDist(etapas, custoOrcadoMap));
+    const baselineDist = distDeRetrato(baseline?.etapas || null, valorVinculadoMap);
+    const series = computeCurvaSeries({ months, planned, baselineDist, repDist: null });
 
     const now = new Date();
     const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -280,8 +259,8 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
     // obra ainda não iniciada (hoje antes do início) conta tudo como Replanejado.
     let todayIdx = months.findIndex(m => m.key === todayKey);
     if (todayIdx === -1) todayIdx = todayKey > months[months.length - 1].key ? months.length - 1 : -1;
-    return { months, acumulado, previsto, todayIdx };
-  }, [etapas, baseline]);
+    return { months, series, hasBL: !!baselineDist, todayIdx };
+  }, [etapas, baseline, custoOrcadoMap, valorVinculadoMap]);
 
   return (
     <div className="stack">
@@ -293,7 +272,7 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
             <div className="card-actions" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <div className="legend">
                 <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Real</span>
-                {curva.previsto && (
+                {curva.hasBL && (
                   <span className="legend-item"><span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '2px dashed #94a3b8', marginRight: 4, verticalAlign: 'middle' }}></span>Previsto</span>
                 )}
               </div>
@@ -304,8 +283,8 @@ const VisaoGeral = ({ etapas, etapasLoaded, baselines = [] }) => {
               <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Carregando cronograma…</div>
             ) : curva.months.length ? (
               <SCurveChart2 months={curva.months} selIdx={curva.todayIdx}
-                execA={curva.acumulado} replanA={curva.acumulado} baselineA={curva.previsto}
-                show={{ bl: !!curva.previsto, rep: true, real: true }} showBarras={false}
+                execA={curva.series.rrA} replanA={curva.series.rrA} baselineA={curva.hasBL ? curva.series.blA : null}
+                show={{ bl: curva.hasBL, rep: true, real: true }} showBarras={false}
                 execColor="var(--brand)" />
             ) : (
               <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Sem cronograma com datas para exibir a curva.</div>
@@ -1791,12 +1770,18 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     ? offsetToISO(Math.max(...etapasObra.map(e => taskEndDisplay({ isGroup: e.isGroup, inicio: e.inicio || 0, dur: e.dur || 0 }))))
     : null;
 
-  // Avanço físico real + planejado acumulado até hoje (para o cabeçalho da obra).
-  // Mesmo critério físico da Curva: distribuição por duração das tarefas.
-  const custoOrcadoMapObra = React.useMemo(() => {
-    const valorVinculadoMapObra = computeValorVinculadoMap(etapasObra, vinculosObra, orcamentoItensMapObra);
-    return computeCustoOrcadoMap(etapasObra, valorVinculadoMapObra);
-  }, [etapasObra, vinculosObra, orcamentoItensMapObra]);
+  // Avanço físico real + planejado acumulado até hoje (para o cabeçalho da obra) e peso
+  // da Curva S da Visão Geral — mesmo Custo Orçado (valor vinculado + custo real) usado
+  // pelo Cronograma → Curva Física / Dashboard (ver cronograma/curvaFisica.js), senão os
+  // % divergem dos números oficiais mostrados nessas duas telas.
+  const valorVinculadoMapObra = React.useMemo(
+    () => computeValorVinculadoMap(etapasObra, vinculosObra, orcamentoItensMapObra),
+    [etapasObra, vinculosObra, orcamentoItensMapObra]
+  );
+  const custoOrcadoMapObra = React.useMemo(
+    () => computeCustoOrcadoMap(etapasObra, valorVinculadoMapObra),
+    [etapasObra, valorVinculadoMapObra]
+  );
   const heroStats = React.useMemo(() => {
     const avancoFisico = computeAvancoFisico(etapasObra, custoOrcadoMapObra);
     const months = getMonthRange(etapasObra);
@@ -1934,7 +1919,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
       </>
       )}
 
-      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} baselines={baselinesObra} />}
+      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} baselines={baselinesObra}
+        custoOrcadoMap={custoOrcadoMapObra} valorVinculadoMap={valorVinculadoMapObra} />}
       {tab === 'cronograma' && (
         <>
           <div ref={cronoSentinelRef} aria-hidden="true" style={{ height: 0 }} />
