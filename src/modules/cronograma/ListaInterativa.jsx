@@ -5,6 +5,7 @@ import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { passoDeRolagem } from './listaAutoScroll';
 import { logger } from '../../services/logger';
+import { formatNum } from '../../utils/formatters';
 
 // Alvo de mousedown que já é um campo de edição aberto. A grade rouba foco e chama
 // preventDefault em vários handlers; dentro de um input isso impede posicionar o cursor
@@ -104,6 +105,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   }, [showConflitos]);
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
   const [multiSelCols,   setMultiSelCols]   = React.useState([]);   // colunas selecionadas via Ctrl+clique no cabeçalho
+  // Células SOLTAS marcadas com Ctrl+clique (podem ser de linhas/colunas diferentes, sem
+  // formar um retângulo) — estilo Excel. Array<{taskId, colId}>, preserva a ordem do clique
+  // (importa pro Ctrl+C, que copia na ordem marcada). Independente de multiSel (linha
+  // inteira, só pela calha — ver onMouseDown da calha) e do retângulo selectedCell/selAnchor.
+  const [multiSelCells,  setMultiSelCells]  = React.useState([]);
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
   const [editingDep,     setEditingDep]     = React.useState(null); // id da tarefa com predecessora em edição
@@ -768,8 +774,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     fim:       { kind: 'date',   get: e => offsetToISO(taskEndDisplay(e)),   field: 'fim' },
     duracao:   { kind: 'number', get: e => String(e.dur ?? ''),             field: 'duracaoDias' },
     avanco:    { kind: 'number', get: e => String(e.avanco ?? 0),           field: 'avanco' },
-    custo:     { kind: 'number', get: e => String(e.custo ?? 0),            field: 'custo' },
-    custoReal: { kind: 'number', get: e => String(e.custoRealizado ?? 0),   field: 'custoRealizado' },
+    // formatNum (vírgula decimal, ponto de milhar — "441.346,23"), não String(número) cru
+    // ("441346.23"): isso ia direto pra área de transferência (copiar/colar, preenchimento
+    // Ctrl+D) e caía no MESMO parseBRL que já espera formato BR (colar do Excel, digitar
+    // direto) — String() cru colava certo no sistema por coincidência (parseBRL removia o
+    // ponto como se fosse milhar), mas colado NUM Excel de verdade aparecia com ponto em vez
+    // de vírgula, fora do padrão brasileiro.
+    custo:     { kind: 'number', get: e => formatNum(e.custo ?? 0),            field: 'custo' },
+    custoReal: { kind: 'number', get: e => formatNum(e.custoRealizado ?? 0),   field: 'custoRealizado' },
     resp:      { kind: 'text',   get: e => e.responsavel || '',              field: 'responsavel' },
     restricao: { kind: 'date',   get: e => e.restricaoData || '',            field: 'restricao' },
     pavimento: { kind: 'text',   get: e => e.pavimento || '',                field: 'pavimento' },
@@ -831,6 +843,22 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     }
     cellClipRef.current = { grid };
     rowClipRef.current = rowClones; // permite Ctrl++ inserir o nº de linhas copiadas
+    try { navigator.clipboard?.writeText(grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n')); } catch { /* best-effort */ }
+  };
+  // Copia as células SOLTAS marcadas com Ctrl+clique (multiSelCells) — sem formato retangular
+  // pra reconstruir, então sai uma lista vertical (uma célula por linha), na ordem do clique.
+  // rowClipRef fica limpo: não são linhas inteiras, então Ctrl++ depois insere linha em
+  // branco (comportamento de sempre sem cópia de linha pendente), não reaproveita uma cópia
+  // de linha antiga que ficou no ref.
+  const copyMultiSelCells = () => {
+    cutPendingRef.current = null;
+    const grid = multiSelCells.map(({ taskId, colId }) => {
+      const e = etapas.find(x => x.id === taskId);
+      const spec = cellSpec(colId);
+      return [{ colId, value: e && spec ? spec.get(e) : null, kind: spec?.kind, fmt: e?.fmt?.[colId] }];
+    });
+    cellClipRef.current = { grid };
+    rowClipRef.current = null;
     try { navigator.clipboard?.writeText(grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n')); } catch { /* best-effort */ }
   };
   // Cola o bloco a partir da célula selecionada (canto superior esquerdo), estilo Excel.
@@ -1601,6 +1629,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   })();
   // Arestas externas do intervalo por célula (borda só no contorno, estilo Excel)
   const rangeEdges = rangeEdgeMap();
+  // Chaves das células soltas marcadas (Ctrl+clique) — só usado pro destaque em decorateCell;
+  // o destaque de retângulo (rangeEdges, acima) continua intocado.
+  const multiSelCellKeys = React.useMemo(
+    () => new Set(multiSelCells.map(c => c.taskId + '|' + c.colId)),
+    [multiSelCells]
+  );
   // Linhas cobertas por uma seleção de INTERVALO de células. Usado para não pintar a
   // linha-âncora com o realce de linha (que destoava do fundo do intervalo).
   const rangeRowIds = (() => {
@@ -1664,7 +1698,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Teclado da lista: ligado ao container focável (onKeyDown), não ao document,
   // para as setas moverem a seleção de célula em vez de rolar a página.
   const handleListKeyDown = (ev) => {
-    if (ev.key === 'Escape') { setMarquee(null); cutPendingRef.current = null; return; } // limpa marching ants e recorte pendente
+    if (ev.key === 'Escape') { setMarquee(null); cutPendingRef.current = null; if (multiSelCells.length) setMultiSelCells([]); return; } // limpa marching ants, recorte pendente e células soltas
     // Ctrl/Cmd + Shift + ←/→ : recuar/avançar a seleção. Vem ANTES da navegação por
     // seta (senão a seta moveria a célula) e ANTES do guard de seleção (funciona também
     // com multiSel puro). handleIndent/handleOutdent já usam selectedRowIds().
@@ -1679,6 +1713,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const editingNow = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'c' || ev.key === 'C')) {
       if (editingNow) return; // deixa o navegador copiar o texto do input em edição
+      // Células soltas (Ctrl+clique) primeiro — têm prioridade sobre o retângulo de sempre.
+      // Sem moldura animada aqui: showMarquee só sabe desenhar UM retângulo; a borda azul
+      // persistente de cada célula (decorateCell) já mostra o que está selecionado.
+      if (multiSelCells.length > 1) { copyMultiSelCells(); return; }
       // copyCell já grava rowClipRef com as linhas da seleção (≥1), então Ctrl++ insere a cópia.
       if (selectedCell) copyCell(); else copyRow();
       showMarquee(); // borda tracejada animada na seleção copiada
@@ -1792,6 +1830,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const ids = [...selectedRowIds()];
         if (!ids.length) return;
         setDeleteConfirm(ids);
+        return;
+      }
+      // Células soltas primeiro — mesma prioridade do Ctrl+C, acima.
+      if (multiSelCells.length > 1) {
+        ev.preventDefault();
+        const edits = [];
+        multiSelCells.forEach(({ taskId, colId }) => {
+          const spec = cellSpec(colId);
+          if (spec) edits.push({ taskId, colId, field: spec.field, rawValue: '' });
+        });
+        if (edits.length) applyBlockEdits(edits);
         return;
       }
       if (selectedCell) {
@@ -2022,6 +2071,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const { style: fmtStyle, classes: fmtClasses } = fmtToCss(eff);
     const cls     = [cell.props.className, dragCls, ...fmtClasses].filter(Boolean).join(' ');
     const selStyle = rangeSelStyle(edges);
+    // Célula solta marcada com Ctrl+clique: mesma borda azul do retângulo, nas 4 arestas
+    // (cada uma é sua própria "ilha", sem vizinho pra compartilhar aresta) — só quando há
+    // mais de uma marcada (com só uma, já é a seleção única de sempre, via `edges`).
+    const multiCellStyle = (multiSelCells.length > 1 && multiSelCellKeys.has(taskId + '|' + colId))
+      ? rangeSelStyle({ t: true, b: true, l: true, r: true }) : null;
     // Coluna inteira marcada via Ctrl+clique no cabeçalho: só a borda externa do retângulo
     // (topo da 1ª linha, base da última, laterais em toda a coluna) — sem preencher o fundo
     // das células, estilo Excel — recua se a célula já tem cor própria.
@@ -2041,7 +2095,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const inFillPreview = fillPreview?.colId === colId && fillPreview.ids.has(taskId);
     const fillPreviewStyle = inFillPreview ? { outline: '1px dashed var(--brand)', outlineOffset: '-1px' } : null;
     const styled = {
-      ...(cell.props.style || {}), ...(fmtStyle || {}), ...(colMultiSelStyle || {}), ...(selStyle || {}),
+      ...(cell.props.style || {}), ...(fmtStyle || {}), ...(colMultiSelStyle || {}), ...(selStyle || {}), ...(multiCellStyle || {}),
       ...(fillPreviewStyle || {}),
       ...(showFillHandle ? { position: (cell.props.style || {}).position || 'relative' } : {}),
     };
@@ -2083,6 +2137,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         // continua se comportando como antes: o intervalo vira só essa célula.
         if (painterOn && painterRef.current) {
           ev.preventDefault();
+          if (multiSelCells.length) setMultiSelCells([]);
           setSelectedCell({ taskId, colId }); setSelAnchor({ taskId, colId });
           isSelectingRef.current = true;
           painterDragRef.current = true;
@@ -2096,20 +2151,29 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         // (estilo Excel: Shift+clique estende o intervalo a partir da última célula ativa).
         if (ev.shiftKey && selAnchor) {
           ev.preventDefault();
+          if (multiSelCells.length) setMultiSelCells([]);
           setSelectedCell({ taskId, colId });
           rowClickHandledRef.current = true;
           listaScrollRef.current?.focus?.({ preventScroll: true });
           return;
         }
+        // Ctrl+clique numa célula: alterna ela dentro de multiSelCells — células SOLTAS,
+        // podem ser de linhas/colunas diferentes, sem formar retângulo (estilo Excel).
+        // Continua movendo selectedCell/selAnchor pra cá: ela vira a "ativa" (F2/digitar
+        // direto/setas seguem funcionando nela, igual sempre funcionou). Marcar a LINHA
+        // inteira com Ctrl continua existindo, só que exclusivamente pela calha (número da
+        // linha) — Ctrl+clique NA CÉLULA fazia a mesma coisa hoje (redundante com a calha),
+        // e não sobrava nenhum jeito de marcar só células específicas.
         setSelectedCell({ taskId, colId });
         setSelAnchor({ taskId, colId });
         isSelectingRef.current = true; // inicia possível arraste de intervalo
-        // Seleciona a linha também — tratado aqui (não delegado ao onClick do <tr>, que nem
-        // sempre é alcançado: várias células param a propagação do clique).
         if (ev.ctrlKey || ev.metaKey) {
           ev.preventDefault();
-          setMultiSel(ms => ms.includes(taskId) ? ms.filter(id => id !== taskId) : [...ms, taskId]);
+          setMultiSelCells(cs => cs.some(c => c.taskId === taskId && c.colId === colId)
+            ? cs.filter(c => !(c.taskId === taskId && c.colId === colId))
+            : [...cs, { taskId, colId }]);
         } else {
+          if (multiSelCells.length) setMultiSelCells([]);
           setSelectedId(taskId);
           setMultiSel([]);
         }
@@ -2577,6 +2641,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (JSON.stringify(cur) === JSON.stringify(next)) return;
     }
     onCommit(commitFieldChange(etapas, id, field, rawValue, filtrada), { silent: true });
+    // Devolve o foco pra grade depois de salvar (inclui REMOVER, ao esvaziar a célula) — o
+    // caminho de colar/Enter/Ctrl+Z/Esc de cada editor próprio (Predecessora, Custo, Custo
+    // Real, Fator Peso) já refocava a grade antes de chegar aqui, mas o de "clicar fora"
+    // (onBlur puro) não, e o campo que tinha acabado de fechar (ou o que herdou o foco em
+    // seguida) podia continuar sendo um INPUT — o Ctrl+Z global (Cronograma.jsx) ignora a
+    // tecla nesse caso, e Desfazer parecia não funcionar depois de editar um desses campos.
+    // Sucessora tem o mesmo ajuste em handleSuccSave, abaixo (função própria, não passa por
+    // handleCellSave). Os demais campos usam EditableCell, que já refoca sempre (exitEdit).
+    if (['dep', 'custo', 'custoRealizado', 'fator_peso'].includes(field)) listaScrollRef.current?.focus?.({ preventScroll: true });
   };
 
   // Sucessora exibida como texto (estilo Project): displayId + tipo(≠TI) + lag,
@@ -2643,6 +2716,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const reprog = autoScheduleFromDeps(applySuccEdits(etapas, [{ taskId, rawValue: raw }], filtrada));
     if (JSON.stringify(reprog) === JSON.stringify(etapas)) return; // sem mudança real
     onCommit(reprog);
+    // Mesmo motivo do campo Predecessora (handleCellSave, acima): sem devolver o foco pra
+    // grade, o Ctrl+Z seguinte podia cair com o foco ainda num INPUT/SELECT e o atalho global
+    // de Desfazer (Cronograma.jsx) ignora a tecla nesse caso.
+    listaScrollRef.current?.focus?.({ preventScroll: true });
   };
 
   const handleToggleCollapse = (id) => {

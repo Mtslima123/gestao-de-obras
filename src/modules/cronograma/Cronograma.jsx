@@ -3102,7 +3102,13 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   React.useEffect(() => {
     const h = (e) => {
       if (readOnly) return;
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+      // Sem SELECT aqui de propósito: um <select> nunca tem "desfazer nativo de texto" pra
+      // proteger (não há texto sendo digitado), então segurar o Ctrl+Z global bloqueado só
+      // porque o foco calhou de estar num dropdown (ex.: o "Tipo" de um vínculo, depois de
+      // remover a linha ao lado) fazia Desfazer parecer que não funcionava, sem motivo real
+      // pra bloquear. INPUT/TEXTAREA continuam bloqueados: ali pode haver texto sendo editado
+      // de verdade, e o desfazer nativo do campo precisa ganhar do desfazer global.
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redoRef.current(); }
       if (e.altKey && e.shiftKey && e.key === '*') { e.preventDefault(); applyOutlineRef.current(0); }

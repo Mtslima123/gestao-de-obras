@@ -206,7 +206,12 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                 const pred = etapas.find(e => e.id === d.id);
                 const datas = datasDe(pred);
                 return (
-                  <tr key={i}>
+                  // key pelo id da predecessora, não pelo índice `i`: com key={i}, remover a
+                  // linha do meio fazia o React REAPROVEITAR o <tr> na mesma posição pra outra
+                  // predecessora — se o "×" clicado tinha o foco, ele ficava "herdado" por esse
+                  // <tr> reciclado em vez de sumir, e o Ctrl+Z seguinte podia cair sobre um
+                  // elemento de formulário errado.
+                  <tr key={d.id}>
                     <td style={{ ...tdSt, width: 30 }}>{numeroDaLinha(d.id)}</td>
                     <td style={{ ...tdSt, textAlign: 'left' }} title={paiNome(pred) ? `${paiNome(pred)} · ${pred?.etapa ?? ''}` : (pred?.etapa ?? '')}>
                       {pred?.etapa ?? '—'}
@@ -225,9 +230,13 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                         onChange={e => updatePred(i, { lag: parseInt(e.target.value, 10) || 0 })}
                         style={{ width: 40, fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4, textAlign: 'right' }} />
                     </td>
+                    {/* blur ANTES de remover: sem isso, o foco no botão clicado podia ficar
+                        "pendurado" num elemento de formulário depois do <tr> sumir/ser
+                        reciclado, e o Ctrl+Z global (Cronograma.jsx) ignora a tecla quando o
+                        foco está em INPUT/SELECT/TEXTAREA — Desfazer parecia não funcionar. */}
                     <td style={tdSt}>
                       {!locked && (
-                        <button onClick={() => removePred(i)} title="Remover predecessora"
+                        <button onClick={(ev) => { ev.currentTarget.blur(); removePred(i); }} title="Remover predecessora"
                           style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
                           <Icon name="x" size={12} />
                         </button>
@@ -293,9 +302,10 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
                         onChange={e => updateSucc(sid, { lag: parseInt(e.target.value, 10) || 0 })}
                         style={{ width: 40, fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 4, textAlign: 'right' }} />
                     </td>
+                    {/* Mesmo motivo do botão de Predecessora, acima. */}
                     <td style={tdSt}>
                       {!locked && (
-                        <button onClick={() => removeSucc(sid)} title="Remover sucessora"
+                        <button onClick={(ev) => { ev.currentTarget.blur(); removeSucc(sid); }} title="Remover sucessora"
                           style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
                           <Icon name="x" size={12} />
                         </button>
