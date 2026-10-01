@@ -93,25 +93,36 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#014386"
 }/*EDITMODE-END*/;
 
-// Último usuário+perfil autorizado com sucesso (sessionStorage, mesmo ciclo de vida da
-// sessão do Supabase — ver storage: window.sessionStorage em services/supabase.js). Existe
-// só pra cobrir reconexão/reload sem internet: getSession() exige rede pra renovar um
-// token perto de expirar (GoTrueClient#__loadSession, auth-js) e o recarregamento do
-// perfil (loadUserProfile) é sempre uma consulta ao vivo — sem este cache, qualquer reload
-// offline derrubava quem já estava autenticado de volta pro login, que por sua vez também
-// não funciona sem internet (SSO Microsoft). Não enfraquece a segurança: o dispositivo
-// offline não consegue executar nenhuma operação real contra o Supabase de qualquer jeito
-// (RLS/JWT são validados no servidor); isto só evita travar a UI numa tela de login
-// inalcançável enquanto não há conexão.
+// Último usuário+perfil autorizado com sucesso. Em localStorage (não sessionStorage,
+// diferente da sessão real do Supabase — ver storage: window.sessionStorage em
+// services/supabase.js) DE PROPÓSITO: testado em campo, um celular que mata a aba do
+// navegador em segundo plano (ex.: ao sair pro painel de Ajustes pra desligar a internet)
+// leva junto o sessionStorage antes do app conseguir reagir, o que tornava o fallback
+// abaixo inútil bem no caso mais comum de teste offline. localStorage sobrevive a isso —
+// a sessão REAL continua só em sessionStorage, intocada (decisão de segurança anterior,
+// mantida: fechar o navegador de propósito, online, ainda exige login de novo).
+// Decisão confirmada com o usuário: o preço é a aba/app poder reabrir já "autorizado" com
+// este cache enquanto offline, mesmo depois de fechada de verdade — não enfraquece o
+// acesso real, porque nenhuma chamada de verdade ao Supabase funciona sem rede de
+// qualquer jeito (RLS/JWT são validados no servidor); isto só evita travar a UI numa tela
+// de login inalcançável (SSO Microsoft, também exige rede) enquanto não há conexão pra
+// revalidar. Expira sozinho (30 dias) pra não exibir um perfil/permissões ultrapassados
+// indefinidamente num aparelho esquecido sem internet.
 const AUTH_CACHE_KEY = 'gm_auth_cache';
+const AUTH_CACHE_MAX_IDADE_MS = 30 * 24 * 60 * 60 * 1000;
 const lerAuthCache = () => {
-  try { return JSON.parse(sessionStorage.getItem(AUTH_CACHE_KEY) || 'null'); } catch { return null; }
+  try {
+    const snap = JSON.parse(localStorage.getItem(AUTH_CACHE_KEY) || 'null');
+    if (!snap) return null;
+    if (Date.now() - (snap.salvoEm || 0) > AUTH_CACHE_MAX_IDADE_MS) { limparAuthCache(); return null; }
+    return snap;
+  } catch { return null; }
 };
 const salvarAuthCache = (snap) => {
-  try { sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(snap)); } catch { /* ignore */ }
+  try { localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ...snap, salvoEm: Date.now() })); } catch { /* ignore */ }
 };
 const limparAuthCache = () => {
-  try { sessionStorage.removeItem(AUTH_CACHE_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(AUTH_CACHE_KEY); } catch { /* ignore */ }
 };
 
 const AppInner = () => {
@@ -321,15 +332,14 @@ const AppInner = () => {
 
   React.useEffect(() => {
     authService.getSession().then(({ data: { session }, error }) => {
-      const fonte = decidirFonteDeSessao({ session, error, temCache: !!lerAuthCache() });
+      if (isNetworkError(error)) connectivity.reportError(error); // só sinaliza; a decisão de autorizar não depende mais disto
+      const fonte = decidirFonteDeSessao({ session, temCache: !!lerAuthCache() });
       if (fonte === 'sessao') aplicarSessao(session);
-      else if (fonte === 'cache') { connectivity.reportError(error); aplicarSessaoDoCache(); }
+      else if (fonte === 'cache') aplicarSessaoDoCache();
     }).catch(err => {
       logger.error('falha ao restaurar sessao', { module: 'app', action: 'getSession', err });
-      if (decidirFonteDeSessao({ session: null, error: err, temCache: !!lerAuthCache() }) === 'cache') {
-        connectivity.reportError(err);
-        aplicarSessaoDoCache();
-      }
+      if (isNetworkError(err)) connectivity.reportError(err);
+      if (decidirFonteDeSessao({ session: null, temCache: !!lerAuthCache() }) === 'cache') aplicarSessaoDoCache();
     });
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
       const fonte = decidirFonteDeSessao({ session, event, temCache: !!lerAuthCache() });
