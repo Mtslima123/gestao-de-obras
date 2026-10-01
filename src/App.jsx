@@ -563,29 +563,34 @@ const AppInner = () => {
             </button>
           </div>
           <div className="mobile-focus-body">
-            <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
-              {mobileFocus === 'medicao' && (
-                <CronogramaFull
-                  initialObraId={cronogramaObraId}
-                  initialTab="medicao"
-                  obras={obrasVisiveis}
-                  userProfile={userProfile}
-                  hideChrome
-                />
-              )}
-              {mobileFocus === 'fotos' && (
-                <ObraDetail
-                  obra={selectedObra}
-                  initialTab="fotos"
-                  userProfile={userProfile}
-                  onBack={() => setMobileFocus(null)}
-                  onObraUpdate={handleObraUpdate}
-                  onObraDelete={handleObraDelete}
-                  onOpenCronograma={handleOpenCronograma}
-                  hideChrome
-                />
-              )}
-            </React.Suspense>
+            {/* Esta tela não tinha ErrorBoundary nenhum (diferente das views normais,
+                remontadas com key={view} dentro de um por módulo) — uma exceção aqui
+                antes só derrubava o conteúdo em branco, sem aviso nem recuperação. */}
+            <ErrorBoundary>
+              <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+                {mobileFocus === 'medicao' && (
+                  <CronogramaFull
+                    initialObraId={cronogramaObraId}
+                    initialTab="medicao"
+                    obras={obrasVisiveis}
+                    userProfile={userProfile}
+                    hideChrome
+                  />
+                )}
+                {mobileFocus === 'fotos' && (
+                  <ObraDetail
+                    obra={selectedObra}
+                    initialTab="fotos"
+                    userProfile={userProfile}
+                    onBack={() => setMobileFocus(null)}
+                    onObraUpdate={handleObraUpdate}
+                    onObraDelete={handleObraDelete}
+                    onOpenCronograma={handleOpenCronograma}
+                    hideChrome
+                  />
+                )}
+              </React.Suspense>
+            </ErrorBoundary>
           </div>
         </div>
       )}

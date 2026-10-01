@@ -2304,7 +2304,13 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // mas só se ela ainda existir na lista (evita ficar preso numa obra fantasma);
   // por fim a primeira em andamento e, na falta, a primeira da lista.
   const obraSalva = sessionStorage.getItem('cronograma_obra');
-  const defaultObraId = initialObraId
+  // initialObraId (deep link do Mobile Gate/Medição foco) só é usado se a obra
+  // realmente existir na lista recebida — sem checar, uma obra válida vinda da sessão
+  // mas ausente da lista atual (ex.: offline, `obras` caiu pro fallback mock sem essa
+  // obra) virava um obraSel "fantasma": não dispara o card de vazio (obraSel não é
+  // falsy) e nada mais bate, sobrando tela em branco. Mesma validação que obraSalva já
+  // tinha logo abaixo, só que faltava aqui.
+  const defaultObraId = (initialObraId && obras.some(o => o.id === initialObraId) ? initialObraId : null)
     || (obras.some(o => o.id === obraSalva) ? obraSalva : null)
     || obras.find(o => o.status === 'em_andamento')?.id
     || obras[0]?.id
