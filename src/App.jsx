@@ -110,16 +110,34 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 // indefinidamente num aparelho esquecido sem internet.
 const AUTH_CACHE_KEY = 'gm_auth_cache';
 const AUTH_CACHE_MAX_IDADE_MS = 30 * 24 * 60 * 60 * 1000;
+// DIAGNÓSTICO TEMPORÁRIO (remover depois de confirmar a causa do logout offline em
+// campo): error/fatal são os únicos níveis que o logger envia pro Supabase
+// (app_logs — ver services/logger.js shipRemote), por isso usa error mesmo não sendo
+// uma falha de verdade. Sem isto não há visibilidade nenhuma do que acontece no
+// aparelho de quem está testando offline (o próprio envio do log também exige rede,
+// então só aparece quando o aparelho volta a ter conexão).
+const diagOffline = (msg, data) => logger.error(`[diag-offline] ${msg}`, { module: 'diag', ...data });
+
 const lerAuthCache = () => {
   try {
-    const snap = JSON.parse(localStorage.getItem(AUTH_CACHE_KEY) || 'null');
-    if (!snap) return null;
-    if (Date.now() - (snap.salvoEm || 0) > AUTH_CACHE_MAX_IDADE_MS) { limparAuthCache(); return null; }
+    const raw = localStorage.getItem(AUTH_CACHE_KEY);
+    const snap = JSON.parse(raw || 'null');
+    if (!snap) { diagOffline('lerAuthCache: nada salvo', {}); return null; }
+    const idadeMin = Math.round((Date.now() - (snap.salvoEm || 0)) / 60000);
+    if (Date.now() - (snap.salvoEm || 0) > AUTH_CACHE_MAX_IDADE_MS) {
+      diagOffline('lerAuthCache: cache expirado', { idadeMin });
+      limparAuthCache();
+      return null;
+    }
+    diagOffline('lerAuthCache: cache encontrado', { idadeMin, email: snap.email });
     return snap;
-  } catch { return null; }
+  } catch (e) { diagOffline('lerAuthCache: excecao', { err: e }); return null; }
 };
 const salvarAuthCache = (snap) => {
-  try { localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ...snap, salvoEm: Date.now() })); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ...snap, salvoEm: Date.now() }));
+    diagOffline('salvarAuthCache: gravado com sucesso', { email: snap.email });
+  } catch (e) { diagOffline('salvarAuthCache: excecao ao gravar', { err: e }); }
 };
 const limparAuthCache = () => {
   try { localStorage.removeItem(AUTH_CACHE_KEY); } catch { /* ignore */ }
@@ -288,6 +306,7 @@ const AppInner = () => {
   // Login.jsx). Não há checagem de grupo em runtime aqui de propósito.
   const aplicarSessao = async (session) => {
     if (!session?.user) {
+      diagOffline('aplicarSessao: sem sessao, limpando cache e deslogando', {});
       setAuthed(false);
       setAcessoNegado(false);
       setUser(null);
@@ -305,6 +324,7 @@ const AppInner = () => {
 
     const perfil = await loadUserProfile(session.user.email);
     const autorizado = !!perfil && perfil.status === 'ativo';
+    diagOffline('aplicarSessao: loadUserProfile concluido', { temPerfil: !!perfil, status: perfil?.status ?? null, autorizado });
     setAuthed(autorizado);
     setAcessoNegado(!autorizado); // mantém a sessão para exibir o e-mail na tela de bloqueio
     if (autorizado) {
@@ -334,15 +354,21 @@ const AppInner = () => {
   // (useRetryOnReconnect abaixo) — sem isto, alguém que caiu no cache/login por falta de
   // rede só revalidava de verdade numa recarga manual da página.
   const restaurarSessao = React.useCallback(() => {
+    diagOffline('getSession: chamando', {});
     authService.getSession().then(({ data: { session }, error }) => {
       if (isNetworkError(error)) connectivity.reportError(error); // só sinaliza; a decisão de autorizar não depende mais disto
-      const fonte = decidirFonteDeSessao({ session, temCache: !!lerAuthCache() });
+      const temCache = !!lerAuthCache();
+      const fonte = decidirFonteDeSessao({ session, temCache });
+      diagOffline('getSession: resolveu', { temSessao: !!session?.user, errMsg: error?.message ?? null, temCache, fonte });
       if (fonte === 'sessao') aplicarSessao(session);
       else if (fonte === 'cache') aplicarSessaoDoCache();
     }).catch(err => {
       logger.error('falha ao restaurar sessao', { module: 'app', action: 'getSession', err });
       if (isNetworkError(err)) connectivity.reportError(err);
-      if (decidirFonteDeSessao({ session: null, temCache: !!lerAuthCache() }) === 'cache') aplicarSessaoDoCache();
+      const temCache = !!lerAuthCache();
+      const fonte = decidirFonteDeSessao({ session: null, temCache });
+      diagOffline('getSession: rejeitou', { errMsg: err?.message ?? null, temCache, fonte });
+      if (fonte === 'cache') aplicarSessaoDoCache();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -351,7 +377,9 @@ const AppInner = () => {
   React.useEffect(() => {
     restaurarSessao();
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
-      const fonte = decidirFonteDeSessao({ session, event, temCache: !!lerAuthCache() });
+      const temCache = !!lerAuthCache();
+      const fonte = decidirFonteDeSessao({ session, event, temCache });
+      diagOffline('onAuthStateChange', { event, temSessao: !!session?.user, temCache, fonte });
       if (fonte === 'cache') aplicarSessaoDoCache();
       else aplicarSessao(session);
     });

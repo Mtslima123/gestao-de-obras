@@ -14,9 +14,25 @@ const traduzErroSSO = (desc) => {
   return 'Não foi possível concluir o login com a Microsoft. Tente novamente ou contate o administrador.';
 };
 
+// DIAGNÓSTICO TEMPORÁRIO (remover depois de confirmar a causa do logout offline em
+// campo): o sink remoto do logger (app_logs) é bloqueado por RLS pra quem ainda não
+// está autenticado — exatamente o momento em que essa tela aparece — então não dá pra
+// ver remotamente o estado do cache local. Lendo e mostrando direto na tela pra quem
+// estiver testando poder ler em voz alta / printar.
+const diagCacheLocal = () => {
+  try {
+    const raw = localStorage.getItem('gm_auth_cache');
+    if (!raw) return 'nenhum';
+    const snap = JSON.parse(raw);
+    const idadeMin = Math.round((Date.now() - (snap.salvoEm || 0)) / 60000);
+    return `${snap.email || '?'}, salvo há ${idadeMin}min`;
+  } catch (e) { return `erro ao ler: ${e?.message}`; }
+};
+
 const LoginScreen = () => {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(() => ssoLoginError ? traduzErroSSO(ssoLoginError) : null);
+  const [cacheLocal] = React.useState(diagCacheLocal);
 
   // Inicia o login SSO (Microsoft Entra ID). Em caso de sucesso o navegador
   // é redirecionado para a Microsoft, então não resetamos loading no fluxo feliz.
@@ -68,7 +84,7 @@ const LoginScreen = () => {
                 alguém já pegou um deploy novo antes de pedir pra testar de novo) — mesmo
                 padrão de AcessoNaoAutorizado.jsx. */}
             <div className="mono text-xs text-faint" style={{ marginTop: 16, textAlign: 'center' }}>
-              v{__APP_VERSION__}
+              v{__APP_VERSION__} · cache local: {cacheLocal}
             </div>
           </div>
         </div>
