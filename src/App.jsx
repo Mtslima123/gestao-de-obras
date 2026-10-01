@@ -13,6 +13,7 @@ import { obrasService, obraDeleteErrorMessage } from './modules/obras/obras.serv
 import { logger, setContext, clearContext } from './services/logger';
 import { friendlyError } from './utils/friendlyError';
 import { isNetworkError, connectivity, useRetryOnReconnect } from './utils/connectivity';
+import { decidirFonteDeSessao } from './utils/authGatePure';
 import { OfflineFallback } from './components/OfflineFallback';
 import { useIsMobile } from './utils/useIsMobile';
 import { MobileGate } from './modules/mobile/MobileGate';
@@ -91,6 +92,27 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "density": "default",
   "accent": "#014386"
 }/*EDITMODE-END*/;
+
+// Último usuário+perfil autorizado com sucesso (sessionStorage, mesmo ciclo de vida da
+// sessão do Supabase — ver storage: window.sessionStorage em services/supabase.js). Existe
+// só pra cobrir reconexão/reload sem internet: getSession() exige rede pra renovar um
+// token perto de expirar (GoTrueClient#__loadSession, auth-js) e o recarregamento do
+// perfil (loadUserProfile) é sempre uma consulta ao vivo — sem este cache, qualquer reload
+// offline derrubava quem já estava autenticado de volta pro login, que por sua vez também
+// não funciona sem internet (SSO Microsoft). Não enfraquece a segurança: o dispositivo
+// offline não consegue executar nenhuma operação real contra o Supabase de qualquer jeito
+// (RLS/JWT são validados no servidor); isto só evita travar a UI numa tela de login
+// inalcançável enquanto não há conexão.
+const AUTH_CACHE_KEY = 'gm_auth_cache';
+const lerAuthCache = () => {
+  try { return JSON.parse(sessionStorage.getItem(AUTH_CACHE_KEY) || 'null'); } catch { return null; }
+};
+const salvarAuthCache = (snap) => {
+  try { sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(snap)); } catch { /* ignore */ }
+};
+const limparAuthCache = () => {
+  try { sessionStorage.removeItem(AUTH_CACHE_KEY); } catch { /* ignore */ }
+};
 
 const AppInner = () => {
   // A app montou normalmente: limpa a guarda de "já recarreguei uma vez por erro de
@@ -232,7 +254,17 @@ const AppInner = () => {
       .single();
     // PGRST116 = 0 linhas (usuário sem perfil cadastrado) — caso legítimo, não é erro.
     // Qualquer outro erro (rede/RLS/SQL) era engolido e virava "acesso negado" silencioso.
-    if (error && error.code !== 'PGRST116') logger.error('falha ao carregar perfil do usuario', { module: 'app', action: 'loadUserProfile', err: error });
+    if (error && error.code !== 'PGRST116') {
+      logger.error('falha ao carregar perfil do usuario', { module: 'app', action: 'loadUserProfile', err: error });
+      if (isNetworkError(error)) {
+        connectivity.reportError(error);
+        const cache = lerAuthCache();
+        if (cache?.email === email) {
+          setUserProfile(cache.perfil);
+          return cache.perfil;
+        }
+      }
+    }
     setUserProfile(data ?? null);
     return data ?? null;
   };
@@ -250,6 +282,7 @@ const AppInner = () => {
       setUser(null);
       setUserProfile(null);
       clearContext(); // some o userId dos logs após logout
+      limparAuthCache();
       // Some junto com a sessão — próximo login (mesma aba) deve mostrar o Mobile Gate de novo.
       try { sessionStorage.removeItem('mobile_gate_ok'); } catch { /* ignore */ }
       setMobileGateBypassed(false);
@@ -263,21 +296,45 @@ const AppInner = () => {
     const autorizado = !!perfil && perfil.status === 'ativo';
     setAuthed(autorizado);
     setAcessoNegado(!autorizado); // mantém a sessão para exibir o e-mail na tela de bloqueio
-    // Fire-and-forget: RLS não deixa o usuário comum dar UPDATE direto na própria
-    // linha, por isso passa por função SECURITY DEFINER estreita (só grava esta coluna).
     if (autorizado) {
+      salvarAuthCache({ userId: session.user.id, email: session.user.email, perfil });
+      // Fire-and-forget: RLS não deixa o usuário comum dar UPDATE direto na própria
+      // linha, por isso passa por função SECURITY DEFINER estreita (só grava esta coluna).
       supabase.rpc('registrar_ultimo_acesso').then(({ error }) => {
         if (error) logger.error('falha ao registrar ultimo acesso', { module: 'app', action: 'registrarUltimoAcesso', err: error });
       });
     }
   };
 
+  // Restaura o último perfil autorizado com sucesso (ver salvarAuthCache em
+  // aplicarSessao) quando a árvore de decisão (decidirFonteDeSessao, src/utils/
+  // authGatePure.js) manda usar o cache em vez da sessão real ou de deslogar.
+  const aplicarSessaoDoCache = () => {
+    const cache = lerAuthCache();
+    if (!cache) return;
+    setUser({ id: cache.userId, email: cache.email });
+    setContext({ userId: cache.userId, userEmail: cache.email });
+    setUserProfile(cache.perfil);
+    setAuthed(true);
+    setAcessoNegado(false);
+  };
+
   React.useEffect(() => {
-    authService.getSession().then(({ data: { session } }) => {
-      if (session?.user) aplicarSessao(session);
-    }).catch(err => logger.error('falha ao restaurar sessao', { module: 'app', action: 'getSession', err }));
+    authService.getSession().then(({ data: { session }, error }) => {
+      const fonte = decidirFonteDeSessao({ session, error, temCache: !!lerAuthCache() });
+      if (fonte === 'sessao') aplicarSessao(session);
+      else if (fonte === 'cache') { connectivity.reportError(error); aplicarSessaoDoCache(); }
+    }).catch(err => {
+      logger.error('falha ao restaurar sessao', { module: 'app', action: 'getSession', err });
+      if (decidirFonteDeSessao({ session: null, error: err, temCache: !!lerAuthCache() }) === 'cache') {
+        connectivity.reportError(err);
+        aplicarSessaoDoCache();
+      }
+    });
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
-      aplicarSessao(session);
+      const fonte = decidirFonteDeSessao({ session, event, temCache: !!lerAuthCache() });
+      if (fonte === 'cache') aplicarSessaoDoCache();
+      else aplicarSessao(session);
     });
     return () => subscription.unsubscribe();
   }, []);
