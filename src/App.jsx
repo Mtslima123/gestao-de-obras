@@ -219,8 +219,24 @@ const AppInner = () => {
   // Carrega obras do Supabase ao autenticar; mock serve só de fallback se a consulta falhar
   React.useEffect(() => {
     if (!authed) return;
+    let liberado = false;
+    // Rede real "sem sinal" pode ficar PENDENTE por muito tempo em vez de rejeitar na
+    // hora (diferente do DevTools Offline, que rejeita instantâneo) — sem isto, uma
+    // conexão genuinamente travada prendia o Mobile Gate no spinner pra sempre, sem
+    // nem cair no fallback mock.
+    const timeoutId = setTimeout(() => {
+      if (liberado) return;
+      liberado = true;
+      diagOffline('obras: timeout esperando a rede, seguindo com o mock', {});
+      setObras([...AppData.obras]);
+      setObrasOffline(true);
+      setObrasLoaded(true);
+    }, 8000);
     obrasService.listar()
       .then(({ data, error }) => {
+        if (liberado) return; // já seguiu pelo timeout — não reverte o que o usuário já está vendo
+        liberado = true;
+        clearTimeout(timeoutId);
         if (!error && data) {
           AppData.obras = data;
           setObras(data);
@@ -232,8 +248,18 @@ const AppInner = () => {
           setObrasOffline(rede);
           if (rede) connectivity.reportError(error);
         }
+        setObrasLoaded(true);
       })
-      .finally(() => setObrasLoaded(true)); // libera o gate mesmo se a consulta falhar
+      .catch((err) => {
+        if (liberado) return;
+        liberado = true;
+        clearTimeout(timeoutId);
+        logger.error('falha inesperada ao listar obras', { module: 'obras', action: 'listar', err });
+        setObras([...AppData.obras]);
+        if (isNetworkError(err)) { setObrasOffline(true); connectivity.reportError(err); }
+        setObrasLoaded(true);
+      });
+    return () => { liberado = true; clearTimeout(timeoutId); };
   }, [authed, obrasRetryTick]);
   useRetryOnReconnect(() => setObrasRetryTick((t) => t + 1));
 
@@ -560,19 +586,21 @@ const AppInner = () => {
         <AcessoNaoAutorizado email={user?.email} onSair={handleLogout} />
       )}
       {authed && !acessoNegado && showMobileGate && (
-        <MobileGate
-          obras={obrasVisiveis}
-          obrasLoaded={obrasLoaded}
-          userProfile={userProfile}
-          onLogout={handleLogout}
-          onEnterFull={bypassMobileGate}
-          onGoMedicao={(obraId) => {
-            try { sessionStorage.setItem('mobile_focus_obra_id', obraId); } catch { /* ignore */ }
-            handleOpenCronograma(obraId, 'medicao');
-            setMobileFocus('medicao');
-          }}
-          onGoFotos={(obra) => { handleOpenObra(obra, 'fotos'); setMobileFocus('fotos'); }}
-        />
+        <ErrorBoundary>
+          <MobileGate
+            obras={obrasVisiveis}
+            obrasLoaded={obrasLoaded}
+            userProfile={userProfile}
+            onLogout={handleLogout}
+            onEnterFull={bypassMobileGate}
+            onGoMedicao={(obraId) => {
+              try { sessionStorage.setItem('mobile_focus_obra_id', obraId); } catch { /* ignore */ }
+              handleOpenCronograma(obraId, 'medicao');
+              setMobileFocus('medicao');
+            }}
+            onGoFotos={(obra) => { handleOpenObra(obra, 'fotos'); setMobileFocus('fotos'); }}
+          />
+        </ErrorBoundary>
       )}
       {authed && !acessoNegado && !showMobileGate && mobileFocus && (
         <div className="mobile-focus-shell">

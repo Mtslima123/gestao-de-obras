@@ -2626,10 +2626,24 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         setLoadedObraId(obraSel);
         return;
       }
-      // isLoading já é true sincronamente quando obraSel muda — sem necessidade de setState extra
-      const { data: db, error: dbErro } = await carregarCronogramaDB(obraSel);
+      // isLoading já é true sincronamente quando obraSel muda — sem necessidade de setState extra.
+      // Rede real "sem sinal" pode ficar PENDENTE por muito tempo em vez de rejeitar na hora
+      // (diferente do DevTools Offline, que rejeita instantâneo) — sem o timeout, isso travava
+      // em "Carregando…" pra sempre, o fallback de "Sem conexão" nunca chegava a aparecer.
+      const TIMEOUT_REDE = { timeout: true };
+      const { data: db, error: dbErro } = await Promise.race([
+        carregarCronogramaDB(obraSel),
+        new Promise((resolve) => setTimeout(() => resolve({ data: null, error: TIMEOUT_REDE }), 8000)),
+      ]);
       if (cancelled) return;
 
+      if (dbErro === TIMEOUT_REDE) {
+        logger.warn('cronograma: timeout esperando a rede', { module: 'cronograma', action: 'carregar', obraSel });
+        connectivity.reportError({ message: 'Failed to fetch' });
+        setCronogramaErro(dbErro);
+        setLoadedObraId(obraSel);
+        return;
+      }
       if (dbErro && isNetworkError(dbErro)) {
         connectivity.reportError(dbErro);
         setCronogramaErro(dbErro);
