@@ -304,9 +304,13 @@ const AppInner = () => {
   // Enterprise Application ("Assignment required" + grupo atribuído), gerenciado pelo
   // Appiá — quem não está no grupo nem completa o login (AADSTS50105, tratado em
   // Login.jsx). Não há checagem de grupo em runtime aqui de propósito.
-  const aplicarSessao = async (session) => {
+  const aplicarSessao = async (session, motivo = 'direto') => {
     if (!session?.user) {
-      diagOffline('aplicarSessao: sem sessao, limpando cache e deslogando', {});
+      diagOffline('aplicarSessao: sem sessao, limpando cache e deslogando', { motivo });
+      // Diagnóstico temporário: grava o motivo exato (evento do Supabase que levou ao
+      // logout) num marcador próprio, só pra Login.jsx poder mostrar na tela — sessionStorage
+      // porque só precisa sobreviver até a pessoa ver a tela, não além disso.
+      try { sessionStorage.setItem('gm_diag_ultimo_logout', JSON.stringify({ motivo, em: Date.now() })); } catch { /* ignore */ }
       setAuthed(false);
       setAcessoNegado(false);
       setUser(null);
@@ -381,7 +385,7 @@ const AppInner = () => {
       const fonte = decidirFonteDeSessao({ session, event, temCache });
       diagOffline('onAuthStateChange', { event, temSessao: !!session?.user, temCache, fonte });
       if (fonte === 'cache') aplicarSessaoDoCache();
-      else aplicarSessao(session);
+      else aplicarSessao(session, `onAuthStateChange:${event}`);
     });
     return () => subscription.unsubscribe();
   }, []);
