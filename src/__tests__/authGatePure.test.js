@@ -8,9 +8,17 @@ describe('decidirFonteDeSessao', () => {
     expect(decidirFonteDeSessao({ session, temCache: false })).toBe('sessao');
   });
 
-  it('SIGNED_OUT sempre desloga, mesmo com cache disponível', () => {
-    expect(decidirFonteDeSessao({ session: null, event: 'SIGNED_OUT', temCache: true })).toBe('deslogado');
-    expect(decidirFonteDeSessao({ session: null, event: 'SIGNED_OUT', temCache: false })).toBe('deslogado');
+  it('SIGNED_OUT deliberado (botão Sair) sempre desloga, mesmo com cache disponível', () => {
+    expect(decidirFonteDeSessao({ session: null, event: 'SIGNED_OUT', temCache: true, deslogamentoDeliberado: true })).toBe('deslogado');
+    expect(decidirFonteDeSessao({ session: null, event: 'SIGNED_OUT', temCache: false, deslogamentoDeliberado: true })).toBe('deslogado');
+  });
+
+  it('SIGNED_OUT NÃO deliberado (disparado pelo SDK, ex.: sessão corrompida por aba encerrada) usa o cache quando existe', () => {
+    expect(decidirFonteDeSessao({ session: null, event: 'SIGNED_OUT', temCache: true, deslogamentoDeliberado: false })).toBe('cache');
+  });
+
+  it('SIGNED_OUT não deliberado e sem cache desloga (nada pra restaurar)', () => {
+    expect(decidirFonteDeSessao({ session: null, event: 'SIGNED_OUT', temCache: false, deslogamentoDeliberado: false })).toBe('deslogado');
   });
 
   it('INITIAL_SESSION com sessão nula usa o cache quando existe (reload offline, ou a aba foi reiniciada pelo celular)', () => {

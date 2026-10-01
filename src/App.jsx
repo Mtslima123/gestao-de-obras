@@ -149,6 +149,11 @@ const AppInner = () => {
   // de abrir a aba ganhava a recarga automática; deploys seguintes na mesma sessão cairiam
   // direto no botão manual, mesmo sendo exatamente o mesmo caso.
   React.useEffect(() => { try { sessionStorage.removeItem('gm_reload_chunk_error'); } catch { /* ignore */ } }, []);
+  // true só entre o clique em "Sair" e o SIGNED_OUT que ele provoca chegar — é o que
+  // diferencia um logout de verdade (deve sempre derrubar, mesmo com cache disponível)
+  // de um SIGNED_OUT disparado pelo próprio SDK sem ação nenhuma da pessoa (ver
+  // decidirFonteDeSessao). Reseta a cada novo login bem-sucedido (aplicarSessao).
+  const deslogamentoDeliberadoRef = React.useRef(false);
   const toast = useToast();
   const [authed, setAuthed]           = React.useState(false);
   const [acessoNegado, setAcessoNegado] = React.useState(false); // sessão válida, mas e-mail não autorizado
@@ -323,6 +328,7 @@ const AppInner = () => {
       setMobileFocus(null);
       return;
     }
+    deslogamentoDeliberadoRef.current = false; // sessão real de volta: próximo SIGNED_OUT (se vier) não é deliberado até a pessoa clicar Sair de novo
     setUser(session.user);
     setContext({ userId: session.user.id, userEmail: session.user.email }); // enriquece os logs
 
@@ -382,8 +388,9 @@ const AppInner = () => {
     restaurarSessao();
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
       const temCache = !!lerAuthCache();
-      const fonte = decidirFonteDeSessao({ session, event, temCache });
-      diagOffline('onAuthStateChange', { event, temSessao: !!session?.user, temCache, fonte });
+      const deliberado = deslogamentoDeliberadoRef.current;
+      const fonte = decidirFonteDeSessao({ session, event, temCache, deslogamentoDeliberado: deliberado });
+      diagOffline('onAuthStateChange', { event, temSessao: !!session?.user, temCache, deliberado, fonte });
       if (fonte === 'cache') aplicarSessaoDoCache();
       else aplicarSessao(session, `onAuthStateChange:${event}`);
     });
@@ -420,7 +427,10 @@ const AppInner = () => {
     window.scrollTo(0, 0);
   }, [view, selectedObra?.id]);
 
-  const handleLogout = () => authService.signOut();
+  const handleLogout = () => {
+    deslogamentoDeliberadoRef.current = true;
+    authService.signOut();
+  };
 
   const bypassMobileGate = () => {
     try { sessionStorage.setItem('mobile_gate_ok', '1'); } catch { /* ignore */ }
