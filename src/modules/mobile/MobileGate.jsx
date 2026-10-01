@@ -42,7 +42,12 @@ const MobileGate = ({ obras, obrasLoaded, userProfile, onLogout, onEnterFull, on
       <div className="mobile-gate" data-screen-label="00 Mobile Gate">
         {header}
         <div className="mobile-gate-body">
-          <div className="content-loading"><span className="spinner" /></div>
+          {/* Só o spinner (22px) parecia tela em branco no celular enquanto a rede
+              demora — sem internet pode levar até ~8s (timeout em App.jsx). */}
+          <div className="content-loading" style={{ flexDirection: 'column', gap: 12 }}>
+            <span className="spinner" />
+            <span className="text-muted" style={{ fontSize: 13 }}>Carregando obras…</span>
+          </div>
         </div>
       </div>
     );

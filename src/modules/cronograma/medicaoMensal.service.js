@@ -26,8 +26,12 @@ async function upsertComFallback(payloadCompleto, camposNovos) {
 }
 
 export const medicaoMensalService = {
+  // Devolve { data, error } em vez de engolir o erro (antes: `return null`) — quem chama
+  // precisa saber SE foi falha de rede (mostra "sem conexão") ou se o mês genuinamente
+  // não tem medição aberta ainda. Antes, offline, a tela mostrava "Nenhuma medição
+  // aberta — feche e aprove primeiro o mês anterior", que é falso e confunde.
   async buscarPorMes(obraId, mesReferencia) {
-    if (!obraId || !mesReferencia) return null;
+    if (!obraId || !mesReferencia) return { data: null, error: null };
     const { data, error } = await supabase
       .from('medicoes_mensais')
       .select('*')
@@ -36,9 +40,9 @@ export const medicaoMensalService = {
       .maybeSingle();
     if (error) {
       logger.error('falha ao buscar medição mensal', { module: 'medicaoMensal', action: 'buscarPorMes', obraId, mesReferencia, err: error });
-      return null;
+      return { data: null, error };
     }
-    return data || null;
+    return { data: data || null, error: null };
   },
 
   // Todos os meses da obra que já têm medição, aberta (rascunho) ou fechada, mais

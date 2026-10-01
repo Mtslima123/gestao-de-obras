@@ -667,7 +667,10 @@ const AppInner = () => {
         <div className="content">
           <ErrorBoundary key={view}>
           {!obrasLoaded ? (
-            <div className="content-loading"><span className="spinner" /></div>
+            <div className="content-loading" style={{ flexDirection: 'column', gap: 12 }}>
+              <span className="spinner" />
+              <span className="text-muted" style={{ fontSize: 13 }}>Carregando obras…</span>
+            </div>
           ) : viewBloqueada ? (
             <AcessoNegado onVoltar={() => handleNavigate(primeiraViewLiberada)} />
           ) : (

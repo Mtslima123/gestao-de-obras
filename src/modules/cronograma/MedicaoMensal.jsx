@@ -6,6 +6,8 @@ import { offsetToDate, dateToExcelSerial } from './cronogramaDateUtils';
 import { mesAtualOuUltimo, mesesComReprogramacao } from './scheduleEngine';
 import { medicaoMensalService } from './medicaoMensal.service';
 import { useIsMobile } from '../../utils/useIsMobile';
+import { isNetworkError, connectivity, useRetryOnReconnect } from '../../utils/connectivity';
+import { OfflineFallback } from '../../components/OfflineFallback';
 import {
   XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
@@ -634,6 +636,11 @@ export default function MedicaoMensal({
   // cair no branch "Nenhuma medição aberta" — seria um falso negativo, já que a medição
   // pode existir e só não ter voltado do banco ainda.
   const [carregando, setCarregando] = React.useState(true);
+  // Só falha de REDE (ou rede pendurada sem responder) ao buscar a medição do mês —
+  // sem isto, offline caía no ramo "Nenhuma medição aberta / feche e aprove o mês
+  // anterior", que é falso (o mês pode estar aberto, só não deu pra confirmar).
+  const [medicaoOffline, setMedicaoOffline] = React.useState(false);
+  const [retryTick, setRetryTick] = React.useState(0);
   const [salvando, setSalvando] = React.useState(false);
   const [busca, setBusca] = React.useState('');
   const [pavimento, setPavimento] = React.useState('Todos');
@@ -738,7 +745,21 @@ export default function MedicaoMensal({
   const gerarMedicao = React.useCallback(async () => {
     if (!obraId || !mesRefKey) { setItensTrabalho([]); setRegistro(null); setIdsManuais(new Set()); setCarregando(false); return; }
     setCarregando(true);
-    const reg = await medicaoMensalService.buscarPorMes(obraId, mesRefKey);
+    // Mesmo limite de 8s do carregamento do cronograma (Cronograma.jsx): rede real
+    // "sem sinal" pode ficar pendente muito tempo em vez de falhar na hora.
+    const TIMEOUT_REDE = { timeout: true };
+    const { data: reg, error: regErro } = await Promise.race([
+      medicaoMensalService.buscarPorMes(obraId, mesRefKey),
+      new Promise((resolve) => setTimeout(() => resolve({ data: null, error: TIMEOUT_REDE }), 8000)),
+    ]);
+    if (regErro && (regErro === TIMEOUT_REDE || isNetworkError(regErro))) {
+      connectivity.reportError(regErro === TIMEOUT_REDE ? { message: 'Failed to fetch' } : regErro);
+      setMedicaoOffline(true);
+      setCarregando(false);
+      return;
+    }
+    setMedicaoOffline(false);
+    if (!regErro) connectivity.reportSuccess();
     // Aceita as duas chaves: o rascunho grava `manual`, o snapshot de fechamento grava
     // `foraDoMes`. Lendo só uma delas, uma medição fechada voltava sem os itens extras e
     // os totais da tela divergiam do valor congelado que o histórico mostra.
@@ -762,7 +783,8 @@ export default function MedicaoMensal({
 
   // Carrega ao montar e sempre que trocar de mês/obra — edições em andamento do
   // usuário não são perdidas por mudanças não relacionadas.
-  React.useEffect(() => { gerarMedicao(); }, [obraId, mesRefKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { gerarMedicao(); }, [obraId, mesRefKey, retryTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useRetryOnReconnect(() => setRetryTick((t) => t + 1));
 
   // Fecha o dropdown de exportação ao clicar fora.
   React.useEffect(() => {
@@ -786,7 +808,7 @@ export default function MedicaoMensal({
     let vivo = true;
     medicaoMensalService.listarMeses(obraId).then(r => { if (vivo) setMesesComMedicao(r); });
     return () => { vivo = false; };
-  }, [obraId, registro]);
+  }, [obraId, registro, retryTick]);
 
   // Mês inicial da medição da obra (obras.medicao_mes_inicial) — null = cronograma inteiro.
   const [mesInicial, setMesInicial] = React.useState(null);
@@ -1913,6 +1935,8 @@ export default function MedicaoMensal({
                       // enganoso — a medição pode existir e só não ter chegado ainda; sem
                       // isso a tela piscava esse aviso a cada troca de aba/mês antes do real.
                       <div style={{ fontSize: 13.5 }}>Carregando medição…</div>
+                    ) : medicaoOffline ? (
+                      <OfflineFallback onRetry={() => setRetryTick((t) => t + 1)} />
                     ) : !registro ? (
                       // Mês sem medição: o ciclo começa aqui. Nada de itens e nada editável
                       // até abrir — antes a tela já vinha preenchida e livre, sem registro.
@@ -2270,6 +2294,8 @@ export default function MedicaoMensal({
             <div className="mm-mobile-empty">
               {carregando ? (
                 <div>Carregando medição…</div>
+              ) : medicaoOffline ? (
+                <OfflineFallback onRetry={() => setRetryTick((t) => t + 1)} />
               ) : !registro ? (
                 <>
                   <div>Nenhuma medição aberta para <strong>{mesLabel(mesRefKey)}</strong>.</div>
