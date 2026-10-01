@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom/client';
 import './styles/globals.css';
 import { App } from './App';
 import { logger } from './services/logger';
+// Só o import já liga os listeners de reconexão do motor de fila offline (Fase 1: sem
+// handler registrado ainda, Fotos/Medição entram na Fase 2/3) — precisa estar ativo
+// desde o boot pra nenhuma reconexão passar em branco.
+import './services/offlineQueue';
 
 // Captura global de erros assíncronos que escapam do ErrorBoundary do React.
 window.addEventListener('error', (ev) => {

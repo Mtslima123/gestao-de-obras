@@ -84,6 +84,7 @@ const Icon = ({ name, size = 18, stroke = 2, className = '', style }) => {
     case 'send': return <svg {...props}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
     case 'move': return <svg {...props}><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>;
     case 'message-square': return <svg {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
+    case 'wifi-off': return <svg {...props}><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.5a10 10 0 0 1 5.5-3.5"/><path d="M19 12.5a10 10 0 0 0-3-2.5"/><path d="M2 8.5a15 15 0 0 1 4-2.5"/><path d="M22 8.5a15 15 0 0 0-8-4"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>;
     default: return <svg {...props}><circle cx="12" cy="12" r="9"/></svg>;
   }
 };

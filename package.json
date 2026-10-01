@@ -24,8 +24,10 @@
   },
   "homepage": "https://github.com/Mtslima123/gestao-de-obras#readme",
   "devDependencies": {
+    "@vite-pwa/assets-generator": "^1.0.4",
     "@vitejs/plugin-react": "^6.0.2",
     "vite": "^8.0.14",
+    "vite-plugin-pwa": "^1.3.0",
     "vitest": "^3.2.7"
   },
   "dependencies": {

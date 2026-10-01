@@ -5,6 +5,8 @@ import { useToast, Modal } from '../../components/Modals';
 import { orcamentosService } from './orcamentos.service';
 import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
+import { isNetworkError, connectivity, useRetryOnReconnect } from '../../utils/connectivity';
+import { OfflineFallback } from '../../components/OfflineFallback';
 import { vinculoService } from './vinculoService';
 import { supabase } from '../../services/supabase';
 import { migrateEtapas } from '../cronograma/ganttUtils';
@@ -19,7 +21,7 @@ const brlFull = formatBRL;
 
 
 // OrcamentoLista recebe orcamentos já buscados pelo screen pai
-const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, userProfile, pagina = 1, total = 0, perPage = 12, onPagina, busca = '', onBusca, buscando = false }) => {
+const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, offline = false, onRetry, userProfile, pagina = 1, total = 0, perPage = 12, onPagina, busca = '', onBusca, buscando = false }) => {
   const filtered = orcamentos;
   const totalPaginas = Math.max(1, Math.ceil(total / perPage));
 
@@ -51,6 +53,8 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, user
             </div>
           ))}
         </div>
+      ) : offline ? (
+        <OfflineFallback onRetry={onRetry} />
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)', fontSize: 14 }}>
           {buscando ? 'Nenhum orçamento encontrado' : 'Nenhum orçamento cadastrado'}
@@ -84,7 +88,7 @@ const OrcamentoLista = ({ onOpen, onNovo, orcamentos = [], loading = false, user
         </div>
       )}
 
-      {!loading && (buscando || total > 0) && (
+      {!loading && !offline && (buscando || total > 0) && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--gap)', flexWrap: 'wrap', gap: 8 }}>
           <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
             {buscando
@@ -1739,6 +1743,9 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
   const [total, setTotal]           = React.useState(0);
   const [busca, setBusca]           = React.useState('');
   const [todos, setTodos]           = React.useState([]); // lista completa p/ busca (a paginação é no servidor)
+  const [erro, setErro]             = React.useState(null); // só erro de REDE
+  const [retryTick, setRetryTick]   = React.useState(0);
+  useRetryOnReconnect(() => setRetryTick((t) => t + 1));
 
   // Mesma fonte de verdade de acesso usada em App.jsx para obrasVisiveis — null
   // pra admin (sem restrição), array de obra_id pro usuário comum. Filtrar aqui
@@ -1759,14 +1766,20 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
           return { ...o, obra: ob?.nome || '—', obraSigla: ob?.sigla || '', obraStatus: ob?.status || '' };
         }));
         setTotal(count ?? 0);
+        setErro(null);
+        connectivity.reportSuccess();
       } else {
         setOrcamentos([]); setTotal(0);
+        if (error) {
+          setErro(error);
+          if (isNetworkError(error)) connectivity.reportError(error);
+        }
       }
       setLoading(false);
     });
   }, [obras, pagina, obraIds]);
 
-  React.useEffect(() => { refetch(); }, [refetch, refreshKey]);
+  React.useEffect(() => { refetch(); }, [refetch, refreshKey, retryTick]);
 
   // Lista completa (todas as páginas) só para a busca — a paginação do servidor
   // traz apenas a página atual, então filtrar por código/obra precisa do conjunto todo.
@@ -1776,10 +1789,13 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
         const ob = obras.find(ob => ob.id === o.obra_id);
         return { ...o, obra: ob?.nome || '—', obraSigla: ob?.sigla || '', obraStatus: ob?.status || '' };
       }));
-      else setTodos([]);
+      else {
+        setTodos([]);
+        if (error && isNetworkError(error)) { setErro(error); connectivity.reportError(error); }
+      }
     });
   }, [obras, obraIds]);
-  React.useEffect(() => { refetchTodos(); }, [refetchTodos, refreshKey]);
+  React.useEffect(() => { refetchTodos(); }, [refetchTodos, refreshKey, retryTick]);
 
   // Após criar um orçamento, volta para a 1ª página (onde ele aparece)
   const prevRefreshKeyRef = React.useRef(refreshKey);
@@ -1838,6 +1854,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
   const lista = buscando
     ? todos.filter(o => (`${o.id} ${o.obra || ''} ${o.nome || ''}`).toLowerCase().includes(q))
     : orcamentos;
+  const erroDeRede = erro && isNetworkError(erro);
 
   if (selected) {
     return (
@@ -1857,6 +1874,8 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
       onNovo={onNovoOrcamento}
       orcamentos={lista}
       loading={loading}
+      offline={erroDeRede}
+      onRetry={() => setRetryTick((t) => t + 1)}
       userProfile={userProfile}
       pagina={pagina}
       total={total}

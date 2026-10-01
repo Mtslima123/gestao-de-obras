@@ -3,6 +3,9 @@ import { Icon } from '../../components/Icons';
 import { AppData } from '../../utils/data';
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
+import { friendlyError } from '../../utils/friendlyError';
+import { isNetworkError, connectivity, useRetryOnReconnect } from '../../utils/connectivity';
+import { OfflineFallback } from '../../components/OfflineFallback';
 import { orcamentosService } from '../financeiro/orcamentos.service';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { migrateEtapas, offsetToISO, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
@@ -50,6 +53,8 @@ const KPI = React.memo(({ label, value, unit, icon, foot }) => (
 const Dashboard = ({ obras = [] }) => {
   const [carga, setCarga] = React.useState({ loading: true, erro: null });
   const [obraFiltro, setObraFiltro] = React.useState(null);
+  const [retryTick, setRetryTick] = React.useState(0);
+  useRetryOnReconnect(() => setRetryTick((t) => t + 1));
 
   // Obra concluída some do Dashboard inteiro — KPIs, tabelas e as seções de Físico
   // Financeiro abaixo. Só existem 2 status no sistema (em_andamento/concluida), então
@@ -71,12 +76,14 @@ const Dashboard = ({ obras = [] }) => {
       fisicoFinanceiroService.buscarUltimosPorObras(ids),
     ]).then(([cronRes, vincRes, orcRes, ffRes]) => {
       if (cancelado) return;
-      const erro = cronRes.error || vincRes.error || orcRes.error;
+      const erro = cronRes.error || vincRes.error || orcRes.error || ffRes.error;
       if (erro) {
         logger.error('falha ao carregar o dashboard', { module: 'dashboard', err: erro });
+        if (isNetworkError(erro)) connectivity.reportError(erro);
         setCarga({ loading: false, erro });
         return;
       }
+      connectivity.reportSuccess();
 
       // Último fechamento importado de cada obra (não um mês fixo) — mesmo critério da
       // tela de Físico Financeiro, que abre sempre no mês mais recente.
@@ -146,12 +153,20 @@ const Dashboard = ({ obras = [] }) => {
         fechamentosPorObra,
         mesFechamentoPorObra,
       });
+    }).catch((erro) => {
+      // Sem isto, uma exceção síncrona dentro do .then() (formato de dado inesperado,
+      // por exemplo) deixava "Carregando…" pra sempre em vez de cair no tratamento de
+      // erro acima.
+      if (cancelado) return;
+      logger.error('falha ao carregar o dashboard', { module: 'dashboard', err: erro });
+      if (isNetworkError(erro)) connectivity.reportError(erro);
+      setCarga({ loading: false, erro });
     });
 
     return () => { cancelado = true; };
     // obrasKey em vez de `obras`: a identidade do array muda a cada render do App
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [obrasKey]);
+  }, [obrasKey, retryTick]);
 
   const {
     loading, erro, vazio, porObra = [], curvaPorObra = {},
@@ -170,6 +185,7 @@ const Dashboard = ({ obras = [] }) => {
   const obraSelecionadaFF = obrasAtivas.find(o => o.id === obraFiltroEfetivo) || null;
   const kpisFF = computeKPIs(fechamentosPorObra[obraFiltroEfetivo] || []);
   const curvaObra = curvaPorObra[obraFiltroEfetivo];
+  const erroDeRede = erro && isNetworkError(erro);
 
   return (
     <>
@@ -179,15 +195,17 @@ const Dashboard = ({ obras = [] }) => {
         </div>
       </div>
 
-      {erro && (
+      {erro && !erroDeRede && (
         <div className="card" style={{ marginBottom: 'var(--gap)' }}>
           <div className="card-body" style={{ color: 'var(--danger)', fontSize: 13 }}>
-            Não foi possível carregar os dados da carteira: {erro.message}
+            Não foi possível carregar os dados da carteira: {friendlyError(erro)}
           </div>
         </div>
       )}
 
-      {vazio ? (
+      {erroDeRede ? (
+        <OfflineFallback onRetry={() => setRetryTick((t) => t + 1)} />
+      ) : vazio ? (
         <div className="card">
           <div className="card-body" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
             Nenhuma obra liberada para o seu usuário. Peça ao administrador para vincular as obras ao seu perfil.

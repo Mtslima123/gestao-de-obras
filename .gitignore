@@ -5,6 +5,7 @@ uploads/
 CLAUDE.md
 node_modules/
 dist/
+dev-dist/
 .env
 .env.local
 # 🔒 SEGURANÇA [VULN-4]: arquivo de teste usa credenciais via env — não commitar

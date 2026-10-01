@@ -5,6 +5,8 @@ import { supabase } from '../../services/supabase';
 import { pavimentosService } from '../../services/pavimentos.service';
 import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
+import { isNetworkError, connectivity, useRetryOnReconnect } from '../../utils/connectivity';
+import { OfflineFallback } from '../../components/OfflineFallback';
 import { SCurveChart } from './SCurveChart';
 import { SCurveChart2 } from './SCurveChart2';
 import { useToast } from '../../components/Modals';
@@ -2276,12 +2278,15 @@ async function carregarCronogramaDB(obraId) {
     .select('etapas, custom_cols, baselines, reprogramacoes, feriados, updated_at')
     .eq('obra_id', obraId)
     .single();
-  if (error) return null;
+  // Propaga o erro em vez de engolir (antes: `return null`) — quem chama precisa saber
+  // SE foi uma falha de rede (mostra fallback "sem conexão") ou se a obra genuinamente
+  // não tem cronograma ainda (PGRST116/"sem linha", cai no fallback mock de sempre).
+  if (error) return { data: null, error };
   _cronSavedAt[obraId] = data.updated_at;  // baseline do bloqueio otimista
   // O snapshot do diff é montado por quem chama, depois de migrateEtapas/autoSchedule:
   // aqui os objetos ainda são o JSON cru do banco, com outra ordem de chaves e sem os
   // defaults preenchidos, e todo diff acusaria as 1139 etapas como alteradas.
-  return data;
+  return { data, error: null };
 }
 
 // Cache por obra (espelha o estado em memória), evita rebuscar/reprocessar ao voltar; resetado no F5
@@ -2484,6 +2489,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // para que término/barras/duração usem dias úteis. Roda no render (síncrono).
   React.useMemo(() => { setWorkCal(feriadosCfg); return feriadosCfg; }, [feriadosCfg]);
   const [loadedObraId, setLoadedObraId] = React.useState(null);
+  const [cronogramaErro, setCronogramaErro] = React.useState(null); // só erro de REDE
   // Bloqueio otimista: conflito quando outra sessão salvou o mesmo cronograma
   const [conflito,     setConflito]     = React.useState(false);
   const [reloadKey,    setReloadKey]    = React.useState(0);
@@ -2615,8 +2621,18 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         return;
       }
       // isLoading já é true sincronamente quando obraSel muda — sem necessidade de setState extra
-      const db = await carregarCronogramaDB(obraSel);
+      const { data: db, error: dbErro } = await carregarCronogramaDB(obraSel);
       if (cancelled) return;
+
+      if (dbErro && isNetworkError(dbErro)) {
+        connectivity.reportError(dbErro);
+        setCronogramaErro(dbErro);
+        setLoadedObraId(obraSel); // essencial: senão isLoading nunca vira false e a tela
+                                  // trava em "Carregando…" pra sempre, o fallback nunca aparece
+        return;
+      }
+      connectivity.reportSuccess();
+      setCronogramaErro(null);
       // Sanitiza restrições com tipo definido mas sem data (estado inválido de bug anterior)
       // e re-aplica scheduling para recuperar posições corrompidas
       const sanitizarERecuperar = (lista) => {
@@ -2747,6 +2763,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     reloadToastRef.current = true;
     setReloadKey(k => k + 1);
   };
+  useRetryOnReconnect(recarregarCronograma);
 
   // Handlers de linha de base
   // Nomes já usados por linhas de base e reprogramações (para bloquear duplicados, sem diferenciar tipo)
@@ -3157,6 +3174,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
 
       {isLoading
         ? <div className="text-muted" style={{ padding: 64, textAlign: 'center' }}>Carregando…</div>
+        : cronogramaErro
+        ? <OfflineFallback onRetry={recarregarCronograma} />
         : !obraSel || (etapas.length === 0 && !iniciando)
           ? (
             <div className="card" style={{ marginTop: 'var(--gap)', padding: '72px 24px', textAlign: 'center' }}>

@@ -4,10 +4,16 @@
 //
 // O erro original NUNCA deve ir direto pro toast — só serve de entrada aqui (e pro
 // logger, pra debug). Isso evita expor mensagem técnica/em inglês na interface.
+//
+// Exportada (não só usada aqui dentro) porque também alimenta src/utils/connectivity.js,
+// que decide quando trocar o conteúdo de uma tela pelo fallback "sem conexão". Um único
+// lugar de verdade evita que as duas regras divirjam com o tempo.
+export const NETWORK_ERROR_RE = /failed to fetch|network ?error|ERR_INTERNET|ERR_NETWORK/i;
+
 export function friendlyError(error) {
   const msg = String(error?.message || error || '');
 
-  if (/failed to fetch|network ?error|ERR_INTERNET|ERR_NETWORK/i.test(msg)) {
+  if (NETWORK_ERROR_RE.test(msg)) {
     return 'Falha de conexão. Verifique sua internet e tente novamente.';
   }
   if (/jwt|token.*expired|not authenticated|session/i.test(msg)) {

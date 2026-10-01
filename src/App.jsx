@@ -1,4 +1,5 @@
 import React from 'react';
+import { useRegisterSW } from 'virtual:pwa-register/react';
 import { AppData } from './utils/data';
 import { Icon } from './components/Icons';
 import { ToastProvider, useToast, NovaObraModal, NovaMedicaoModal, SolicitarCompraModal, NovoOrcamentoModal } from './components/Modals';
@@ -11,6 +12,8 @@ import { moduloLiberado, obraLiberada, obrasPermitidas } from './utils/permissio
 import { obrasService, obraDeleteErrorMessage } from './modules/obras/obras.service';
 import { logger, setContext, clearContext } from './services/logger';
 import { friendlyError } from './utils/friendlyError';
+import { isNetworkError, connectivity, useRetryOnReconnect } from './utils/connectivity';
+import { OfflineFallback } from './components/OfflineFallback';
 import { useIsMobile } from './utils/useIsMobile';
 import { MobileGate } from './modules/mobile/MobileGate';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
@@ -122,6 +125,8 @@ const AppInner = () => {
     return null;
   });
   const [obrasLoaded,     setObrasLoaded]     = React.useState(false);
+  const [obrasOffline,    setObrasOffline]    = React.useState(false); // erro de REDE (não qualquer erro) ao buscar a lista
+  const [obrasRetryTick,  setObrasRetryTick]  = React.useState(0);
   const [cronogramaTab,   setCronogramaTab]   = React.useState(() => sessionStorage.getItem('nav_cronograma_tab') || 'gantt');
   const [adminTab,        setAdminTab]        = React.useState(() => sessionStorage.getItem('nav_admin_tab') || 'usuarios');
   const [sidebarPinned,   setSidebarPinned]   = React.useState(false); // menu fixado aberto (sem persistir)
@@ -163,12 +168,18 @@ const AppInner = () => {
         if (!error && data) {
           AppData.obras = data;
           setObras(data);
+          setObrasOffline(false);
+          connectivity.reportSuccess();
         } else {
           setObras([...AppData.obras]); // fallback ao mock apenas em caso de erro
+          const rede = isNetworkError(error);
+          setObrasOffline(rede);
+          if (rede) connectivity.reportError(error);
         }
       })
       .finally(() => setObrasLoaded(true)); // libera o gate mesmo se a consulta falhar
-  }, [authed]);
+  }, [authed, obrasRetryTick]);
+  useRetryOnReconnect(() => setObrasRetryTick((t) => t + 1));
 
   const handleObraCreate = async (nova) => {
     const { data, error } = await obrasService.criar(nova, user?.id);
@@ -503,7 +514,11 @@ const AppInner = () => {
           <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
           <>
           {view === 'dashboard' && <Dashboard obras={obrasVisiveis} onOpenObra={handleOpenObra} />}
-          {view === 'obras' && <ObrasList onOpenObra={handleOpenObra} obras={obrasVisiveis} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} userProfile={userProfile} />}
+          {view === 'obras' && (
+            obrasOffline
+              ? <OfflineFallback onRetry={() => setObrasRetryTick((t) => t + 1)} />
+              : <ObrasList onOpenObra={handleOpenObra} obras={obrasVisiveis} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} userProfile={userProfile} />
+          )}
           {view === 'obra-detail' && (
             <ObraDetail
               obra={selectedObra}
@@ -613,9 +628,33 @@ const AppInner = () => {
   );
 };
 
+// Aviso de nova versão do app shell (service worker atualizado em segundo plano). Mesmo
+// cuidado do ErrorBoundary com chunk antigo: nunca troca o app debaixo do usuário sem
+// avisar (registerType:'prompt' em vite.config.js) — só troca se a pessoa clicar.
+const PwaUpdateBanner = () => {
+  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
+    onOfflineReady() {
+      logger.info('app shell disponível offline (1ª visita concluída)', { module: 'pwa' });
+    },
+  });
+  if (!needRefresh) return null;
+  return (
+    <div className="card" style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 300, maxWidth: 320 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5, padding: 14 }}>
+        <Icon name="download" size={16} />
+        <span style={{ flex: 1 }}>Nova versão disponível.</span>
+        <button className="btn btn-primary" style={{ padding: '4px 12px', flexShrink: 0 }} onClick={() => updateServiceWorker(true)}>
+          Atualizar
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const App = () => (
   <ToastProvider>
     <AppInner />
+    <PwaUpdateBanner />
   </ToastProvider>
 );
 
