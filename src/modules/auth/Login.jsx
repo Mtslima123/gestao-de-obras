@@ -64,6 +64,12 @@ const LoginScreen = () => {
             <div className="sso-note">
               <LockIcon size={14} /> Acesso restrito a colaboradores Soter
             </div>
+            {/* Diagnóstico rápido de versão em campo (ex.: confirmar se o celular de
+                alguém já pegou um deploy novo antes de pedir pra testar de novo) — mesmo
+                padrão de AcessoNaoAutorizado.jsx. */}
+            <div className="mono text-xs text-faint" style={{ marginTop: 16, textAlign: 'center' }}>
+              v{__APP_VERSION__}
+            </div>
           </div>
         </div>
       </div>

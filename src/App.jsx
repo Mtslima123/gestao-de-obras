@@ -330,7 +330,10 @@ const AppInner = () => {
     setAcessoNegado(false);
   };
 
-  React.useEffect(() => {
+  // Extraído do efeito de boot pra poder rodar de novo sozinho quando a conexão voltar
+  // (useRetryOnReconnect abaixo) — sem isto, alguém que caiu no cache/login por falta de
+  // rede só revalidava de verdade numa recarga manual da página.
+  const restaurarSessao = React.useCallback(() => {
     authService.getSession().then(({ data: { session }, error }) => {
       if (isNetworkError(error)) connectivity.reportError(error); // só sinaliza; a decisão de autorizar não depende mais disto
       const fonte = decidirFonteDeSessao({ session, temCache: !!lerAuthCache() });
@@ -341,6 +344,12 @@ const AppInner = () => {
       if (isNetworkError(err)) connectivity.reportError(err);
       if (decidirFonteDeSessao({ session: null, temCache: !!lerAuthCache() }) === 'cache') aplicarSessaoDoCache();
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useRetryOnReconnect(restaurarSessao);
+
+  React.useEffect(() => {
+    restaurarSessao();
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
       const fonte = decidirFonteDeSessao({ session, event, temCache: !!lerAuthCache() });
       if (fonte === 'cache') aplicarSessaoDoCache();
