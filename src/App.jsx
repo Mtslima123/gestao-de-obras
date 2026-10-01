@@ -427,9 +427,18 @@ const AppInner = () => {
     window.scrollTo(0, 0);
   }, [view, selectedObra?.id]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     deslogamentoDeliberadoRef.current = true;
-    authService.signOut();
+    const { error } = await authService.signOut();
+    // supabase.auth.signOut() tenta revogar a sessão no SERVIDOR antes de limpar
+    // localmente (GoTrueClient#_signOut chama admin.signOut(accessToken) primeiro) — se
+    // essa chamada falhar (ex.: offline), o SDK desiste sem disparar SIGNED_OUT nem
+    // limpar nada, e "Sair" parecia não fazer nada. Sem rede não tem como revogar no
+    // servidor de qualquer jeito (o token expira sozinho) — força a limpeza local.
+    if (error) {
+      diagOffline('handleLogout: signOut falhou (provável offline), limpando local mesmo assim', { errMsg: error?.message ?? null });
+      aplicarSessao(null, 'logout-manual-sem-revogar');
+    }
   };
 
   const bypassMobileGate = () => {
