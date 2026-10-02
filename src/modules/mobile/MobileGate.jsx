@@ -1,11 +1,12 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
+import { OfflineFallback } from '../../components/OfflineFallback';
 import { moduloLiberado, podeVerAba } from '../../utils/permissions';
 
 // Hub pós-login exibido só no mobile (ver isMobile em App.jsx), antes do shell
 // completo (Sidebar+Topbar), oferecendo os 2 fluxos mobile-first (Medição/Fotos)
 // ou a entrada no sistema completo (desktop-first, mas usável no celular).
-const MobileGate = ({ obras, obrasLoaded, userProfile, onLogout, onEnterFull, onGoMedicao, onGoFotos }) => {
+const MobileGate = ({ obras, obrasLoaded, obrasOffline = false, onRetryObras, userProfile, onLogout, onEnterFull, onGoMedicao, onGoFotos }) => {
   const [pendingDestino, setPendingDestino] = React.useState(null); // null | 'medicao' | 'fotos'
 
   const podeMedicao = moduloLiberado(userProfile, 'cronograma') && podeVerAba(userProfile, 'cronograma', 'medicao');
@@ -48,6 +49,19 @@ const MobileGate = ({ obras, obrasLoaded, userProfile, onLogout, onEnterFull, on
             <span className="spinner" />
             <span className="text-muted" style={{ fontSize: 13 }}>Carregando obras…</span>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Sem rede e sem a lista de obras: sem obra não dá pra abrir Medição nem Fotos, e os
+  // atalhos só apareceriam desabilitados com "Nenhuma obra disponível", que é falso.
+  if (obrasOffline && !obras.length) {
+    return (
+      <div className="mobile-gate" data-screen-label="00 Mobile Gate">
+        {header}
+        <div className="mobile-gate-body">
+          <OfflineFallback mensagem="Não foi possível carregar suas obras. Verifique sua conexão com a internet." onRetry={onRetryObras} />
         </div>
       </div>
     );

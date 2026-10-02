@@ -50,8 +50,9 @@ class ErrorBoundary extends React.Component {
     // novamente" não re-busca o arquivo, só re-lança o mesmo erro. Só uma recarga de
     // verdade (window.location.reload) busca o index.html novo e resolve. Recarrega
     // automaticamente UMA vez (guarda por sessionStorage: se persistir após a recarga,
-    // não é isso — evita ficar recarregando em loop).
-    if (isChunkLoadError(error)) {
+    // não é isso — evita ficar recarregando em loop). Offline não recarrega: a falha é
+    // falta de rede, não versão nova, e recarregar só tiraria a pessoa do app.
+    if (isChunkLoadError(error) && navigator.onLine !== false) {
       try {
         if (!sessionStorage.getItem('gm_reload_chunk_error')) {
           sessionStorage.setItem('gm_reload_chunk_error', '1');
@@ -63,14 +64,17 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.error) {
       const chunkError = isChunkLoadError(this.state.error);
+      const semRede = chunkError && navigator.onLine === false;
       return (
         <div style={{ padding: 40, textAlign: 'center', fontFamily: 'system-ui' }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
-          <h2 style={{ margin: '0 0 8px', fontSize: 18 }}>{chunkError ? 'Nova versão disponível' : 'Erro ao carregar este módulo'}</h2>
+          <h2 style={{ margin: '0 0 8px', fontSize: 18 }}>{semRede ? 'Sem conexão' : chunkError ? 'Nova versão disponível' : 'Erro ao carregar este módulo'}</h2>
           <p style={{ color: '#b91c1c', fontSize: 13.5, textAlign: 'center', maxWidth: 460,
                       margin: '16px auto', background: '#fef2f2',
                       padding: '10px 16px', borderRadius: 8, border: '1px solid #fecaca' }}>
-            {chunkError ? 'O sistema foi atualizado. Recarregue a página para continuar.' : friendlyError(this.state.error)}
+            {semRede
+              ? 'Esta parte do sistema não está disponível sem internet. Conecte-se e tente novamente.'
+              : chunkError ? 'O sistema foi atualizado. Recarregue a página para continuar.' : friendlyError(this.state.error)}
           </p>
           <button
             onClick={() => chunkError ? window.location.reload() : this.setState({ error: null })}
@@ -93,69 +97,59 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#014386"
 }/*EDITMODE-END*/;
 
-// Último usuário+perfil autorizado com sucesso. Em localStorage (não sessionStorage,
-// diferente da sessão real do Supabase — ver storage: window.sessionStorage em
-// services/supabase.js) DE PROPÓSITO: testado em campo, um celular que mata a aba do
-// navegador em segundo plano (ex.: ao sair pro painel de Ajustes pra desligar a internet)
-// leva junto o sessionStorage antes do app conseguir reagir, o que tornava o fallback
-// abaixo inútil bem no caso mais comum de teste offline. localStorage sobrevive a isso —
-// a sessão REAL continua só em sessionStorage, intocada (decisão de segurança anterior,
-// mantida: fechar o navegador de propósito, online, ainda exige login de novo).
-// Decisão confirmada com o usuário: o preço é a aba/app poder reabrir já "autorizado" com
-// este cache enquanto offline, mesmo depois de fechada de verdade — não enfraquece o
-// acesso real, porque nenhuma chamada de verdade ao Supabase funciona sem rede de
-// qualquer jeito (RLS/JWT são validados no servidor); isto só evita travar a UI numa tela
-// de login inalcançável (SSO Microsoft, também exige rede) enquanto não há conexão pra
-// revalidar. Expira sozinho (30 dias) pra não exibir um perfil/permissões ultrapassados
-// indefinidamente num aparelho esquecido sem internet.
+// Último usuário+perfil autorizado com sucesso, usado SÓ quando não há rede pra
+// confirmar a sessão de verdade (ver decidirFonteDeSessao em utils/authGatePure.js):
+// sem isto, recarregar offline derrubava pro login, que também não funciona sem rede
+// (SSO Microsoft). Em localStorage (não sessionStorage, onde fica a sessão real do
+// Supabase — ver services/supabase.js) pra sobreviver ao celular encerrar a aba em
+// segundo plano. Com rede, nunca é usado: sem sessão real, vai pro login — fechar o
+// navegador de propósito continua exigindo login de novo. Não abre acesso real a dado
+// nenhum: RLS/JWT são validados no servidor. Expira em 30 dias pra não exibir perfil e
+// permissões ultrapassados num aparelho esquecido sem internet.
 const AUTH_CACHE_KEY = 'gm_auth_cache';
 const AUTH_CACHE_MAX_IDADE_MS = 30 * 24 * 60 * 60 * 1000;
-// DIAGNÓSTICO TEMPORÁRIO (remover depois de confirmar a causa do logout offline em
-// campo): error/fatal são os únicos níveis que o logger envia pro Supabase
-// (app_logs — ver services/logger.js shipRemote), por isso usa error mesmo não sendo
-// uma falha de verdade. Sem isto não há visibilidade nenhuma do que acontece no
-// aparelho de quem está testando offline (o próprio envio do log também exige rede,
-// então só aparece quando o aparelho volta a ter conexão).
-const diagOffline = (msg, data) => logger.error(`[diag-offline] ${msg}`, { module: 'diag', ...data });
 
 const lerAuthCache = () => {
   try {
-    const raw = localStorage.getItem(AUTH_CACHE_KEY);
-    const snap = JSON.parse(raw || 'null');
-    if (!snap) { diagOffline('lerAuthCache: nada salvo', {}); return null; }
-    const idadeMin = Math.round((Date.now() - (snap.salvoEm || 0)) / 60000);
-    if (Date.now() - (snap.salvoEm || 0) > AUTH_CACHE_MAX_IDADE_MS) {
-      diagOffline('lerAuthCache: cache expirado', { idadeMin });
-      limparAuthCache();
-      return null;
-    }
-    diagOffline('lerAuthCache: cache encontrado', { idadeMin, email: snap.email });
+    const snap = JSON.parse(localStorage.getItem(AUTH_CACHE_KEY) || 'null');
+    if (!snap) return null;
+    if (Date.now() - (snap.salvoEm || 0) > AUTH_CACHE_MAX_IDADE_MS) { limparAuthCache(); return null; }
     return snap;
-  } catch (e) { diagOffline('lerAuthCache: excecao', { err: e }); return null; }
+  } catch { return null; }
 };
 const salvarAuthCache = (snap) => {
-  try {
-    localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ...snap, salvoEm: Date.now() }));
-    diagOffline('salvarAuthCache: gravado com sucesso', { email: snap.email });
-  } catch (e) { diagOffline('salvarAuthCache: excecao ao gravar', { err: e }); }
+  try { localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ...snap, salvoEm: Date.now() })); } catch { /* ignore */ }
 };
 const limparAuthCache = () => {
   try { localStorage.removeItem(AUTH_CACHE_KEY); } catch { /* ignore */ }
 };
+const estaOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+// AuthRetryableFetchError (auth-js) cobre falha de fetch e 502/503/504 — servidor
+// inalcançável, não sessão inválida.
+const ehErroDeRede = (error) => !!error && (isNetworkError(error) || error.name === 'AuthRetryableFetchError');
 
 const AppInner = () => {
-  // A app montou normalmente: limpa a guarda de "já recarreguei uma vez por erro de
-  // chunk" (ver ErrorBoundary/isChunkLoadError) — sem isso, só o PRIMEIRO deploy depois
-  // de abrir a aba ganhava a recarga automática; deploys seguintes na mesma sessão cairiam
-  // direto no botão manual, mesmo sendo exatamente o mesmo caso.
-  React.useEffect(() => { try { sessionStorage.removeItem('gm_reload_chunk_error'); } catch { /* ignore */ } }, []);
+  // Limpa a guarda de "já recarreguei uma vez por erro de chunk" (ver ErrorBoundary/
+  // isChunkLoadError) pra deploys seguintes na mesma sessão também ganharem a recarga
+  // automática — mas só depois de o app rodar estável um tempo. Limpar logo no mount
+  // anulava a guarda: um chunk que falha sempre (ex.: lazy aberto logo no boot) virava
+  // recarga infinita, porque a guarda sumia antes do erro acontecer.
+  React.useEffect(() => {
+    const t = setTimeout(() => { try { sessionStorage.removeItem('gm_reload_chunk_error'); } catch { /* ignore */ } }, 15000);
+    return () => clearTimeout(t);
+  }, []);
   // true só entre o clique em "Sair" e o SIGNED_OUT que ele provoca chegar — é o que
   // diferencia um logout de verdade (deve sempre derrubar, mesmo com cache disponível)
   // de um SIGNED_OUT disparado pelo próprio SDK sem ação nenhuma da pessoa (ver
   // decidirFonteDeSessao). Reseta a cada novo login bem-sucedido (aplicarSessao).
   const deslogamentoDeliberadoRef = React.useRef(false);
+  const sessaoGenRef = React.useRef(0); // ver aplicarSessao
   const toast = useToast();
   const [authed, setAuthed]           = React.useState(false);
+  // false até a primeira decisão de sessão (real, cache ou login). Antes disso mostra
+  // "Verificando acesso…" em vez da tela de login: offline ela aparecia por vários
+  // segundos, com o botão do SSO que tiraria a pessoa do app.
+  const [sessaoVerificada, setSessaoVerificada] = React.useState(false);
   const [acessoNegado, setAcessoNegado] = React.useState(false); // sessão válida, mas e-mail não autorizado
   const [user,   setUser]             = React.useState(null);
   const [userProfile, setUserProfile] = React.useState(null);
@@ -182,6 +176,7 @@ const AppInner = () => {
   });
   const [obrasLoaded,     setObrasLoaded]     = React.useState(false);
   const [obrasOffline,    setObrasOffline]    = React.useState(false); // erro de REDE (não qualquer erro) ao buscar a lista
+  const obrasReaisRef = React.useRef(false); // a lista real já chegou pelo menos uma vez nesta página
   const [obrasRetryTick,  setObrasRetryTick]  = React.useState(0);
   const [cronogramaTab,   setCronogramaTab]   = React.useState(() => sessionStorage.getItem('nav_cronograma_tab') || 'gantt');
   const [adminTab,        setAdminTab]        = React.useState(() => sessionStorage.getItem('nav_admin_tab') || 'usuarios');
@@ -219,47 +214,60 @@ const AppInner = () => {
   // Carrega obras do Supabase ao autenticar; mock serve só de fallback se a consulta falhar
   React.useEffect(() => {
     if (!authed) return;
-    let liberado = false;
-    // Rede real "sem sinal" pode ficar PENDENTE por muito tempo em vez de rejeitar na
-    // hora (diferente do DevTools Offline, que rejeita instantâneo) — sem isto, uma
-    // conexão genuinamente travada prendia o Mobile Gate no spinner pra sempre, sem
-    // nem cair no fallback mock.
-    const timeoutId = setTimeout(() => {
-      if (liberado) return;
-      liberado = true;
-      diagOffline('obras: timeout esperando a rede, seguindo com o mock', {});
-      setObras([...AppData.obras]);
+    let decidido = false;  // timeout ou primeira resposta já definiram o estado
+    let cancelado = false; // efeito desmontado/refeito (logout, retry)
+    // Sem rede: lista vazia + aviso "Sem conexão". Antes caía no mock (AppData), e um
+    // usuário autenticado via obras de demonstração como se fossem reais e podia abrir
+    // uma delas. Se a lista real já está na tela (ex.: retry de reconexão que falhou),
+    // mantém o que a pessoa está vendo em vez de trocar por aviso.
+    const falhaDeRede = () => {
+      connectivity.reportError({ message: 'Failed to fetch' });
+      if (obrasReaisRef.current) return;
+      setObras([]);
       setObrasOffline(true);
+    };
+    // Rede real "sem sinal" pode ficar PENDENTE por muito tempo em vez de rejeitar na
+    // hora (diferente do DevTools Offline, que rejeita instantâneo) — sem isto, o Mobile
+    // Gate ficava preso em "Carregando obras…" pra sempre.
+    const timeoutId = setTimeout(() => {
+      if (decidido || cancelado) return;
+      decidido = true;
+      logger.warn('obras: timeout esperando a rede', { module: 'obras', action: 'listar' });
+      falhaDeRede();
       setObrasLoaded(true);
     }, 8000);
     obrasService.listar()
       .then(({ data, error }) => {
-        if (liberado) return; // já seguiu pelo timeout — não reverte o que o usuário já está vendo
-        liberado = true;
-        clearTimeout(timeoutId);
+        if (cancelado) return;
         if (!error && data) {
+          // Mesmo depois do timeout: se a lista chegou atrasada, troca o aviso pelos dados.
+          decidido = true;
+          clearTimeout(timeoutId);
+          obrasReaisRef.current = true;
           AppData.obras = data;
           setObras(data);
           setObrasOffline(false);
           connectivity.reportSuccess();
-        } else {
-          setObras([...AppData.obras]); // fallback ao mock apenas em caso de erro
-          const rede = isNetworkError(error);
-          setObrasOffline(rede);
-          if (rede) connectivity.reportError(error);
+          setObrasLoaded(true);
+          return;
         }
+        if (decidido) return;
+        decidido = true;
+        clearTimeout(timeoutId);
+        if (isNetworkError(error) || estaOffline()) falhaDeRede();
+        else setObras([...AppData.obras]); // erro que não é de rede: comportamento anterior
         setObrasLoaded(true);
       })
       .catch((err) => {
-        if (liberado) return;
-        liberado = true;
+        if (cancelado || decidido) return;
+        decidido = true;
         clearTimeout(timeoutId);
         logger.error('falha inesperada ao listar obras', { module: 'obras', action: 'listar', err });
-        setObras([...AppData.obras]);
-        if (isNetworkError(err)) { setObrasOffline(true); connectivity.reportError(err); }
+        if (isNetworkError(err) || estaOffline()) falhaDeRede();
+        else setObras([...AppData.obras]);
         setObrasLoaded(true);
       });
-    return () => { liberado = true; clearTimeout(timeoutId); };
+    return () => { cancelado = true; clearTimeout(timeoutId); };
   }, [authed, obrasRetryTick]);
   useRetryOnReconnect(() => setObrasRetryTick((t) => t + 1));
 
@@ -303,30 +311,38 @@ const AppInner = () => {
     if (selectedObra?.id === id) { setSelectedObra(null); setView('obras'); sessionStorage.setItem('nav_view', 'obras'); }
   };
 
-  // Carrega perfil de permissões após autenticação. Retorna o perfil (ou null)
-  // para o portão de acesso decidir se libera a entrada.
+  // Carrega o perfil de permissões depois da autenticação, pro portão de acesso decidir
+  // se libera a entrada. Retorna { perfil, doCache }: doCache=true quando o servidor não
+  // pôde ser consultado (sem rede) e o perfil veio do último snapshot autorizado. Só
+  // retorna; quem grava o estado é aplicarSessao, depois de conferir que a chamada ainda
+  // é a vigente.
   const loadUserProfile = async (email) => {
-    if (!email) return null;
-    const { data, error } = await supabase
+    if (!email) return { perfil: null, doCache: false };
+    const cache = lerAuthCache();
+    const cacheDesteEmail = cache?.email === email ? cache : null;
+    const consulta = supabase
       .from('user_profiles')
       .select('id, perfil, status, modulos_ids, modulos_readonly_ids, abas_ids, abas_readonly_ids, user_obras(obra_id)')
       .eq('email', email)
       .single();
+    // Limite de 8s só quando há perfil em cache pra cair: offline o postgrest-js ainda
+    // tenta de novo várias vezes antes de desistir, e com rede "sem sinal" pode nem
+    // responder. Sem cache não há alternativa a esperar a resposta de verdade.
+    const SEM_RESPOSTA = { message: 'sem resposta do servidor' };
+    const { data, error, status } = cacheDesteEmail
+      ? await Promise.race([consulta, new Promise((r) => setTimeout(() => r({ data: null, error: SEM_RESPOSTA, status: 0 }), 8000))])
+      : await consulta;
     // PGRST116 = 0 linhas (usuário sem perfil cadastrado) — caso legítimo, não é erro.
-    // Qualquer outro erro (rede/RLS/SQL) era engolido e virava "acesso negado" silencioso.
     if (error && error.code !== 'PGRST116') {
-      logger.error('falha ao carregar perfil do usuario', { module: 'app', action: 'loadUserProfile', err: error });
-      if (isNetworkError(error)) {
-        connectivity.reportError(error);
-        const cache = lerAuthCache();
-        if (cache?.email === email) {
-          setUserProfile(cache.perfil);
-          return cache.perfil;
-        }
+      if (error !== SEM_RESPOSTA) logger.error('falha ao carregar perfil do usuario', { module: 'app', action: 'loadUserProfile', err: error });
+      // status 0 = o fetch nem chegou ao servidor (postgrest-js), seja qual for a
+      // mensagem que o navegador deu.
+      if (error === SEM_RESPOSTA || isNetworkError(error) || status === 0 || estaOffline()) {
+        connectivity.reportError({ message: 'Failed to fetch' });
+        if (cacheDesteEmail) return { perfil: cacheDesteEmail.perfil, doCache: true };
       }
     }
-    setUserProfile(data ?? null);
-    return data ?? null;
+    return { perfil: data ?? null, doCache: false };
   };
 
   // Portão de acesso app-wide: só entra quem tem perfil cadastrado e ativo.
@@ -335,34 +351,40 @@ const AppInner = () => {
   // Enterprise Application ("Assignment required" + grupo atribuído), gerenciado pelo
   // Appiá — quem não está no grupo nem completa o login (AADSTS50105, tratado em
   // Login.jsx). Não há checagem de grupo em runtime aqui de propósito.
-  const aplicarSessao = async (session, motivo = 'direto') => {
+  // limparCache: só no Sair. Fora dele (sem sessão com rede, refresh recusado) vai pro
+  // login mas preserva o cache: numa rede "sem sinal" com navigator.onLine true, apagar
+  // deixaria a pessoa trancada pra fora quando ficasse offline de verdade logo depois.
+  const aplicarSessao = async (session, { limparCache = false } = {}) => {
+    // Cada chamada invalida as anteriores ainda esperando o perfil: sem isto, uma que
+    // começou antes do Sair terminava depois e deixava a pessoa logada de novo.
+    const gen = ++sessaoGenRef.current;
     if (!session?.user) {
-      diagOffline('aplicarSessao: sem sessao, limpando cache e deslogando', { motivo });
-      // Diagnóstico temporário: grava o motivo exato (evento do Supabase que levou ao
-      // logout) num marcador próprio, só pra Login.jsx poder mostrar na tela — sessionStorage
-      // porque só precisa sobreviver até a pessoa ver a tela, não além disso.
-      try { sessionStorage.setItem('gm_diag_ultimo_logout', JSON.stringify({ motivo, em: Date.now() })); } catch { /* ignore */ }
       setAuthed(false);
       setAcessoNegado(false);
       setUser(null);
       setUserProfile(null);
       clearContext(); // some o userId dos logs após logout
-      limparAuthCache();
+      if (limparCache) limparAuthCache();
       // Some junto com a sessão — próximo login (mesma aba) deve mostrar o Mobile Gate de novo.
       try { sessionStorage.removeItem('mobile_gate_ok'); } catch { /* ignore */ }
       setMobileGateBypassed(false);
       setMobileFocus(null);
+      setSessaoVerificada(true);
       return;
     }
-    deslogamentoDeliberadoRef.current = false; // sessão real de volta: próximo SIGNED_OUT (se vier) não é deliberado até a pessoa clicar Sair de novo
     setUser(session.user);
     setContext({ userId: session.user.id, userEmail: session.user.email }); // enriquece os logs
 
-    const perfil = await loadUserProfile(session.user.email);
+    const { perfil, doCache } = await loadUserProfile(session.user.email);
+    if (gen !== sessaoGenRef.current || deslogamentoDeliberadoRef.current) return;
     const autorizado = !!perfil && perfil.status === 'ativo';
-    diagOffline('aplicarSessao: loadUserProfile concluido', { temPerfil: !!perfil, status: perfil?.status ?? null, autorizado });
+    setUserProfile(perfil);
     setAuthed(autorizado);
     setAcessoNegado(!autorizado); // mantém a sessão para exibir o e-mail na tela de bloqueio
+    setSessaoVerificada(true);
+    // Perfil do cache (sem rede): não renova o salvoEm — o teto de 30 dias continua
+    // contando — e não adianta chamar o servidor.
+    if (doCache) return;
     if (autorizado) {
       salvarAuthCache({ userId: session.user.id, email: session.user.email, perfil });
       // Fire-and-forget: RLS não deixa o usuário comum dar UPDATE direto na própria
@@ -370,55 +392,90 @@ const AppInner = () => {
       supabase.rpc('registrar_ultimo_acesso').then(({ error }) => {
         if (error) logger.error('falha ao registrar ultimo acesso', { module: 'app', action: 'registrarUltimoAcesso', err: error });
       });
+    } else {
+      // Desativado ou sem perfil, confirmado pelo servidor: não pode continuar entrando
+      // offline pelo snapshot antigo (que ainda diz 'ativo').
+      limparAuthCache();
     }
   };
 
-  // Restaura o último perfil autorizado com sucesso (ver salvarAuthCache em
-  // aplicarSessao) quando a árvore de decisão (decidirFonteDeSessao, src/utils/
-  // authGatePure.js) manda usar o cache em vez da sessão real ou de deslogar.
+  // Restaura o último perfil autorizado (ver salvarAuthCache em aplicarSessao) quando
+  // decidirFonteDeSessao (utils/authGatePure.js) manda usar o cache: só sem rede.
   const aplicarSessaoDoCache = () => {
     const cache = lerAuthCache();
-    if (!cache) return;
+    if (!cache || deslogamentoDeliberadoRef.current) return;
+    ++sessaoGenRef.current;
     setUser({ id: cache.userId, email: cache.email });
     setContext({ userId: cache.userId, userEmail: cache.email });
     setUserProfile(cache.perfil);
     setAuthed(true);
     setAcessoNegado(false);
+    setSessaoVerificada(true);
+  };
+
+  // Sem sessão a aplicar. No Sair, limpa também a sessão do aparelho: um refresh de token
+  // que já estava em voo pode ter regravado a sessão depois do clique.
+  const encerrarSessao = () => {
+    const deliberado = deslogamentoDeliberadoRef.current;
+    if (deliberado) authService.limparSessaoLocal();
+    aplicarSessao(null, { limparCache: deliberado });
   };
 
   // Extraído do efeito de boot pra poder rodar de novo sozinho quando a conexão voltar
   // (useRetryOnReconnect abaixo) — sem isto, alguém que caiu no cache/login por falta de
   // rede só revalidava de verdade numa recarga manual da página.
   const restaurarSessao = React.useCallback(() => {
-    diagOffline('getSession: chamando', {});
-    authService.getSession().then(({ data: { session }, error }) => {
-      if (isNetworkError(error)) connectivity.reportError(error); // só sinaliza; a decisão de autorizar não depende mais disto
-      const temCache = !!lerAuthCache();
-      const fonte = decidirFonteDeSessao({ session, temCache });
-      diagOffline('getSession: resolveu', { temSessao: !!session?.user, errMsg: error?.message ?? null, temCache, fonte });
+    // getSession() espera o refresh do token quando ele venceu, e com rede "sem sinal"
+    // isso pode não responder por minutos. Depois de 8s trata como falha de rede (cai no
+    // cache, se houver). Se o refresh terminar depois, o SDK emite TOKEN_REFRESHED e o
+    // onAuthStateChange abaixo aplica a sessão real.
+    const SEM_RESPOSTA = { message: 'getSession sem resposta' };
+    Promise.race([
+      authService.getSession(),
+      new Promise((r) => setTimeout(() => r({ data: { session: null }, error: SEM_RESPOSTA }), 8000)),
+    ]).then(({ data: { session }, error }) => {
+      const erroDeRede = error === SEM_RESPOSTA || ehErroDeRede(error);
+      if (erroDeRede) connectivity.reportError({ message: 'Failed to fetch' });
+      const fonte = decidirFonteDeSessao({
+        session, temCache: !!lerAuthCache(), erroDeRede, offline: estaOffline(),
+        deslogamentoDeliberado: deslogamentoDeliberadoRef.current,
+      });
       if (fonte === 'sessao') aplicarSessao(session);
       else if (fonte === 'cache') aplicarSessaoDoCache();
+      // Com rede e sem sessão real: login de verdade. Também derruba quem rodava pelo
+      // cache e reconectou sem sessão (ex.: navegador fechado nesse meio-tempo) — sem
+      // isto ficaria "logado" sem conseguir carregar nada até o cache expirar.
+      else encerrarSessao();
     }).catch(err => {
       logger.error('falha ao restaurar sessao', { module: 'app', action: 'getSession', err });
-      if (isNetworkError(err)) connectivity.reportError(err);
-      const temCache = !!lerAuthCache();
-      const fonte = decidirFonteDeSessao({ session: null, temCache });
-      diagOffline('getSession: rejeitou', { errMsg: err?.message ?? null, temCache, fonte });
+      const erroDeRede = ehErroDeRede(err);
+      if (erroDeRede) connectivity.reportError(err);
+      const fonte = decidirFonteDeSessao({
+        session: null, temCache: !!lerAuthCache(), erroDeRede, offline: estaOffline(),
+        deslogamentoDeliberado: deslogamentoDeliberadoRef.current,
+      });
       if (fonte === 'cache') aplicarSessaoDoCache();
+      else setSessaoVerificada(true); // erro inesperado: libera a tela de login em vez de travar no "Verificando acesso"
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useRetryOnReconnect(restaurarSessao);
 
   React.useEffect(() => {
+    // Sem rede e com cache: entra na hora, sem passar pela tela de login — ela tem o
+    // botão do SSO, que offline tiraria a pessoa do app. Em seguida restaurarSessao
+    // promove pra sessão real, se houver uma guardada.
+    if (estaOffline() && lerAuthCache()) aplicarSessaoDoCache();
     restaurarSessao();
     const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
-      const temCache = !!lerAuthCache();
-      const deliberado = deslogamentoDeliberadoRef.current;
-      const fonte = decidirFonteDeSessao({ session, event, temCache, deslogamentoDeliberado: deliberado });
-      diagOffline('onAuthStateChange', { event, temSessao: !!session?.user, temCache, deliberado, fonte });
-      if (fonte === 'cache') aplicarSessaoDoCache();
-      else aplicarSessao(session, `onAuthStateChange:${event}`);
+      const fonte = decidirFonteDeSessao({
+        session, event, temCache: !!lerAuthCache(),
+        deslogamentoDeliberado: deslogamentoDeliberadoRef.current, offline: estaOffline(),
+      });
+      if (fonte === 'ignorar') return;
+      if (fonte === 'sessao') aplicarSessao(session);
+      else if (fonte === 'cache') aplicarSessaoDoCache();
+      else encerrarSessao();
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -455,15 +512,23 @@ const AppInner = () => {
 
   const handleLogout = async () => {
     deslogamentoDeliberadoRef.current = true;
-    const { error } = await authService.signOut();
-    // supabase.auth.signOut() tenta revogar a sessão no SERVIDOR antes de limpar
-    // localmente (GoTrueClient#_signOut chama admin.signOut(accessToken) primeiro) — se
-    // essa chamada falhar (ex.: offline), o SDK desiste sem disparar SIGNED_OUT nem
-    // limpar nada, e "Sair" parecia não fazer nada. Sem rede não tem como revogar no
-    // servidor de qualquer jeito (o token expira sozinho) — força a limpeza local.
-    if (error) {
-      diagOffline('handleLogout: signOut falhou (provável offline), limpando local mesmo assim', { errMsg: error?.message ?? null });
-      aplicarSessao(null, 'logout-manual-sem-revogar');
+    // Lido antes de qualquer limpeza, pra ainda poder revogar no servidor abaixo.
+    const accessToken = authService.lerAccessTokenLocal();
+    // supabase.auth.signOut() revoga no SERVIDOR antes de limpar localmente
+    // (GoTrueClient#_signOut chama admin.signOut primeiro). Offline ou em rede lenta isso
+    // falha ou fica pendurado, o SDK não dispara SIGNED_OUT nem limpa nada, e "Sair"
+    // parecia não fazer nada. Se não concluir em 4s, limpa o aparelho e manda a revogação
+    // em segundo plano.
+    const pendente = authService.signOut().catch((e) => ({ error: e }));
+    // A cadeia do signOut continua depois do timeout: se ela falhar no fim (ex.: um
+    // refresh regravou a sessão e a revogação não passou), limpa o aparelho de novo.
+    pendente.then((r) => { if (r?.error) authService.limparSessaoLocal(); });
+    const PENDURADO = { pendurado: true };
+    const res = await Promise.race([pendente, new Promise((resolve) => setTimeout(() => resolve({ error: PENDURADO }), 4000))]);
+    if (res?.error) {
+      authService.limparSessaoLocal();
+      if (accessToken) authService.revogarNoServidor(accessToken);
+      encerrarSessao();
     }
   };
 
@@ -580,7 +645,12 @@ const AppInner = () => {
   return (
     <>
       {!authed && !acessoNegado && (
-        <LoginScreen />
+        sessaoVerificada ? <LoginScreen /> : (
+          <div className="content-loading" style={{ flexDirection: 'column', gap: 12, minHeight: '100vh' }}>
+            <span className="spinner" />
+            <span className="text-muted" style={{ fontSize: 13 }}>Verificando acesso…</span>
+          </div>
+        )
       )}
       {acessoNegado && (
         <AcessoNaoAutorizado email={user?.email} onSair={handleLogout} />
@@ -590,6 +660,8 @@ const AppInner = () => {
           <MobileGate
             obras={obrasVisiveis}
             obrasLoaded={obrasLoaded}
+            obrasOffline={obrasOffline}
+            onRetryObras={() => setObrasRetryTick((t) => t + 1)}
             userProfile={userProfile}
             onLogout={handleLogout}
             onEnterFull={bypassMobileGate}
@@ -618,7 +690,7 @@ const AppInner = () => {
                 remontadas com key={view} dentro de um por módulo) — uma exceção aqui
                 antes só derrubava o conteúdo em branco, sem aviso nem recuperação. */}
             <ErrorBoundary>
-              <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+              <React.Suspense fallback={<div className="content-loading" style={{ flexDirection: 'column', gap: 12 }}><span className="spinner" /><span className="text-muted" style={{ fontSize: 13 }}>Carregando…</span></div>}>
                 {mobileFocus === 'medicao' && (
                   <CronogramaFull
                     initialObraId={cronogramaObraId}
@@ -676,7 +748,13 @@ const AppInner = () => {
           ) : (
           <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
           <>
-          {view === 'dashboard' && <Dashboard obras={obrasVisiveis} onOpenObra={handleOpenObra} />}
+          {view === 'dashboard' && (
+            // Sem a lista de obras (sem rede) o Dashboard diria "Nenhuma obra liberada
+            // para o seu usuário", que é falso — mostra o aviso de conexão no lugar.
+            obrasOffline && !obrasVisiveis.length
+              ? <OfflineFallback onRetry={() => setObrasRetryTick((t) => t + 1)} />
+              : <Dashboard obras={obrasVisiveis} onOpenObra={handleOpenObra} />
+          )}
           {view === 'obras' && (
             obrasOffline
               ? <OfflineFallback onRetry={() => setObrasRetryTick((t) => t + 1)} />

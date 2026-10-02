@@ -8,7 +8,12 @@
 // Exportada (não só usada aqui dentro) porque também alimenta src/utils/connectivity.js,
 // que decide quando trocar o conteúdo de uma tela pelo fallback "sem conexão". Um único
 // lugar de verdade evita que as duas regras divirjam com o tempo.
-export const NETWORK_ERROR_RE = /failed to fetch|network ?error|ERR_INTERNET|ERR_NETWORK/i;
+// Cobre a mensagem de cada motor: Chromium ("Failed to fetch"), Firefox ("NetworkError
+// when attempting to fetch"), Safari/WebKit, inclusive Chrome no iOS ("Load failed",
+// "The Internet connection appears to be offline", "The network connection was lost").
+// Sem as do WebKit, no iPhone offline a falha de rede caía como erro comum (ex.: tela de
+// "Acesso não autorizado" em vez do perfil em cache).
+export const NETWORK_ERROR_RE = /failed to fetch|network ?error|load failed|internet connection appears to be offline|network connection was lost|ERR_INTERNET|ERR_NETWORK/i;
 
 export function friendlyError(error) {
   const msg = String(error?.message || error || '');

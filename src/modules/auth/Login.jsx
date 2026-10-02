@@ -14,73 +14,9 @@ const traduzErroSSO = (desc) => {
   return 'Não foi possível concluir o login com a Microsoft. Tente novamente ou contate o administrador.';
 };
 
-// DIAGNÓSTICO TEMPORÁRIO (remover depois de confirmar a causa do logout offline em
-// campo): o sink remoto do logger (app_logs) é bloqueado por RLS pra quem ainda não
-// está autenticado — exatamente o momento em que essa tela aparece — então não dá pra
-// ver remotamente o estado do cache local. Lendo e mostrando direto na tela pra quem
-// estiver testando poder ler em voz alta / printar.
-const diagCacheLocal = () => {
-  try {
-    const raw = localStorage.getItem('gm_auth_cache');
-    if (!raw) return 'nenhum';
-    const snap = JSON.parse(raw);
-    const idadeMin = Math.round((Date.now() - (snap.salvoEm || 0)) / 60000);
-    return `${snap.email || '?'}, salvo há ${idadeMin}min`;
-  } catch (e) { return `erro ao ler: ${e?.message}`; }
-};
-
-// Mesmo espírito do diagCacheLocal acima, mas pra SESSÃO REAL do Supabase (não o meu
-// cache) — lida crua do sessionStorage, sem passar pelo SDK, só pra saber se ela
-// sobreviveu estruturalmente (access_token/refresh_token/expires_at, os 3 campos que
-// o auth-js exige em GoTrueClient#_isValidSession — faltando qualquer um, o SDK trata
-// como sessão inválida e desloga de verdade, SIGNED_OUT, sem relação com rede). Nunca
-// mostra o valor dos tokens, só presença/validade estrutural/data de expiração.
-const diagSessaoReal = () => {
-  try {
-    const chave = Object.keys(sessionStorage).find(k => /^sb-.*-auth-token$/.test(k));
-    if (!chave) return 'nenhuma';
-    const raw = sessionStorage.getItem(chave);
-    if (!raw) return 'chave vazia';
-    const sess = JSON.parse(raw);
-    const temCampos = sess && typeof sess === 'object'
-      && 'access_token' in sess && 'refresh_token' in sess && 'expires_at' in sess;
-    if (!temCampos) return `estrutura invalida (campos: ${sess && typeof sess === 'object' ? Object.keys(sess).join(',') : typeof sess})`;
-    const expiraEm = Math.round((sess.expires_at * 1000 - Date.now()) / 60000);
-    return `ok, expira em ${expiraEm}min`;
-  } catch (e) { return `erro ao ler: ${e?.message}`; }
-};
-
-// Motivo exato do último logout (ver aplicarSessao em App.jsx) — qual evento do
-// Supabase (SIGNED_OUT, INITIAL_SESSION sem cache etc.) ou rejeição direta de
-// getSession() levou a cair aqui.
-const diagUltimoLogout = () => {
-  try {
-    const raw = sessionStorage.getItem('gm_diag_ultimo_logout');
-    if (!raw) return 'nenhum registrado';
-    const { motivo, em } = JSON.parse(raw);
-    return `${motivo}, há ${Math.round((Date.now() - em) / 1000)}s`;
-  } catch (e) { return `erro ao ler: ${e?.message}`; }
-};
-
 const LoginScreen = () => {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(() => ssoLoginError ? traduzErroSSO(ssoLoginError) : null);
-  // Antes era `useState(diagCacheLocal)`: só lia uma vez, no instante em que esta tela
-  // MONTA — se algo (ex.: um SIGNED_OUT chegando um instante depois) muda o
-  // localStorage logo em seguida, a tela ficava mostrando um valor já ultrapassado
-  // bem na hora que a pessoa ia printar pra mim. Repolling curto pra sempre refletir
-  // o estado de verdade no momento do print.
-  const [cacheLocal, setCacheLocal] = React.useState(diagCacheLocal);
-  const [sessaoReal, setSessaoReal] = React.useState(diagSessaoReal);
-  const [ultimoLogout, setUltimoLogout] = React.useState(diagUltimoLogout);
-  React.useEffect(() => {
-    const id = setInterval(() => {
-      setCacheLocal(diagCacheLocal());
-      setSessaoReal(diagSessaoReal());
-      setUltimoLogout(diagUltimoLogout());
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
 
   // Inicia o login SSO (Microsoft Entra ID). Em caso de sucesso o navegador
   // é redirecionado para a Microsoft, então não resetamos loading no fluxo feliz.
@@ -132,7 +68,7 @@ const LoginScreen = () => {
                 alguém já pegou um deploy novo antes de pedir pra testar de novo) — mesmo
                 padrão de AcessoNaoAutorizado.jsx. */}
             <div className="mono text-xs text-faint" style={{ marginTop: 16, textAlign: 'center' }}>
-              v{__APP_VERSION__} · cache local: {cacheLocal}<br />sessão real: {sessaoReal}<br />último logout: {ultimoLogout}
+              v{__APP_VERSION__}
             </div>
           </div>
         </div>

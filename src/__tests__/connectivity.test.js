@@ -10,6 +10,16 @@ describe('isNetworkError', () => {
     expect(isNetworkError({ message: 'net::ERR_INTERNET_DISCONNECTED' })).toBe(true);
   });
 
+  it('reconhece as mensagens de rede do Safari/WebKit (iPhone, inclusive Chrome no iOS)', () => {
+    expect(isNetworkError({ message: 'TypeError: Load failed' })).toBe(true);
+    expect(isNetworkError({ message: 'The Internet connection appears to be offline.' })).toBe(true);
+    expect(isNetworkError({ message: 'The network connection was lost.' })).toBe(true);
+  });
+
+  it('reconhece a mensagem de rede do Firefox', () => {
+    expect(isNetworkError({ message: 'NetworkError when attempting to fetch resource.' })).toBe(true);
+  });
+
   it('não confunde erro de permissão (RLS) com falha de rede', () => {
     expect(isNetworkError({ message: 'new row violates row-level security policy' })).toBe(false);
   });

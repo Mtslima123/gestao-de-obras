@@ -2304,14 +2304,13 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // mas só se ela ainda existir na lista (evita ficar preso numa obra fantasma);
   // por fim a primeira em andamento e, na falta, a primeira da lista.
   const obraSalva = sessionStorage.getItem('cronograma_obra');
-  // initialObraId (deep link do Mobile Gate/Medição foco) só é usado se a obra
-  // realmente existir na lista recebida — sem checar, uma obra válida vinda da sessão
-  // mas ausente da lista atual (ex.: offline, `obras` caiu pro fallback mock sem essa
-  // obra) virava um obraSel "fantasma": não dispara o card de vazio (obraSel não é
-  // falsy) e nada mais bate, sobrando tela em branco. Mesma validação que obraSalva já
-  // tinha logo abaixo, só que faltava aqui.
-  const defaultObraId = (initialObraId && obras.some(o => o.id === initialObraId) ? initialObraId : null)
-    || (obras.some(o => o.id === obraSalva) ? obraSalva : null)
+  // initialObraId (deep link do Mobile Gate/Medição foco) vale sempre que a lista ainda
+  // não chegou (o modo foco monta esta tela antes das obras carregarem, e obraSel é
+  // decidido uma vez só aqui) ou quando a obra está na lista. Rejeitar com lista vazia
+  // perdia a obra num reload no modo foco e caía em "Nenhum cronograma criado".
+  // Mesma regra pra obra salva na sessão.
+  const defaultObraId = (initialObraId && (!obras.length || obras.some(o => o.id === initialObraId)) ? initialObraId : null)
+    || (obraSalva && (!obras.length || obras.some(o => o.id === obraSalva)) ? obraSalva : null)
     || obras.find(o => o.status === 'em_andamento')?.id
     || obras[0]?.id
     || null;
@@ -2623,6 +2622,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         setBlVisivelId(carregarBlVisivel(obraSel) ?? defaultBlId(cached.baselines || []));
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(cached.reprogramacoes || []));
         setSelMonKey(carregarMesRef(obraSel) || mesAtualKey());
+        setCronogramaErro(null); // erro de rede de outra obra não vale pra esta
         setLoadedObraId(obraSel);
         return;
       }
@@ -2731,11 +2731,14 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   }, [obraSel, reloadKey]);
 
   // Mantém o cache da obra espelhando o estado atual (inclui edições), para voltar instantâneo
+  // Não espelha quando a carga falhou por rede: o estado ainda é o da obra anterior (ou vazio),
+  // e gravar isso no cache faria a próxima visita abrir esse conteúdo errado como se fosse
+  // desta obra, sem buscar no banco (e um save depois sobrescreveria o cronograma real).
   React.useEffect(() => {
-    if (loadedObraId && loadedObraId === obraSel) {
+    if (loadedObraId && loadedObraId === obraSel && !cronogramaErro) {
       _cronCache[loadedObraId] = { etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap };
     }
-  }, [etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap, loadedObraId, obraSel]);
+  }, [etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap, loadedObraId, obraSel, cronogramaErro]);
 
   // Persiste a seleção visível da Curva (Linha de Base / Reprogramação) por obra, para
   // sobreviver a troca de aba e ao recarregar o app. Só grava após a carga concluir.
@@ -2763,6 +2766,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // Trata o resultado de salvarCronograma (bloqueio otimista): conflito ou erro.
   // Retorna true quando houve problema (o chamador não deve exibir "sucesso").
   const handleSaveResult = (res) => {
+    // Lembra que ficou edição sem gravar (falha de save, ex.: sem internet), pra reenviar
+    // quando a conexão voltar em vez de recarregar do banco por cima dela (ver abaixo).
+    savePendenteRef.current = res?.error ? obraSel : null;
     if (res?.conflict) {
       setConflito(true);
       toast('Este cronograma foi alterado por outra pessoa. Recarregue para ver a versão atual antes de continuar.', { tone: 'warning', icon: 'alert-triangle' });
@@ -2783,7 +2789,17 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     reloadToastRef.current = true;
     setReloadKey(k => k + 1);
   };
-  useRetryOnReconnect(recarregarCronograma);
+  // Ao reconectar: só recarrega do banco quando a tela está em "Sem conexão". Com o
+  // cronograma aberto, recarregar descartaria o que foi editado sem internet; nesse caso
+  // reenvia o estado atual (o bloqueio otimista ainda barra se outra pessoa gravou antes).
+  // Sem pendência não faz nada: a tela já mostra os dados certos.
+  const savePendenteRef = React.useRef(null);
+  useRetryOnReconnect(() => {
+    if (cronogramaErro) { recarregarCronograma(); return; }
+    if (savePendenteRef.current && savePendenteRef.current === obraSel && loadedObraId === obraSel) {
+      salvarCronograma(obraSel, etapas, customCols, baselines, reprogramacoes, feriadosCfg).then(handleSaveResult);
+    }
+  });
 
   // Handlers de linha de base
   // Nomes já usados por linhas de base e reprogramações (para bloquear duplicados, sem diferenciar tipo)

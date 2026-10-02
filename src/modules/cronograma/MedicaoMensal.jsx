@@ -784,7 +784,7 @@ export default function MedicaoMensal({
   // Carrega ao montar e sempre que trocar de mês/obra — edições em andamento do
   // usuário não são perdidas por mudanças não relacionadas.
   React.useEffect(() => { gerarMedicao(); }, [obraId, mesRefKey, retryTick]); // eslint-disable-line react-hooks/exhaustive-deps
-  useRetryOnReconnect(() => setRetryTick((t) => t + 1));
+  // Reconexão: ver useRetryOnReconnect logo depois de persistirRascunho.
 
   // Fecha o dropdown de exportação ao clicar fora.
   React.useEffect(() => {
@@ -1201,15 +1201,28 @@ export default function MedicaoMensal({
     if (bloqueado) return;
     const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens);
     if (error) {
+      rascunhoPendenteRef.current = `${obraId}|${mesRefKey}`;
       // Falha SEMPRE avisa, mesmo no autosave silencioso (que só suprime o toast de
       // SUCESSO) — ficar sempre calado numa falha real fazia o usuário achar que salvou
       // e o valor sumir ao recarregar a página.
       toast('Não foi possível salvar o rascunho. Tente novamente.', { tone: 'danger' });
       return;
     }
+    rascunhoPendenteRef.current = null;
     setRegistro(data);
     if (!silencioso) toast('Rascunho salvo', { tone: 'success', icon: 'check' });
   }, [obraId, mesRefKey, bloqueado, toast]);
+
+  // Ao reconectar: só recarrega do banco quando a tela está em "Sem conexão". Com a
+  // medição aberta, recarregar trocaria o que foi digitado sem internet pelo que está
+  // gravado; nesse caso reenvia o rascunho que falhou. Sem pendência não faz nada.
+  const rascunhoPendenteRef = React.useRef(null);
+  useRetryOnReconnect(() => {
+    if (medicaoOffline) { setRetryTick((t) => t + 1); return; }
+    if (rascunhoPendenteRef.current === `${obraId}|${mesRefKey}`) {
+      persistirRascunho(itensTrabalho, { silencioso: true });
+    }
+  });
 
   // Abre a medição do mês: cria o registro no banco com os itens do cronograma. É o
   // "eu abro a medição para ela ser criada" — antes a linha nascia por efeito colateral

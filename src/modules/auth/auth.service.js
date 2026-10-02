@@ -47,4 +47,35 @@ export const authService = {
 
   onAuthStateChange: (callback) =>
     supabase.auth.onAuthStateChange(callback),
+
+  // Apaga a sessão do Supabase só neste aparelho, sem falar com o servidor — pra quando
+  // signOut() não consegue concluir (offline ele tenta revogar no servidor primeiro e
+  // desiste sem limpar nada local). Sem isto, a próxima abertura com internet entraria
+  // de novo com a sessão que ficou guardada. Mesmas chaves que GoTrueClient#_removeSession
+  // apaga, no storage configurado em services/supabase.js (sessionStorage).
+  limparSessaoLocal: () => {
+    try {
+      Object.keys(sessionStorage)
+        .filter((k) => /^sb-.+-auth-token(-code-verifier|-user)?$/.test(k))
+        .forEach((k) => sessionStorage.removeItem(k));
+    } catch { /* storage indisponível: nada a limpar */ }
+  },
+
+  // access_token da sessão guardada, lido direto do storage (sem passar pelo SDK, que
+  // pode estar preso num refresh). Usado pelo Sair pra ainda conseguir revogar no
+  // servidor depois de limpar o aparelho.
+  lerAccessTokenLocal: () => {
+    try {
+      const k = Object.keys(sessionStorage).find((x) => /^sb-.+-auth-token$/.test(x));
+      return k ? JSON.parse(sessionStorage.getItem(k) || 'null')?.access_token ?? null : null;
+    } catch { return null; }
+  },
+
+  // Revoga no servidor (todas as sessões da pessoa, igual ao signOut padrão) em segundo
+  // plano, com o JWT dela — é a mesma chamada que GoTrueClient#_signOut faz por dentro.
+  // Sem isto, quando o Sair limpa só o aparelho (rede lenta ou ausente), o refresh token
+  // continuaria válido no servidor. Offline falha em silêncio: não há o que fazer.
+  revogarNoServidor: (accessToken) => {
+    supabase.auth.admin.signOut(accessToken, 'global').catch(() => { /* sem rede: ignora */ });
+  },
 };

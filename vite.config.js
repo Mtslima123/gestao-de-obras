@@ -14,9 +14,14 @@ export default defineConfig({
       // o app sozinho debaixo do usuário. Mesmo cuidado aqui: um autoUpdate silencioso
       // podia trocar o app shell no meio de um formulário longo (RDO, medição etc.).
       registerType: 'prompt',
-      // Sem includeAssets: favicon.ico/png e os ícones em assets/ já batem com
-      // globPatterns abaixo (mesmas extensões) — declará-los aqui também só duplicava a
-      // entrada no manifesto de precache (uma via glob, outra via includeAssets).
+      // Sem includeAssets e com includeManifestIcons:false: favicon.ico/png e os ícones
+      // do manifest (public/assets/*.png) já entram pelo globPatterns abaixo. Declarados
+      // de novo, a mesma URL aparecia 2x no precache com cache keys diferentes, o Workbox
+      // abortava em precacheAndRoute ('add-to-cache-list-conflicting-entries') ANTES de
+      // registrar install/fetch — o SW ativava sem cachear nada e o reload offline caía
+      // na cópia estática que o Chrome guarda (sem JS). scripts/check-sw-precache.mjs
+      // roda no build e falha se uma duplicata voltar.
+      includeManifestIcons: false,
       manifest: {
         name: 'Soter | Gestão de Obras',
         short_name: 'Soter Obras',
@@ -41,6 +46,11 @@ export default defineConfig({
         // (nada de dado obsoleto aparecendo silenciosamente; ver src/utils/connectivity.js
         // e o fallback "sem conexão" nas telas, que tratam essa falha).
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,ttf}'],
+        // Padrão do plugin é /^assets\// (pula a revisão de tudo em assets/). Só que
+        // public/assets/ também tem arquivos SEM hash no nome (logos, ícones PWA): sem
+        // revisão, o Workbox nunca os baixaria de novo num deploy e um logo trocado ficaria
+        // velho pra sempre em quem já tem o SW. Agora só pula o que tem hash do Vite.
+        dontCacheBustURLsMatching: /-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/,
       },
       devOptions: {
         enabled: false, // SW real só roda em `npm run build && npm run preview`
