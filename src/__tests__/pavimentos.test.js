@@ -1,6 +1,6 @@
 // Testes das regras de pavimento compartilhadas (Medição e Fotos). Executar: npm test
 import { describe, it, expect } from 'vitest';
-import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento } from '../utils/pavimentos';
+import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois } from '../utils/pavimentos';
 
 const foto = (id, data, pavimento, created_at = '2026-09-30T10:00:00Z') => ({ id, data, pavimento, created_at });
 
@@ -87,5 +87,36 @@ describe('chavePavimento e ordenarPavimentos (movidos para o util compartilhado)
   it('continuam funcionando igual', () => {
     expect(chavePavimento(' puc')).toBe(chavePavimento('PUC'));
     expect(ordenarPavimentos([' 3° tipo', '3° tipo', 'Mezanino'], ['3° tipo'])).toEqual(['3° tipo', 'Mezanino']);
+  });
+});
+
+describe('cadastro de pavimentos das fotos: subir/descer e duplicar', () => {
+  const lista = ['Subsolo 2', 'Subsolo 1', 'Térreo'];
+
+  it('moverNaLista troca com o vizinho', () => {
+    expect(moverNaLista(lista, 1, -1)).toEqual(['Subsolo 1', 'Subsolo 2', 'Térreo']);
+    expect(moverNaLista(lista, 1, 1)).toEqual(['Subsolo 2', 'Térreo', 'Subsolo 1']);
+  });
+
+  it('moverNaLista fora dos limites devolve a mesma lista (nada a gravar)', () => {
+    expect(moverNaLista(lista, 0, -1)).toBe(lista);
+    expect(moverNaLista(lista, 2, 1)).toBe(lista);
+  });
+
+  it('nomeDaCopia não repete nome já cadastrado (sem diferenciar maiúscula)', () => {
+    expect(nomeDaCopia('1º Tipo I', lista)).toBe('1º Tipo I (cópia)');
+    expect(nomeDaCopia('1º Tipo I', [...lista, '1º tipo i (CÓPIA)'])).toBe('1º Tipo I (cópia 2)');
+  });
+
+  it('nomeDaCopia cabe nos 60 caracteres do campo', () => {
+    const longo = 'X'.repeat(60);
+    const c = nomeDaCopia(longo, []);
+    expect(c.length).toBeLessThanOrEqual(60);
+    expect(c.endsWith(' (cópia)')).toBe(true);
+  });
+
+  it('inserirDepois coloca a cópia logo abaixo do original', () => {
+    expect(inserirDepois(lista, 'Subsolo 1', 'Subsolo 1 (cópia)')).toEqual(['Subsolo 2', 'Subsolo 1', 'Subsolo 1 (cópia)', 'Térreo']);
+    expect(inserirDepois(lista, 'Inexistente', 'Novo')).toEqual([...lista, 'Novo']);
   });
 });

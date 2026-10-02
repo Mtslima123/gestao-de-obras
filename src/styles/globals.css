@@ -1324,6 +1324,8 @@ a:hover { color: var(--brand-600); }
   animation: slideUp 0.16s ease-out;
 }
 .modal.sm { max-width: 300px; }
+/* Entre sm e o padrão: listas curtas com ações por linha (ex.: Pavimentos das fotos). */
+.modal.compact { max-width: 440px; }
 .modal.lg { max-width: 880px; }
 .modal.xl { max-width: 1100px; }
 .modal-header {
@@ -2933,3 +2935,7 @@ input, textarea, [contenteditable="true"] {
   position: absolute; top: 6px; right: 6px; width: 26px; height: 26px;
   background: rgba(0,0,0,0.5); color: #fff;
 }
+
+/* Ações por linha do cadastro de pavimentos das fotos: lado a lado, sem quebrar. */
+.pav-acoes { display: inline-flex; align-items: center; gap: 2px; }
+.pav-acoes .icon-btn { width: 28px; height: 28px; }

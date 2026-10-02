@@ -24,7 +24,7 @@ import { fotosService } from './fotos.service';
 import { useSemRede, useRetryOnReconnect, connectivity, isNetworkError } from '../../utils/connectivity';
 import { ehFalhaPassageira } from '../../utils/offlinePure';
 import { AvisoOffline } from '../../components/OfflineFallback';
-import { ordenarFotosPorPavimento, posicaoPavimento } from '../../utils/pavimentos';
+import { ordenarFotosPorPavimento, posicaoPavimento, moverNaLista, nomeDaCopia, inserirDepois } from '../../utils/pavimentos';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';import { capaCache } from '../../services/capaCache';
 
 // Obra Detail Page
@@ -1460,8 +1460,44 @@ const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = fal
     setPavimentos(prev => prev.filter(x => x !== p));
   };
 
+  const avisoPendenteTI = 'Reposicionar pavimentos ainda não foi liberado no banco: aguardando o TI aplicar a atualização.';
+
+  // Subir/descer: a lista muda na hora e a ordem inteira é gravada de uma vez; se o banco
+  // recusar, volta como estava.
+  const mover = async (indice, delta) => {
+    const nova = moverNaLista(pavimentos, indice, delta);
+    if (nova === pavimentos) return;
+    const anterior = pavimentos;
+    setPavimentos(nova);
+    setBusy(true);
+    const r = await pavimentosFotosService.reordenar(obraId, nova);
+    setBusy(false);
+    if (!r.ok) {
+      setPavimentos(anterior);
+      toast(r.pendenteTI ? avisoPendenteTI : 'Erro ao reposicionar pavimento. ' + friendlyError(r.error), { tone: r.pendenteTI ? 'warning' : 'danger' });
+    }
+  };
+
+  // Duplicar: cria "X (cópia)" logo abaixo do original e já abre pra renomear (ex.: do
+  // "1º Tipo" sai o "2º Tipo" sem digitar tudo de novo).
+  const duplicar = async (p) => {
+    const copia = nomeDaCopia(p, pavimentos);
+    setBusy(true);
+    const r = await pavimentosFotosService.criar(obraId, copia);
+    if (!r.ok) { setBusy(false); toast('Erro ao duplicar pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
+    const nova = inserirDepois(pavimentos, p, copia);
+    const ro = await pavimentosFotosService.reordenar(obraId, nova);
+    setBusy(false);
+    // Sem reordenar no banco, a cópia fica onde o banco a coloca: no fim da lista.
+    setPavimentos(ro.ok ? nova : [...pavimentos, copia]);
+    if (!ro.ok) {
+      toast(ro.pendenteTI ? 'Cópia criada no fim da lista. ' + avisoPendenteTI : 'Cópia criada no fim da lista. ' + friendlyError(ro.error), { tone: 'warning' });
+    }
+    iniciarEdicao(copia);
+  };
+
   return (
-    <Modal title="Pavimentos das fotos" subtitle="Lista usada no campo Pavimento do upload" onClose={onClose} draggable overlay={false}
+    <Modal title="Pavimentos das fotos" subtitle="Lista usada no campo Pavimento do upload" onClose={onClose} size="compact" draggable resizable overlay={false}
       footer={<button className="btn btn-primary" onClick={onClose}>Fechar</button>}>
       <div className="stack">
         <div>
@@ -1480,7 +1516,7 @@ const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = fal
           : (
             <table className="tbl">
               <tbody>
-                {pavimentos.map(p => (
+                {pavimentos.map((p, i) => (
                   editando === p
                     ? (
                       <tr key={p}>
@@ -1506,8 +1542,8 @@ const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = fal
                     )
                     : (
                       <tr key={p}>
-                        <td>{p}</td>
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '6px 8px', wordBreak: 'break-word' }}>{p}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '6px 8px', width: 1 }}>
                           {confirmar === p
                             ? (
                               <>
@@ -1517,16 +1553,25 @@ const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = fal
                               </>
                             )
                             : (
-                              <>
-                                <button className="icon-btn" title="Editar pavimento" disabled={busy} onClick={() => iniciarEdicao(p)}>
+                              <div className="pav-acoes">
+                                <button className="icon-btn" title="Subir" aria-label={`Subir ${p}`} disabled={busy || i === 0} onClick={() => mover(i, -1)}>
+                                  <Icon name="chevron-up" size={14} />
+                                </button>
+                                <button className="icon-btn" title="Descer" aria-label={`Descer ${p}`} disabled={busy || i === pavimentos.length - 1} onClick={() => mover(i, 1)}>
+                                  <Icon name="chevron-down" size={14} />
+                                </button>
+                                <button className="icon-btn" title="Duplicar pavimento" aria-label={`Duplicar ${p}`} disabled={busy} onClick={() => duplicar(p)}>
+                                  <Icon name="copy" size={14} />
+                                </button>
+                                <button className="icon-btn" title="Editar pavimento" aria-label={`Editar ${p}`} disabled={busy} onClick={() => iniciarEdicao(p)}>
                                   <Icon name="edit" size={14} />
                                 </button>
                                 {isAdmin && (
-                                  <button className="icon-btn" title="Excluir pavimento" onClick={() => setConfirmar(p)}>
+                                  <button className="icon-btn" title="Excluir pavimento" aria-label={`Excluir ${p}`} disabled={busy} onClick={() => setConfirmar(p)}>
                                     <Icon name="trash" size={14} />
                                   </button>
                                 )}
-                              </>
+                              </div>
                             )}
                         </td>
                       </tr>

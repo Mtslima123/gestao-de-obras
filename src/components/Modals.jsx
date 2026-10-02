@@ -99,7 +99,7 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     resizeStart.current = { x: e.clientX, y: e.clientY, w: el?.offsetWidth ?? 600, h: el?.offsetHeight ?? 400 };
   };
 
-  const sizeClass = size === 'sm' ? 'sm' : size === 'lg' ? 'lg' : size === 'xl' ? 'xl' : '';
+  const sizeClass = size === 'sm' ? 'sm' : size === 'compact' ? 'compact' : size === 'lg' ? 'lg' : size === 'xl' ? 'xl' : '';
   const modalStyle = {
     position: 'relative', // âncora pra alça de redimensionar (position:absolute); "fixed" abaixo sobrescreve quando draggable
     ...(draggable && pos ? { position: 'fixed', left: pos.x, top: pos.y, margin: 0 } : {}),

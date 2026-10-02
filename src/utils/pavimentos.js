@@ -12,6 +12,36 @@ export function chavePavimento(nome) {
 
 const naturalCmp = (a, b) => String(a).localeCompare(String(b), 'pt-BR', { numeric: true });
 
+// Botões subir/descer do cadastro de pavimentos: lista nova com o item da posição
+// `indice` trocado com o vizinho (delta -1 sobe, +1 desce). Fora dos limites devolve a
+// MESMA lista (quem chama compara pra saber se mudou).
+export function moverNaLista(lista, indice, delta) {
+  const alvo = indice + delta;
+  if (indice < 0 || indice >= lista.length || alvo < 0 || alvo >= lista.length) return lista;
+  const nova = [...lista];
+  [nova[indice], nova[alvo]] = [nova[alvo], nova[indice]];
+  return nova;
+}
+
+// Nome do pavimento duplicado: "X (cópia)", "X (cópia 2)"... sem repetir um nome que já
+// existe (mesma regra de comparação do cadastro, ver chavePavimento) e cabendo nos 60
+// caracteres do campo.
+export function nomeDaCopia(nome, existentes = []) {
+  const usados = new Set(existentes.map(chavePavimento));
+  const base = String(nome ?? '').replace(/\s+/g, ' ').trim();
+  for (let n = 1; ; n += 1) {
+    const sufixo = n === 1 ? ' (cópia)' : ` (cópia ${n})`;
+    const candidato = base.slice(0, 60 - sufixo.length).trimEnd() + sufixo;
+    if (!usados.has(chavePavimento(candidato))) return candidato;
+  }
+}
+
+// A cópia entra logo abaixo do original (no fim, se o original não estiver na lista).
+export function inserirDepois(lista, referencia, novo) {
+  const i = lista.indexOf(referencia);
+  return i === -1 ? [...lista, novo] : [...lista.slice(0, i + 1), novo, ...lista.slice(i + 1)];
+}
+
 // Opções de Pavimento: primeiro os pavimentos cadastrados na obra, na ordem de cadastro
 // (`ordemCadastro`, vem da tabela de cadastro ordenada por id); depois os que aparecem em
 // `usados` com nome DIFERENTE de qualquer cadastro, em ordem natural ("2" antes de "10");
