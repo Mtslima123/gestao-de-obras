@@ -21,6 +21,11 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   const resizing = React.useRef(false);
   const resizeStart = React.useRef({ x: 0, y: 0, w: 0, h: 0 });
   const [customSize, setCustomSize] = React.useState(null);
+  // Mover e redimensionar por ponteiro (mouse, dedo ou caneta): só com mousedown/mousemove,
+  // no celular e no tablet nada acontecia (o toque gera evento de mouse só no toque rápido,
+  // nunca no arrasto). touch-action:none no cabeçalho e na alça impede o navegador de
+  // transformar o arrasto em rolagem da página.
+  const capturar = (e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ponteiro já solto */ } };
 
   React.useEffect(() => {
     const onEsc = (e) => { if (e.key === 'Escape') onClose(); };
@@ -54,16 +59,20 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
       });
     };
     const up = () => { dragging.current = false; };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup',   up);
+    window.addEventListener('pointermove',   move);
+    window.addEventListener('pointerup',     up);
+    window.addEventListener('pointercancel', up);
     return () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup',   up);
+      window.removeEventListener('pointermove',   move);
+      window.removeEventListener('pointerup',     up);
+      window.removeEventListener('pointercancel', up);
     };
   }, [draggable]);
 
   const handleHeaderDown = (e) => {
     if (!draggable || e.target.closest('button')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return; // só o botão principal
+    capturar(e);
     dragging.current = true;
     const r = nodeRef.current?.getBoundingClientRect() ?? { left: pos?.x ?? 0, top: pos?.y ?? 0 };
     offset.current = { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -83,17 +92,44 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
       });
     };
     const up = () => { resizing.current = false; };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+    window.addEventListener('pointermove',   move);
+    window.addEventListener('pointerup',     up);
+    window.addEventListener('pointercancel', up);
     return () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
+      window.removeEventListener('pointermove',   move);
+      window.removeEventListener('pointerup',     up);
+      window.removeEventListener('pointercancel', up);
     };
   }, [resizable]);
 
+  // Girar o tablet ou mudar o tamanho da janela: traz o modal de volta pra dentro da tela.
+  // Posição e tamanho só eram calculados ao abrir e ao arrastar, e na troca de horizontal
+  // pra vertical o X de fechar e as ações da direita ficavam fora da tela.
+  React.useEffect(() => {
+    if (!draggable && !resizable) return;
+    const caberNaTela = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      setCustomSize(s => (s && (s.w > vw - 16 || s.h > vh - 16) ? { w: Math.min(s.w, vw - 16), h: Math.min(s.h, vh - 16) } : s));
+      setPos(p => {
+        const el = nodeRef.current;
+        if (!p || !el) return p;
+        const w = Math.min(el.offsetWidth, vw - 16);
+        const h = Math.min(el.offsetHeight, vh - 16);
+        const x = Math.max(0, Math.min(vw - w, p.x));
+        const y = Math.max(0, Math.min(vh - h - 8, p.y));
+        return x === p.x && y === p.y ? p : { x, y };
+      });
+    };
+    window.addEventListener('resize', caberNaTela);
+    return () => window.removeEventListener('resize', caberNaTela);
+  }, [draggable, resizable]);
+
   const handleResizeDown = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    capturar(e);
     resizing.current = true;
     const el = nodeRef.current;
     resizeStart.current = { x: e.clientX, y: e.clientY, w: el?.offsetWidth ?? 600, h: el?.offsetHeight ?? 400 };
@@ -105,7 +141,7 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     ...(draggable && pos ? { position: 'fixed', left: pos.x, top: pos.y, margin: 0 } : {}),
     ...(customSize ? { width: customSize.w, height: customSize.h, maxWidth: 'none', maxHeight: 'none' } : {}),
   };
-  const headerStyle = draggable ? { cursor: 'grab', userSelect: 'none' } : {};
+  const headerStyle = draggable ? { cursor: 'grab', userSelect: 'none', touchAction: 'none' } : {};
 
   // Portal pra document.body: sem isso, um modal aberto de dentro de um contêiner com
   // rolagem própria (ex.: .mobile-focus-body do modo foco mobile) fica sujeito a um bug
@@ -119,7 +155,7 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
       onClick={(e) => overlay && e.target === e.currentTarget && onClose()}>
       <div ref={nodeRef} className={'modal ' + sizeClass} style={modalStyle}
            role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
-        <div className="modal-header" style={headerStyle} onMouseDown={handleHeaderDown}>
+        <div className="modal-header" style={headerStyle} onPointerDown={handleHeaderDown}>
           <div>
             <div className="modal-title">{title}</div>
             {subtitle && <div className="modal-sub">{subtitle}</div>}
@@ -131,14 +167,7 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-footer">{footer}</div>}
         {resizable && (
-          <div
-            onMouseDown={handleResizeDown}
-            title="Arraste para redimensionar"
-            style={{
-              position: 'absolute', right: 0, bottom: 0, width: 18, height: 18,
-              cursor: 'nwse-resize', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 2,
-            }}
-          >
+          <div className="modal-resize" onPointerDown={handleResizeDown} title="Arraste para redimensionar">
             <svg width="10" height="10" viewBox="0 0 10 10" style={{ opacity: 0.45 }}>
               <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.4" />
               <line x1="9" y1="5" x2="5" y2="9" stroke="currentColor" strokeWidth="1.4" />

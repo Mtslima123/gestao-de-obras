@@ -24,7 +24,9 @@ export function friendlyError(error) {
   if (/jwt|token.*expired|not authenticated|session/i.test(msg)) {
     return 'Sua sessão expirou. Atualize a página e faça login novamente.';
   }
-  if (/row-level security|permission denied|not authorized|403/i.test(msg)) {
+  // "sem permiss": erros que os próprios services montam quando o RLS filtra a gravação
+  // (0 linhas, sem erro do banco), ex.: "Sem permissão para reordenar os pavimentos.".
+  if (/row-level security|permission denied|not authorized|403|sem permiss/i.test(msg)) {
     return 'Você não tem permissão para realizar esta ação.';
   }
   if (/duplicate key|already exists|unique constraint/i.test(msg)) {

@@ -55,4 +55,7 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.reordenar_pavimentos_fotos(TEXT, TEXT[]) FROM PUBLIC;
+-- O Supabase dá EXECUTE direto ao anon nas funções novas do schema public (o REVOKE de
+-- PUBLIC acima não tira). Inofensivo pelo RLS (0 linhas), mas não há motivo pra liberar.
+REVOKE EXECUTE ON FUNCTION public.reordenar_pavimentos_fotos(TEXT, TEXT[]) FROM anon;
 GRANT EXECUTE ON FUNCTION public.reordenar_pavimentos_fotos(TEXT, TEXT[]) TO authenticated;

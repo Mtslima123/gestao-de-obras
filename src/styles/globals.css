@@ -1289,7 +1289,6 @@ a:hover { color: var(--brand-600); }
 }
 @media (max-width: 480px) {
   .modal-backdrop { padding-block: 8px; }
-  .modal { max-height: calc(100dvh - 16px); }
 }
 /* Painel que rola por roda do mouse mas sem barra visível (evita barra "no meio") */
 .uso-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
@@ -1328,6 +1327,22 @@ a:hover { color: var(--brand-600); }
 .modal.compact { max-width: 440px; }
 .modal.lg { max-width: 880px; }
 .modal.xl { max-width: 1100px; }
+/* Depois da regra base do .modal (mesma especificidade): antes vinha acima dela e nunca
+   valia, e no celular com a barra do navegador visível o rodapé de um modal comprido
+   ficava abaixo da tela (100vh conta a barra escondida). */
+@media (max-width: 480px) {
+  .modal { max-height: calc(100dvh - 16px); }
+}
+/* Alça de redimensionar do Modal (canto inferior direito). No toque, área maior pro dedo,
+   sem chegar no botão do rodapé (22px de margem). */
+.modal-resize {
+  position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; padding: 2px;
+  display: flex; align-items: flex-end; justify-content: flex-end;
+  cursor: nwse-resize; touch-action: none;
+}
+@media (pointer: coarse) {
+  .modal-resize { width: 22px; height: 22px; padding: 3px; }
+}
 .modal-header {
   display: flex;
   align-items: center;
@@ -2939,3 +2954,14 @@ input, textarea, [contenteditable="true"] {
 /* Ações por linha do cadastro de pavimentos das fotos: lado a lado, sem quebrar. */
 .pav-acoes { display: inline-flex; align-items: center; gap: 2px; }
 .pav-acoes .icon-btn { width: 28px; height: 28px; }
+/* No toque, alvo maior e mais espaço: com 28px colados, mirar no Editar pegava o Duplicar. */
+@media (pointer: coarse) {
+  .pav-acoes { gap: 4px; }
+  .pav-acoes .icon-btn { width: 34px; height: 34px; }
+}
+/* .icon-btn não tinha estado desabilitado visível (o color:inherit dos botões anula o cinza
+   do navegador): Subir na 1ª linha e tudo durante a gravação pareciam ativos. */
+.pav-lista .icon-btn:disabled,
+.pav-lista .icon-btn[aria-disabled="true"] { opacity: .35; cursor: default; }
+.pav-lista .icon-btn:disabled:hover,
+.pav-lista .icon-btn[aria-disabled="true"]:hover { background: transparent; border-color: transparent; color: var(--text-soft); }

@@ -706,6 +706,18 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   // Pavimento nos modais. O cadastro é feito no modal "Pavimentos" (showPavimentos).
   const [pavimentos,   setPavimentos]   = React.useState([]);
   const [showPavimentos, setShowPavimentos] = React.useState(false);
+  // Ordem usada pela galeria. Com o modal Pavimentos aberto ela fica na de quando ele abriu:
+  // cada subir/descer/cadastro recarregava todas as fotos e baixava as miniaturas de novo
+  // (dados móveis da obra), com a galeria piscando atrás do modal. Ao fechar, recarrega
+  // uma vez só, já na ordem nova; se fechou porque a rede caiu, espera ela voltar (ver o
+  // efeito depois de semRede), senão a recarga sem rede apagava as fotos que estavam na tela.
+  const [pavimentosAoAbrir, setPavimentosAoAbrir] = React.useState(null);
+  const abrirPavimentos = () => { setPavimentosAoAbrir(pavimentos); setShowPavimentos(true); };
+  const pavimentosGaleria = pavimentosAoAbrir ?? pavimentos;
+  // Gravação em andamento no cadastro de pavimentos. Fica aqui, não no modal: fechar e
+  // reabrir no meio de uma gravação lenta começava outra com a lista antiga ainda em voo.
+  const gravandoPavimentosRef = React.useRef(false);
+  const [gravandoPavimentos, setGravandoPavimentos] = React.useState(false);
   // A galeria só carrega depois do cadastro: a ordem das fotos depende dele (ver carregarPagina).
   const [pavimentosPronto, setPavimentosPronto] = React.useState(false);
   // Sem rede a lista vem do aparelho (offlineCache, gravada a cada carga com internet no
@@ -763,6 +775,8 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   const podeCadastrarPavimentos = pavimentosConfirmados && !semRede;
   // A rede caiu com o cadastro aberto: fecha, ele não conseguiria gravar.
   React.useEffect(() => { if (!podeCadastrarPavimentos) setShowPavimentos(false); }, [podeCadastrarPavimentos]);
+  // Solta a ordem congelada da galeria (ver pavimentosGaleria) com o modal fechado e rede.
+  React.useEffect(() => { if (!showPavimentos && !semRede) setPavimentosAoAbrir(null); }, [showPavimentos, semRede]);
 
   // Lista de pavimentos que TÊM foto, pro filtro — query própria e leve (só a coluna
   // pavimento, sem imagem/URL assinada). Com paginação, `fotos` só tem o que já foi
@@ -835,7 +849,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
         leves.push(...(data || []));
         if ((data || []).length < LOTE_ORDEM) break;
       }
-      const ordenadas = ordenarFotosPorPavimento(leves, pavimentos);
+      const ordenadas = ordenarFotosPorPavimento(leves, pavimentosGaleria);
       const idsDaPagina = ordenadas.slice((pag - 1) * FOTOS_POR_LOTE, pag * FOTOS_POR_LOTE).map(f => f.id);
       let rows = [];
       if (idsDaPagina.length) {
@@ -869,12 +883,12 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
     } finally {
       if (meuId === requestIdRef.current) setLoading(false);
     }
-  }, [obra.id, filtroMes, filtroPavimento, pavimentos]);
+  }, [obra.id, filtroMes, filtroPavimento, pavimentosGaleria]);
 
   // Troca de obra ou de filtro sempre volta pra primeira página
   React.useEffect(() => { setPagina(1); }, [obra.id, filtroMes, filtroPavimento]);
-  // Só carrega com o cadastro de pavimentos pronto (a ordem depende dele); cadastrar, renomear
-  // ou excluir pavimento recria carregarPagina e reordena a galeria sozinho.
+  // Só carrega com o cadastro de pavimentos pronto (a ordem depende dele); mudar o cadastro
+  // recria carregarPagina e reordena a galeria sozinho (ao fechar o modal, ver pavimentosGaleria).
   React.useEffect(() => { if (pavimentosPronto) carregarPagina(pagina); }, [pagina, carregarPagina, pavimentosPronto]);
 
   // Upload em lote: metadados (data/pavimento/descrição) compartilhados por todas as fotos
@@ -1120,7 +1134,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
         {!readOnly && (
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             {podeCadastrarPavimentos && (
-              <button className="btn btn-ghost" onClick={() => setShowPavimentos(true)}>
+              <button className="btn btn-ghost" onClick={abrirPavimentos}>
                 <Icon name="layers" size={15} />Pavimentos
               </button>
             )}
@@ -1147,7 +1161,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
             </button>
             {podeCadastrarPavimentos && (
               <button type="button" className="btn btn-ghost" style={{ flex: 1 }}
-                onClick={() => setShowPavimentos(true)}>
+                onClick={abrirPavimentos}>
                 <Icon name="layers" size={15} />Pavimentos
               </button>
             )}
@@ -1306,7 +1320,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       {showUpload && (
         <UploadFotoModal
           obra={obra} pavimentos={pavimentos}
-          onGerenciarPavimentos={podeCadastrarPavimentos ? () => setShowPavimentos(true) : undefined}
+          onGerenciarPavimentos={podeCadastrarPavimentos ? abrirPavimentos : undefined}
           semRede={semRede}
           initialFiles={pendingFiles}
           mobileView={mobileView}
@@ -1316,10 +1330,15 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       )}
       {showPavimentos && (
         <PavimentosFotosModal obraId={obra.id} pavimentos={pavimentos} setPavimentos={setPavimentos}
+          gravacao={{ trava: gravandoPavimentosRef, ativa: gravandoPavimentos, definir: setGravandoPavimentos }}
           isAdmin={isAdmin} onClose={() => setShowPavimentos(false)}
-          onRenomeado={(antigo, novo) => { if (filtroPavimento === antigo) setFiltroPavimento(novo); carregarPavimentosComFoto(); }} />
+          onRenomeado={(antigo, novo) => {
+            if (filtroPavimento === antigo) setFiltroPavimento(novo);
+            setPavimentosAoAbrir(prev => prev && prev.map(x => (x === antigo ? novo : x)));
+            carregarPavimentosComFoto();
+          }} />
       )}
-      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onGerenciarPavimentos={podeCadastrarPavimentos ? () => setShowPavimentos(true) : undefined} mobileView={mobileView} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
+      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onGerenciarPavimentos={podeCadastrarPavimentos ? abrirPavimentos : undefined} mobileView={mobileView} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox
           fotos={fotos}
@@ -1407,94 +1426,185 @@ const PavimentoSelect = ({ value, onChange, options = [], atual = '', onGerencia
   );
 };
 
-// Modal de cadastro de pavimentos das Fotos. Qualquer um que edita Fotos cadastra e renomeia;
-// excluir é só admin (RLS também exige). Excluir do cadastro não altera fotos já gravadas;
-// renomear atualiza também as fotos da obra que usam o nome antigo (ver pavimentosFotosService.renomear).
-const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = false, onRenomeado, onClose }) => {
+// Modal de cadastro de pavimentos das Fotos. Qualquer um que edita Fotos cadastra, renomeia,
+// reposiciona e duplica; excluir é só admin (RLS também exige). Excluir do cadastro não altera
+// fotos já gravadas; renomear atualiza também as fotos da obra que usam o nome antigo (ver
+// pavimentosFotosService.renomear).
+const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, gravacao, isAdmin = false, onRenomeado, onClose }) => {
   const toast = useToast();
   const [nome, setNome] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
+  // Uma gravação por vez, travada já no toque: `busy` só vale no render seguinte e o Enter
+  // dos campos não passa pelo botão desabilitado. Sem isso, um cadastro feito durante um
+  // subir/duplicar lento sumia da tela quando o outro terminava. A trava vem do pai (ver
+  // gravandoPavimentosRef) pra continuar valendo se o modal for fechado e reaberto.
+  const { trava: travaRef, ativa: busy, definir: setBusy } = gravacao;
   const [confirmar, setConfirmar] = React.useState(null);
   const [erro, setErro] = React.useState('');
   const [editando, setEditando] = React.useState(null); // nome original do pavimento em edição
+  // Cópia ainda não gravada (Duplicar): { origem }. Só vai pro banco no Salvar: um toque
+  // errado não deixa pavimento sobrando, que quem não é admin nem conseguiria excluir.
+  const [copia, setCopia] = React.useState(null);
   const [rascunho, setRascunho] = React.useState('');
   const [erroEdicao, setErroEdicao] = React.useState('');
 
-  const adicionar = async () => {
+  const executar = async (fn) => {
+    if (travaRef.current) return;
+    travaRef.current = true;
+    setBusy(true);
+    try {
+      await fn();
+    } catch (err) {
+      logger.error('falha no cadastro de pavimentos das fotos', { module: 'pavimentosFotos', action: 'modal', obraId, err });
+      toast('Erro ao salvar. ' + friendlyError(err), { tone: 'danger' });
+    } finally {
+      travaRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  // Outro pavimento com o mesmo nome (sem diferenciar maiúscula); `exceto` = o próprio, na edição.
+  const jaCadastrado = (n, exceto) => pavimentos.some(p => p !== exceto && p.toLowerCase() === n.toLowerCase());
+
+  const adicionar = () => {
     const n = nome.trim();
     if (!n) { setErro('Informe o nome do pavimento.'); return; }
-    if (pavimentos.some(p => p.toLowerCase() === n.toLowerCase())) { setErro('Esse pavimento já está cadastrado.'); return; }
-    setBusy(true);
-    const r = await pavimentosFotosService.criar(obraId, n);
-    setBusy(false);
-    if (!r.ok) { toast('Erro ao cadastrar pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
-    setPavimentos(prev => [...prev, n]);
-    setNome(''); setErro('');
+    if (jaCadastrado(n)) { setErro('Esse pavimento já está cadastrado.'); return; }
+    executar(async () => {
+      const r = await pavimentosFotosService.criar(obraId, n);
+      if (!r.ok) { toast('Erro ao cadastrar pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
+      setPavimentos(prev => (prev.includes(n) ? prev : [...prev, n]));
+      setNome(''); setErro('');
+    });
   };
 
-  const iniciarEdicao = (p) => { setEditando(p); setRascunho(p); setErroEdicao(''); setConfirmar(null); };
-  const cancelarEdicao = () => { setEditando(null); setErroEdicao(''); };
-  const salvarEdicao = async () => {
+  const iniciarEdicao = (p) => {
+    if (travaRef.current) return;
+    setEditando(p); setCopia(null); setRascunho(p); setErroEdicao(''); setConfirmar(null);
+  };
+  const cancelarEdicao = () => { setEditando(null); setCopia(null); setErroEdicao(''); };
+  const salvarEdicao = () => {
     const n = rascunho.trim();
     if (!n) { setErroEdicao('Informe o nome do pavimento.'); return; }
-    if (n === editando) { cancelarEdicao(); return; }
-    // Outro pavimento com o mesmo nome (sem diferenciar maiúscula). Mudar só a caixa do próprio é permitido.
-    if (pavimentos.some(p => p !== editando && p.toLowerCase() === n.toLowerCase())) { setErroEdicao('Esse pavimento já está cadastrado.'); return; }
-    setBusy(true);
-    const r = await pavimentosFotosService.renomear(obraId, editando, n);
-    setBusy(false);
-    if (!r.ok) { toast('Erro ao renomear pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
     const antigo = editando;
-    setPavimentos(prev => prev.map(x => (x === antigo ? n : x))); // mantém a ordem de cadastro
-    onRenomeado?.(antigo, n);
-    toast('Pavimento renomeado', { tone: 'success', icon: 'check' });
-    cancelarEdicao();
+    if (n === antigo) { cancelarEdicao(); return; }
+    // Mudar só a maiúscula do próprio é permitido.
+    if (jaCadastrado(n, antigo)) { setErroEdicao('Esse pavimento já está cadastrado.'); return; }
+    executar(async () => {
+      const r = await pavimentosFotosService.renomear(obraId, antigo, n);
+      if (!r.ok) { toast('Erro ao renomear pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
+      setPavimentos(prev => prev.map(x => (x === antigo ? n : x))); // mantém a posição
+      onRenomeado?.(antigo, n);
+      toast('Pavimento renomeado', { tone: 'success', icon: 'check' });
+      cancelarEdicao();
+    });
   };
 
-  const excluir = async (p) => {
-    setBusy(true);
+  const pedirExclusao = (p) => { if (!travaRef.current) setConfirmar(p); };
+  const excluir = (p) => executar(async () => {
     const r = await pavimentosFotosService.excluir(obraId, p);
-    setBusy(false);
     setConfirmar(null);
     if (!r.ok) { toast('Erro ao excluir pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
     setPavimentos(prev => prev.filter(x => x !== p));
-  };
+  });
 
   const avisoPendenteTI = 'Reposicionar pavimentos ainda não foi liberado no banco: aguardando o TI aplicar a atualização.';
 
-  // Subir/descer: a lista muda na hora e a ordem inteira é gravada de uma vez; se o banco
-  // recusar, volta como estava.
-  const mover = async (indice, delta) => {
-    const nova = moverNaLista(pavimentos, indice, delta);
-    if (nova === pavimentos) return;
-    const anterior = pavimentos;
-    setPavimentos(nova);
-    setBusy(true);
-    const r = await pavimentosFotosService.reordenar(obraId, nova);
-    setBusy(false);
-    if (!r.ok) {
-      setPavimentos(anterior);
-      toast(r.pendenteTI ? avisoPendenteTI : 'Erro ao reposicionar pavimento. ' + friendlyError(r.error), { tone: r.pendenteTI ? 'warning' : 'danger' });
+  // Grava a ordem a partir da lista ATUAL do banco, não da tela: outra pessoa pode ter
+  // cadastrado, renomeado ou reposicionado com este modal aberto, e a função do banco só
+  // posiciona os nomes enviados (os outros ficariam empatados numa posição qualquer).
+  // `ordenar(lista)` devolve a ordem nova, ou null quando o pedido já não cabe na lista
+  // (pavimento renomeado/excluído por outra pessoa, ou já na ponta). Devolve { ok } ou
+  // { ok: false, aviso, tone, telaAtualizada }; com telaAtualizada a tela já mostra o banco.
+  const gravarOrdem = async (ordenar) => {
+    const atual = await pavimentosFotosService.listar(obraId);
+    if (atual.error) return { ok: false, aviso: friendlyError(atual.error), tone: 'danger', telaAtualizada: false };
+    // Vazia com pavimentos na tela: quase sempre a sessão caiu (a requisição sai anônima e o
+    // RLS devolve 0 linhas, sem erro). Usar essa lista apagava a da tela e a guardada no
+    // aparelho, e sem internet a foto não teria pavimento pra escolher.
+    if (!atual.data.length && pavimentos.length) {
+      return { ok: false, aviso: 'Não foi possível conferir a lista no servidor. Tente de novo.', tone: 'danger', telaAtualizada: false };
     }
+    const nova = ordenar(atual.data);
+    if (!nova) {
+      setPavimentos(atual.data);
+      return { ok: false, aviso: 'A lista foi alterada por outra pessoa. Confira a ordem e tente de novo.', tone: 'warning', telaAtualizada: true };
+    }
+    const r = await pavimentosFotosService.reordenar(obraId, nova);
+    if (!r.ok) {
+      setPavimentos(atual.data);
+      return r.pendenteTI
+        ? { ok: false, aviso: avisoPendenteTI, tone: 'warning', telaAtualizada: true }
+        : { ok: false, aviso: friendlyError(r.error), tone: 'danger', telaAtualizada: true };
+    }
+    setPavimentos(nova);
+    return { ok: true };
   };
 
-  // Duplicar: cria "X (cópia)" logo abaixo do original e já abre pra renomear (ex.: do
-  // "1º Tipo" sai o "2º Tipo" sem digitar tudo de novo).
-  const duplicar = async (p) => {
-    const copia = nomeDaCopia(p, pavimentos);
-    setBusy(true);
-    const r = await pavimentosFotosService.criar(obraId, copia);
-    if (!r.ok) { setBusy(false); toast('Erro ao duplicar pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
-    const nova = inserirDepois(pavimentos, p, copia);
-    const ro = await pavimentosFotosService.reordenar(obraId, nova);
-    setBusy(false);
-    // Sem reordenar no banco, a cópia fica onde o banco a coloca: no fim da lista.
-    setPavimentos(ro.ok ? nova : [...pavimentos, copia]);
-    if (!ro.ok) {
-      toast(ro.pendenteTI ? 'Cópia criada no fim da lista. ' + avisoPendenteTI : 'Cópia criada no fim da lista. ' + friendlyError(ro.error), { tone: 'warning' });
-    }
-    iniciarEdicao(copia);
+  // Subir/descer: muda na tela na hora e a gravação confirma (ou corrige pelo banco).
+  const mover = (p, delta) => {
+    if (travaRef.current) return;
+    const otimista = moverNaLista(pavimentos, pavimentos.indexOf(p), delta);
+    if (otimista === pavimentos) return; // já na ponta
+    const anterior = pavimentos;
+    executar(async () => {
+      setPavimentos(otimista);
+      const r = await gravarOrdem(lista => {
+        const nova = moverNaLista(lista, lista.indexOf(p), delta);
+        return nova === lista ? null : nova;
+      });
+      if (r.ok) return;
+      if (!r.telaAtualizada) setPavimentos(cur => (cur === otimista ? anterior : cur));
+      toast(r.tone === 'danger' ? 'Erro ao reposicionar pavimento. ' + r.aviso : r.aviso, { tone: r.tone });
+    });
   };
+
+  // Duplicar: abre logo abaixo do original um "X (cópia)" pra renomear (do "1º Tipo" sai o
+  // "2º Tipo" sem digitar tudo de novo). Só grava no Salvar.
+  const duplicar = (p) => {
+    if (travaRef.current) return;
+    setEditando(null); setConfirmar(null);
+    setCopia({ origem: p });
+    setRascunho(nomeDaCopia(p, pavimentos)); setErroEdicao('');
+  };
+  const salvarCopia = () => {
+    const n = rascunho.trim();
+    if (!n) { setErroEdicao('Informe o nome do pavimento.'); return; }
+    if (jaCadastrado(n)) { setErroEdicao('Esse pavimento já está cadastrado.'); return; }
+    const { origem } = copia;
+    executar(async () => {
+      const r = await pavimentosFotosService.criar(obraId, n);
+      if (!r.ok) { toast('Erro ao duplicar pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
+      cancelarEdicao();
+      // Recém-criado ele fica no fim (sem posição no banco); daí vai pra baixo do original.
+      setPavimentos(prev => (prev.includes(n) ? prev : [...prev, n]));
+      const ro = await gravarOrdem(lista => inserirDepois(lista.filter(x => x !== n), origem, n));
+      if (!ro.ok) toast('Pavimento criado no fim da lista. ' + ro.aviso, { tone: 'warning' });
+    });
+  };
+
+  // Linha com campo de nome: renomear um pavimento ou dar nome à cópia.
+  const linhaDeNome = (rotulo, onSalvar) => (
+    <tr>
+      <td colSpan={2}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input className="input" style={{ flex: 1 }} value={rascunho} maxLength={60} autoFocus
+            aria-label={rotulo}
+            onChange={e => { setRascunho(e.target.value); setErroEdicao(''); }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); onSalvar(); }
+              if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelarEdicao(); }
+            }} />
+          <button className="icon-btn" title="Salvar" disabled={busy} onClick={onSalvar}>
+            <Icon name="check" size={14} />
+          </button>
+          <button className="icon-btn" title="Cancelar" disabled={busy} onClick={cancelarEdicao}>
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+        {erroEdicao && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erroEdicao}</div>}
+      </td>
+    </tr>
+  );
 
   return (
     <Modal title="Pavimentos das fotos" subtitle="Lista usada no campo Pavimento do upload" onClose={onClose} size="compact" draggable resizable overlay={false}
@@ -1511,72 +1621,59 @@ const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = fal
           </div>
           {erro && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erro}</div>}
         </div>
-        {pavimentos.length === 0
+        {pavimentos.length === 0 && !copia
           ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhum pavimento cadastrado nesta obra.</div>
           : (
-            <table className="tbl">
+            <table className="tbl pav-lista">
               <tbody>
                 {pavimentos.map((p, i) => (
-                  editando === p
-                    ? (
-                      <tr key={p}>
-                        <td colSpan={2}>
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                            <input className="input" style={{ flex: 1 }} value={rascunho} maxLength={60} autoFocus
-                              aria-label={`Novo nome de ${p}`}
-                              onChange={e => { setRascunho(e.target.value); setErroEdicao(''); }}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') { e.preventDefault(); salvarEdicao(); }
-                                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelarEdicao(); }
-                              }} />
-                            <button className="icon-btn" title="Salvar" disabled={busy} onClick={salvarEdicao}>
-                              <Icon name="check" size={14} />
-                            </button>
-                            <button className="icon-btn" title="Cancelar" disabled={busy} onClick={cancelarEdicao}>
-                              <Icon name="x" size={14} />
-                            </button>
-                          </div>
-                          {erroEdicao && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erroEdicao}</div>}
-                        </td>
-                      </tr>
-                    )
-                    : (
-                      <tr key={p}>
-                        <td style={{ padding: '6px 8px', wordBreak: 'break-word' }}>{p}</td>
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '6px 8px', width: 1 }}>
-                          {confirmar === p
-                            ? (
-                              <>
-                                <button className="btn btn-ghost btn-sm" onClick={() => setConfirmar(null)}>Cancelar</button>
-                                <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff', fontWeight: 600, marginLeft: 6 }}
-                                  disabled={busy} onClick={() => excluir(p)}>Sim, excluir</button>
-                              </>
-                            )
-                            : (
-                              <div className="pav-acoes">
-                                <button className="icon-btn" title="Subir" aria-label={`Subir ${p}`} disabled={busy || i === 0} onClick={() => mover(i, -1)}>
-                                  <Icon name="chevron-up" size={14} />
-                                </button>
-                                <button className="icon-btn" title="Descer" aria-label={`Descer ${p}`} disabled={busy || i === pavimentos.length - 1} onClick={() => mover(i, 1)}>
-                                  <Icon name="chevron-down" size={14} />
-                                </button>
-                                <button className="icon-btn" title="Duplicar pavimento" aria-label={`Duplicar ${p}`} disabled={busy} onClick={() => duplicar(p)}>
-                                  <Icon name="copy" size={14} />
-                                </button>
-                                <button className="icon-btn" title="Editar pavimento" aria-label={`Editar ${p}`} disabled={busy} onClick={() => iniciarEdicao(p)}>
-                                  <Icon name="edit" size={14} />
-                                </button>
-                                {isAdmin && (
-                                  <button className="icon-btn" title="Excluir pavimento" aria-label={`Excluir ${p}`} disabled={busy} onClick={() => setConfirmar(p)}>
-                                    <Icon name="trash" size={14} />
+                  <React.Fragment key={p}>
+                    {editando === p
+                      ? linhaDeNome(`Novo nome de ${p}`, salvarEdicao)
+                      : (
+                        <tr>
+                          <td style={{ padding: '6px 8px', wordBreak: 'break-word' }}>{p}</td>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '6px 8px', width: 1 }}>
+                            {confirmar === p
+                              ? (
+                                <>
+                                  <button className="btn btn-ghost btn-sm" onClick={() => setConfirmar(null)}>Cancelar</button>
+                                  <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff', fontWeight: 600, marginLeft: 6 }}
+                                    disabled={busy} onClick={() => excluir(p)}>Sim, excluir</button>
+                                </>
+                              )
+                              : (
+                                // aria-disabled em vez de disabled: botão desabilitado perde o foco, e quem
+                                // usa o teclado parava a cada Subir/Descer (o foco ia pro corpo da página).
+                                // Os handlers ignoram o toque enquanto uma gravação está em andamento.
+                                <div className="pav-acoes">
+                                  <button className="icon-btn" title="Subir" aria-label={`Subir ${p}`} aria-disabled={busy || i === 0} onClick={() => mover(p, -1)}>
+                                    <Icon name="chevron-up" size={14} />
                                   </button>
-                                )}
-                              </div>
-                            )}
-                        </td>
-                      </tr>
-                    )
+                                  <button className="icon-btn" title="Descer" aria-label={`Descer ${p}`} aria-disabled={busy || i === pavimentos.length - 1} onClick={() => mover(p, 1)}>
+                                    <Icon name="chevron-down" size={14} />
+                                  </button>
+                                  <button className="icon-btn" title="Duplicar pavimento" aria-label={`Duplicar ${p}`} aria-disabled={busy} onClick={() => duplicar(p)}>
+                                    <Icon name="copy" size={14} />
+                                  </button>
+                                  <button className="icon-btn" title="Editar pavimento" aria-label={`Editar ${p}`} aria-disabled={busy} onClick={() => iniciarEdicao(p)}>
+                                    <Icon name="edit" size={14} />
+                                  </button>
+                                  {isAdmin && (
+                                    <button className="icon-btn" title="Excluir pavimento" aria-label={`Excluir ${p}`} aria-disabled={busy} onClick={() => pedirExclusao(p)}>
+                                      <Icon name="trash" size={14} />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                          </td>
+                        </tr>
+                      )}
+                    {copia?.origem === p && linhaDeNome(`Nome da cópia de ${p}`, salvarCopia)}
+                  </React.Fragment>
                 ))}
+                {/* Original renomeado/excluído com a cópia aberta: ela continua, no fim. */}
+                {copia && !pavimentos.includes(copia.origem) && linhaDeNome('Nome da cópia', salvarCopia)}
               </tbody>
             </table>
           )}

@@ -14,6 +14,10 @@ describe('friendlyError', () => {
     expect(friendlyError({ message: 'new row violates row-level security policy' })).toMatch(/permissão/i);
   });
 
+  it('traduz o "sem permissão" montado pelos services (RLS filtrou, 0 linhas)', () => {
+    expect(friendlyError(new Error('Sem permissão para reordenar os pavimentos.'))).toMatch(/não tem permissão/i);
+  });
+
   it('traduz chave duplicada', () => {
     expect(friendlyError({ message: 'duplicate key value violates unique constraint "obras_pkey"' })).toMatch(/já existe/i);
   });
