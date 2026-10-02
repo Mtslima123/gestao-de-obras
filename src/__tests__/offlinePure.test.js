@@ -87,6 +87,14 @@ describe('fila de envio: itensParaEnviar', () => {
     expect(r.map(i => i.id)).toEqual(['ok']);
   });
 
+  it('medição vai antes das fotos (é pequena; com fotos na frente o % demorava minutos)', () => {
+    const r = itensParaEnviar([
+      item({ id: 'foto-antiga', criadoEm: '2026-10-02T08:00:00.000Z' }),
+      item({ id: 'medicao', tipo: 'medicao-rascunho', criadoEm: '2026-10-02T12:00:00.000Z' }),
+    ], { uid: 'u1', tipos: new Set(['foto', 'medicao-rascunho']) });
+    expect(r.map(i => i.id)).toEqual(['medicao', 'foto-antiga']);
+  });
+
   it('envia do mais antigo pro mais novo', () => {
     const r = itensParaEnviar([
       item({ id: 'novo', criadoEm: '2026-10-02T12:00:00.000Z' }),

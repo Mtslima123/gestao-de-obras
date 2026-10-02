@@ -6,7 +6,10 @@ import { offsetToDate, dateToExcelSerial } from './cronogramaDateUtils';
 import { mesAtualOuUltimo, mesesComReprogramacao } from './scheduleEngine';
 import { medicaoMensalService } from './medicaoMensal.service';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { isNetworkError, connectivity, useRetryOnReconnect } from '../../utils/connectivity';
+import { isNetworkError, connectivity, useRetryOnReconnect, useSemRede } from '../../utils/connectivity';
+import { medicaoSync } from './medicaoSync';
+import { offlineQueue } from '../../services/offlineQueue';
+import { logger } from '../../services/logger';
 import { OfflineFallback, AvisoOffline } from '../../components/OfflineFallback';
 import { offlineCache } from '../../services/offlineCache';
 import { quandoFoiGuardado } from '../../utils/offlinePure';
@@ -19,6 +22,7 @@ import {
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
   hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, ordenarPavimentos, chavePavimento,
+  aplicarAlteracoes,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -647,9 +651,11 @@ export default function MedicaoMensal({
   // salvoEm da medição guardada no aparelho em uso (sem internet, só no modo foco), ou null.
   const [registroDoAparelho, setRegistroDoAparelho] = React.useState(null);
   const [retryTick, setRetryTick] = React.useState(0);
-  // Sem internet a tela mostra o que foi guardado no aparelho: dá pra consultar, mas nada
-  // que grave (abrir, fechar, aprovar, % medido...) até a conexão voltar.
+  // Sem internet a tela mostra o que foi guardado no aparelho. % medido, visto e observação
+  // continuam editáveis (vão pra fila do aparelho, ver registrarEdicoes); abrir, fechar,
+  // aprovar etc. dependem do servidor e esperam a conexão voltar.
   const somenteConsulta = !!(registroDoAparelho || dadosDoAparelho);
+  const semRede = useSemRede();
   // Lidos na hora pelo aviso de reconexão: ele pode chegar de dentro do próprio
   // gerarMedicao (connectivity.reportSuccess), antes de o React renderizar o estado novo.
   const precisaRecarregarRef = React.useRef(false); // "Sem conexão" ou medição do aparelho
@@ -657,8 +663,34 @@ export default function MedicaoMensal({
   // resposta (ou o timeout de 8s) do mês anterior cair por cima do mês atual.
   const buscaIdRef = React.useRef(0);
   const avisarSemInternet = () => {
-    toast('Sem internet: a medição está só para consulta. Conecte-se para alterar.', { tone: 'warning', icon: 'alert-triangle' });
+    toast('Precisa de internet para esta ação. O preenchimento do % medido continua funcionando.', { tone: 'warning', icon: 'alert-triangle' });
   };
+  // Mudanças desta medição guardadas no aparelho e ainda não enviadas (medicaoSync).
+  const [pendenteMes, setPendenteMes] = React.useState(null);
+  const [estadoFila, setEstadoFila] = React.useState(() => offlineQueue.estado());
+  const [descartandoPendencia, setDescartandoPendencia] = React.useState(false);
+  // Horário do último envio feito por ESTA aba (ver medicaoSync.subscribe abaixo).
+  const ultimoEnvioLocalRef = React.useRef(0);
+  React.useEffect(() => {
+    let vivo = true;
+    let anterior = null;
+    const ler = async () => {
+      const item = obraId && mesRefKey ? await medicaoSync.lerPendente(obraId, mesRefKey).catch(() => null) : null;
+      if (!vivo) return;
+      // Cada tecla notifica a fila: só troca o estado quando muda algo que a tela mostra.
+      const resumo = (i) => (i ? `${i.status}|${i.tentativas || 0}|${i.ultimoErro || ''}|${JSON.stringify(i.detalhe || null)}` : '');
+      setPendenteMes(prev => (resumo(prev) === resumo(item) ? prev : item));
+      const est = offlineQueue.estado();
+      setEstadoFila(prev => (prev.semSessao === est.semSessao ? prev : est));
+      // Sumiu da fila sem envio desta aba: outra aba enviou. Relê do banco, senão a base das
+      // próximas edições seria o valor antigo (e acusaria conflito com a própria edição).
+      if (anterior && !item && Date.now() - ultimoEnvioLocalRef.current > 3000) setRetryTick(t => t + 1);
+      anterior = item;
+    };
+    ler();
+    const sair = offlineQueue.subscribe(ler);
+    return () => { vivo = false; sair(); };
+  }, [obraId, mesRefKey]);
   const [salvando, setSalvando] = React.useState(false);
   const [busca, setBusca] = React.useState('');
   const [pavimento, setPavimento] = React.useState('Todos');
@@ -772,6 +804,13 @@ export default function MedicaoMensal({
     const buscaId = ++buscaIdRef.current;
     const atual = () => buscaId === buscaIdRef.current;
     setCarregando(true);
+    // O que a pessoa preencheu e ainda não subiu vai por cima do registro (do banco ou do
+    // aparelho), senão um reload mostraria os valores antigos. Lido depois da busca, já com
+    // as gravações em andamento concluídas.
+    const lerPendente = async () => {
+      await ultimaGravacaoRef.current?.catch(() => {});
+      return medicaoSync.lerPendente(obraId, mesRefKey).catch(() => null);
+    };
     // Mesmo limite de 8s do carregamento do cronograma (Cronograma.jsx): rede real
     // "sem sinal" pode ficar pendente muito tempo em vez de falhar na hora.
     const TIMEOUT_REDE = { timeout: true };
@@ -782,10 +821,11 @@ export default function MedicaoMensal({
     const semRede = async (erro) => {
       connectivity.reportError(erro);
       const guardado = hideChrome ? await offlineCache.ler('medicao', chaveMes) : null;
+      const pendente = guardado ? await lerPendente() : null;
       if (!atual()) return;
       precisaRecarregarRef.current = true;
       if (guardado) {
-        aplicarRegistro(guardado.dados.registro);
+        aplicarRegistro(guardado.dados.registro, pendente);
         setRegistroDoAparelho(guardado.salvoEm);
         setMedicaoOffline(false);
       } else {
@@ -809,6 +849,8 @@ export default function MedicaoMensal({
       await semRede(regErro === TIMEOUT_REDE ? { message: 'Failed to fetch' } : regErro);
       return;
     }
+    const pendente = await lerPendente();
+    if (!atual()) return;
     setMedicaoOffline(false);
     setRegistroDoAparelho(null);
     precisaRecarregarRef.current = false; // antes do reportSuccess, que lê este ref
@@ -816,12 +858,24 @@ export default function MedicaoMensal({
       connectivity.reportSuccess();
       if (hideChrome) offlineCache.gravar('medicao', chaveMes, { registro: reg });
     }
-    aplicarRegistro(reg);
+    aplicarRegistro(reg, pendente);
     setCarregando(false);
   }, [obraId, mesRefKey, etapas, wbsMap, disciplinaInfo, montarDoCronograma, hideChrome]);
 
-  // Monta a tela a partir do registro do mês (do banco ou guardado no aparelho).
-  function aplicarRegistro(reg) {
+  // Sempre a versão atual pra quem roda fora do render (ouvinte do envio, depois de awaits).
+  const aplicarRegistroRef = React.useRef(null);
+  const registroRef = React.useRef(registro);
+  registroRef.current = registro;
+  const itensRef = React.useRef(itensTrabalho);
+  itensRef.current = itensTrabalho;
+  // Última gravação de edição no aparelho (encadeadas, ver registrarEdicoes).
+  const ultimaGravacaoRef = React.useRef(null);
+
+  // Monta a tela a partir do registro do mês (do banco ou guardado no aparelho) e, por
+  // cima, do que está na fila do aparelho pra esta mesma medição.
+  function aplicarRegistro(reg, pendente) {
+    const alteracoes = pendente && reg && (pendente.payload?.baseId == null || String(pendente.payload.baseId) === String(reg.id))
+      ? pendente.payload.alteracoes : null;
     // Aceita as duas chaves: o rascunho grava `manual`, o snapshot de fechamento grava
     // `foraDoMes`. Lendo só uma delas, uma medição fechada voltava sem os itens extras e
     // os totais da tela divergiam do valor congelado que o histórico mostra.
@@ -835,12 +889,13 @@ export default function MedicaoMensal({
     if (reg?.status === 'fechada' || reg?.status === 'aprovada') {
       setItensTrabalho(hidratarSnapshot(reg.itens, etapas, { wbsMap, disciplinaInfo }));
     } else if (reg) {
-      setItensTrabalho(mergePercMedido(montarDoCronograma(idsSalvos), reg.itens));
+      setItensTrabalho(aplicarAlteracoes(mergePercMedido(montarDoCronograma(idsSalvos), reg.itens), alteracoes));
     } else {
       // Sem registro: nada de itens. O mês só passa a existir depois de "Abrir medição".
       setItensTrabalho([]);
     }
   }
+  aplicarRegistroRef.current = aplicarRegistro;
 
   // Carrega ao montar e sempre que trocar de mês/obra — edições em andamento do
   // usuário não são perdidas por mudanças não relacionadas.
@@ -853,14 +908,73 @@ export default function MedicaoMensal({
     if (dadosDoAparelhoAntesRef.current && !dadosDoAparelho) setRetryTick((t) => t + 1);
     dadosDoAparelhoAntesRef.current = dadosDoAparelho;
   }, [dadosDoAparelho]);
+  // Envio que deu certo: remonta a tela com o que o banco tem agora (inclusive o que outra
+  // pessoa gravou e a mesclagem preservou) e o que ainda está na fila por cima. Trocar só o
+  // registro deixava a tela com valores velhos: o Fechar gravaria o snapshot da tela por
+  // cima, e a base das próximas edições não seria o que a pessoa vê.
+  React.useEffect(() => medicaoSync.subscribe(async ({ chave, registro: novo }) => {
+    if (chave !== medicaoSync.chave(obraId, mesRefKey)) return;
+    ultimoEnvioLocalRef.current = Date.now();
+    if (!registroRef.current || String(registroRef.current.id) !== String(novo.id)) { setRetryTick(t => t + 1); return; }
+    await ultimaGravacaoRef.current?.catch(() => {});
+    const pendente = await medicaoSync.lerPendente(obraId, mesRefKey).catch(() => null);
+    setRegistroDoAparelho(null);
+    aplicarRegistroRef.current?.(novo, pendente);
+  }), [obraId, mesRefKey]);
+
   // Faixa de aviso: a data mais antiga entre o cronograma e a medição guardados.
   const guardadoEm = [dadosDoAparelho, registroDoAparelho].filter(Boolean).sort((a, b) => a - b)[0] || null;
   const avisoOffline = guardadoEm ? (
     <AvisoOffline
-      texto={`Sem internet. Dados de ${quandoFoiGuardado(guardadoEm)}, guardados neste aparelho. Só para consulta até a conexão voltar.`}
+      texto={`Sem internet. Dados de ${quandoFoiGuardado(guardadoEm)}, guardados neste aparelho.${registro?.status === 'rascunho' && !readOnly
+        ? ' O que você preencher fica guardado e é enviado quando a conexão voltar.'
+        : ' Só para consulta até a conexão voltar.'}`}
       onRetry={() => { setRetryTick((t) => t + 1); if (dadosDoAparelho) onTentarConexao?.(); }}
     />
   ) : null;
+  const avisoPendencia = (() => {
+    const pend = pendenteMes;
+    if (!pend) return null;
+    if (pend.status === 'revisar') {
+      const conflitos = pend.detalhe?.tipo === 'conflito' ? (pend.detalhe.conflitos || []) : [];
+      const nomes = [...new Set(conflitos.map(c => String(c.id)))].slice(0, 3)
+        .map(id => itensTrabalho.find(l => String(l.id) === id)?.descricao).filter(Boolean);
+      return (
+        <div className="aviso-offline aviso-pendencia-erro" role="alert">
+          <Icon name="alert-triangle" size={15} />
+          <span className="aviso-offline-texto">
+            {pend.ultimoErro}{nomes.length ? ` (${nomes.join(', ')}${conflitos.length > nomes.length ? '…' : ''})` : ''}
+          </span>
+          {conflitos.length ? (
+            <>
+              <button type="button" className="aviso-offline-acao" onClick={() => medicaoSync.resolverConflito(pend, 'meus')}>Usar os meus</button>
+              <button type="button" className="aviso-offline-acao"
+                onClick={async () => { await medicaoSync.resolverConflito(pend, 'sistema'); setRetryTick(t => t + 1); }}>Usar os do sistema</button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="aviso-offline-acao" onClick={() => offlineQueue.reativar(pend.id)}>Tentar de novo</button>
+              <button type="button" className="aviso-offline-acao" onClick={() => setDescartandoPendencia(true)}>Descartar</button>
+            </>
+          )}
+        </div>
+      );
+    }
+    if (estadoFila.semSessao) return <AvisoOffline texto="Entre de novo com internet para enviar o que foi preenchido neste aparelho." />;
+    if (semRede) return <AvisoOffline texto="O que você preencheu está guardado neste aparelho e será enviado quando a conexão voltar." />;
+    // Com rede mas sem conseguir enviar (servidor fora, medição sendo alterada): antes uma
+    // falha do autosave sempre avisava; sem isto ficaria em silêncio.
+    if ((pend.tentativas || 0) > 0) {
+      return <AvisoOffline texto="Não foi possível enviar agora. O que você preencheu está guardado neste aparelho e será reenviado sozinho." onRetry={() => offlineQueue.flush()} />;
+    }
+    return null;
+  })();
+  const confirmarDescartePendencia = async () => {
+    setDescartandoPendencia(false);
+    await medicaoSync.descartar(pendenteMes);
+    setRetryTick(t => t + 1); // volta a mostrar o que está no banco (ou guardado)
+  };
+
   const msgSemMedicaoGuardada = hideChrome
     ? 'A medição deste mês não está guardada neste aparelho. Com internet, abra este mês pela Medição para poder consultar sem conexão.'
     : undefined;
@@ -988,7 +1102,10 @@ export default function MedicaoMensal({
   const aberta = !!registro && !fechada;
   // Sem registro no banco a medição não existe: nada editável até "Abrir medição".
   // Antes a ausência de registro deixava a tela livre, indistinguível de um rascunho.
-  const bloqueado = readOnly || fechada || !registro || somenteConsulta;
+  // Sem internet (somenteConsulta) o rascunho continua editável: vai pra fila do aparelho.
+  // Enquanto carrega (troca de mês, recarga da reconexão) ou grava a lista, não: a edição
+  // iria pro mês novo com a base do registro antigo, ou seria apagada pela recarga.
+  const bloqueado = readOnly || fechada || !registro || carregando || salvando;
 
   // Ciclo de abertura/fechamento precisa seguir a ordem dos meses: não dá pra abrir um mês
   // enquanto o anterior não estiver aprovado, nem reabrir/desaprovar um mês enquanto algum
@@ -1229,16 +1346,34 @@ export default function MedicaoMensal({
   // digitar salva sozinho — sem exigir um botão "Salvar rascunho" separado. Mesmo padrão de
   // debounce do commit() do cronograma (Cronograma.jsx).
   const saveTimerRef = React.useRef(null);
+  // Mudanças de campo (% medido, visto, observação) vão primeiro pra fila do aparelho e de
+  // lá pro banco (medicaoSync), com ou sem internet: só o campo mudado, aplicado por cima
+  // do que está no banco na hora. Antes o rascunho inteiro era regravado e uma gravação
+  // podia apagar a anterior (tocar "visto" logo depois de digitar um %).
+  // Se o aparelho não deixa guardar (IndexedDB bloqueado) e há internet: grava direto,
+  // como era antes, com o mesmo atraso de 800ms do autosave.
+  const registrarEdicoes = (mudancas, proximos) => {
+    if (!registro || String(registro.obra_id) !== String(obraId) || registro.mes_referencia !== mesRefKey) return;
+    const reg = registro;
+    const anterior = ultimaGravacaoRef.current || Promise.resolve();
+    ultimaGravacaoRef.current = anterior.catch(() => {}).then(() => medicaoSync.registrarEdicoes({ obraId, mes: mesRefKey, registro: reg, mudancas }));
+    ultimaGravacaoRef.current.catch((err) => {
+      logger.error('falha ao guardar edição da medição no aparelho', { module: 'medicaoMensal', action: 'registrarEdicoes', err });
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        toast('Não foi possível guardar a alteração neste aparelho.', { tone: 'danger' });
+        return;
+      }
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => persistirRascunho(proximos, { silencioso: true }), 800);
+    });
+  };
   const alterarMedido = (id, bruto) => {
     if (bloqueado) return;
     const valor = parsePercInput(bruto);
-    setItensTrabalho(prev => {
-      // Digitar um % (inclusive 0) já conta como "visto": 0 digitado nunca fica igual a não conferido.
-      const proximos = prev.map(l => (l.id === id ? { ...l, percMedido: valor, visto: true } : l));
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => persistirRascunho(proximos, { silencioso: true }), 800);
-      return proximos;
-    });
+    // Digitar um % (inclusive 0) já conta como "visto": 0 digitado nunca fica igual a não conferido.
+    const proximos = itensTrabalho.map(l => (l.id === id ? { ...l, percMedido: valor, visto: true } : l));
+    setItensTrabalho(proximos);
+    registrarEdicoes([{ id, campos: { percMedido: valor, visto: true } }], proximos);
   };
 
   // Observação por tarefa (mobile) — ver notasAbertas/notaDrafts acima.
@@ -1254,7 +1389,8 @@ export default function MedicaoMensal({
     const texto = (notaDrafts[id] || '').trim();
     const proximos = itensTrabalho.map(l => (l.id === id ? { ...l, observacao: texto } : l));
     setItensTrabalho(proximos);
-    persistirRascunho(proximos);
+    const linha = itensTrabalho.find(l => l.id === id);
+    registrarEdicoes([{ id, campos: { observacao: texto }, percMedidoTela: linha?.percMedido }], proximos);
     fecharNota(id);
   };
 
@@ -1262,9 +1398,10 @@ export default function MedicaoMensal({
   // nenhum cálculo nem no fechamento. Fica em medicoes_mensais.itens[].visto, igual à observação.
   const alternarVisto = (id) => {
     if (bloqueado) return;
+    const linha = itensTrabalho.find(l => l.id === id);
     const proximos = itensTrabalho.map(l => (l.id === id ? { ...l, visto: !l.visto } : l));
     setItensTrabalho(proximos);
-    persistirRascunho(proximos, { silencioso: true });
+    registrarEdicoes([{ id, campos: { visto: !linha?.visto }, percMedidoTela: linha?.percMedido }], proximos);
   };
 
   const alternarGrupo = (id) => {
@@ -1316,27 +1453,21 @@ export default function MedicaoMensal({
     if (bloqueado) return;
     const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens);
     if (error) {
-      rascunhoPendenteRef.current = `${obraId}|${mesRefKey}`;
       // Falha SEMPRE avisa, mesmo no autosave silencioso (que só suprime o toast de
       // SUCESSO) — ficar sempre calado numa falha real fazia o usuário achar que salvou
       // e o valor sumir ao recarregar a página.
       toast('Não foi possível salvar o rascunho. Tente novamente.', { tone: 'danger' });
       return;
     }
-    rascunhoPendenteRef.current = null;
     setRegistro(data);
     if (!silencioso) toast('Rascunho salvo', { tone: 'success', icon: 'check' });
   }, [obraId, mesRefKey, bloqueado, toast]);
 
-  // Ao reconectar: só recarrega do banco quando a tela está em "Sem conexão". Com a
-  // medição aberta, recarregar trocaria o que foi digitado sem internet pelo que está
-  // gravado; nesse caso reenvia o rascunho que falhou. Sem pendência não faz nada.
-  const rascunhoPendenteRef = React.useRef(null);
+  // Ao reconectar: recarrega do banco quando a tela está em "Sem conexão" ou com a medição
+  // do aparelho. O que foi preenchido sem internet não se perde: está na fila do aparelho,
+  // é enviado por ela e reaplicado por cima na recarga (ver gerarMedicao).
   useRetryOnReconnect(() => {
-    if (precisaRecarregarRef.current) { setRetryTick((t) => t + 1); return; }
-    if (rascunhoPendenteRef.current === `${obraId}|${mesRefKey}`) {
-      persistirRascunho(itensTrabalho, { silencioso: true });
-    }
+    if (precisaRecarregarRef.current) setRetryTick((t) => t + 1);
   });
 
   // Abre a medição do mês: cria o registro no banco com os itens do cronograma. É o
@@ -1372,19 +1503,44 @@ export default function MedicaoMensal({
   // perder o %medido já editado nas linhas que já estavam na tela. Salva na hora: a
   // seleção é a única coisa da tela que não pode ser reconstruída do cronograma, e sem
   // isso um F5 (ou trocar de aba, que desmonta o componente) perdia tudo.
-  const adicionarTarefasManuais = (ids) => {
+  // Incluir/remover tarefa grava a lista inteira da tela (não é um campo): antes, tudo o que
+  // está na fila do aparelho precisa já estar no banco e na tela (o envio remonta a tela),
+  // senão a lista gravada passaria por cima do que a fila mesclou, ou decidiria um conflito
+  // sem a pessoa escolher.
+  const prepararGravacaoDaLista = async () => {
+    const pend = await medicaoSync.lerPendente(obraId, mesRefKey).catch(() => null);
+    if (pend?.status === 'revisar') {
+      toast('Resolva o aviso das alterações guardadas neste aparelho antes de incluir ou remover tarefas.', { tone: 'warning', icon: 'alert-triangle' });
+      return false;
+    }
+    if (pend && !(await medicaoSync.enviarAntesDeFechar(obraId, mesRefKey))) {
+      toast('Ainda há alterações sendo enviadas. Aguarde e tente de novo.', { tone: 'warning', icon: 'alert-triangle' });
+      return false;
+    }
+    return true;
+  };
+  const adicionarTarefasManuais = async (ids) => {
     if (bloqueado) return;
-    const nextIds = new Set(idsManuais);
-    ids.forEach(id => nextIds.add(id));
-    const base = buildItensMedicao(etapas, mesRefKey, {
-      monthlyDist, wbsMap, disciplinaInfo, idsExtras: nextIds, valorVinculadoMap: weightOverride,
-    });
-    const percById = new Map(itensTrabalho.map(i => [i.id, i.percMedido]));
-    const proximos = base.map(i => (percById.has(i.id) ? { ...i, percMedido: percById.get(i.id) } : i));
-    setIdsManuais(nextIds);
-    setItensTrabalho(proximos);
-    setModalIncluirAberto(false);
-    persistirRascunho(proximos, { silencioso: true });
+    if (somenteConsulta || semRede) { avisarSemInternet(); return; }
+    setSalvando(true);
+    try {
+      if (!(await prepararGravacaoDaLista())) return;
+      const nextIds = new Set(idsManuais);
+      ids.forEach(id => nextIds.add(id));
+      const base = buildItensMedicao(etapas, mesRefKey, {
+        monthlyDist, wbsMap, disciplinaInfo, idsExtras: nextIds, valorVinculadoMap: weightOverride,
+      });
+      // Mantém % medido, observação e visto das linhas que já estavam (lidos agora: o envio
+      // da fila pode ter remontado a tela durante o await). Antes só o % era mantido, e a
+      // gravação da lista apagava do banco as observações e os vistos de todas as tarefas.
+      const proximos = mergePercMedido(base, itensRef.current);
+      setIdsManuais(nextIds);
+      setItensTrabalho(proximos);
+      setModalIncluirAberto(false);
+      await persistirRascunho(proximos, { silencioso: true });
+    } finally {
+      setSalvando(false);
+    }
   };
 
   // Desfaz a inclusão manual de uma tarefa fora do mês. Com % medido preenchido, o botão
@@ -1393,25 +1549,62 @@ export default function MedicaoMensal({
   // não tem hover), então o aviso silencioso não chegava a quem tentasse remover.
   const tentarRemoverTarefa = (l) => {
     if (bloqueado) return;
+    if (somenteConsulta || semRede) { avisarSemInternet(); return; }
     if (l.percMedido > 0) {
       toast('Zere o % medido antes de remover esta tarefa.', { tone: 'danger', icon: 'alert-triangle' });
       return;
     }
     removerTarefaManual(l.id);
   };
-  const removerTarefaManual = (id) => {
+  const removerTarefaManual = async (id) => {
     if (bloqueado) return;
-    const nextIds = new Set(idsManuais);
-    nextIds.delete(id);
-    const proximos = itensTrabalho.filter(i => i.id !== id);
-    setIdsManuais(nextIds);
-    setItensTrabalho(proximos);
-    persistirRascunho(proximos, { silencioso: true });
+    setSalvando(true);
+    try {
+      if (!(await prepararGravacaoDaLista())) return;
+      const nextIds = new Set(idsManuais);
+      nextIds.delete(id);
+      const proximos = itensRef.current.filter(i => i.id !== id);
+      setIdsManuais(nextIds);
+      setItensTrabalho(proximos);
+      await persistirRascunho(proximos, { silencioso: true });
+    } finally {
+      setSalvando(false);
+    }
   };
 
   const confirmarFechamento = async () => {
     if (somenteConsulta) { avisarSemInternet(); return; }
     setSalvando(true);
+    try { await fecharDeFato(); }
+    catch (err) {
+      logger.error('falha ao fechar medição', { module: 'medicaoMensal', action: 'fechar', err });
+      toast('Não foi possível fechar a medição. Tente de novo.', { tone: 'danger' });
+    } finally {
+      setSalvando(false);
+    }
+  };
+  const fecharDeFato = async () => {
+    // O snapshot do fechamento sai da tela; o banco tem de estar com o mesmo conteúdo antes.
+    if (!(await medicaoSync.enviarAntesDeFechar(obraId, mesRefKey))) {
+      const pend = await medicaoSync.lerPendente(obraId, mesRefKey).catch(() => null);
+      toast(pend?.status === 'revisar'
+        ? 'Resolva o aviso das alterações guardadas neste aparelho antes de fechar.'
+        : 'Ainda há alterações guardadas neste aparelho sendo enviadas. Aguarde e tente fechar de novo.',
+        { tone: 'warning', icon: 'alert-triangle' });
+      return;
+    }
+    // Outro aparelho pode ter gravado depois que esta tela carregou (a mesclagem preserva o
+    // que ele preencheu): fechar com o snapshot desta tela apagaria isso. Se o banco mudou,
+    // mostra o que está lá e pede pra conferir antes.
+    const atualNoBanco = await medicaoMensalService.buscarPorMes(obraId, mesRefKey);
+    if (atualNoBanco.error) { toast('Sem conexão com o servidor. Tente fechar de novo.', { tone: 'danger' }); return; }
+    const regBanco = atualNoBanco.data;
+    if (!regBanco || regBanco.status !== 'rascunho' || regBanco.updated_at !== registroRef.current?.updated_at) {
+      aplicarRegistroRef.current?.(regBanco, await medicaoSync.lerPendente(obraId, mesRefKey).catch(() => null));
+      setMostrarConfirmFechar(false);
+      toast('A medição foi atualizada por outro aparelho. Confira os valores antes de fechar.', { tone: 'warning', icon: 'alert-triangle' });
+      return;
+    }
     // Carrega adiante o previsto já congelado na abertura — não recalcula aqui (senão o
     // fechamento reintroduziria o mesmo problema que a abertura resolveu). Só recai no
     // cálculo ao vivo se o mês foi aberto antes desses campos existirem.
@@ -1421,7 +1614,6 @@ export default function MedicaoMensal({
     };
     const snapshot = buildSnapshotFechamento(itensTrabalho, totais, previstoCongelado);
     const { data, error } = await medicaoMensalService.fechar(obraId, mesRefKey, snapshot, currentUser?.nome || currentUser?.email);
-    setSalvando(false);
     // !data sem error acontece se o RLS filtrar a linha silenciosamente (0 linhas
     // afetadas) — sem essa checagem o toast de sucesso dispara mesmo sem ter fechado nada.
     if (error || !data) { toast('Não foi possível fechar a medição (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
@@ -1440,7 +1632,8 @@ export default function MedicaoMensal({
     // aplicada) ou não achou uma linha 'fechada' pra reabrir — nos dois casos não houve
     // mudança nenhuma, então não pode virar toast de sucesso.
     if (error || !data) { toast('Não foi possível reabrir a medição.', { tone: 'danger' }); return; }
-    setRegistro(data);
+    // Remonta do cronograma (era o snapshot da fechada), com o que está na fila por cima.
+    aplicarRegistro(data, await medicaoSync.lerPendente(obraId, mesRefKey).catch(() => null));
     setMostrarConfirmReabrir(false);
     toast('Medição reaberta', { tone: 'success', icon: 'check' });
   };
@@ -1534,7 +1727,7 @@ export default function MedicaoMensal({
     setSalvando(true);
     const proximos = itensTrabalho.map(l => ({ ...l, percMedido: 0, visto: false }));
     setItensTrabalho(proximos);
-    await persistirRascunho(proximos, { silencioso: true });
+    registrarEdicoes(itensTrabalho.map(l => ({ id: l.id, campos: { percMedido: 0, visto: false } })), proximos);
     setSalvando(false);
     setMostrarConfirmLimpar(false);
     toast('Medição limpa', { tone: 'success', icon: 'check' });
@@ -1553,6 +1746,7 @@ export default function MedicaoMensal({
     setItensTrabalho([]);
     setIdsManuais(new Set());
     if (hideChrome) offlineCache.gravar('medicao', `${obraId}|${mesRefKey}`, { registro: null });
+    medicaoSync.lerPendente(obraId, mesRefKey).then(medicaoSync.descartar).catch(() => {});
     setMostrarConfirmExcluir(false);
     toast(`Medição de ${mesLabel(mesRefKey)} excluída`, { tone: 'success', icon: 'check' });
   };
@@ -1820,6 +2014,16 @@ export default function MedicaoMensal({
   return (
     <>
       {!mobileView && avisoOffline}
+      {!mobileView && avisoPendencia}
+      {descartandoPendencia && (
+        <Modal title="Descartar alterações" onClose={() => setDescartandoPendencia(false)}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setDescartandoPendencia(false)}>Cancelar</button>
+            <button className="btn btn-danger" onClick={confirmarDescartePendencia}>Descartar</button>
+          </>}>
+          <p style={{ fontSize: 14 }}>O que você preencheu neste mês e não foi enviado será apagado deste aparelho.</p>
+        </Modal>
+      )}
       {!mobileView && (
       <>
       <div className="page-header">
@@ -2388,6 +2592,7 @@ export default function MedicaoMensal({
       {mobileView && (
       <div className="mm-mobile">
         {avisoOffline && <div style={{ padding: '8px 12px 0' }}>{avisoOffline}</div>}
+        {avisoPendencia && <div style={{ padding: '8px 12px 0' }}>{avisoPendencia}</div>}
         <div className="mm-mobile-header">
           <div className="mm-mobile-title-row">
             <div>

@@ -51,11 +51,14 @@ export const proximoAtraso = (falhasSeguidas) => ATRASOS_MS[Math.min(Math.max(fa
 
 // O que uma passada da fila envia: só itens da pessoa logada (nunca a foto de alguém com a
 // sessão de outro), pendentes (os "revisar" esperam a pessoa), da versão atual e de um
-// tipo que tem quem envie; do mais antigo pro mais novo.
+// tipo que tem quem envie. Medição antes das fotos (é pequena, e com 15 fotos na frente o
+// % só chegava ao banco minutos depois); dentro do tipo, do mais antigo pro mais novo.
+const PRIORIDADE_TIPO = { 'medicao-rascunho': 0, foto: 1 };
 export function itensParaEnviar(itens, { uid, tipos }) {
+  const prio = (t) => PRIORIDADE_TIPO[t] ?? 9;
   return (itens || [])
     .filter((i) => i.userId === uid && i.status === 'pendente' && i.versao === VERSAO_FILA && tipos.has(i.tipo))
-    .sort((a, b) => (a.criadoEm < b.criadoEm ? -1 : a.criadoEm > b.criadoEm ? 1 : 0));
+    .sort((a, b) => (prio(a.tipo) - prio(b.tipo)) || (a.criadoEm < b.criadoEm ? -1 : a.criadoEm > b.criadoEm ? 1 : 0));
 }
 
 // Item que ficou mais de 30 dias na fila (mesma validade do cache): usado só pra limpar o

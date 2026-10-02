@@ -50,7 +50,7 @@ describe('decidirFonteDeSessao', () => {
 
 describe('avisoAoSair', () => {
   it('com rede e nada pendente, sai direto', () => {
-    expect(avisoAoSair({ semRede: false, pendentes: 0 })).toBe(null);
+    expect(avisoAoSair({ semRede: false })).toBe(null);
   });
 
   it('sem rede avisa que só entra de novo com conexão', () => {
@@ -59,16 +59,20 @@ describe('avisoAoSair', () => {
     expect(a.confirmar).toBe('Sair mesmo assim');
   });
 
-  it('com fotos na fila avisa que serão apagadas', () => {
-    const a = avisoAoSair({ semRede: false, pendentes: 3 });
-    expect(a.texto).toBe('3 fotos ainda não foram enviadas e serão apagadas deste aparelho.');
+  it('com 1 foto na fila avisa que será apagada', () => {
+    const a = avisoAoSair({ fotos: 1 });
+    expect(a.texto).toBe('Há 1 item não enviado neste aparelho (1 foto). Se sair, ele será apagado.');
     expect(a.confirmar).toBe('Sair e apagar');
-    expect(avisoAoSair({ pendentes: 1 }).texto).toBe('1 foto ainda não foi enviada e será apagada deste aparelho.');
   });
 
-  it('sem rede e com fotos junta os dois avisos', () => {
-    const a = avisoAoSair({ semRede: true, pendentes: 2 });
+  it('fotos e medição juntas', () => {
+    const a = avisoAoSair({ fotos: 3, medicoes: 1 });
+    expect(a.texto).toBe('Há 4 itens não enviados neste aparelho (3 fotos e o preenchimento de 1 medição). Se sair, eles serão apagados.');
+  });
+
+  it('sem rede e com pendência junta os dois avisos', () => {
+    const a = avisoAoSair({ semRede: true, medicoes: 2 });
     expect(a.titulo).toBe('Sair sem internet?');
-    expect(a.texto).toMatch(/conexão voltar\. 2 fotos ainda não foram enviadas/);
+    expect(a.texto).toContain('conexão voltar. Há 2 itens não enviados neste aparelho (o preenchimento de 2 medições).');
   });
 });

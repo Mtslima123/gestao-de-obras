@@ -601,20 +601,24 @@ const AppInner = () => {
   };
 
   // Botões Sair do MobileGate e do menu. Pede confirmação quando sair tem consequência
-  // (ver avisoAoSair): sem internet, ou com fotos ainda na fila do aparelho. Com internet,
-  // tenta mandar as fotos antes de perguntar.
+  // (ver avisoAoSair): sem internet, ou com fotos/medição ainda na fila do aparelho. Com
+  // internet, tenta mandar o que está guardado antes de perguntar.
   const pedirSair = async () => {
     if (verificandoSairRef.current) return;
     verificandoSairRef.current = true;
     try {
       const temRede = await authService.servidorAlcancavel();
-      let pendentes = await offlineQueue.contar(user?.id).catch(() => 0);
-      if (temRede && pendentes) {
+      const contar = async () => {
+        const porTipo = await offlineQueue.contarPorTipo(user?.id).catch(() => ({}));
+        return { fotos: porTipo.foto || 0, medicoes: porTipo['medicao-rascunho'] || 0 };
+      };
+      let pend = await contar();
+      if (temRede && (pend.fotos || pend.medicoes)) {
         await Promise.race([offlineQueue.flush(), new Promise((r) => setTimeout(r, 10000))]);
-        pendentes = await offlineQueue.contar(user?.id).catch(() => 0);
+        pend = await contar();
       }
-      const aviso = avisoAoSair({ semRede: !temRede, pendentes });
-      if (aviso) setAvisoSair({ ...aviso, pendentes });
+      const aviso = avisoAoSair({ semRede: !temRede, ...pend });
+      if (aviso) setAvisoSair({ ...aviso, pendentes: pend.fotos + pend.medicoes });
       else handleLogout();
     } finally {
       verificandoSairRef.current = false;

@@ -1,5 +1,6 @@
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
+import { serializarItensRascunho } from './medicaoMensalPure';
 
 // Boletins de medição mensal (tabela medicoes_mensais), por obra + mês de referência.
 // Se a tabela ainda não existir (migration não aplicada pelo TI), as chamadas
@@ -26,6 +27,33 @@ async function upsertComFallback(payloadCompleto, camposNovos) {
 }
 
 export const medicaoMensalService = {
+  // Estado atual da medição do mês pro envio do rascunho guardado no aparelho
+  // (medicaoSync.js). Devolve também `status` (HTTP): o postgrest-js deixa ele fora do
+  // erro, e sem ele um 503 passageiro seria tratado como recusa definitiva.
+  async buscarEstadoAtual(obraId, mesReferencia) {
+    const completas = 'id, status, updated_at, itens, fechada_por, fechada_em, aprovada_por, aprovada_em';
+    let r = await supabase.from('medicoes_mensais').select(completas)
+      .eq('obra_id', obraId).eq('mes_referencia', mesReferencia).maybeSingle();
+    if (r.error && colunaAusente(r.error)) {
+      r = await supabase.from('medicoes_mensais').select('id, status, updated_at, itens, fechada_por, fechada_em')
+        .eq('obra_id', obraId).eq('mes_referencia', mesReferencia).maybeSingle();
+    }
+    return { data: r.data || null, error: r.error || null, status: r.status };
+  },
+
+  // Grava os itens só se a medição ainda for o rascunho que foi lido (mesmo id, status e
+  // updated_at): é o bloqueio otimista do envio do rascunho guardado. Sempre UPDATE, nunca
+  // upsert: não recria medição excluída. data null sem erro = 0 linhas (alguém gravou no
+  // meio, ou o RLS barrou a edição).
+  async salvarRascunhoCondicional({ id, itens, updatedAtEsperado }) {
+    const r = await supabase.from('medicoes_mensais')
+      .update({ itens, updated_at: new Date().toISOString() })
+      .eq('id', id).eq('status', 'rascunho').eq('updated_at', updatedAtEsperado)
+      .select().maybeSingle();
+    if (r.error) logger.error('falha ao enviar rascunho guardado', { module: 'medicaoMensal', action: 'salvarRascunhoCondicional', err: r.error });
+    return { data: r.data || null, error: r.error || null, status: r.status };
+  },
+
   // Devolve { data, error } em vez de engolir o erro (antes: `return null`) — quem chama
   // precisa saber SE foi falha de rede (mostra "sem conexão") ou se o mês genuinamente
   // não tem medição aberta ainda. Antes, offline, a tela mostrava "Nenhuma medição
@@ -90,13 +118,7 @@ export const medicaoMensalService = {
       obra_id: obraId,
       mes_referencia: mesReferencia,
       status: 'rascunho',
-      itens: itens.map(i => ({
-        id: i.id,
-        percMedido: i.percMedido,
-        ...(i.foraDoMes ? { manual: true } : {}),
-        ...(i.observacao ? { observacao: i.observacao } : {}),
-        ...(i.visto ? { visto: true } : {}),
-      })),
+      itens: serializarItensRascunho(itens),
       ...(previstoCongelado ? {
         perc_previsto: previstoCongelado.percPrevisto,
         perc_previsto_acumulado: previstoCongelado.percPrevistoAcumulado,

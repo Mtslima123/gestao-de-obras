@@ -8,6 +8,7 @@ import { logger } from './services/logger';
 // mesmo com a aba Fotos fechada, e pra nenhuma reconexão passar em branco.
 import './services/offlineQueue';
 import './modules/obras/fotos.service';
+import './modules/cronograma/medicaoSync';
 
 // Captura global de erros assíncronos que escapam do ErrorBoundary do React.
 window.addEventListener('error', (ev) => {

@@ -69,12 +69,33 @@ const atualizarItem = (id, patch) => transacao('readwrite', (s) => {
 });
 
 const mkId = () => `fila-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+const idPorChave = (tipo, uid, chave) => `${tipo}|${uid}|${chave}`;
+
+// Ver ctx.finalizar nos handlers. 'removido' | 'mantido' | null (item já não existia).
+const finalizarItem = (id, fn) => {
+  let resultado = null;
+  return transacao('readwrite', (s) => {
+    const req = s.get(id);
+    req.onsuccess = () => {
+      const atual = req.result;
+      if (!atual) return;
+      const prox = fn(atual.payload);
+      if (prox == null) { s.delete(id); resultado = 'removido'; }
+      else { s.put({ ...atual, payload: prox, tentativas: 0, ultimoErro: null }); resultado = 'mantido'; }
+    };
+    return null;
+  }).then(() => resultado);
+};
 
 // Sessão atual, definida pelo App: só com sessão real (não a do gm_auth_cache, sem rede)
 // a fila envia; sem dono nada é listado nem gravado.
 let sessao = { userId: null, real: false };
-// tipo -> async (payload, { aindaNaFila }) => void; lança em caso de falha. aindaNaFila()
-// diz se o item continua guardado (pra não publicar o que a pessoa mandou apagar).
+// tipo -> async (payload, ctx) => resultado; lança em caso de falha.
+// ctx.aindaNaFila(): o item continua guardado? (não publica o que a pessoa mandou apagar)
+// ctx.finalizar(fn): fecha o item numa transação só, depois de enviar: fn(payloadAtual)
+//   devolve null (nada mais a enviar: apaga) ou o payload que sobrou (a pessoa editou
+//   durante o envio: mantém e manda de novo). Sem isso, apagar o item depois do envio
+//   levaria junto uma edição feita no meio. O handler devolve o que ctx.finalizar devolveu.
 const handlers = new Map();
 const ouvintes = new Set();
 let enviando = false;
@@ -147,11 +168,15 @@ async function passada() {
       // Ainda na fila? (o Sair com "apagar" pode ter limpado no meio da passada)
       if (!(await existeItem(item.id))) continue;
       try {
-        await handlers.get(item.tipo)(item.payload, { aindaNaFila: () => existeItem(item.id) });
-        await removerItem(item.id);
+        const fim = await handlers.get(item.tipo)(item.payload, {
+          aindaNaFila: () => existeItem(item.id),
+          finalizar: (fn) => finalizarItem(item.id, fn),
+        });
+        if (fim !== 'mantido' && fim !== 'removido') await removerItem(item.id);
         falhasSeguidas = 0;
         connectivity.reportSuccess();
-        notificar({ enviados: [item.id] });
+        if (fim === 'mantido') pedirOutra = true; // sobrou edição feita durante o envio
+        else notificar({ enviados: [item.id] });
         continue;
       } catch (err) {
         if (ehFalhaPassageira(err)) {
@@ -171,6 +196,7 @@ async function passada() {
           status: 'revisar',
           tentativas: (item.tentativas || 0) + 1,
           ultimoErro: String(err?.message || 'erro desconhecido').slice(0, 300),
+          detalhe: err?.detalhe ?? null, // ex.: tarefas em conflito na medição
         });
       }
       notificar();
@@ -215,6 +241,69 @@ export const offlineQueue = {
     await transacao('readwrite', (s) => { itens.forEach((item) => s.put(item)); return null; });
     notificar();
     return itens;
+  },
+
+  // Um item por chave (ex.: uma medição por obra+mês): cada edição atualiza o mesmo item
+  // em vez de empilhar. fn(payloadAtual | undefined) devolve o payload novo. Leitura e
+  // gravação na mesma transação: duas edições seguidas não se atropelam.
+  // opcoes.reiniciar(item): descarta o que estava guardado e recomeça (item novo, pendente).
+  // opcoes.reativar(item): volta um item em "revisar" pra fila.
+  async atualizarOuCriar(tipo, chave, fn, opcoes = {}) {
+    const uid = sessao.userId;
+    if (!uid) throw new Error('Sem usuário para guardar o item neste aparelho.');
+    const id = idPorChave(tipo, uid, chave);
+    let item = null;
+    await transacao('readwrite', (s) => {
+      const req = s.get(id);
+      req.onsuccess = () => {
+        const existente = req.result && !opcoes.reiniciar?.(req.result) ? req.result : null;
+        if (existente) {
+          item = { ...existente, payload: fn(existente.payload) };
+          if (opcoes.reativar?.(existente)) Object.assign(item, { status: 'pendente', ultimoErro: null, detalhe: null, tentativas: 0 });
+        } else {
+          item = { id, tipo, userId: uid, versao: VERSAO_FILA, status: 'pendente', criadoEm: new Date().toISOString(), tentativas: 0, ultimoErro: null, payload: fn(undefined) };
+        }
+        s.put(item);
+      };
+      return null;
+    });
+    notificar();
+    return item;
+  },
+
+  async lerPorChave(tipo, chave) {
+    const uid = sessao.userId;
+    if (!uid) return null;
+    const item = await transacao('readonly', (s) => s.get(idPorChave(tipo, uid, chave)));
+    return item && item.userId === uid ? item : null;
+  },
+
+  // Item em "revisar" volta pra fila, opcionalmente com o payload ajustado (ex.: a pessoa
+  // resolveu o conflito). fn devolvendo null descarta o item.
+  async reativar(id, fn) {
+    let removeu = false;
+    await transacao('readwrite', (s) => {
+      const req = s.get(id);
+      req.onsuccess = () => {
+        const atual = req.result;
+        if (!atual) return;
+        const payload = fn ? fn(atual.payload) : atual.payload;
+        if (payload == null) { s.delete(id); removeu = true; return; }
+        s.put({ ...atual, payload, status: 'pendente', ultimoErro: null, detalhe: null, tentativas: 0 });
+      };
+      return null;
+    });
+    falhasSeguidas = 0;
+    notificar();
+    if (!removeu) offlineQueue.flush();
+  },
+
+  // Quantos itens a pessoa tem guardados, por tipo ({ foto: 2, 'medicao-rascunho': 1 }).
+  async contarPorTipo(uid = sessao.userId) {
+    if (!uid) return {};
+    const porTipo = {};
+    (await listarTodos()).filter((i) => i.userId === uid).forEach((i) => { porTipo[i.tipo] = (porTipo[i.tipo] || 0) + 1; });
+    return porTipo;
   },
 
   // Itens da pessoa logada (todos os status), opcionalmente de um tipo.

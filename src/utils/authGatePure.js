@@ -25,18 +25,22 @@
 // Retorna 'sessao' | 'cache' | 'deslogado' | 'ignorar'.
 // Aviso do botão Sair, ou null quando pode sair direto (com rede e nada pendente). Sem
 // rede, sair tranca a pessoa do lado de fora até a conexão voltar (login Microsoft precisa
-// de internet); com fotos ainda na fila do aparelho, sair apaga essas fotos.
-export function avisoAoSair({ semRede = false, pendentes = 0 } = {}) {
+// de internet); com fotos ou medição ainda na fila do aparelho, sair apaga o que não subiu.
+export function avisoAoSair({ semRede = false, fotos = 0, medicoes = 0 } = {}) {
+  const pendentes = fotos + medicoes;
   if (!semRede && !pendentes) return null;
   const partes = [];
   if (semRede) partes.push('Você está sem internet. Se sair agora, só vai conseguir entrar de novo quando a conexão voltar.');
   if (pendentes) {
+    const itens = [];
+    if (fotos) itens.push(fotos === 1 ? '1 foto' : `${fotos} fotos`);
+    if (medicoes) itens.push(medicoes === 1 ? 'o preenchimento de 1 medição' : `o preenchimento de ${medicoes} medições`);
     partes.push(pendentes === 1
-      ? '1 foto ainda não foi enviada e será apagada deste aparelho.'
-      : `${pendentes} fotos ainda não foram enviadas e serão apagadas deste aparelho.`);
+      ? `Há 1 item não enviado neste aparelho (${itens[0]}). Se sair, ele será apagado.`
+      : `Há ${pendentes} itens não enviados neste aparelho (${itens.join(' e ')}). Se sair, eles serão apagados.`);
   }
   return {
-    titulo: semRede ? 'Sair sem internet?' : 'Sair com fotos não enviadas?',
+    titulo: semRede ? 'Sair sem internet?' : 'Sair com itens não enviados?',
     texto: partes.join(' '),
     confirmar: pendentes ? 'Sair e apagar' : 'Sair mesmo assim',
   };

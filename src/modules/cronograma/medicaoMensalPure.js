@@ -485,3 +485,139 @@ export function hidratarSnapshot(registroItens, etapas, { wbsMap = {}, disciplin
     };
   });
 }
+
+// ── Rascunho guardado no aparelho (fila de envio, ver medicaoSync.js) ────────────────
+// Em vez da lista inteira, o aparelho guarda só o que a pessoa mudou, campo a campo, com
+// o valor que o BANCO tinha quando ela mexeu (base). No envio, aplica essas mudanças por
+// cima do que está no banco AGORA: o que outra pessoa mudou em outras tarefas fica, e só
+// é conflito quando os dois mudaram o mesmo campo da mesma tarefa para valores diferentes.
+// Antes o rascunho inteiro era regravado por cima (o último a salvar apagava o resto).
+
+// Mesma forma que o banco guarda (salvarRascunho): campo ausente vale o padrão.
+export function normalizarCampoRascunho(campo, v) {
+  if (campo === 'percMedido') return v == null || v === '' ? null : Number(v);
+  if (campo === 'observacao') return String(v || '').trim();
+  if (campo === 'visto') return !!v;
+  return v ?? null;
+}
+
+// Linhas da tela -> itens como o banco guarda em medicoes_mensais.itens.
+export const serializarItensRascunho = (itens) => itens.map(i => ({
+  id: i.id,
+  percMedido: i.percMedido,
+  ...(i.foraDoMes ? { manual: true } : {}),
+  ...(i.observacao ? { observacao: i.observacao } : {}),
+  ...(i.visto ? { visto: true } : {}),
+}));
+
+// Junta mudanças novas nas já guardadas. `mudancas`: [{ id, campos: { percMedido, visto,
+// observacao }, percMedidoTela }]; `baseItens`: itens do registro do banco em que a
+// pessoa está mexendo. A base de cada campo é fixada na 1ª mudança: é ela que diz se o
+// banco mudou "por baixo" depois.
+export function registrarAlteracoes(alteracoes, mudancas, baseItens) {
+  const base = new Map((baseItens || []).map(i => [String(i.id), i]));
+  const prox = { ...(alteracoes || {}) };
+  for (const { id, campos, percMedidoTela } of mudancas) {
+    const chave = String(id);
+    const noBanco = base.get(chave);
+    const atual = { id, campos: { ...(prox[chave]?.campos || {}) } };
+    const todos = { ...campos };
+    // Tarefa que ainda não está na lista do banco nasce lá com o % da tela: senão um
+    // "visto" sozinho criaria item sem % medido.
+    if (!noBanco && !('percMedido' in todos) && !('percMedido' in atual.campos) && percMedidoTela !== undefined) {
+      todos.percMedido = percMedidoTela;
+    }
+    for (const [campo, valor] of Object.entries(todos)) {
+      const baseValor = campo in atual.campos ? atual.campos[campo].base : normalizarCampoRascunho(campo, noBanco?.[campo]);
+      atual.campos[campo] = { base: baseValor, valor: normalizarCampoRascunho(campo, valor) };
+    }
+    prox[chave] = atual;
+  }
+  return prox;
+}
+
+const definirCampo = (item, campo, valor) => {
+  if (campo === 'percMedido') { item.percMedido = valor ?? 0; return; }
+  if (campo === 'observacao') { if (valor) item.observacao = valor; else delete item.observacao; return; }
+  if (campo === 'visto') { if (valor) item.visto = true; else delete item.visto; }
+};
+
+// Mostra na tela o que está guardado no aparelho por cima do registro (do banco ou do cache).
+export function aplicarAlteracoes(linhas, alteracoes) {
+  if (!alteracoes || !Object.keys(alteracoes).length) return linhas;
+  return linhas.map(l => {
+    const alt = alteracoes[String(l.id)];
+    if (!alt) return l;
+    const prox = { ...l };
+    for (const [campo, { valor }] of Object.entries(alt.campos)) {
+      if (campo === 'percMedido') prox.percMedido = valor ?? 0;
+      else if (campo === 'observacao') prox.observacao = valor;
+      else if (campo === 'visto') prox.visto = !!valor;
+    }
+    return prox;
+  });
+}
+
+// Aplica as mudanças guardadas sobre os itens que estão no banco agora. Devolve os itens
+// a gravar e os conflitos ({ id, campo, meu, sistema }). forcarMeus: a pessoa escolheu
+// "usar os meus" depois de ver o conflito.
+export function mesclarRascunho(itensDoBanco, alteracoes, { forcarMeus = false } = {}) {
+  const itens = (itensDoBanco || []).map(i => ({ ...i }));
+  const porId = new Map(itens.map(i => [String(i.id), i]));
+  const conflitos = [];
+  for (const [chave, alt] of Object.entries(alteracoes || {})) {
+    let item = porId.get(chave);
+    // A tarefa existia no banco quando a pessoa mexeu (base diferente do padrão) e agora
+    // não existe mais (ex.: tarefa manual removida): não recria, nem acusa conflito.
+    if (!item && Object.entries(alt.campos).some(([campo, c]) => c.base !== normalizarCampoRascunho(campo, undefined))) continue;
+    // Item novo no banco só nasce com % medido (sem ele a tela não teria o que mostrar).
+    if (!item && !('percMedido' in alt.campos)) continue;
+    for (const [campo, { base, valor }] of Object.entries(alt.campos)) {
+      const sistema = normalizarCampoRascunho(campo, item?.[campo]);
+      if (sistema === valor) continue; // já está assim (ex.: envio anterior que chegou)
+      if (sistema !== base && !forcarMeus) { conflitos.push({ id: alt.id, campo, meu: valor, sistema }); continue; }
+      if (!item) { item = { id: alt.id }; itens.push(item); porId.set(chave, item); }
+      definirCampo(item, campo, valor);
+    }
+  }
+  return { itens, conflitos };
+}
+
+// Depois de um envio que deu certo: tira o que já foi (mesmo valor) e, no que a pessoa
+// mudou DURANTE o envio, passa a base pro valor enviado (agora é o que o banco tem). Sem
+// isso a próxima mudança da mesma tarefa acusaria conflito com a própria edição.
+export function rebaseAlteracoes(alteracoes, enviadas) {
+  const prox = {};
+  for (const [chave, alt] of Object.entries(alteracoes || {})) {
+    const env = enviadas?.[chave]?.campos || {};
+    const campos = {};
+    for (const [campo, c] of Object.entries(alt.campos)) {
+      if (!(campo in env)) { campos[campo] = c; continue; }
+      if (env[campo].valor === c.valor) continue;
+      campos[campo] = { base: env[campo].valor, valor: c.valor };
+    }
+    if (Object.keys(campos).length) prox[chave] = { id: alt.id, campos };
+  }
+  return prox;
+}
+
+// "Usar os do sistema": esquece só os campos em conflito.
+export function descartarCampos(alteracoes, conflitos) {
+  const tirar = new Set((conflitos || []).map(c => `${String(c.id)}|${c.campo}`));
+  const prox = {};
+  for (const [chave, alt] of Object.entries(alteracoes || {})) {
+    const campos = Object.fromEntries(Object.entries(alt.campos).filter(([campo]) => !tirar.has(`${chave}|${campo}`)));
+    if (Object.keys(campos).length) prox[chave] = { id: alt.id, campos };
+  }
+  return prox;
+}
+
+// O que está no banco agora, pra decidir se ainda dá pra aplicar as mudanças guardadas.
+// 'excluida': não existe mais, ou foi excluída e aberta de novo (id novo) — as mudanças
+// eram para outra medição. 'fechada': fechada ou aprovada no meio.
+export function classificarMedicaoNoBanco(registro, baseId) {
+  if (!registro) return 'excluida';
+  if (baseId != null && String(registro.id) !== String(baseId)) return 'excluida';
+  if (registro.status !== 'rascunho') return 'fechada';
+  return 'rascunho';
+}
