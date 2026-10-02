@@ -372,11 +372,11 @@ function ModalPendenciasAbertura({ mesRefKey, pendentes, onClose }) {
   );
 }
 
-function KpiCard({ label, value, barColor, foot, footColor, compact = false }) {
+function KpiCard({ label, value, barColor, foot, footColor }) {
   return (
-    <div className="kpi" style={{ padding: compact ? '10px 12px' : '18px 20px' }}>
+    <div className="kpi" style={{ padding: '18px 20px' }}>
       <div className="kpi-label">{label}</div>
-      <div className="kpi-value num" style={{ fontSize: compact ? 22 : 30, marginTop: 4 }}>
+      <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>
         {formatNum(value, 2)}<span className="unit">%</span>
       </div>
       {barColor && (
@@ -2348,23 +2348,6 @@ export default function MedicaoMensal({
           )}
         </div>
 
-        {/* Mesmos 4 números do site (previstoMesPct/resumo/previstoAcumuladoExibido), nas mesmas
-            variáveis — assim mobile e site não divergem. */}
-        {linhas.length > 0 && (
-          <>
-            <div className="mm-mobile-kpis">
-              <KpiCard compact label="Previsto do mês" value={previstoMesPct} />
-              <KpiCard compact label="Executado do mês" value={resumo.executadoMesPct} />
-              <KpiCard compact label="Previsto acumulado" value={previstoAcumuladoExibido} barColor="var(--brand)" />
-              <KpiCard compact label="Executado acumulado" value={resumo.executadoAcumulado} barColor="var(--success)" />
-            </div>
-            <div className="mm-mobile-resumo">
-              <span>{totais.qtd} atividades · {qtdVistas} vistas</span>
-              <span>{formatBRL(totais.valor, 2)} → {formatBRL(totais.valorAMedir, 2)}</span>
-            </div>
-          </>
-        )}
-
         <div className="mm-mobile-list">
           {linhas.length === 0 ? (
             <div className="mm-mobile-empty">
@@ -2492,6 +2475,35 @@ export default function MedicaoMensal({
             })
           )}
         </div>
+
+        {/* Faixa azul no rodapé com os mesmos 4 números do site (previstoMesPct, resumo.*,
+            previstoAcumuladoExibido), nas mesmas variáveis — mobile e site não divergem. */}
+        {linhas.length > 0 && (
+          <div className="mm-mobile-total">
+            <div className="mm-mobile-total-grid">
+              <div className="mm-mobile-total-item">
+                <span className="rot">Previsto do mês</span>
+                <span className="val">{fmtPct100(previstoMesPct)}</span>
+              </div>
+              <div className="mm-mobile-total-item">
+                <span className="rot">Executado do mês</span>
+                <span className="val">{fmtPct100(resumo.executadoMesPct)}</span>
+              </div>
+              <div className="mm-mobile-total-item">
+                <span className="rot">Previsto acumulado</span>
+                <span className="val">{fmtPct100(previstoAcumuladoExibido)}</span>
+              </div>
+              <div className="mm-mobile-total-item">
+                <span className="rot">Executado acumulado</span>
+                <span className="val">{fmtPct100(resumo.executadoAcumulado)}</span>
+              </div>
+            </div>
+            <div className="mm-mobile-total-row sub">
+              <span>{totais.qtd} atividades · {qtdVistas} vistas</span>
+              <span>{formatBRL(totais.valor, 2)} → {formatBRL(totais.valorAMedir, 2)}</span>
+            </div>
+          </div>
+        )}
 
         <div className="mm-mobile-footnote">
           Itens do cronograma agendados para {mesLabel(mesRefKey)}
