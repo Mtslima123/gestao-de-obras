@@ -18,6 +18,7 @@ import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.se
 import { getLinhaTotal } from '../fisicoFinanceiro/fisicoFinanceiroPure';
 
 import { pavimentosFotosService } from '../../services/pavimentosFotos.service';
+import { ordenarFotosPorPavimento, posicaoPavimento } from '../../utils/pavimentos';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';import { capaCache } from '../../services/capaCache';
 
 // Obra Detail Page
@@ -692,7 +693,14 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   // Pavimento nos modais. O cadastro é feito no modal "Pavimentos" (showPavimentos).
   const [pavimentos,   setPavimentos]   = React.useState([]);
   const [showPavimentos, setShowPavimentos] = React.useState(false);
-  React.useEffect(() => { pavimentosFotosService.listar(obra.id).then(setPavimentos); }, [obra.id]);
+  // A galeria só carrega depois do cadastro: a ordem das fotos depende dele (ver carregarPagina).
+  const [pavimentosPronto, setPavimentosPronto] = React.useState(false);
+  React.useEffect(() => {
+    let ativo = true;
+    setPavimentosPronto(false);
+    pavimentosFotosService.listar(obra.id).then(lista => { if (ativo) { setPavimentos(lista); setPavimentosPronto(true); } });
+    return () => { ativo = false; };
+  }, [obra.id]);
 
   // Lista de pavimentos que TÊM foto, pro filtro — query própria e leve (só a coluna
   // pavimento, sem imagem/URL assinada). Com paginação, `fotos` só tem o que já foi
@@ -700,9 +708,14 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   // apareceriam num lote mais adiante.
   const carregarPavimentosComFoto = React.useCallback(async () => {
     const { data } = await supabase.from('fotos_obra').select('pavimento').eq('obra_id', obra.id);
-    setPavimentosComFoto([...new Set((data || []).map(f => f.pavimento).filter(Boolean))].sort());
+    setPavimentosComFoto([...new Set((data || []).map(f => f.pavimento).filter(Boolean))]);
   }, [obra.id]);
   React.useEffect(() => { carregarPavimentosComFoto(); }, [carregarPavimentosComFoto]);
+  // Opções do filtro na ordem de cadastro; as fora do cadastro vêm depois, em ordem natural.
+  const pavimentosFiltro = React.useMemo(() => {
+    const pos = posicaoPavimento(pavimentos);
+    return [...pavimentosComFoto].sort((a, b) => (pos(a) - pos(b)) || a.localeCompare(b, 'pt-BR', { numeric: true }));
+  }, [pavimentosComFoto, pavimentos]);
 
   // Tamanho total ocupado pelas fotos desta obra (original + thumbnail de cada uma) —
   // não tem coluna de tamanho em fotos_obra (nunca foi salvo), mas o Storage já guarda
@@ -719,26 +732,50 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   // Busca a página pedida (1-indexed) já filtrada/ordenada — sempre TROCA o conteúdo
   // da galeria pelo da página, nunca acumula com a anterior (isso é o que torna
   // possível paginar por número em vez de rolagem infinita).
+  //
+  // Ordem: data (mais recente primeiro) > pavimento na ordem de CADASTRO > foto mais
+  // recente. O servidor não conhece a ordem do cadastro (fotos_obra.pavimento é texto sem
+  // FK), então a posição de cada foto sai de uma consulta leve (só as colunas de ordenação,
+  // sem imagem/URL assinada), ordenada aqui; a página é fatiada dessa lista e só as 32
+  // fotos dela são buscadas por completo. Assim a ordem vale entre páginas, não só dentro de uma.
   const carregarPagina = React.useCallback(async (pag) => {
     requestIdRef.current += 1;
     const meuId = requestIdRef.current;
     setLoading(true);
     try {
-      let q = supabase.from('fotos_obra')
-        .select('*', { count: 'exact' })
-        .eq('obra_id', obra.id);
-      if (filtroPavimento) q = q.eq('pavimento', filtroPavimento);
-      if (filtroMes) {
-        const { ini, fim } = mesRangeISO(filtroMes);
-        q = q.gte('data', ini).lt('data', fim);
+      const LOTE_ORDEM = 1000; // limite de linhas por consulta do Supabase (max_rows)
+      const leves = [];
+      for (let de = 0; ; de += LOTE_ORDEM) {
+        let q = supabase.from('fotos_obra')
+          .select('id, data, pavimento, created_at')
+          .eq('obra_id', obra.id);
+        if (filtroPavimento) q = q.eq('pavimento', filtroPavimento);
+        if (filtroMes) {
+          const { ini, fim } = mesRangeISO(filtroMes);
+          q = q.gte('data', ini).lt('data', fim);
+        }
+        // Ordem estável só para a paginação desta consulta não repetir/pular linha; a ordem
+        // de verdade é aplicada logo abaixo.
+        q = q.order('data', { ascending: false, nullsFirst: false })
+             .order('created_at', { ascending: false })
+             .order('id', { ascending: true })
+             .range(de, de + LOTE_ORDEM - 1);
+        const { data, error } = await q;
+        if (meuId !== requestIdRef.current) return; // filtro/página mudou enquanto isso corria — descarta
+        if (error) throw error;
+        leves.push(...(data || []));
+        if ((data || []).length < LOTE_ORDEM) break;
       }
-      q = q.order('data', { ascending: false, nullsFirst: false })
-           .order('created_at', { ascending: false })
-           .range((pag - 1) * FOTOS_POR_LOTE, pag * FOTOS_POR_LOTE - 1);
-      const { data, error, count } = await q;
-      if (meuId !== requestIdRef.current) return; // filtro/página mudou enquanto isso corria — descarta
-      if (error) throw error;
-      const rows = data || [];
+      const ordenadas = ordenarFotosPorPavimento(leves, pavimentos);
+      const idsDaPagina = ordenadas.slice((pag - 1) * FOTOS_POR_LOTE, pag * FOTOS_POR_LOTE).map(f => f.id);
+      let rows = [];
+      if (idsDaPagina.length) {
+        const { data, error } = await supabase.from('fotos_obra').select('*').in('id', idsDaPagina);
+        if (meuId !== requestIdRef.current) return;
+        if (error) throw error;
+        const porId = new Map((data || []).map(f => [f.id, f]));
+        rows = idsDaPagina.map(id => porId.get(id)).filter(Boolean);
+      }
       // Bucket privado: exibe via URL assinada gerada do thumbnail (ou da própria
       // imagem, se a foto ainda não tiver thumbnail_path — fotos antigas, ou upload
       // cujo thumbnail falhou). A coluna `url` legada fica só como fallback final.
@@ -750,17 +787,19 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       }
       if (meuId !== requestIdRef.current) return;
       setFotos(rows.map(f => ({ ...f, url: signed[f.thumbnail_path || f.storage_path] || f.url })));
-      if (typeof count === 'number') setTotalCount(count);
+      setTotalCount(ordenadas.length);
     } catch (err) {
       logger.error('falha ao carregar fotos', { module: 'obra', action: 'carregarPagina', err });
     } finally {
       if (meuId === requestIdRef.current) setLoading(false);
     }
-  }, [obra.id, filtroMes, filtroPavimento]);
+  }, [obra.id, filtroMes, filtroPavimento, pavimentos]);
 
   // Troca de obra ou de filtro sempre volta pra primeira página
   React.useEffect(() => { setPagina(1); }, [obra.id, filtroMes, filtroPavimento]);
-  React.useEffect(() => { carregarPagina(pagina); }, [pagina, carregarPagina]);
+  // Só carrega com o cadastro de pavimentos pronto (a ordem depende dele); cadastrar, renomear
+  // ou excluir pavimento recria carregarPagina e reordena a galeria sozinho.
+  React.useEffect(() => { if (pavimentosPronto) carregarPagina(pagina); }, [pagina, carregarPagina, pavimentosPronto]);
 
   // Upload em lote: metadados (data/pavimento/descrição) compartilhados por todas as fotos
   // selecionadas de uma vez; insere tudo num único insert e recarrega a galeria uma só vez.
@@ -913,7 +952,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
                            color: 'var(--text)', padding: '0 26px 0 8px', cursor: 'pointer',
                            appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none' }}>
                   <option value="">Todos os pavimentos</option>
-                  {pavimentosComFoto.map(p => <option key={p} value={p}>{p}</option>)}
+                  {pavimentosFiltro.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
                 <Icon name="chevron-down" size={13}
                   style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-muted)' }} />
@@ -967,7 +1006,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
                 <select className="input" value={filtroPavimento} onChange={e => setFiltroPavimento(e.target.value)} style={{ width: '100%' }}
                   title="Filtrar por pavimento">
                   <option value="">Todos os pavimentos</option>
-                  {pavimentosComFoto.map(p => <option key={p} value={p}>{p}</option>)}
+                  {pavimentosFiltro.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
             )}
@@ -1078,7 +1117,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       {showPavimentos && (
         <PavimentosFotosModal obraId={obra.id} pavimentos={pavimentos} setPavimentos={setPavimentos}
           isAdmin={isAdmin} onClose={() => setShowPavimentos(false)}
-          onRenomeado={(antigo, novo) => { if (filtroPavimento === antigo) setFiltroPavimento(novo); else carregarPagina(pagina); carregarPavimentosComFoto(); }} />
+          onRenomeado={(antigo, novo) => { if (filtroPavimento === antigo) setFiltroPavimento(novo); carregarPavimentosComFoto(); }} />
       )}
       {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onGerenciarPavimentos={() => setShowPavimentos(true)} mobileView={mobileView} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
