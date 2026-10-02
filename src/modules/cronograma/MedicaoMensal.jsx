@@ -2063,7 +2063,6 @@ export default function MedicaoMensal({
                 const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
                 return (
                   <tr key={l.id}
-                    className={l.observacao ? 'mm-row-com-nota' : undefined}
                     style={l.foraDoMes ? { background: 'var(--warning-bg)' } : undefined}>
                     <td className="num">{numeroServico(l)}</td>
                     <td>
@@ -2102,7 +2101,7 @@ export default function MedicaoMensal({
                           title={l.observacao || 'Adicionar observação'}
                           disabled={bloqueado && !l.observacao}
                           onClick={() => abrirNota(l)}>
-                          <Icon name={l.observacao ? 'message-square' : 'plus'} size={13} />
+                          <Icon name={l.observacao ? 'message-square' : 'plus'} size={l.observacao ? 20 : 13} className={l.observacao ? 'mm-nota-flag' : ''} />
                         </button>
                         {notasAbertas.has(l.id) && (
                           <Modal
@@ -2421,7 +2420,7 @@ export default function MedicaoMensal({
                 );
               }
               return (
-                <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '') + (l.observacao ? ' com-nota' : '')}
+                <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')}
                   style={{ borderLeftColor: corPorLinha[l.id], marginLeft: 14 + Math.max(0, profundidade - 1) * 10 }}>
                   <div className="mm-card-row">
                     <button type="button"
@@ -2474,7 +2473,7 @@ export default function MedicaoMensal({
                       className={'mm-card-nota-toggle' + (l.observacao ? ' has-nota' : '')}
                       disabled={bloqueado && !l.observacao}
                       onClick={() => abrirNota(l)}>
-                      <Icon name={l.observacao ? 'message-square' : 'plus'} size={13} />
+                      <Icon name={l.observacao ? 'message-square' : 'plus'} size={l.observacao ? 20 : 13} className={l.observacao ? 'mm-nota-flag' : ''} />
                       <span>{l.observacao || 'Adicionar observação'}</span>
                       {l.observacao && <Icon name="chevron-down" size={12} />}
                     </button>

@@ -22,6 +22,10 @@
 
 import { formatNum } from '../../utils/formatters';
 import { offsetToISO, isoToBR, taskEnd } from './cronogramaDateUtils';
+import { chavePavimento, ordenarPavimentos } from '../../utils/pavimentos';
+
+// Regras de nome/ordem de pavimento vivem em utils/pavimentos (compartilhadas com as Fotos).
+export { chavePavimento, ordenarPavimentos };
 
 // dd/mm/aaaa — isoToBR já é o formato de exibição padrão do projeto.
 const fmtData = (off) => isoToBR(offsetToISO(off));
@@ -409,41 +413,6 @@ export function mergePercMedido(itensBase, registroItens) {
     if (!r) return i;
     return { ...i, percMedido: r.percMedido, ...(r.observacao ? { observacao: r.observacao } : {}), ...(r.visto ? { visto: true } : {}) };
   });
-}
-
-// Chave de comparação de nome de pavimento: ignora espaço nas pontas ou duplicado e
-// maiúscula/minúscula. É o que faz " 1° tipo/puc" (espaço a mais, vindo da tarefa) ser o
-// mesmo pavimento que "1° tipo/puc" (cadastro), e " puc" ser o "PUC" cadastrado. Acento
-// continua valendo: "térreo" e "Terreo" são cadastros diferentes. Vazio vira "—".
-export function chavePavimento(nome) {
-  const k = String(nome ?? '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-  return k || '—';
-}
-
-// Opções do filtro de Pavimento: primeiro os pavimentos cadastrados na obra, na ordem de
-// cadastro (`ordemCadastro`, vem de pavimentos_obra ordenada por id); depois os que as
-// tarefas usam com nome DIFERENTE de qualquer cadastro, em ordem natural ("2" antes de
-// "10"); "—" (tarefa sem pavimento) sempre por último. Nome igual ao de um cadastrado (ver
-// chavePavimento) não aparece de novo: prevalece o do cadastro. Devolve só os que aparecem
-// em `usados`.
-export function ordenarPavimentos(usados, ordemCadastro = []) {
-  const usadas = new Set(usados.map(chavePavimento));
-  const vistos = new Set();
-  const cadastrados = [];
-  ordemCadastro.forEach(p => {
-    const k = chavePavimento(p);
-    if (k === '—' || vistos.has(k) || !usadas.has(k)) return;
-    vistos.add(k);
-    cadastrados.push(String(p).replace(/\s+/g, ' ').trim());
-  });
-  const novos = new Map();
-  usados.forEach(p => {
-    const k = chavePavimento(p);
-    if (k === '—' || vistos.has(k) || novos.has(k)) return;
-    novos.set(k, String(p).replace(/\s+/g, ' ').trim());
-  });
-  const resto = [...novos.values()].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
-  return [...cadastrados, ...resto, ...(usadas.has('—') ? ['—'] : [])];
 }
 
 // Snapshot gravado no fechamento: congela o que foi medido para que o histórico não

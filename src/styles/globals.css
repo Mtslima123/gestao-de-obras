@@ -2668,7 +2668,6 @@ tr:hover .obras-row-actions {
   border-radius: 8px; padding: 8px 9px; display: flex; flex-direction: column; gap: 6px;
 }
 .mm-card.fora-do-mes { background: var(--warning-bg); }
-.mm-card.com-nota { border-left-width: 6px; }
 .mm-card-row { display: flex; align-items: flex-start; gap: 7px; }
 .mm-card-nome { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; }
 .mm-card-pav {
@@ -2686,7 +2685,7 @@ tr:hover .obras-row-actions {
 }
 .mm-card-nota-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mm-card-nota-toggle:disabled { opacity: .5; cursor: default; }
-.mm-card-nota-toggle.has-nota { border: 1px solid var(--border); background: var(--brand-tint); color: var(--brand); }
+.mm-card-nota-toggle.has-nota { border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 .mm-card-nota-editor { display: flex; flex-direction: column; gap: 6px; }
 .mm-card-nota-textarea {
   height: auto; min-height: 60px; padding: 8px; text-align: left;
@@ -2703,12 +2702,9 @@ tr:hover .obras-row-actions {
   color: var(--text-faint); cursor: pointer; flex-shrink: 0;
 }
 .mm-row-nota-btn:hover { background: var(--surface-muted); color: var(--text-muted); }
-.mm-row-nota-btn.has-nota { color: var(--brand); background: var(--brand-tint); }
-
-/* Linha com observação: faixa lateral na cor da marca + tinta leve (translúcida, para
-   conviver com o fundo de "fora do mês" que vem inline no <tr>). */
-.tbl-medicao tr.mm-row-com-nota > td { background-color: color-mix(in srgb, var(--brand) 7%, transparent); }
-.tbl-medicao tr.mm-row-com-nota > td:first-child { box-shadow: inset 3px 0 0 var(--brand); }
+/* Comentário (observação) na tarefa: bandeirinha maior e vermelha, sem pintar a linha. */
+.mm-row-nota-btn.has-nota { width: 26px; height: 26px; }
+.mm-nota-flag { color: var(--danger); flex-shrink: 0; }
 
 /* "Visto": check por tarefa. Cinza = ainda não conferida (mesmo com 0%), verde = vista. */
 .mm-visto-btn {
