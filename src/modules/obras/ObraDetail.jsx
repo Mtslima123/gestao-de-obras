@@ -17,7 +17,7 @@ import { agregarDist, distDeRetrato, computeCurvaSeries } from '../cronograma/cu
 import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
 import { getLinhaTotal } from '../fisicoFinanceiro/fisicoFinanceiroPure';
 
-import { pavimentosService } from '../../services/pavimentos.service';
+import { pavimentosFotosService } from '../../services/pavimentosFotos.service';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';import { capaCache } from '../../services/capaCache';
 
 // Obra Detail Page
@@ -688,15 +688,11 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   // Descarta resposta obsoleta se o filtro ou a página mudar antes dela voltar.
   const requestIdRef = React.useRef(0);
 
-  // Pavimentos cadastrados na obra — abastecem o dropdown do campo Pavimento nos modais
+  // Pavimentos cadastrados para as Fotos desta obra — abastecem a lista suspensa do campo
+  // Pavimento nos modais. O cadastro é feito no modal "Pavimentos" (showPavimentos).
   const [pavimentos,   setPavimentos]   = React.useState([]);
-  React.useEffect(() => { pavimentosService.listar(obra.id).then(setPavimentos); }, [obra.id]);
-  const registrarPavimento = (nome) => {
-    const n = String(nome || '').trim();
-    if (!n || pavimentos.includes(n)) return;
-    setPavimentos(prev => [...new Set([...prev, n])].sort());
-    pavimentosService.salvar(obra.id, [n]);
-  };
+  const [showPavimentos, setShowPavimentos] = React.useState(false);
+  React.useEffect(() => { pavimentosFotosService.listar(obra.id).then(setPavimentos); }, [obra.id]);
 
   // Lista de pavimentos que TÊM foto, pro filtro — query própria e leve (só a coluna
   // pavimento, sem imagem/URL assinada). Com paginação, `fotos` só tem o que já foi
@@ -803,7 +799,6 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
     if (rows.length === 0) return;
     const { error: dbErr } = await supabase.from('fotos_obra').insert(rows);
     if (dbErr) { toast('Erro ao salvar fotos', { tone: 'danger' }); return; }
-    registrarPavimento(metadados.pavimento);
     toast(rows.length === 1 ? 'Foto salva' : `${rows.length} fotos salvas`, { tone: 'success', icon: 'check' });
     // Fotos novas entram no topo (ordenação por data/criação desc) — volta pra 1ª página.
     if (pagina === 1) carregarPagina(1); else setPagina(1);
@@ -818,7 +813,6 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       toast('Erro ao atualizar foto. ' + friendlyError(error), { tone: 'danger' });
       return false;
     }
-    registrarPavimento(metadados.pavimento);
     toast('Foto atualizada', { tone: 'success', icon: 'check' });
     carregarPagina(pagina);
     carregarPavimentosComFoto();
@@ -934,7 +928,10 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
           </>
         )}
         {!readOnly && (
-          <div style={{ marginLeft: 'auto' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="btn btn-ghost" onClick={() => setShowPavimentos(true)}>
+              <Icon name="layers" size={15} />Pavimentos
+            </button>
             <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
               <Icon name="upload" size={15} />Upload
             </button>
@@ -955,6 +952,10 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
             <button type="button" className="btn btn-ghost" style={{ flex: 1 }}
               onClick={() => setShowUpload(true)}>
               <Icon name="image" size={15} />Galeria
+            </button>
+            <button type="button" className="btn btn-ghost" style={{ flex: 1 }}
+              onClick={() => setShowPavimentos(true)}>
+              <Icon name="layers" size={15} />Pavimentos
             </button>
           </div>
         )}
@@ -1067,13 +1068,18 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       {showUpload && (
         <UploadFotoModal
           obra={obra} pavimentos={pavimentos}
+          onGerenciarPavimentos={() => setShowPavimentos(true)}
           initialFiles={pendingFiles}
           mobileView={mobileView}
           onSave={async (metadados, files) => { setUploadingCount(files.length); try { await salvarFotos(metadados, files); } finally { setUploadingCount(0); } }}
           onClose={() => { setShowUpload(false); setPendingFiles(null); }}
         />
       )}
-      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} mobileView={mobileView} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
+      {showPavimentos && (
+        <PavimentosFotosModal obraId={obra.id} pavimentos={pavimentos} setPavimentos={setPavimentos}
+          isAdmin={isAdmin} onClose={() => setShowPavimentos(false)} />
+      )}
+      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onGerenciarPavimentos={() => setShowPavimentos(true)} mobileView={mobileView} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox
           fotos={fotos}
@@ -1121,85 +1127,111 @@ function compressImagem(file, maxW = 1200, quality = 0.82) {
   });
 }
 
-// Campo Pavimento: combobox que lista os pavimentos cadastrados na obra (mesma fonte do
-// cronograma) e permite digitar livremente um novo.
-const PavimentoInput = ({ value, onChange, options = [] }) => {
-  const [open, setOpen] = React.useState(false);
-  const [rect, setRect] = React.useState(null);
-  const wrapRef = React.useRef(null);
-  const inputRef = React.useRef(null);
-  const menuRef = React.useRef(null);
+// Campo Pavimento: lista suspensa FECHADA com os pavimentos cadastrados para as Fotos da
+// obra (modal "Pavimentos"). Não aceita texto livre. `atual` é o valor já gravado na foto
+// (edição): se não estiver mais no cadastro, entra como opção para não ser perdido ao salvar.
+const PavimentoSelect = ({ value, onChange, options = [], atual = '', onGerenciar }) => {
+  const lista = atual && !options.includes(atual) ? [...options, atual] : options;
+  return (
+    <>
+      <select className="input" value={value} onChange={e => onChange(e.target.value)} style={{ width: '100%' }}>
+        <option value="">{lista.length ? 'Selecione o pavimento' : 'Nenhum pavimento cadastrado'}</option>
+        {lista.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+      {onGerenciar && lista.length === 0 && (
+        <button type="button" className="btn btn-ghost" style={{ marginTop: 6, height: 28, fontSize: 12 }} onClick={onGerenciar}>
+          <Icon name="plus" size={12} />Cadastrar pavimentos
+        </button>
+      )}
+    </>
+  );
+};
 
-  // Dropdown renderizado em portal (position fixed) para NÃO ficar dentro do corpo que rola do
-  // modal — evita a "segunda barra de rolagem" e o conflito de fechar ao clicar na barra externa.
-  // Limita a altura ao espaço disponível e abre para cima se não couber embaixo (não ultrapassa a tela).
-  const abrir = () => {
-    const el = inputRef.current;
-    if (!el) { setOpen(true); return; }
-    const r = el.getBoundingClientRect();
-    const margem = 10, desejada = 240;
-    const espacoAbaixo = window.innerHeight - r.bottom - margem;
-    const espacoAcima  = r.top - margem;
-    const paraBaixo = espacoAbaixo >= 140 || espacoAbaixo >= espacoAcima;
-    const maxHeight = Math.max(80, Math.min(desejada, paraBaixo ? espacoAbaixo : espacoAcima));
-    const top = paraBaixo ? r.bottom + 4 : r.top - 4 - maxHeight;
-    setRect({ top, left: r.left, width: r.width, maxHeight });
-    setOpen(true);
+// Modal de cadastro de pavimentos das Fotos. Qualquer um que edita Fotos cadastra; excluir
+// é só admin (RLS também exige). Excluir do cadastro não altera fotos já gravadas.
+const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = false, onClose }) => {
+  const toast = useToast();
+  const [nome, setNome] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [confirmar, setConfirmar] = React.useState(null);
+  const [erro, setErro] = React.useState('');
+
+  const adicionar = async () => {
+    const n = nome.trim();
+    if (!n) { setErro('Informe o nome do pavimento.'); return; }
+    if (pavimentos.some(p => p.toLowerCase() === n.toLowerCase())) { setErro('Esse pavimento já está cadastrado.'); return; }
+    setBusy(true);
+    const r = await pavimentosFotosService.criar(obraId, n);
+    setBusy(false);
+    if (!r.ok) { toast('Erro ao cadastrar pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
+    setPavimentos(prev => [...prev, n]);
+    setNome(''); setErro('');
   };
 
-  React.useEffect(() => {
-    if (!open) return;
-    const onDown = (e) => {
-      if (wrapRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
-      setOpen(false);
-    };
-    // O menu é posicionado em pixels fixos no momento de abrir e não acompanha o
-    // scroll da página — em vez de deixar flutuando no lugar errado, fecha ao rolar.
-    // Mas rolar a própria lista (que tem scroll interno) não conta como "rolar a
-    // página": sem essa exceção, girar o mouse sobre as opções fechava o menu na hora.
-    const onWheel = (e) => { if (!menuRef.current?.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('wheel', onWheel, { passive: true });
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('wheel', onWheel);
-    };
-  }, [open]);
-
-  const q = (value || '').toLowerCase();
-  const filtered = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+  const excluir = async (p) => {
+    setBusy(true);
+    const r = await pavimentosFotosService.excluir(obraId, p);
+    setBusy(false);
+    setConfirmar(null);
+    if (!r.ok) { toast('Erro ao excluir pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
+    setPavimentos(prev => prev.filter(x => x !== p));
+  };
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
-      <input ref={inputRef} placeholder="Selecione ou digite" value={value}
-        onChange={e => { onChange(e.target.value); abrir(); }}
-        onFocus={abrir}
-        // Clicar de novo no campo já focado (ex.: depois de fechar clicando fora, sem
-        // perder o foco) não disparava onFocus — o campo "não abria" até o usuário
-        // digitar ou trocar de campo e voltar. onClick garante que o clique sempre reabre.
-        onClick={abrir}
-        style={{ width: '100%' }} />
-      {open && rect && filtered.length > 0 && createPortal(
-        <div ref={menuRef} style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 300, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, maxHeight: rect.maxHeight, overflowY: 'auto', boxShadow: '0 10px 30px rgba(0,0,0,0.14)' }}>
-          {filtered.map(o => (
-            <div key={o} onMouseDown={() => { onChange(o); setOpen(false); }}
-              style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-muted)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
-              {o}
-            </div>
-          ))}
-        </div>,
-        document.body
-      )}
-    </div>
+    <Modal title="Pavimentos das fotos" subtitle="Lista usada no campo Pavimento do upload" onClose={onClose} draggable overlay={false}
+      footer={<button className="btn btn-primary" onClick={onClose}>Fechar</button>}>
+      <div className="stack">
+        <div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="input" style={{ flex: 1 }} placeholder="Ex.: Térreo, 1º Pav. Tipo, Cobertura" value={nome} maxLength={60}
+              onChange={e => { setNome(e.target.value); setErro(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); adicionar(); } }} />
+            <button className="btn btn-primary" onClick={adicionar} disabled={busy}>
+              <Icon name="plus" size={14} />Adicionar
+            </button>
+          </div>
+          {erro && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erro}</div>}
+        </div>
+        {pavimentos.length === 0
+          ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhum pavimento cadastrado nesta obra.</div>
+          : (
+            <table className="tbl">
+              <tbody>
+                {pavimentos.map(p => (
+                  <tr key={p}>
+                    <td>{p}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {isAdmin && (confirmar === p
+                        ? (
+                          <>
+                            <button className="btn btn-ghost btn-sm" onClick={() => setConfirmar(null)}>Cancelar</button>
+                            <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff', fontWeight: 600, marginLeft: 6 }}
+                              disabled={busy} onClick={() => excluir(p)}>Sim, excluir</button>
+                          </>
+                        )
+                        : (
+                          <button className="icon-btn" title="Excluir pavimento" onClick={() => setConfirmar(p)}>
+                            <Icon name="trash" size={14} />
+                          </button>
+                        ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        {isAdmin && pavimentos.length > 0 && (
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Excluir do cadastro não altera as fotos já enviadas com esse pavimento.</div>
+        )}
+      </div>
+    </Modal>
   );
 };
 
 // ----- Modal: Upload de Foto -----
 const MAX_FOTOS = 7;
 
-const UploadFotoModal = ({ obra, pavimentos = [], initialFiles = null, mobileView = false, onSave, onClose }) => {
+const UploadFotoModal = ({ obra, pavimentos = [], onGerenciarPavimentos, initialFiles = null, mobileView = false, onSave, onClose }) => {
   const toast = useToast();
   // initialFiles: foto já tirada pelo FAB antes do modal abrir (ver onFabCapture em
   // Fotos) — chega pronta, sem precisar de outro clique em "Tirar foto agora".
@@ -1250,7 +1282,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], initialFiles = null, mobileVie
     if (!files.length) novosErros.arquivo = 'Selecione ao menos uma foto.';
     if (!form.data) novosErros.data = 'Preencha a data.';
     else if (form.data > hojeISO) novosErros.data = 'A data não pode ser no futuro.';
-    if (!form.pavimento.trim()) novosErros.pavimento = 'Preencha o pavimento.';
+    if (!form.pavimento.trim()) novosErros.pavimento = 'Selecione o pavimento.';
     setErros(novosErros);
     if (Object.keys(novosErros).length) return;
     setSaving(true);
@@ -1338,7 +1370,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], initialFiles = null, mobileVie
           </div>
           <div className="field">
             <label>Pavimento <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <PavimentoInput value={form.pavimento} onChange={v => { set('pavimento', v); setErros(er => ({ ...er, pavimento: undefined })); }} options={pavimentos} />
+            <PavimentoSelect value={form.pavimento} onChange={v => { set('pavimento', v); setErros(er => ({ ...er, pavimento: undefined })); }} options={pavimentos} onGerenciar={onGerenciarPavimentos} />
             {erros.pavimento && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erros.pavimento}</div>}
           </div>
           <div className="field full">
@@ -1352,7 +1384,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], initialFiles = null, mobileVie
 };
 
 // ----- Modal: Editar Foto -----
-const EditFotoModal = ({ foto, pavimentos = [], mobileView = false, onSave, onClose }) => {
+const EditFotoModal = ({ foto, pavimentos = [], onGerenciarPavimentos, mobileView = false, onSave, onClose }) => {
   const [form, setForm] = React.useState({ data: foto.data || '', pavimento: foto.pavimento || '', descricao: foto.descricao || '' });
   const [erros, setErros] = React.useState({});
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -1361,7 +1393,7 @@ const EditFotoModal = ({ foto, pavimentos = [], mobileView = false, onSave, onCl
     const novosErros = {};
     if (!form.data) novosErros.data = 'Preencha a data.';
     else if (form.data > hojeISO) novosErros.data = 'A data não pode ser no futuro.';
-    if (!form.pavimento.trim()) novosErros.pavimento = 'Preencha o pavimento.';
+    if (!form.pavimento.trim()) novosErros.pavimento = 'Selecione o pavimento.';
     setErros(novosErros);
     if (Object.keys(novosErros).length) return;
     onSave(form);
@@ -1384,7 +1416,7 @@ const EditFotoModal = ({ foto, pavimentos = [], mobileView = false, onSave, onCl
         </div>
         <div className="field">
           <label>Pavimento <span style={{ color: 'var(--danger)' }}>*</span></label>
-          <PavimentoInput value={form.pavimento} onChange={v => { set('pavimento', v); setErros(er => ({ ...er, pavimento: undefined })); }} options={pavimentos} />
+          <PavimentoSelect value={form.pavimento} onChange={v => { set('pavimento', v); setErros(er => ({ ...er, pavimento: undefined })); }} options={pavimentos} atual={foto.pavimento || ''} onGerenciar={onGerenciarPavimentos} />
           {erros.pavimento && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erros.pavimento}</div>}
         </div>
         <div className="field full">
