@@ -15,6 +15,7 @@ import { friendlyError } from './utils/friendlyError';
 import { isNetworkError, connectivity, useRetryOnReconnect } from './utils/connectivity';
 import { decidirFonteDeSessao } from './utils/authGatePure';
 import { OfflineFallback } from './components/OfflineFallback';
+import { offlineCache } from './services/offlineCache';
 import { useIsMobile, useIsTouchDevice } from './utils/useIsMobile';
 import { MobileGate } from './modules/mobile/MobileGate';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
@@ -103,9 +104,10 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 // (SSO Microsoft). Em localStorage (não sessionStorage, onde fica a sessão real do
 // Supabase — ver services/supabase.js) pra sobreviver ao celular encerrar a aba em
 // segundo plano. Com rede, nunca é usado: sem sessão real, vai pro login — fechar o
-// navegador de propósito continua exigindo login de novo. Não abre acesso real a dado
-// nenhum: RLS/JWT são validados no servidor. Expira em 30 dias pra não exibir perfil e
-// permissões ultrapassados num aparelho esquecido sem internet.
+// navegador de propósito continua exigindo login de novo. Sem rede, libera a consulta ao
+// que ESTE usuário deixou guardado no aparelho (services/offlineCache.js, só leitura);
+// nada vai pro servidor sem sessão real (RLS/JWT validados lá). Expira em 30 dias pra não
+// exibir perfil, permissões e dados ultrapassados num aparelho esquecido sem internet.
 const AUTH_CACHE_KEY = 'gm_auth_cache';
 const AUTH_CACHE_MAX_IDADE_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -180,6 +182,7 @@ const AppInner = () => {
   });
   const [obrasLoaded,     setObrasLoaded]     = React.useState(false);
   const [obrasOffline,    setObrasOffline]    = React.useState(false); // erro de REDE (não qualquer erro) ao buscar a lista
+  const [obrasDoAparelho, setObrasDoAparelho] = React.useState(null); // salvoEm da lista guardada em uso (sem rede), ou null
   const obrasReaisRef = React.useRef(false); // a lista real já chegou pelo menos uma vez nesta página
   const [obrasRetryTick,  setObrasRetryTick]  = React.useState(0);
   const [cronogramaTab,   setCronogramaTab]   = React.useState(() => sessionStorage.getItem('nav_cronograma_tab') || 'gantt');
@@ -187,6 +190,10 @@ const AppInner = () => {
   const [sidebarPinned,   setSidebarPinned]   = React.useState(false); // menu fixado aberto (sem persistir)
   const isMobile = useIsMobile();
   const isTouch = useIsTouchDevice();
+  // A lista de obras só é guardada no aparelho no fluxo de celular/tablet (MobileGate e
+  // modo foco), onde o modo offline existe: no desktop seria dado retido à toa (LGPD).
+  const fluxoMobileRef = React.useRef(false);
+  fluxoMobileRef.current = isMobile || isTouch;
   const [mobileGateBypassed, setMobileGateBypassed] = React.useState(() => {
     try { return sessionStorage.getItem('mobile_gate_ok') === '1'; } catch { return false; }
   });
@@ -221,22 +228,27 @@ const AppInner = () => {
     if (!authed) return;
     let decidido = false;  // timeout ou primeira resposta já definiram o estado
     let cancelado = false; // efeito desmontado/refeito (logout, retry)
-    // Sem rede: lista vazia + aviso "Sem conexão". Antes caía no mock (AppData), e um
-    // usuário autenticado via obras de demonstração como se fossem reais e podia abrir
-    // uma delas. Se a lista real já está na tela (ex.: retry de reconexão que falhou),
-    // mantém o que a pessoa está vendo em vez de trocar por aviso.
-    const falhaDeRede = () => {
+    // Sem rede: a última lista carregada neste aparelho (offlineCache), com a data dela,
+    // pra Medição continuar abrindo em campo; sem nada guardado, lista vazia + "Sem
+    // conexão". Nunca o mock (AppData): antes um usuário via obras de demonstração como se
+    // fossem reais. Se a lista real já está na tela (ex.: retry de reconexão que falhou),
+    // mantém o que a pessoa está vendo. Termina marcando a lista como carregada.
+    const falhaDeRede = async () => {
       connectivity.reportError({ message: 'Failed to fetch' });
-      if (obrasReaisRef.current) return;
-      setObras([]);
-      setObrasOffline(true);
+      if (!obrasReaisRef.current) {
+        const guardado = fluxoMobileRef.current ? await offlineCache.ler('obras') : null;
+        if (cancelado || obrasReaisRef.current) return; // efeito refeito ou a lista real chegou
+        setObras(guardado ? guardado.dados : []);
+        setObrasDoAparelho(guardado ? guardado.salvoEm : null);
+        setObrasOffline(true);
+      }
+      setObrasLoaded(true);
     };
     // Modo avião: o navegador já sabe que não há rede, não adianta esperar os 8s abaixo.
     // A volta da conexão dispara o evento `online` e o retry de baixo (useRetryOnReconnect).
     if (estaOffline()) {
       falhaDeRede();
-      setObrasLoaded(true);
-      return;
+      return () => { cancelado = true; };
     }
     // Rede real "sem sinal" pode ficar PENDENTE por muito tempo em vez de rejeitar na
     // hora (diferente do DevTools Offline, que rejeita instantâneo) — sem isto, o Mobile
@@ -246,7 +258,6 @@ const AppInner = () => {
       decidido = true;
       logger.warn('obras: timeout esperando a rede', { module: 'obras', action: 'listar' });
       falhaDeRede();
-      setObrasLoaded(true);
     }, 8000);
     obrasService.listar()
       .then(({ data, error }) => {
@@ -259,6 +270,8 @@ const AppInner = () => {
           AppData.obras = data;
           setObras(data);
           setObrasOffline(false);
+          setObrasDoAparelho(null);
+          if (fluxoMobileRef.current) offlineCache.gravar('obras', '-', data);
           connectivity.reportSuccess();
           setObrasLoaded(true);
           return;
@@ -266,8 +279,8 @@ const AppInner = () => {
         if (decidido) return;
         decidido = true;
         clearTimeout(timeoutId);
-        if (isNetworkError(error) || estaOffline()) falhaDeRede();
-        else setObras([...AppData.obras]); // erro que não é de rede: comportamento anterior
+        if (isNetworkError(error) || error?.status === 0 || estaOffline()) { falhaDeRede(); return; }
+        setObras([...AppData.obras]); // erro que não é de rede: comportamento anterior
         setObrasLoaded(true);
       })
       .catch((err) => {
@@ -275,8 +288,8 @@ const AppInner = () => {
         decidido = true;
         clearTimeout(timeoutId);
         logger.error('falha inesperada ao listar obras', { module: 'obras', action: 'listar', err });
-        if (isNetworkError(err) || estaOffline()) falhaDeRede();
-        else setObras([...AppData.obras]);
+        if (isNetworkError(err) || estaOffline()) { falhaDeRede(); return; }
+        setObras([...AppData.obras]);
         setObrasLoaded(true);
       });
     return () => { cancelado = true; clearTimeout(timeoutId); };
@@ -329,7 +342,7 @@ const AppInner = () => {
   // retorna; quem grava o estado é aplicarSessao, depois de conferir que a chamada ainda
   // é a vigente.
   const loadUserProfile = async (email) => {
-    if (!email) return { perfil: null, doCache: false };
+    if (!email) return { perfil: null, doCache: false, confirmado: false };
     const cache = lerAuthCache();
     const cacheDesteEmail = cache?.email === email ? cache : null;
     const consulta = supabase
@@ -351,10 +364,12 @@ const AppInner = () => {
       // mensagem que o navegador deu.
       if (error === SEM_RESPOSTA || isNetworkError(error) || status === 0 || estaOffline()) {
         connectivity.reportError({ message: 'Failed to fetch' });
-        if (cacheDesteEmail) return { perfil: cacheDesteEmail.perfil, doCache: true };
+        if (cacheDesteEmail) return { perfil: cacheDesteEmail.perfil, doCache: true, confirmado: false };
       }
     }
-    return { perfil: data ?? null, doCache: false };
+    // confirmado: o servidor respondeu de fato (perfil lido, ou PGRST116 = sem perfil).
+    // Só assim um "não autorizado" pode apagar o que está guardado no aparelho.
+    return { perfil: data ?? null, doCache: false, confirmado: !error || error.code === 'PGRST116' };
   };
 
   // Portão de acesso app-wide: só entra quem tem perfil cadastrado e ativo.
@@ -376,7 +391,11 @@ const AppInner = () => {
       setUser(null);
       setUserProfile(null);
       clearContext(); // some o userId dos logs após logout
-      if (limparCache) limparAuthCache();
+      offlineCache.definirUsuario(null);
+      if (limparCache) {
+        limparAuthCache();
+        offlineCache.limparTudo(); // tablet compartilhado: nada da pessoa fica pro próximo
+      }
       // Some junto com a sessão — próximo login (mesma aba) deve mostrar o Mobile Gate de novo.
       try { sessionStorage.removeItem('mobile_gate_ok'); } catch { /* ignore */ }
       setMobileGateBypassed(false);
@@ -387,9 +406,11 @@ const AppInner = () => {
     setUser(session.user);
     setContext({ userId: session.user.id, userEmail: session.user.email }); // enriquece os logs
 
-    const { perfil, doCache } = await loadUserProfile(session.user.email);
+    const { perfil, doCache, confirmado } = await loadUserProfile(session.user.email);
     if (gen !== sessaoGenRef.current || deslogamentoDeliberadoRef.current) return;
     const autorizado = !!perfil && perfil.status === 'ativo';
+    // Antes do setAuthed: as telas que montam a seguir já leem/gravam o cache deste usuário.
+    offlineCache.definirUsuario(autorizado ? session.user.id : null);
     setUserProfile(perfil);
     setAuthed(autorizado);
     setAcessoNegado(!autorizado); // mantém a sessão para exibir o e-mail na tela de bloqueio
@@ -398,16 +419,20 @@ const AppInner = () => {
     // contando — e não adianta chamar o servidor.
     if (doCache) return;
     if (autorizado) {
+      // Login confirmado pelo servidor: o que outra pessoa deixou neste aparelho sai.
+      offlineCache.limparOutrosUsuarios(session.user.id);
       salvarAuthCache({ userId: session.user.id, email: session.user.email, perfil });
       // Fire-and-forget: RLS não deixa o usuário comum dar UPDATE direto na própria
       // linha, por isso passa por função SECURITY DEFINER estreita (só grava esta coluna).
       supabase.rpc('registrar_ultimo_acesso').then(({ error }) => {
         if (error) logger.error('falha ao registrar ultimo acesso', { module: 'app', action: 'registrarUltimoAcesso', err: error });
       });
-    } else {
+    } else if (confirmado) {
       // Desativado ou sem perfil, confirmado pelo servidor: não pode continuar entrando
-      // offline pelo snapshot antigo (que ainda diz 'ativo').
+      // offline pelo snapshot antigo (que ainda diz 'ativo'), nem ver os dados guardados.
+      // Erro passageiro do servidor (5xx etc.) não chega aqui: não apaga nada.
       limparAuthCache();
+      offlineCache.limparUsuario(session.user.id);
     }
   };
 
@@ -417,6 +442,7 @@ const AppInner = () => {
     const cache = lerAuthCache();
     if (!cache || deslogamentoDeliberadoRef.current) return;
     ++sessaoGenRef.current;
+    offlineCache.definirUsuario(cache.userId, { sessaoReal: false }); // só lê, ver offlineCache
     setUser({ id: cache.userId, email: cache.email });
     setContext({ userId: cache.userId, userEmail: cache.email });
     setUserProfile(cache.perfil);
@@ -709,6 +735,7 @@ const AppInner = () => {
             obras={obrasVisiveis}
             obrasLoaded={obrasLoaded}
             obrasOffline={obrasOffline}
+            obrasDoAparelho={obrasDoAparelho}
             onRetryObras={() => setObrasRetryTick((t) => t + 1)}
             userProfile={userProfile}
             onLogout={pedirSair}

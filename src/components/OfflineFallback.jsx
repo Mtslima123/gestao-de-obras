@@ -28,4 +28,16 @@ const OfflineFallback = ({
   </div>
 );
 
-export { OfflineFallback };
+// Faixa no topo de uma tela que está mostrando dados guardados neste aparelho (ver
+// services/offlineCache.js), pra ninguém tomar o que vê como o estado atual do sistema.
+const AvisoOffline = ({ texto, onRetry }) => (
+  <div className="aviso-offline" role="status">
+    <Icon name="wifi-off" size={15} />
+    <span className="aviso-offline-texto">{texto}</span>
+    {onRetry && (
+      <button type="button" className="aviso-offline-acao" onClick={onRetry}>Tentar agora</button>
+    )}
+  </div>
+);
+
+export { OfflineFallback, AvisoOffline };

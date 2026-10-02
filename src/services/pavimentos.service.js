@@ -9,15 +9,20 @@ export const pavimentosService = {
   // texto livre, ex. "1".."10".."11" — ordenar por nome intercalaria "10"/"11" entre "1" e
   // "2", já que compara caractere a caractere, não como número. `id` é a sequência real de
   // inserção, então preserva a ordem que a obra cadastrou.
+  // Devolve { data, error }: quem chama precisa distinguir "obra sem pavimentos" de falha
+  // de rede (sem rede o Cronograma usa a lista guardada no aparelho, ver offlineCache).
   async listar(obraId) {
-    if (!obraId) return [];
+    if (!obraId) return { data: [], error: null };
     const { data, error } = await supabase
       .from('pavimentos_obra')
       .select('nome')
       .eq('obra_id', obraId)
       .order('id');
-    if (error) { logger.error('falha ao listar pavimentos', { module: 'pavimentos', action: 'listar', obraId, err: error }); return []; }
-    return (data || []).map(r => r.nome);
+    if (error) {
+      logger.error('falha ao listar pavimentos', { module: 'pavimentos', action: 'listar', obraId, err: error });
+      return { data: [], error };
+    }
+    return { data: (data || []).map(r => r.nome), error: null };
   },
 
   // Salva (upsert) novos pavimentos na obra; ignora duplicados por (obra_id, nome).

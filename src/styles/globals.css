@@ -2893,3 +2893,17 @@ input, textarea, [contenteditable="true"] {
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* Faixa "dados guardados neste aparelho" (AvisoOffline em components/OfflineFallback.jsx). */
+.aviso-offline {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; margin-bottom: 12px;
+  border-radius: 10px;
+  background: var(--warning-bg); color: var(--warning);
+  font-size: 12.5px; line-height: 1.4;
+}
+.aviso-offline-texto { flex: 1; min-width: 0; }
+.aviso-offline-acao {
+  flex-shrink: 0; border: 0; background: transparent; color: inherit;
+  font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 4px;
+}

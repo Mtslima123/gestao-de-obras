@@ -1507,8 +1507,8 @@ export const CriarReprogramacaoModal = ({ totalEtapas, nomesUsados = [], months 
   const [statusPorMes, setStatusPorMes] = React.useState({});
   React.useEffect(() => {
     let vivo = true;
-    medicaoMensalService.listarMeses(obraId).then(r => {
-      if (vivo) setStatusPorMes(Object.fromEntries(r.map(m => [m.mes_referencia, m.status])));
+    medicaoMensalService.listarMeses(obraId).then(({ data }) => {
+      if (vivo) setStatusPorMes(Object.fromEntries(data.map(m => [m.mes_referencia, m.status])));
     });
     return () => { vivo = false; };
   }, [obraId]);

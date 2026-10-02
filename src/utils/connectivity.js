@@ -16,15 +16,18 @@ export function isNetworkError(error) {
 // fetches que já fariam de qualquer forma — este módulo nunca chama fetch sozinho.
 const listeners = new Set();
 let offline = false;
+let ultimaFalha = 0;
 function notify() { listeners.forEach((fn) => fn(offline)); }
 
 export const connectivity = {
   isOffline: () => offline,
   reportError(error) {
-    if (isNetworkError(error) && !offline) { offline = true; notify(); }
+    if (!isNetworkError(error)) return;
+    ultimaFalha = Date.now(); // ver avisarReconexaoReal
+    if (!offline) { offline = true; notify(); }
   },
   reportSuccess() {
-    if (offline) { offline = false; notify(); }
+    if (offline) { offline = false; notify(); avisarReconexaoReal(); }
   },
   subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 };
@@ -43,8 +46,41 @@ export function useConnectivity() {
 // (vite.config.js, test.environment:'node', sem jsdom) e este módulo precisa ser
 // importável sem DOM disponível.
 const reconnectListeners = new Set();
+let ultimoEventoOnline = 0;
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => reconnectListeners.forEach((fn) => fn()));
+  window.addEventListener('online', () => {
+    ultimoEventoOnline = Date.now();
+    reconnectListeners.forEach((fn) => fn());
+  });
+}
+
+// "Sem sinal" (Wi-Fi sem internet, sinal fraco): navigator.onLine nunca vira false, então
+// o evento `online` nunca dispara na volta. A primeira requisição que dá certo depois de
+// uma falha (reportSuccess) faz o mesmo papel, pra quem ficou em "Sem conexão" ou com
+// dados do aparelho tentar de novo.
+// - Só avisa se houve falha DEPOIS do último aviso (evento `online` ou este): se a falha
+//   é anterior, as telas já foram avisadas e estão recarregando; repetir só reiniciaria
+//   a carga.
+// - No máximo uma vez a cada 30s, e o aviso que cair dentro da janela é adiado pro fim
+//   dela em vez de descartado (senão a tela ficava em "Sem internet" com a rede de volta).
+//   Sem o limite, uma tela que falha sempre (ex.: endpoint fora do ar) e outra que
+//   funciona alternariam falha e sucesso disparando recargas sem parar.
+let ultimoAvisoReal = 0;
+let avisoAdiado = null;
+function dispararAvisoReal() {
+  ultimoAvisoReal = Date.now();
+  reconnectListeners.forEach((fn) => fn());
+}
+function avisarReconexaoReal() {
+  if (ultimaFalha <= Math.max(ultimoEventoOnline, ultimoAvisoReal)) return;
+  const liberaEm = ultimoAvisoReal + 30000;
+  const agora = Date.now();
+  if (agora >= liberaEm) { dispararAvisoReal(); return; }
+  if (avisoAdiado) return;
+  avisoAdiado = setTimeout(() => {
+    avisoAdiado = null;
+    if (!offline) dispararAvisoReal();
+  }, liberaEm - agora);
 }
 
 export function onNetworkReconnect(fn) {

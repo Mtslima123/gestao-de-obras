@@ -1,12 +1,13 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
-import { OfflineFallback } from '../../components/OfflineFallback';
+import { OfflineFallback, AvisoOffline } from '../../components/OfflineFallback';
+import { quandoFoiGuardado } from '../../utils/offlinePure';
 import { moduloLiberado, podeVerAba } from '../../utils/permissions';
 
 // Hub pós-login exibido só no mobile (ver isMobile em App.jsx), antes do shell
 // completo (Sidebar+Topbar), oferecendo os 2 fluxos mobile-first (Medição/Fotos)
 // ou a entrada no sistema completo (desktop-first, mas usável no celular).
-const MobileGate = ({ obras, obrasLoaded, obrasOffline = false, onRetryObras, userProfile, onLogout, onEnterFull, onGoMedicao, onGoFotos }) => {
+const MobileGate = ({ obras, obrasLoaded, obrasOffline = false, obrasDoAparelho = null, onRetryObras, userProfile, onLogout, onEnterFull, onGoMedicao, onGoFotos }) => {
   const [pendingDestino, setPendingDestino] = React.useState(null); // null | 'medicao' | 'fotos'
 
   const podeMedicao = moduloLiberado(userProfile, 'cronograma') && podeVerAba(userProfile, 'cronograma', 'medicao');
@@ -61,7 +62,7 @@ const MobileGate = ({ obras, obrasLoaded, obrasOffline = false, onRetryObras, us
       <div className="mobile-gate" data-screen-label="00 Mobile Gate">
         {header}
         <div className="mobile-gate-body">
-          <OfflineFallback mensagem="Não foi possível carregar suas obras. Verifique sua conexão com a internet." onRetry={onRetryObras} />
+          <OfflineFallback mensagem="Não foi possível carregar suas obras sem internet. Com conexão, abra o app uma vez para guardar a lista neste aparelho." onRetry={onRetryObras} />
         </div>
       </div>
     );
@@ -71,6 +72,9 @@ const MobileGate = ({ obras, obrasLoaded, obrasOffline = false, onRetryObras, us
     <div className="mobile-gate" data-screen-label="00 Mobile Gate">
       {header}
       <div className="mobile-gate-body">
+        {obrasDoAparelho && (
+          <AvisoOffline texto={`Sem internet. Lista de obras de ${quandoFoiGuardado(obrasDoAparelho)}, guardada neste aparelho.`} onRetry={onRetryObras} />
+        )}
         {pendingDestino === null ? (
           <>
             <div className="mobile-gate-title">O que você precisa agora?</div>

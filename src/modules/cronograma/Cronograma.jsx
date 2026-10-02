@@ -7,6 +7,8 @@ import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
 import { isNetworkError, connectivity, useRetryOnReconnect } from '../../utils/connectivity';
 import { OfflineFallback } from '../../components/OfflineFallback';
+import { offlineCache } from '../../services/offlineCache';
+import { reduzirReprogramacoes } from '../../utils/offlinePure';
 import { SCurveChart } from './SCurveChart';
 import { SCurveChart2 } from './SCurveChart2';
 import { useToast } from '../../components/Modals';
@@ -2191,7 +2193,17 @@ function salvarReprogramacoesLocal(obraId, reps) {
 //   { error }                  em falha de rede/SQL
 //   { error:null }             sucesso (grava e avança o _cronSavedAt)
 //   { error:null, conflict:true } outra sessão gravou no meio (NÃO sobrescreve)
+// Obras cujo cronograma na tela veio do aparelho (offlineCache, sem internet), não do
+// banco. Esse pacote é reduzido (sem linhas de base, reprogramações só com cabeçalho), e
+// gravar a partir dele apagaria esses dados no banco. A trava fica aqui dentro, e não só
+// em commit(): há várias chamadas diretas a salvarCronograma fora dele.
+// Valor: { etapas, vinculos } (true = ainda do aparelho). Só sai do modo aparelho quando
+// as DUAS partes vierem do banco: etapas do banco com vínculos de até 30 dias atrás
+// gravariam R$ antigos (valorVinculadoFixo, previsto congelado, snapshot do fechamento).
+const _cronDoAparelho = {};
+
 async function salvarCronograma(obraId, etapas, customCols, baselines, reprogramacoes, feriados) {
+  if (_cronDoAparelho[obraId]) return { error: null, somenteLeitura: true };
   const nowISO = new Date().toISOString();
   const payload = { etapas, custom_cols: customCols, baselines, reprogramacoes, updated_at: nowISO };
   // Feriados só entram no payload quando fornecidos (edição de feriados). Assim os saves
@@ -2500,6 +2512,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   React.useMemo(() => { setWorkCal(feriadosCfg); return feriadosCfg; }, [feriadosCfg]);
   const [loadedObraId, setLoadedObraId] = React.useState(null);
   const [cronogramaErro, setCronogramaErro] = React.useState(null); // só erro de REDE
+  // salvoEm do pacote guardado no aparelho em uso (sem rede, só no modo foco da Medição),
+  // ou null quando os dados na tela vieram do banco. Ver restaurarDoAparelho em carregar().
+  const [dadosDoAparelho, setDadosDoAparelho] = React.useState(null);
   // Bloqueio otimista: conflito quando outra sessão salvou o mesmo cronograma
   const [conflito,     setConflito]     = React.useState(false);
   const [reloadKey,    setReloadKey]    = React.useState(0);
@@ -2534,6 +2549,26 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // Integração Orçamento × Cronograma
   const [vinculos,         setVinculos]         = React.useState([]);
   const [orcamentoItensMap, setOrcamentoItensMap] = React.useState({});
+  // De qual obra são os vínculos no estado e se vieram do banco: numa falha de rede eles
+  // ficam como estão, mas não podem ficar os de OUTRA obra (os R$ da Medição sairiam
+  // errados). Idem pavimentos.
+  const vinculosOrigemRef = React.useRef({ obra: null, doBanco: false });
+  const pavimentosOrigemRef = React.useRef({ obra: null, doBanco: false });
+  // Estado lido na hora pelo aviso de reconexão (ver useRetryOnReconnect abaixo): ele pode
+  // chegar de dentro do próprio carregar(), via connectivity.reportSuccess, antes de o
+  // React renderizar o estado novo.
+  const erroRedeRef = React.useRef(false);
+  const cargaRef = React.useRef(null); // carregar() em andamento
+  const definirErroRede = (e) => { erroRedeRef.current = !!e; setCronogramaErro(e); };
+  // Uma parte (etapas ou vínculos) chegou do banco: sai do modo aparelho se a outra também.
+  const parteDoBanco = (obraId, parte) => {
+    const ap = _cronDoAparelho[obraId];
+    if (ap) {
+      ap[parte] = false;
+      if (!ap.etapas && !ap.vinculos) delete _cronDoAparelho[obraId];
+    }
+    if (!_cronDoAparelho[obraId]) setDadosDoAparelho(null);
+  };
   // isLoading derivado: true quando obraSel existe mas ainda não terminou de carregar seus dados
   const isLoading = !!(obraSel && loadedObraId !== obraSel);
 
@@ -2572,16 +2607,32 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   React.useEffect(() => {
     if (!obraSel) { setVinculos([]); setOrcamentoItensMap({}); return; }
     if (_cronCache[obraSel]) return; // restaurado pelo efeito de carga (cache)
-    vinculoService.listarPorObra(obraSel).then(({ data }) => {
-      if (!data?.length) { setVinculos([]); setOrcamentoItensMap({}); return; }
-      setVinculos(data);
+    let vivo = true;
+    vinculoService.listarPorObra(obraSel).then(({ data, error }) => {
+      if (!vivo) return;
+      // Erro (ex.: sem rede): mantém os desta obra. Antes gravava [] e zerava todos os R$
+      // em silêncio, inclusive os que vieram do pacote guardado no aparelho.
+      if (error) {
+        if (vinculosOrigemRef.current.obra !== obraSel) {
+          setVinculos([]); setOrcamentoItensMap({});
+          vinculosOrigemRef.current = { obra: obraSel, doBanco: false };
+        }
+        return;
+      }
       const m = {};
-      data.forEach(v => {
+      (data || []).forEach(v => {
         if (v.orcamento_itens) m[v.orcamento_item_id] = itemValor(v.orcamento_itens);
       });
+      setVinculos(data || []);
       setOrcamentoItensMap(m);
+      vinculosOrigemRef.current = { obra: obraSel, doBanco: true };
+      parteDoBanco(obraSel, 'vinculos');
+      if (hideChrome) offlineCache.gravar('vinculos', obraSel, { vinculos: data || [], orcamentoItensMap: m });
     });
-  }, [obraSel]);
+    return () => { vivo = false; };
+    // reloadKey: a recarga da reconexão (recarregarCronograma) também relê os vínculos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obraSel, reloadKey]);
 
   // Recarrega etapas, histórico e baselines ao trocar de obra (Supabase first, fallback para mock)
   React.useEffect(() => {
@@ -2608,7 +2659,60 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       if (!obraSel) { setLoadedObraId(null); return; }
       // Pavimentos salvos (tabela própria) — não faz parte do cache de etapas/baselines,
       // busca à parte e não bloqueia o resto do carregamento.
-      pavimentosService.listar(obraSel).then(nomes => { if (!cancelled) setPavimentosObra(nomes); });
+      // Sem rede (error) mantém o que já está na tela, ex.: a lista guardada no aparelho.
+      pavimentosService.listar(obraSel).then(({ data: nomes, error }) => {
+        if (cancelled) return;
+        if (error) {
+          if (pavimentosOrigemRef.current.obra !== obraSel) { setPavimentosObra([]); pavimentosOrigemRef.current = { obra: obraSel, doBanco: false }; }
+          return;
+        }
+        setPavimentosObra(nomes);
+        pavimentosOrigemRef.current = { obra: obraSel, doBanco: true };
+        if (hideChrome) offlineCache.gravar('pavimentos', obraSel, nomes);
+      });
+      // Sem rede, no modo foco da Medição (hideChrome, o fluxo de campo): abre o último
+      // pacote desta obra guardado no aparelho, só para consulta (ver _cronDoAparelho).
+      // Devolve false sem nada guardado, e quem chama cai no "Sem conexão" de sempre.
+      const restaurarDoAparelho = async () => {
+        if (!hideChrome) return false;
+        const [pacote, vinc, pavs] = await Promise.all([
+          offlineCache.ler('cronograma', obraSel),
+          offlineCache.ler('vinculos', obraSel),
+          offlineCache.ler('pavimentos', obraSel),
+        ]);
+        if (cancelled || !pacote) return false;
+        const { etapas: etps, feriados, reprogramacoes: reps = [] } = pacote.dados;
+        // Vínculos que já chegaram do banco nesta carga (o efeito deles corre em paralelo)
+        // ficam; senão entram os guardados, ou nenhum (não herda os da obra anterior).
+        const vincDoBanco = vinculosOrigemRef.current.obra === obraSel && vinculosOrigemRef.current.doBanco;
+        _cronDoAparelho[obraSel] = { etapas: true, vinculos: !vincDoBanco };
+        setEtapas(etps);
+        setBaselines([]);
+        setReprogramacoes(reps);
+        if (feriados) setFeriadosCfg(feriados);
+        if (!vincDoBanco) {
+          setVinculos(vinc ? vinc.dados.vinculos : []);
+          setOrcamentoItensMap(vinc ? vinc.dados.orcamentoItensMap : {});
+          vinculosOrigemRef.current = { obra: obraSel, doBanco: false };
+        }
+        if (!(pavimentosOrigemRef.current.obra === obraSel && pavimentosOrigemRef.current.doBanco)) {
+          setPavimentosObra(pavs ? pavs.dados : []);
+          pavimentosOrigemRef.current = { obra: obraSel, doBanco: false };
+        }
+        histRef.current = [etps.map(e => ({ ...e }))];
+        histColsRef.current = [customCols];
+        histFeriadosRef.current = [feriados || lerFeriadosLS(obraSel)];
+        histHiddenColsRef.current = [lerHiddenColsLS(obraSel)];
+        histRowHeightsRef.current = [lerRowHeightsLS(obraSel)];
+        hidxRef.current = 0;
+        setBlVisivelId(carregarBlVisivel(obraSel) ?? defaultBlId([]));
+        setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(reps));
+        setSelMonKey(carregarMesRef(obraSel) || mesAtualKey());
+        definirErroRede(null);
+        setDadosDoAparelho(pacote.salvoEm);
+        setLoadedObraId(obraSel); // por último: a Medição só monta com tudo no lugar
+        return true;
+      };
       // Cache da sessão: restaura na hora, sem rede nem reprocessamento
       const cached = _cronCache[obraSel];
       if (cached) {
@@ -2618,6 +2722,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         setReprogramacoes(cached.reprogramacoes || []);
         setVinculos(cached.vinculos);
         setOrcamentoItensMap(cached.orcamentoItensMap);
+        vinculosOrigemRef.current = { obra: obraSel, doBanco: true };
         histRef.current = [cached.etapas.map(e => ({ ...e }))];
         histColsRef.current = [cached.customCols];
         histFeriadosRef.current = [lerFeriadosLS(obraSel)];
@@ -2627,7 +2732,10 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         setBlVisivelId(carregarBlVisivel(obraSel) ?? defaultBlId(cached.baselines || []));
         setRepVisivelId(carregarRepVisivel(obraSel) ?? defaultRepId(cached.reprogramacoes || []));
         setSelMonKey(carregarMesRef(obraSel) || mesAtualKey());
-        setCronogramaErro(null); // erro de rede de outra obra não vale pra esta
+        definirErroRede(null); // erro de rede de outra obra não vale pra esta
+        // O cache da sessão só guarda o que veio do banco (ver efeito espelho abaixo).
+        delete _cronDoAparelho[obraSel];
+        setDadosDoAparelho(null);
         setLoadedObraId(obraSel);
         return;
       }
@@ -2639,7 +2747,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       // Modo avião: o navegador já sabe que não há rede, não adianta esperar os 8s.
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         connectivity.reportError({ message: 'Failed to fetch' });
-        setCronogramaErro(TIMEOUT_REDE);
+        if (await restaurarDoAparelho() || cancelled) return;
+        definirErroRede(TIMEOUT_REDE);
         setLoadedObraId(obraSel);
         return;
       }
@@ -2652,19 +2761,24 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       if (dbErro === TIMEOUT_REDE) {
         logger.warn('cronograma: timeout esperando a rede', { module: 'cronograma', action: 'carregar', obraSel });
         connectivity.reportError({ message: 'Failed to fetch' });
-        setCronogramaErro(dbErro);
+        if (await restaurarDoAparelho() || cancelled) return;
+        definirErroRede(dbErro);
         setLoadedObraId(obraSel);
         return;
       }
-      if (dbErro && isNetworkError(dbErro)) {
+      if (dbErro && (isNetworkError(dbErro) || dbErro.status === 0)) {
         connectivity.reportError(dbErro);
-        setCronogramaErro(dbErro);
+        if (await restaurarDoAparelho() || cancelled) return;
+        definirErroRede(dbErro);
         setLoadedObraId(obraSel); // essencial: senão isLoading nunca vira false e a tela
                                   // trava em "Carregando…" pra sempre, o fallback nunca aparece
         return;
       }
+      // Antes do reportSuccess: ele pode avisar a reconexão na hora, e o aviso olha estes
+      // refs. Etapas do banco: libera as gravações se os vínculos também já vieram.
+      definirErroRede(null);
+      parteDoBanco(obraSel, 'etapas');
       connectivity.reportSuccess();
-      setCronogramaErro(null);
       // Sanitiza restrições com tipo definido mas sem data (estado inválido de bug anterior)
       // e re-aplica scheduling para recuperar posições corrompidas
       const sanitizarERecuperar = (lista) => {
@@ -2710,9 +2824,19 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         });
         // Feriados: DB é a fonte de verdade quando tem conteúdo; senão mantém o valor do
         // localStorage (setado no efeito keyed em obraSel) para migração suave.
-        if (db.feriados && (db.feriados.dias?.length || db.feriados.sabadoUtil)) {
+        const feriadosDoBanco = !!(db.feriados && (db.feriados.dias?.length || db.feriados.sabadoUtil));
+        if (feriadosDoBanco) {
           setFeriadosCfg(db.feriados);
           histFeriadosRef.current[0] = db.feriados; // ponto zero do histórico já nasce consistente
+        }
+        // Pacote pra abrir a Medição sem internet: só no fluxo de campo (modo foco), e só o
+        // que ela usa. Feriados entram porque mudam as datas e a distribuição mensal.
+        if (hideChrome) {
+          offlineCache.gravar('cronograma', obraSel, {
+            etapas: etapasDB,
+            feriados: feriadosDoBanco ? db.feriados : lerFeriadosLS(obraSel),
+            reprogramacoes: reduzirReprogramacoes(reps),
+          });
         }
       } else {
         const mock = sanitizarERecuperar(migrateEtapas(D.cronograma[obraSel] || []));
@@ -2738,7 +2862,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       }
     }
     setConflito(false);   // recarregou do banco: baseline atualizada, conflito resolvido
-    carregar();
+    const marca = {};
+    cargaRef.current = marca;
+    carregar().finally(() => { if (cargaRef.current === marca) cargaRef.current = null; });
     return () => { cancelled = true; };
   }, [obraSel, reloadKey]);
 
@@ -2746,11 +2872,13 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // Não espelha quando a carga falhou por rede: o estado ainda é o da obra anterior (ou vazio),
   // e gravar isso no cache faria a próxima visita abrir esse conteúdo errado como se fosse
   // desta obra, sem buscar no banco (e um save depois sobrescreveria o cronograma real).
+  // Nem quando veio do aparelho: o pacote é reduzido e, no cache da sessão, liberaria
+  // gravações na próxima visita como se fosse o cronograma completo do banco.
   React.useEffect(() => {
-    if (loadedObraId && loadedObraId === obraSel && !cronogramaErro) {
+    if (loadedObraId && loadedObraId === obraSel && !cronogramaErro && !dadosDoAparelho) {
       _cronCache[loadedObraId] = { etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap };
     }
-  }, [etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap, loadedObraId, obraSel, cronogramaErro]);
+  }, [etapas, customCols, baselines, reprogramacoes, vinculos, orcamentoItensMap, loadedObraId, obraSel, cronogramaErro, dadosDoAparelho]);
 
   // Persiste a seleção visível da Curva (Linha de Base / Reprogramação) por obra, para
   // sobreviver a troca de aba e ao recarregar o app. Só grava após a carga concluir.
@@ -2781,6 +2909,10 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     // Lembra que ficou edição sem gravar (falha de save, ex.: sem internet), pra reenviar
     // quando a conexão voltar em vez de recarregar do banco por cima dela (ver abaixo).
     savePendenteRef.current = res?.error ? obraSel : null;
+    if (res?.somenteLeitura) {
+      toast('Sem internet: o cronograma está só para consulta. Conecte-se para alterar.', { tone: 'warning', icon: 'alert-triangle' });
+      return true;
+    }
     if (res?.conflict) {
       setConflito(true);
       toast('Este cronograma foi alterado por outra pessoa. Recarregue para ver a versão atual antes de continuar.', { tone: 'warning', icon: 'alert-triangle' });
@@ -2807,7 +2939,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // Sem pendência não faz nada: a tela já mostra os dados certos.
   const savePendenteRef = React.useRef(null);
   useRetryOnReconnect(() => {
-    if (cronogramaErro) { recarregarCronograma(); return; }
+    if (cargaRef.current) return; // a carga em andamento já vai trazer o que estiver no banco
+    // Também quando a tela mostra o pacote do aparelho: troca pelos dados atuais do banco.
+    if (erroRedeRef.current || _cronDoAparelho[obraSel]) { recarregarCronograma(); return; }
     if (savePendenteRef.current && savePendenteRef.current === obraSel && loadedObraId === obraSel) {
       salvarCronograma(obraSel, etapas, customCols, baselines, reprogramacoes, feriadosCfg).then(handleSaveResult);
     }
@@ -2980,6 +3114,12 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
 
   // ── Commit (fonte única de verdade) ────────────────────────────────────────
   const commit = (novas, opts = {}) => {
+    // Dados do aparelho: nem muda a tela, senão a pessoa veria a alteração e ela sumiria
+    // ao recarregar (o save é barrado em salvarCronograma de qualquer forma).
+    if (_cronDoAparelho[obraSel]) {
+      toast('Sem internet: o cronograma está só para consulta. Conecte-se para alterar.', { tone: 'warning', icon: 'alert-triangle' });
+      return;
+    }
     // Tarefa que chega a 100% de avanço trava o valor vinculado no que ele vale agora
     // (deixa de entrar no rateio proporcional do grupo — ver `distributeToLeaves` em
     // ganttUtils.js); se reabrir (avanço < 100), destrava e volta ao rateio normal.
@@ -3223,7 +3363,12 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       {isLoading
         ? <div className="text-muted" style={{ padding: 64, textAlign: 'center' }}>Carregando…</div>
         : cronogramaErro
-        ? <OfflineFallback onRetry={recarregarCronograma} />
+        ? <OfflineFallback
+            onRetry={recarregarCronograma}
+            mensagem={hideChrome
+              ? 'Os dados desta obra não estão guardados neste aparelho. Com internet, abra esta obra pela Medição para poder consultar sem conexão.'
+              : undefined}
+          />
         : !obraSel || (etapas.length === 0 && !iniciando)
           ? (
             <div className="card" style={{ marginTop: 'var(--gap)', padding: '72px 24px', textAlign: 'center' }}>
@@ -3659,6 +3804,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   obraNome={obra?.nome || 'Projeto'}
                   hideChrome={hideChrome}
                   pavimentosOrdem={pavimentosObra}
+                  dadosDoAparelho={dadosDoAparelho}
+                  onTentarConexao={recarregarCronograma}
                 />
               )}
 

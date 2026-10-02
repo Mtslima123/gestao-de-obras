@@ -55,8 +55,11 @@ export const medicaoMensalService = {
   // (PGRST204) e listarMeses degradaria pra [], apagando o histórico/estado de TODOS os
   // meses da tela até a migration ser aplicada, não só a aprovação. Mesmo padrão de
   // degradação graciosa de upsertComFallback, abaixo, só que pro lado do SELECT.
+  //
+  // Devolve { data, error }: sem rede a Medição usa os meses guardados no aparelho em
+  // vez de uma lista vazia (que gerava "Aprove primeiro o mês anterior" falso).
   async listarMeses(obraId) {
-    if (!obraId) return [];
+    if (!obraId) return { data: [], error: null };
     const colunasCompletas = 'mes_referencia, status, updated_at, fechada_em, fechada_por, aprovada_em, aprovada_por, perc_medido, valor_total_medido';
     const colunasSemAprovacao = 'mes_referencia, status, updated_at, fechada_em, fechada_por, perc_medido, valor_total_medido';
     let { data, error } = await supabase
@@ -73,9 +76,9 @@ export const medicaoMensalService = {
     }
     if (error) {
       logger.error('falha ao listar medições da obra', { module: 'medicaoMensal', action: 'listarMeses', obraId, err: error });
-      return [];
+      return { data: [], error };
     }
-    return data || [];
+    return { data: data || [], error: null };
   },
 
   // `previstoCongelado` ({ percPrevisto, percPrevistoAcumulado }) só vem preenchido na
@@ -211,18 +214,20 @@ export const medicaoMensalService = {
   // Mês inicial da medição da obra ('YYYY-MM' ou null). Coluna da migration
   // 20260928000001 — enquanto o TI não aplicar, o SELECT falha por coluna ausente e
   // devolve null (comportamento antigo: medição começa no 1º mês do cronograma).
+  // { data, error }: error só em falha que não é coluna ausente (ex.: sem rede).
   async buscarMesInicial(obraId) {
-    if (!obraId) return null;
+    if (!obraId) return { data: null, error: null };
     const { data, error } = await supabase
       .from('obras')
       .select('medicao_mes_inicial')
       .eq('id', obraId)
       .maybeSingle();
     if (error) {
-      if (!colunaAusente(error)) logger.error('falha ao buscar mês inicial da medição', { module: 'medicaoMensal', action: 'buscarMesInicial', obraId, err: error });
-      return null;
+      if (colunaAusente(error)) return { data: null, error: null };
+      logger.error('falha ao buscar mês inicial da medição', { module: 'medicaoMensal', action: 'buscarMesInicial', obraId, err: error });
+      return { data: null, error };
     }
-    return data?.medicao_mes_inicial || null;
+    return { data: data?.medicao_mes_inicial || null, error: null };
   },
 
   // Grava o mês inicial via RPC (SECURITY DEFINER) — quem mede não precisa poder editar
