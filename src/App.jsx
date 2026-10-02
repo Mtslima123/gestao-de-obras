@@ -988,21 +988,46 @@ const AppInner = () => {
   );
 };
 
-// Aviso de nova versão do app shell (service worker atualizado em segundo plano). Mesmo
-// cuidado do ErrorBoundary com chunk antigo: nunca troca o app debaixo do usuário sem
-// avisar (registerType:'prompt' em vite.config.js) — só troca se a pessoa clicar.
+// Primeiro toque/tecla desde que a página abriu: depois disso o app não recarrega sozinho
+// (a pessoa pode estar no meio de algo que ainda não foi guardado, ex.: fotos escolhidas
+// no modal antes de salvar).
+let interagiuDesdeQueAbriu = false;
+if (typeof window !== 'undefined') {
+  const marcar = () => { interagiuDesdeQueAbriu = true; };
+  window.addEventListener('pointerdown', marcar, { once: true, capture: true });
+  window.addEventListener('keydown', marcar, { once: true, capture: true });
+}
+// Janela "acabou de abrir" em que dá pra trocar de versão sem atrapalhar.
+const JANELA_ATUALIZAR_AO_ABRIR_MS = 20000;
+
+// Nova versão do app (service worker atualizado em segundo plano). O botão "Atualizar"
+// sozinho não bastava: no celular o aviso passava despercebido (ficava atrás da faixa de
+// totais e do botão da câmera) e o aparelho seguia dias na versão antiga. Agora:
+// - versão nova pronta logo que o app abre, antes de a pessoa tocar em qualquer coisa:
+//   aplica sozinha (recarrega uma vez). O que foi preenchido já está guardado no aparelho
+//   (fila de envio) e o reload volta pra mesma tela (sessionStorage);
+// - versão nova chegando com o app em uso: não recarrega debaixo da pessoa. Fica o aviso
+//   no topo da tela e, se ela não tocar, aplica na próxima abertura (a versão nova fica
+//   esperando instalada e cai no primeiro caso).
 const PwaUpdateBanner = () => {
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
     onOfflineReady() {
       logger.info('app shell disponível offline (1ª visita concluída)', { module: 'pwa' });
     },
   });
-  if (!needRefresh) return null;
+  const acabouDeAbrir = !interagiuDesdeQueAbriu && performance.now() < JANELA_ATUALIZAR_AO_ABRIR_MS;
+  React.useEffect(() => {
+    if (needRefresh && acabouDeAbrir) {
+      logger.info('versão nova aplicada ao abrir o app', { module: 'pwa' });
+      updateServiceWorker(true);
+    }
+  }, [needRefresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!needRefresh || acabouDeAbrir) return null;
   return (
-    <div className="card" style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 300, maxWidth: 320 }}>
+    <div className="card" style={{ position: 'fixed', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, width: 'calc(100% - 24px)', maxWidth: 420 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5, padding: 14 }}>
         <Icon name="download" size={16} />
-        <span style={{ flex: 1 }}>Nova versão disponível.</span>
+        <span style={{ flex: 1 }}>Nova versão disponível. Toque em Atualizar (ou ela entra sozinha na próxima vez que abrir o app).</span>
         <button className="btn btn-primary" style={{ padding: '4px 12px', flexShrink: 0 }} onClick={() => updateServiceWorker(true)}>
           Atualizar
         </button>
