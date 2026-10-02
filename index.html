@@ -3,6 +3,223 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<script>
+  // Vigia da abertura: script comum (ES5), roda antes do app e não depende dele. Sem ele,
+  // quando o app não consegue abrir (navegador antigo, arquivo do app com defeito guardado
+  // no aparelho, sem internet e sem cópia guardada) a tela fica toda branca, sem nada pra
+  // pessoa fazer e sem pista pra gente. O app avisa que abriu em main.jsx
+  // (window.__appMontado e __vigiaAbertura.esconder). "Reparar" só troca a cópia do app
+  // guardada pelo service worker: fotos e medições na fila (IndexedDB) e o login ficam.
+  (function () {
+    var ESPERA_MS = 12000;
+    // Pisos do build (vite.config.js, build.target): manter iguais.
+    var CHROME_MINIMO = 80;
+    var IOS_MINIMO = 14;
+    var FIREFOX_MINIMO = 78;
+    var CHAVE_REPARO = 'gm_reparo_auto';
+    var REPARO_INTERVALO_MS = 10 * 60 * 1000;
+    var motivo = null; // 'navegador' | 'arquivo' | 'erro' | 'demora'
+    var detalhe = '';
+    var caixa = null;
+    var agendado = null;
+
+    var ua = navigator.userAgent || '';
+    function numero(re) { var m = re.exec(ua); return m ? parseInt(m[1], 10) : null; }
+    var versaoChrome = numero(/Chrome\/(\d+)/);
+    // iPhone/iPad: todo navegador usa o motor do Safari, e quem manda é a versão do iOS.
+    var ehApple = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    var versaoIOS = ehApple ? (numero(/OS (\d+)_\d+/) || numero(/Version\/(\d+)/)) : null;
+    var versaoFirefox = numero(/Firefox\/(\d+)/);
+    var versaoSafari = !versaoChrome && !versaoFirefox ? numero(/Version\/(\d+).*Safari/) : null;
+    var rotulo = versaoChrome ? 'Chrome ' + versaoChrome : versaoIOS ? 'iOS ' + versaoIOS :
+      versaoFirefox ? 'Firefox ' + versaoFirefox : versaoSafari ? 'Safari ' + versaoSafari : '';
+
+    // true = navegador dentro do piso do build; false = abaixo; null = não deu pra saber.
+    function navegadorAtendido() {
+      if (versaoChrome) return versaoChrome >= CHROME_MINIMO;
+      if (versaoIOS) return versaoIOS >= IOS_MINIMO;
+      if (versaoFirefox) return versaoFirefox >= FIREFOX_MINIMO;
+      if (versaoSafari) return versaoSafari >= IOS_MINIMO;
+      return null;
+    }
+    // Testa a sintaxe que o app usa direto (?. e ??), sem depender do user agent.
+    var sintaxeAntiga = false;
+    try { new Function('var a = {}; return a?.b ?? 1'); } catch (e) { sintaxeAntiga = e instanceof SyntaxError; }
+    var semModulo = !('noModule' in document.createElement('script'));
+    if (semModulo || sintaxeAntiga || navegadorAtendido() === false) motivo = 'navegador';
+
+    function montou() { return !!window.__appMontado; }
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function semInternet() { return navigator.onLine === false; }
+
+    function textos() {
+      if (motivo === 'navegador') {
+        if (versaoChrome) {
+          return {
+            titulo: 'Navegador desatualizado',
+            msg: 'Este aparelho está com o Chrome ' + versaoChrome + '. O app precisa do Chrome ' + CHROME_MINIMO +
+              ' ou mais novo. Atualize o Google Chrome (e o Android System WebView) pela Play Store e abra de novo.'
+          };
+        }
+        if (ehApple) {
+          return {
+            titulo: 'Sistema desatualizado',
+            msg: 'O app precisa do iOS ' + IOS_MINIMO + ' ou mais novo. Atualize em Ajustes > Geral > Atualização de Software e abra de novo.'
+          };
+        }
+        return {
+          titulo: 'Navegador desatualizado',
+          msg: 'Este navegador é antigo demais para o app. Atualize o navegador ou abra no Google Chrome atualizado.'
+        };
+      }
+      if (semInternet()) {
+        return {
+          titulo: 'Sem internet',
+          msg: 'O app ainda não está guardado neste aparelho para abrir sem internet. Conecte à internet: ele abre sozinho quando a conexão voltar.'
+        };
+      }
+      if (motivo === 'demora') {
+        return {
+          titulo: 'O app está demorando para abrir',
+          msg: 'A internet pode estar fraca. Aguarde mais um pouco ou toque em Tentar de novo. Se continuar assim, toque em Reparar app.'
+        };
+      }
+      return {
+        titulo: 'Não foi possível abrir o app',
+        msg: 'Toque em Reparar app: ele baixa o app de novo. Fotos e medições que ainda não foram enviadas e o login continuam guardados.'
+      };
+    }
+
+    function botao(texto, primario) {
+      return '<button type="button" data-acao="' + texto + '" style="font:600 15px Arial,sans-serif;padding:12px 18px;border-radius:8px;cursor:pointer;margin:6px;' +
+        (primario ? 'background:#1C4584;color:#fff;border:1px solid #1C4584' : 'background:#fff;color:#1C4584;border:1px solid #1C4584') + '">' + texto + '</button>';
+    }
+
+    function mostrar(aviso) {
+      if (montou()) return;
+      if (!document.body) { document.addEventListener('DOMContentLoaded', function () { mostrar(aviso); }); return; }
+      var t = textos();
+      if (!caixa) {
+        caixa = document.createElement('div');
+        caixa.setAttribute('role', 'alert');
+        caixa.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483647;background:#fff;color:#0f172a;' +
+          'font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;overflow:auto';
+        caixa.addEventListener('click', function (ev) {
+          var acao = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-acao');
+          if (acao === 'Tentar de novo') location.reload();
+          if (acao === 'Reparar app') reparar(false);
+        });
+        document.body.appendChild(caixa);
+      }
+      caixa.innerHTML = '<div style="max-width:440px;width:100%;text-align:center">' +
+        '<div style="width:56px;height:56px;margin:0 auto 18px;border-radius:14px;background:#1C4584"></div>' +
+        '<h1 style="font:700 20px Arial,sans-serif;margin:0 0 10px;color:#1C4584">' + esc(t.titulo) + '</h1>' +
+        '<p style="font:15px/1.5 Arial,sans-serif;margin:0 0 18px;color:#334155">' + esc(t.msg) + '</p>' +
+        (aviso ? '<p style="font:600 14px/1.4 Arial,sans-serif;margin:0 0 14px;color:#b91c1c">' + esc(aviso) + '</p>' : '') +
+        '<div>' + botao('Tentar de novo', motivo === 'navegador') + (motivo === 'navegador' ? '' : botao('Reparar app', true)) + '</div>' +
+        '<p style="font:12px/1.4 Arial,sans-serif;margin:18px 0 0;color:#64748b">Soter · Gestão de Obras' +
+        (rotulo ? ' · ' + esc(rotulo) : '') + (detalhe ? '<br>' + esc(detalhe).slice(0, 180) : '') + '</p>' +
+        '</div>';
+    }
+
+    function esconder() {
+      if (agendado) { clearTimeout(agendado); agendado = null; }
+      if (caixa && caixa.parentNode) caixa.parentNode.removeChild(caixa);
+      caixa = null;
+    }
+
+    function agendar(ms) {
+      if (agendado) clearTimeout(agendado);
+      agendado = setTimeout(function () {
+        agendado = null;
+        if (montou()) return;
+        if (motivo === 'arquivo' && !semInternet() && reparoAutomaticoLiberado()) { reparar(true); return; }
+        mostrar();
+      }, ms);
+    }
+
+    function reparoAutomaticoLiberado() {
+      try { return Date.now() - Number(localStorage.getItem(CHAVE_REPARO) || 0) > REPARO_INTERVALO_MS; } catch (e) { return false; }
+    }
+
+    // Confere a internet antes de mexer na cópia guardada: sem rede, apagar a cópia
+    // deixaria o aparelho sem nada pra abrir.
+    function comInternet(sim, nao) {
+      if (semInternet()) { nao(); return; }
+      var x = new XMLHttpRequest();
+      x.open('GET', '/sw.js?vigia=' + Date.now(), true);
+      x.timeout = 6000;
+      x.onload = function () { if (x.status >= 200 && x.status < 400) sim(); else nao(); };
+      x.onerror = nao;
+      x.ontimeout = nao;
+      x.send();
+    }
+
+    // aoFalhar: quem chamou mostra o aviso (a tela de erro do app, que já montou).
+    function reparar(automatico, aoFalhar) {
+      comInternet(function () {
+        try { localStorage.setItem(CHAVE_REPARO, String(Date.now())); } catch (e) { /* sem storage: segue */ }
+        var recarregar = function () { location.reload(); };
+        var sw = navigator.serviceWorker;
+        if (!sw || !sw.getRegistrations) { recarregar(); return; }
+        sw.getRegistrations().then(function (regs) {
+          return Promise.all(regs.map(function (r) { return r.unregister(); }));
+        }).then(function () {
+          if (!window.caches) return null;
+          return caches.keys().then(function (nomes) {
+            return Promise.all(nomes.filter(function (n) { return n.indexOf('workbox-') === 0; })
+              .map(function (n) { return caches.delete(n); }));
+          });
+        }).then(recarregar, recarregar);
+      }, function () {
+        if (aoFalhar) { aoFalhar(); return; }
+        mostrar(automatico ? '' : 'Sem internet agora. Conecte o aparelho e toque em Reparar app de novo.');
+      });
+    }
+
+    // Erro na carga do arquivo principal do app (rede caiu, ou veio outra coisa no lugar do
+    // JS) ou erro de sintaxe (navegador antigo) acontecem antes de o app existir.
+    window.addEventListener('error', function (ev) {
+      if (montou()) return;
+      var alvo = ev && ev.target;
+      if (alvo && alvo.tagName === 'SCRIPT') {
+        if (alvo.type === 'module') {
+          // Falha definitiva: vale mais que 'demora' ou 'erro' (a carga não vai terminar).
+          if (motivo !== 'navegador') motivo = 'arquivo';
+          detalhe = 'Falha ao carregar ' + (alvo.getAttribute('src') || 'o app');
+          agendar(800);
+        }
+        return;
+      }
+      if (ev && ev.message) {
+        detalhe = String(ev.message);
+        // Erro de sintaxe num navegador dentro do piso é arquivo do app corrompido no
+        // aparelho (download cortado), que o Reparar resolve; fora dele, é navegador antigo.
+        if (/SyntaxError|Unexpected token/i.test(detalhe)) motivo = navegadorAtendido() === true ? 'arquivo' : 'navegador';
+        else if (!motivo) motivo = 'erro';
+        agendar(4000); // folga: erro solto antes de o app terminar de subir não é fatal
+      }
+    }, true);
+
+    window.addEventListener('online', function () { if (caixa && !montou()) location.reload(); });
+
+    if (motivo === 'navegador') agendar(3000);
+    setTimeout(function () {
+      if (montou() || caixa) return;
+      if (!motivo) motivo = 'demora';
+      mostrar();
+    }, ESPERA_MS);
+
+    window.__vigiaAbertura = {
+      esconder: esconder,
+      reparar: function (aoFalhar) { reparar(false, aoFalhar); }
+    };
+  })();
+</script>
 <link rel="icon" type="image/x-icon" href="/favicon.ico" />
 <link rel="icon" type="image/png" href="/favicon.png" />
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon-180x180.png" />

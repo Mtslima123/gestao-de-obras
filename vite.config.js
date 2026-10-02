@@ -45,7 +45,9 @@ export default defineConfig({
         // requisição de API vai direto pra rede e falha normalmente quando offline
         // (nada de dado obsoleto aparecendo silenciosamente; ver src/utils/connectivity.js
         // e o fallback "sem conexão" nas telas, que tratam essa falha).
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,ttf}'],
+        // Só woff2 das fontes: os pacotes @fontsource também geram .woff (navegador antigo),
+        // que nenhum Chrome atual baixa, e dobrariam o tamanho da cópia offline.
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,ttf}'],
         // Padrão do plugin é /^assets\// (pula a revisão de tudo em assets/). Só que
         // public/assets/ também tem arquivos SEM hash no nome (logos, ícones PWA): sem
         // revisão, o Workbox nunca os baixaria de novo num deploy e um logo trocado ficaria
@@ -57,6 +59,14 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // O padrão do Vite 8 é Chrome 111+, e aí o minificador usa sintaxe nova (||=, ??=) até
+    // no código do React: em Chrome/WebView anterior ao 85 o app nem começava (tela branca).
+    // Chrome 80 é o piso do ?. e ?? que o código usa direto. Manter igual ao CHROME_MINIMO
+    // do vigia da abertura (index.html).
+    target: ['es2020', 'chrome80', 'edge88', 'firefox78', 'safari14'],
+    cssTarget: ['chrome80', 'edge88', 'firefox78', 'safari14'],
+  },
   // Versão exibida nas telas vem do package.json (única fonte de verdade).
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),

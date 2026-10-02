@@ -634,7 +634,7 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
           }}
         >
           {/* Dot grid */}
-          <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+          <svg style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
             <defs>
               <pattern id="fe-grid" x={pan.x % (24 * zoom)} y={pan.y % (24 * zoom)} width={24 * zoom} height={24 * zoom} patternUnits="userSpaceOnUse">
                 <circle cx={1} cy={1} r={0.9} fill="rgba(0,0,0,0.09)" />
@@ -644,7 +644,7 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
           </svg>
 
           {cards.length === 0 && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
               <div style={{ fontSize: 42, marginBottom: 12, opacity: 0.18 }}>⬡</div>
               <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-faint)', marginBottom: 6 }}>Canvas vazio</div>
               <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>Clique no "+" do painel esquerdo para adicionar tarefas</div>
@@ -922,7 +922,7 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
         const labelStyle = { fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 };
         return (
           <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.38)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, background: 'rgba(0,0,0,0.38)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             onPointerDown={() => setCardEdit(null)}>
             <div
               onPointerDown={ev => ev.stopPropagation()}

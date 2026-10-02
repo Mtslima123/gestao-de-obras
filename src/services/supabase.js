@@ -14,6 +14,9 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
         <h2 style="margin:0 0 8px">Aplicação não configurada</h2>
         <p style="color:#475569;font-size:14px;line-height:1.5">${msg}</p>
       </div>`;
+    // Esta já é a explicação final: o vigia do index.html não cobre ela com "Reparar app".
+    window.__appMontado = true;
+    window.__vigiaAbertura?.esconder();
   }
   throw new Error(msg);
 }
@@ -31,7 +34,30 @@ export const ssoLoginError = (() => {
   const desc = new URLSearchParams(raw).get('error_description');
   if (!desc) return null;
   window.history.replaceState(null, '', window.location.pathname);
-  return decodeURIComponent(desc.replace(/\+/g, ' '));
+  // Um "%" solto na mensagem fazia o decode lançar aqui, no carregamento do módulo (tela branca).
+  try { return decodeURIComponent(desc.replace(/\+/g, ' ')); } catch { return desc; }
+})();
+
+// Com os dados do site bloqueados (configuração do Chrome ou política do aparelho), só
+// ler window.sessionStorage já lança SecurityError, aqui no carregamento do módulo, antes
+// de qualquer tela: era tela branca sem explicação. Nesse caso a sessão fica só na
+// memória (some ao recarregar, como já some ao fechar o navegador).
+export let armazenamentoBloqueado = false;
+const armazenamentoDaSessao = (() => {
+  try {
+    const s = window.sessionStorage;
+    s.setItem('__gm_teste__', '1');
+    s.removeItem('__gm_teste__');
+    return s;
+  } catch {
+    armazenamentoBloqueado = true;
+    const memoria = new Map();
+    return {
+      getItem: (k) => (memoria.has(k) ? memoria.get(k) : null),
+      setItem: (k, v) => { memoria.set(k, String(v)); },
+      removeItem: (k) => { memoria.delete(k); },
+    };
+  }
 })();
 
 // Sessão guardada em sessionStorage: ao fechar o navegador a sessão é descartada
@@ -39,7 +65,7 @@ export const ssoLoginError = (() => {
 // fluxo de recuperação de senha (link por e-mail) seguir funcionando.
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
-    storage: window.sessionStorage,
+    storage: armazenamentoDaSessao,
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,

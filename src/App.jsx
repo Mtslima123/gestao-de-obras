@@ -999,6 +999,19 @@ if (typeof window !== 'undefined') {
 }
 // Janela "acabou de abrir" em que dá pra trocar de versão sem atrapalhar.
 const JANELA_ATUALIZAR_AO_ABRIR_MS = 20000;
+// A página veio da rede, não da cópia guardada: o service worker ativo não atende pedidos
+// (os quebrados das v4.18.2 a v4.18.12, que não guardavam nada). A versão nova então é a
+// mesma que está na tela: ativar já, SEM recarregar (ver onNeedReload), deixa o aparelho
+// pronto pra abrir sem internet. Sem isso ele podia ir pra obra sem cópia offline e abrir
+// em branco lá. Só no Chrome/Chromium (Android, Samsung, Edge), onde workerStart = 0 foi
+// conferido nesse caso; Firefox e Safari dão 0 até com o SW bom atendendo.
+const paginaVeioDaRede = (() => {
+  try {
+    if (!/Chrome\/\d+/.test(navigator.userAgent)) return false;
+    const nav = performance.getEntriesByType('navigation')[0];
+    return !!navigator.serviceWorker?.controller && !!nav && nav.workerStart === 0;
+  } catch { return false; }
+})();
 
 // Nova versão do app (service worker atualizado em segundo plano). O botão "Atualizar"
 // sozinho não bastava: no celular o aviso passava despercebido (ficava atrás da faixa de
@@ -1014,11 +1027,17 @@ const PwaUpdateBanner = () => {
     onOfflineReady() {
       logger.info('app shell disponível offline (1ª visita concluída)', { module: 'pwa' });
     },
+    // Chamado quando a versão nova assume. Com a página vinda da rede ela já é a versão
+    // nova: não recarrega (nada some da tela, nem com a câmera aberta).
+    onNeedReload() {
+      if (paginaVeioDaRede) return;
+      window.location.reload();
+    },
   });
-  const acabouDeAbrir = !interagiuDesdeQueAbriu && performance.now() < JANELA_ATUALIZAR_AO_ABRIR_MS;
+  const acabouDeAbrir = paginaVeioDaRede || (!interagiuDesdeQueAbriu && performance.now() < JANELA_ATUALIZAR_AO_ABRIR_MS);
   React.useEffect(() => {
     if (needRefresh && acabouDeAbrir) {
-      logger.info('versão nova aplicada ao abrir o app', { module: 'pwa' });
+      logger.info('versão nova aplicada ao abrir o app', { module: 'pwa', paginaVeioDaRede });
       updateServiceWorker(true);
     }
   }, [needRefresh]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -253,7 +253,7 @@ export function AnexosTab({ obraId, taskId, currentUser }) {
                   </button>
                   {menuId === a.id && (
                     <>
-                      <div onClick={() => setMenuId(null)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                      <div onClick={() => setMenuId(null)} style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 }} />
                       <div role="menu" style={{
                         position: 'absolute', right: 0, zIndex: 41, minWidth: 160,
                         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,

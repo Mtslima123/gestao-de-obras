@@ -708,7 +708,7 @@ const UsuariosScreen = ({ obras = [] }) => {
 
       {/* Modal de confirmação de exclusão */}
       {confirmDelete && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '28px 32px', maxWidth: 420, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,0.25)' }}>
             <h3 style={{ margin: '0 0 10px', fontSize: 17 }}>Excluir usuário?</h3>
             <p style={{ margin: '0 0 22px', color: 'var(--text-muted)', fontSize: 14, lineHeight: 1.6 }}>
