@@ -1077,7 +1077,8 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       )}
       {showPavimentos && (
         <PavimentosFotosModal obraId={obra.id} pavimentos={pavimentos} setPavimentos={setPavimentos}
-          isAdmin={isAdmin} onClose={() => setShowPavimentos(false)} />
+          isAdmin={isAdmin} onClose={() => setShowPavimentos(false)}
+          onRenomeado={(antigo, novo) => { if (filtroPavimento === antigo) setFiltroPavimento(novo); else carregarPagina(pagina); carregarPavimentosComFoto(); }} />
       )}
       {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onGerenciarPavimentos={() => setShowPavimentos(true)} mobileView={mobileView} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
@@ -1147,14 +1148,18 @@ const PavimentoSelect = ({ value, onChange, options = [], atual = '', onGerencia
   );
 };
 
-// Modal de cadastro de pavimentos das Fotos. Qualquer um que edita Fotos cadastra; excluir
-// é só admin (RLS também exige). Excluir do cadastro não altera fotos já gravadas.
-const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = false, onClose }) => {
+// Modal de cadastro de pavimentos das Fotos. Qualquer um que edita Fotos cadastra e renomeia;
+// excluir é só admin (RLS também exige). Excluir do cadastro não altera fotos já gravadas;
+// renomear atualiza também as fotos da obra que usam o nome antigo (ver pavimentosFotosService.renomear).
+const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = false, onRenomeado, onClose }) => {
   const toast = useToast();
   const [nome, setNome] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [confirmar, setConfirmar] = React.useState(null);
   const [erro, setErro] = React.useState('');
+  const [editando, setEditando] = React.useState(null); // nome original do pavimento em edição
+  const [rascunho, setRascunho] = React.useState('');
+  const [erroEdicao, setErroEdicao] = React.useState('');
 
   const adicionar = async () => {
     const n = nome.trim();
@@ -1166,6 +1171,25 @@ const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = fal
     if (!r.ok) { toast('Erro ao cadastrar pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
     setPavimentos(prev => [...prev, n]);
     setNome(''); setErro('');
+  };
+
+  const iniciarEdicao = (p) => { setEditando(p); setRascunho(p); setErroEdicao(''); setConfirmar(null); };
+  const cancelarEdicao = () => { setEditando(null); setErroEdicao(''); };
+  const salvarEdicao = async () => {
+    const n = rascunho.trim();
+    if (!n) { setErroEdicao('Informe o nome do pavimento.'); return; }
+    if (n === editando) { cancelarEdicao(); return; }
+    // Outro pavimento com o mesmo nome (sem diferenciar maiúscula). Mudar só a caixa do próprio é permitido.
+    if (pavimentos.some(p => p !== editando && p.toLowerCase() === n.toLowerCase())) { setErroEdicao('Esse pavimento já está cadastrado.'); return; }
+    setBusy(true);
+    const r = await pavimentosFotosService.renomear(obraId, editando, n);
+    setBusy(false);
+    if (!r.ok) { toast('Erro ao renomear pavimento. ' + friendlyError(r.error), { tone: 'danger' }); return; }
+    const antigo = editando;
+    setPavimentos(prev => prev.map(x => (x === antigo ? n : x))); // mantém a ordem de cadastro
+    onRenomeado?.(antigo, n);
+    toast('Pavimento renomeado', { tone: 'success', icon: 'check' });
+    cancelarEdicao();
   };
 
   const excluir = async (p) => {
@@ -1198,31 +1222,64 @@ const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = fal
             <table className="tbl">
               <tbody>
                 {pavimentos.map(p => (
-                  <tr key={p}>
-                    <td>{p}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {isAdmin && (confirmar === p
-                        ? (
-                          <>
-                            <button className="btn btn-ghost btn-sm" onClick={() => setConfirmar(null)}>Cancelar</button>
-                            <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff', fontWeight: 600, marginLeft: 6 }}
-                              disabled={busy} onClick={() => excluir(p)}>Sim, excluir</button>
-                          </>
-                        )
-                        : (
-                          <button className="icon-btn" title="Excluir pavimento" onClick={() => setConfirmar(p)}>
-                            <Icon name="trash" size={14} />
-                          </button>
-                        ))}
-                    </td>
-                  </tr>
+                  editando === p
+                    ? (
+                      <tr key={p}>
+                        <td colSpan={2}>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <input className="input" style={{ flex: 1 }} value={rascunho} maxLength={60} autoFocus
+                              aria-label={`Novo nome de ${p}`}
+                              onChange={e => { setRascunho(e.target.value); setErroEdicao(''); }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); salvarEdicao(); }
+                                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelarEdicao(); }
+                              }} />
+                            <button className="icon-btn" title="Salvar" disabled={busy} onClick={salvarEdicao}>
+                              <Icon name="check" size={14} />
+                            </button>
+                            <button className="icon-btn" title="Cancelar" disabled={busy} onClick={cancelarEdicao}>
+                              <Icon name="x" size={14} />
+                            </button>
+                          </div>
+                          {erroEdicao && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erroEdicao}</div>}
+                        </td>
+                      </tr>
+                    )
+                    : (
+                      <tr key={p}>
+                        <td>{p}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {confirmar === p
+                            ? (
+                              <>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setConfirmar(null)}>Cancelar</button>
+                                <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff', fontWeight: 600, marginLeft: 6 }}
+                                  disabled={busy} onClick={() => excluir(p)}>Sim, excluir</button>
+                              </>
+                            )
+                            : (
+                              <>
+                                <button className="icon-btn" title="Editar pavimento" disabled={busy} onClick={() => iniciarEdicao(p)}>
+                                  <Icon name="edit" size={14} />
+                                </button>
+                                {isAdmin && (
+                                  <button className="icon-btn" title="Excluir pavimento" onClick={() => setConfirmar(p)}>
+                                    <Icon name="trash" size={14} />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                        </td>
+                      </tr>
+                    )
                 ))}
               </tbody>
             </table>
           )}
-        {isAdmin && pavimentos.length > 0 && (
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Excluir do cadastro não altera as fotos já enviadas com esse pavimento.</div>
-        )}
+        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+          Editar o nome também atualiza as fotos já enviadas com esse pavimento.
+          {isAdmin ? ' Excluir do cadastro não altera as fotos.' : ''}
+        </div>
       </div>
     </Modal>
   );

@@ -26,6 +26,40 @@ export const pavimentosFotosService = {
     return { ok: true };
   },
 
+  // Renomeia no cadastro E nas fotos da obra que usam o nome antigo (fotos_obra.pavimento é
+  // texto sem FK): sem isso as fotos já enviadas ficariam com um nome fora do cadastro. Se
+  // a atualização das fotos falhar, desfaz o cadastro para não deixar as duas partes
+  // divergentes.
+  async renomear(obraId, nomeAntigo, nomeNovo) {
+    const de = String(nomeAntigo || '').trim();
+    const para = String(nomeNovo || '').trim();
+    if (!obraId || !de || !para) return { ok: false, error: new Error('Informe o nome do pavimento.') };
+    if (de === para) return { ok: true };
+    const { data, error } = await supabase
+      .from('pavimentos_fotos_obra')
+      .update({ nome: para })
+      .eq('obra_id', obraId)
+      .eq('nome', de)
+      .select('id');
+    if (error) {
+      logger.error('falha ao renomear pavimento das fotos', { module: 'pavimentosFotos', action: 'renomear', obraId, err: error });
+      const duplicado = error.code === '23505';
+      return { ok: false, error: duplicado ? new Error('Esse pavimento já está cadastrado.') : error };
+    }
+    if (!data?.length) return { ok: false, error: new Error('Sem permissão para alterar este pavimento.') };
+    const { error: fotosErr } = await supabase
+      .from('fotos_obra')
+      .update({ pavimento: para })
+      .eq('obra_id', obraId)
+      .eq('pavimento', de);
+    if (fotosErr) {
+      logger.error('falha ao atualizar fotos ao renomear pavimento', { module: 'pavimentosFotos', action: 'renomear', obraId, err: fotosErr });
+      await supabase.from('pavimentos_fotos_obra').update({ nome: de }).eq('obra_id', obraId).eq('nome', para);
+      return { ok: false, error: fotosErr };
+    }
+    return { ok: true };
+  },
+
   async excluir(obraId, nome) {
     const n = String(nome || '').trim();
     if (!obraId || !n) return { ok: false, error: new Error('Pavimento inválido.') };
