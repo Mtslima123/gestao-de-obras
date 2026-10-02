@@ -2668,6 +2668,7 @@ tr:hover .obras-row-actions {
   border-radius: 8px; padding: 8px 9px; display: flex; flex-direction: column; gap: 6px;
 }
 .mm-card.fora-do-mes { background: var(--warning-bg); }
+.mm-card.com-nota { border-left-width: 6px; }
 .mm-card-row { display: flex; align-items: flex-start; gap: 7px; }
 .mm-card-nome { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; }
 .mm-card-pav {
@@ -2702,7 +2703,23 @@ tr:hover .obras-row-actions {
   color: var(--text-faint); cursor: pointer; flex-shrink: 0;
 }
 .mm-row-nota-btn:hover { background: var(--surface-muted); color: var(--text-muted); }
-.mm-row-nota-btn.has-nota { color: var(--brand); }
+.mm-row-nota-btn.has-nota { color: var(--brand); background: var(--brand-tint); }
+
+/* Linha com observação: faixa lateral na cor da marca + tinta leve (translúcida, para
+   conviver com o fundo de "fora do mês" que vem inline no <tr>). */
+.tbl-medicao tr.mm-row-com-nota > td { background-color: color-mix(in srgb, var(--brand) 7%, transparent); }
+.tbl-medicao tr.mm-row-com-nota > td:first-child { box-shadow: inset 3px 0 0 var(--brand); }
+
+/* "Visto": check por tarefa. Cinza = ainda não conferida (mesmo com 0%), verde = vista. */
+.mm-visto-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 5px; border: 1px solid var(--border-strong); background: none;
+  color: var(--text-faint); cursor: pointer; flex-shrink: 0;
+}
+.mm-visto-btn:hover:not(:disabled) { background: var(--surface-muted); color: var(--text-muted); }
+.mm-visto-btn.is-visto { background: var(--success); border-color: var(--success); color: #fff; }
+.mm-visto-btn:disabled { cursor: default; opacity: .6; }
+.mm-visto-btn-card { width: 28px; height: 28px; border-radius: 7px; margin-top: 1px; }
 /* Tablet/touch: a linha de 24px da tabela é precisa demais pra tocar no botão de
    observação (20x20px). Só entra em ponteiro grosso (touch) — mouse continua com a
    grade compacta de sempre. !important porque a altura vem de uma CSS var inline na
@@ -2710,7 +2727,8 @@ tr:hover .obras-row-actions {
    ao resto da Lista/Gantt que usa a mesma classe .tbl-lista. */
 @media (pointer: coarse) {
   .tbl-medicao { --lista-row-h: 32px !important; }
-  .tbl-medicao .mm-row-nota-btn { width: 28px; height: 28px; }
+  .tbl-medicao .mm-row-nota-btn,
+  .tbl-medicao .mm-visto-btn { width: 28px; height: 28px; }
 }
 
 .mm-mobile-total {
@@ -2719,6 +2737,8 @@ tr:hover .obras-row-actions {
 }
 .mm-mobile-total-row { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 700; }
 .mm-mobile-total-row.sub { font-size: 10.5px; font-weight: 500; opacity: .85; }
+.mm-mobile-kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.mm-mobile-resumo { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--text-muted); padding: 0 2px; }
 
 .mm-mobile-footnote { font-size: 11.5px; color: var(--text-muted); padding: 0 2px; }
 

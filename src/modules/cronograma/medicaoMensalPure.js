@@ -407,8 +407,22 @@ export function mergePercMedido(itensBase, registroItens) {
   return itensBase.map(i => {
     const r = salvos.get(i.id);
     if (!r) return i;
-    return { ...i, percMedido: r.percMedido, ...(r.observacao ? { observacao: r.observacao } : {}) };
+    return { ...i, percMedido: r.percMedido, ...(r.observacao ? { observacao: r.observacao } : {}), ...(r.visto ? { visto: true } : {}) };
   });
+}
+
+// Opções do filtro de Pavimento: primeiro os pavimentos cadastrados na obra, na ordem de
+// cadastro (`ordemCadastro`, vem de pavimentos_obra ordenada por id); depois os que as
+// tarefas usam mas não estão cadastrados, em ordem natural ("2" antes de "10"); "—"
+// (tarefa sem pavimento) sempre por último. Devolve só os que aparecem em `usados`.
+export function ordenarPavimentos(usados, ordemCadastro = []) {
+  const emUso = new Set(usados);
+  const cadastrados = [...new Set(ordemCadastro)].filter(p => emUso.has(p));
+  const jaPosto = new Set(cadastrados);
+  const resto = [...emUso]
+    .filter(p => !jaPosto.has(p) && p !== '—')
+    .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  return [...cadastrados.filter(p => p !== '—'), ...resto, ...(emUso.has('—') ? ['—'] : [])];
 }
 
 // Snapshot gravado no fechamento: congela o que foi medido para que o histórico não
@@ -434,6 +448,7 @@ export function buildSnapshotFechamento(itens, totais, previstoCongelado = {}) {
       percExecutado: i.percExecutado,
       percMedido: i.percMedido,
       ...(i.observacao ? { observacao: i.observacao } : {}),
+      ...(i.visto ? { visto: true } : {}),
       // Campos de exibição também congelam: sem eles a tela de uma medição fechada
       // teria que voltar ao cronograma para montar a árvore e as datas, e mudaria
       // junto com ele.
@@ -475,6 +490,7 @@ export function hidratarSnapshot(registroItens, etapas, { wbsMap = {}, disciplin
       percExecutado: i.percExecutado || 0,
       percMedido: i.percMedido || 0,
       observacao: i.observacao || '',
+      visto: !!i.visto,
       status: undefined,
     };
   });

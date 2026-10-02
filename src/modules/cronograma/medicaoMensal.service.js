@@ -92,6 +92,7 @@ export const medicaoMensalService = {
         percMedido: i.percMedido,
         ...(i.foraDoMes ? { manual: true } : {}),
         ...(i.observacao ? { observacao: i.observacao } : {}),
+        ...(i.visto ? { visto: true } : {}),
       })),
       ...(previstoCongelado ? {
         perc_previsto: previstoCongelado.percPrevisto,

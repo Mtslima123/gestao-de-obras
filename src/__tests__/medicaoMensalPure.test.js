@@ -5,7 +5,7 @@ import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
   computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
-  mesesDaMedicao,
+  mesesDaMedicao, mergePercMedido, ordenarPavimentos,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
@@ -513,5 +513,53 @@ describe('mesesDaMedicao', () => {
 
   it('corta os meses antes do mês inicial (lançamento retroativo)', () => {
     expect(mesesDaMedicao(months, '2026-09').map(m => m.key)).toEqual(['2026-09', '2026-10']);
+  });
+});
+
+describe('ordenarPavimentos', () => {
+  it('segue a ordem de cadastro, não a alfabética', () => {
+    const cadastro = ['Subsolo 1', 'Térreo', '1º tipo', '2º tipo', '10º tipo'];
+    const usados = ['10º tipo', '1º tipo', 'Térreo', 'Subsolo 1', '2º tipo'];
+    expect(ordenarPavimentos(usados, cadastro)).toEqual(cadastro);
+  });
+
+  it('só devolve os que as tarefas usam', () => {
+    expect(ordenarPavimentos(['Térreo'], ['Subsolo 1', 'Térreo', 'Cobertura'])).toEqual(['Térreo']);
+  });
+
+  it('põe os não cadastrados depois, em ordem natural, e o "—" por último', () => {
+    const usados = ['—', '10º tipo', '2º tipo', 'Térreo'];
+    expect(ordenarPavimentos(usados, ['Térreo'])).toEqual(['Térreo', '2º tipo', '10º tipo', '—']);
+  });
+
+  it('sem cadastro cai em ordem natural e ignora duplicados', () => {
+    expect(ordenarPavimentos(['10', '2', '2', '1'], [])).toEqual(['1', '2', '10']);
+    expect(ordenarPavimentos([], ['A'])).toEqual([]);
+  });
+});
+
+describe('visto por tarefa', () => {
+  it('mergePercMedido relê o visto salvo e não inventa em quem não tem', () => {
+    const base = buildItensMedicao(etapas, MES, opts);
+    const merged = mergePercMedido(base, [{ id: 'A', percMedido: 0, visto: true }, { id: 'B', percMedido: 10 }]);
+    expect(merged.find(i => i.id === 'A').visto).toBe(true);
+    expect(merged.find(i => i.id === 'A').percMedido).toBe(0);
+    expect(merged.find(i => i.id === 'B')).not.toHaveProperty('visto');
+  });
+
+  it('o snapshot congela o visto e hidratarSnapshot devolve boolean', () => {
+    const itens = buildItensMedicao(etapas, MES, opts).map(i => (i.id === 'A' ? { ...i, visto: true } : i));
+    const snap = buildSnapshotFechamento(itens, computeTotaisMedicao(itens, 2500));
+    expect(snap.itens.find(i => i.id === 'A').visto).toBe(true);
+    expect(snap.itens.find(i => i.id === 'B')).not.toHaveProperty('visto');
+    const linhas = hidratarSnapshot(snap.itens, [], { wbsMap, disciplinaInfo });
+    expect(linhas.find(l => l.id === 'A').visto).toBe(true);
+    expect(linhas.find(l => l.id === 'B').visto).toBe(false);
+  });
+
+  it('visto não muda nenhum total', () => {
+    const base = buildItensMedicao(etapas, MES, opts);
+    const comVisto = base.map(i => ({ ...i, visto: true }));
+    expect(computeTotaisMedicao(comVisto, 2500)).toEqual(computeTotaisMedicao(base, 2500));
   });
 });

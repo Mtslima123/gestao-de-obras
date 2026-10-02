@@ -3630,6 +3630,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   reprogramacoes={reprogramacoes}
                   obraNome={obra?.nome || 'Projeto'}
                   hideChrome={hideChrome}
+                  pavimentosOrdem={pavimentosObra}
                 />
               )}
 

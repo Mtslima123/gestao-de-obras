@@ -16,7 +16,7 @@ import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
-  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao,
+  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, ordenarPavimentos,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -372,11 +372,11 @@ function ModalPendenciasAbertura({ mesRefKey, pendentes, onClose }) {
   );
 }
 
-function KpiCard({ label, value, barColor, foot, footColor }) {
+function KpiCard({ label, value, barColor, foot, footColor, compact = false }) {
   return (
-    <div className="kpi" style={{ padding: '18px 20px' }}>
+    <div className="kpi" style={{ padding: compact ? '10px 12px' : '18px 20px' }}>
       <div className="kpi-label">{label}</div>
-      <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>
+      <div className="kpi-value num" style={{ fontSize: compact ? 22 : 30, marginTop: 4 }}>
         {formatNum(value, 2)}<span className="unit">%</span>
       </div>
       {barColor && (
@@ -603,7 +603,7 @@ function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar, mobileVi
 export default function MedicaoMensal({
   etapas, months, monthlyDist, monthlyTotals, valorVinculadoMap = {}, wbsMap, rowNumberMap = {},
   obraId, readOnly, currentUser, onEnviarAvanco,
-  reprogramacoes = [], obraNome = 'Projeto', hideChrome = false,
+  reprogramacoes = [], obraNome = 'Projeto', hideChrome = false, pavimentosOrdem = [],
 }) {
   const toast = useToast();
   const isMobile = useIsMobile();
@@ -914,9 +914,10 @@ export default function MedicaoMensal({
   // mantém o registro) em vez de deixar excluir de uma tacada só.
   const temPercMedidoPreenchido = itensTrabalho.some(i => (i.percMedido || 0) > 0);
 
+  // Opções na ordem de cadastro dos pavimentos da obra (não alfabética) — ver ordenarPavimentos.
   const pavimentos = React.useMemo(
-    () => ['Todos', ...Array.from(new Set(itensTrabalho.map(i => i.pavimento))).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }))],
-    [itensTrabalho]
+    () => ['Todos', ...ordenarPavimentos(itensTrabalho.map(i => i.pavimento), pavimentosOrdem)],
+    [itensTrabalho, pavimentosOrdem]
   );
 
   const filtradas = React.useMemo(() => itensTrabalho.filter(i => (
@@ -1008,11 +1009,34 @@ export default function MedicaoMensal({
   // por baixo. Roda 1x por mesRefKey (a ref evita repetir ao só re-renderizar).
   const autoColapsouMobileRef = React.useRef(null);
   React.useEffect(() => {
-    if (mobileView && nivel0Ids.length > 0 && autoColapsouMobileRef.current !== mesRefKey) {
+    // Com pavimento escolhido a árvore fica toda aberta (escolherPavimento) — não recolhe de novo.
+    if (mobileView && pavimento === 'Todos' && nivel0Ids.length > 0 && autoColapsouMobileRef.current !== mesRefKey) {
       setCollapsed(new Set(nivel0Ids));
       autoColapsouMobileRef.current = mesRefKey;
     }
-  }, [mobileView, mesRefKey, nivel0Ids]);
+  }, [mobileView, pavimento, mesRefKey, nivel0Ids]);
+
+  // Ao escolher um pavimento, tudo vem expandido: a árvore só mostra os pais das tarefas que
+  // casam com o filtro, então abrir tudo mostra exatamente o que interessa. O estado de
+  // expansão de antes fica guardado e volta ao escolher "Todos".
+  const antesDoPavimentoRef = React.useRef(null); // { collapsed, nivel }
+  const escolherPavimento = (p) => {
+    if (p === 'Todos') {
+      const antes = antesDoPavimentoRef.current;
+      if (antes) { setCollapsed(antes.collapsed); setNivelEstrutura(antes.nivel); }
+      antesDoPavimentoRef.current = null;
+    } else {
+      if (pavimento === 'Todos') antesDoPavimentoRef.current = { collapsed, nivel: nivelEstrutura };
+      setCollapsed(new Set());
+      setNivelEstrutura('0'); // select Estrutura mostra "Expandir tudo"
+    }
+    setPavimento(p);
+  };
+  // Trocar de mês descarta o filtro (o pavimento pode nem existir no mês novo) e o estado guardado.
+  React.useEffect(() => {
+    setPavimento('Todos');
+    antesDoPavimentoRef.current = null;
+  }, [mesRefKey, obraId]);
   // gruposParaNivel recolhe grupos de nivel >= alvo-1, então o alvo útil vai até o
   // nível do grupo mais fundo + 1. Acima disso nada recolhe, e a opção seria inócua.
   const nivelMax = React.useMemo(
@@ -1021,6 +1045,7 @@ export default function MedicaoMensal({
   );
   const totais = React.useMemo(() => computeTotaisMedicao(filtradas, valorTotalBase), [filtradas, valorTotalBase]);
   const qtdForaDoMes = React.useMemo(() => filtradas.filter(i => i.foraDoMes).length, [filtradas]);
+  const qtdVistas = React.useMemo(() => filtradas.filter(i => i.visto).length, [filtradas]);
 
   // Candidatas da tela "Incluir tarefa fora do mês": tudo que ainda não foi trazido.
   const candidatasForaDoMes = React.useMemo(() => {
@@ -1084,7 +1109,8 @@ export default function MedicaoMensal({
     if (bloqueado) return;
     const valor = parsePercInput(bruto);
     setItensTrabalho(prev => {
-      const proximos = prev.map(l => (l.id === id ? { ...l, percMedido: valor } : l));
+      // Digitar um % (inclusive 0) já conta como "visto": 0 digitado nunca fica igual a não conferido.
+      const proximos = prev.map(l => (l.id === id ? { ...l, percMedido: valor, visto: true } : l));
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => persistirRascunho(proximos, { silencioso: true }), 800);
       return proximos;
@@ -1108,6 +1134,15 @@ export default function MedicaoMensal({
     fecharNota(id);
   };
 
+  // "Visto": marca que a tarefa foi conferida mesmo com 0% medido. Só visual — não entra em
+  // nenhum cálculo nem no fechamento. Fica em medicoes_mensais.itens[].visto, igual à observação.
+  const alternarVisto = (id) => {
+    if (bloqueado) return;
+    const proximos = itensTrabalho.map(l => (l.id === id ? { ...l, visto: !l.visto } : l));
+    setItensTrabalho(proximos);
+    persistirRascunho(proximos, { silencioso: true });
+  };
+
   const alternarGrupo = (id) => {
     setNivelEstrutura(''); // o select deixa de valer: a árvore não está mais uniforme num nível só
     setCollapsed(prev => {
@@ -1116,7 +1151,10 @@ export default function MedicaoMensal({
       // Accordion só entre etapas de nível 0 (topo) e só no modo foco mobile: abrir uma
       // fecha as demais que estavam abertas, sem mexer no colapso interno de subníveis
       // (que continuam com toggle independente). Fora do modo foco mantém multi-abertura.
-      if (mobileView && estaFechado && nivel0Ids.includes(id)) {
+      // Com pavimento escolhido nada disso vale: a árvore já é só o que casa com o filtro,
+      // e abrir um grupo não pode recolher os irmãos nem os subgrupos de volta.
+      const filtrandoPav = pavimento !== 'Todos';
+      if (mobileView && !filtrandoPav && estaFechado && nivel0Ids.includes(id)) {
         nivel0Ids.forEach(gid => next.add(gid));
       }
       if (estaFechado) {
@@ -1125,7 +1163,7 @@ export default function MedicaoMensal({
         // sem isso, abrir uma etapa já revelava a subárvore inteira de uma vez (nenhum
         // subnível tinha sido tocado ainda, então não estava em `collapsed`). Mesma
         // varredura depth-first de contagemPorGrupo/corPorLinha.
-        const idx = arvoreCompleta.findIndex(l => l.id === id);
+        const idx = filtrandoPav ? -1 : arvoreCompleta.findIndex(l => l.id === id);
         if (idx !== -1) {
           const nivelAtual = arvoreCompleta[idx].nivel || 0;
           for (let i = idx + 1; i < arvoreCompleta.length; i++) {
@@ -1348,7 +1386,7 @@ export default function MedicaoMensal({
   // está) — pra recomeçar o preenchimento do zero sem precisar reabrir/apagar a medição.
   const limparMedicao = async () => {
     setSalvando(true);
-    const proximos = itensTrabalho.map(l => ({ ...l, percMedido: 0 }));
+    const proximos = itensTrabalho.map(l => ({ ...l, percMedido: 0, visto: false }));
     setItensTrabalho(proximos);
     await persistirRascunho(proximos, { silencioso: true });
     setSalvando(false);
@@ -1751,7 +1789,7 @@ export default function MedicaoMensal({
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={filtroLabelSt}>Pavimento</span>
-            <select className="input" value={pavimento} onChange={e => setPavimento(e.target.value)} style={{ minWidth: 150 }}>
+            <select className="input" value={pavimento} onChange={e => escolherPavimento(e.target.value)} style={{ minWidth: 150 }}>
               {pavimentos.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
@@ -1773,6 +1811,12 @@ export default function MedicaoMensal({
               ))}
             </select>
           </label>
+          {totais.qtd > 0 && (
+            <span className="badge" style={{ alignSelf: 'flex-end', height: 32, display: 'inline-flex', alignItems: 'center' }}
+              title="Tarefas marcadas como vistas (check ao lado da descrição). Digitar um % medido também marca como visto.">
+              {qtdVistas} de {totais.qtd} vistas
+            </span>
+          )}
           {!bloqueado && (
             <div ref={acoesRef} style={{ position: 'relative' }}>
               <button type="button" className="btn btn-dark" onClick={() => setAcoesOpen(o => !o)}>
@@ -2009,7 +2053,9 @@ export default function MedicaoMensal({
                 // Fora do mês não faz parte do previsto: peso zero (soma só ao realizado).
                 const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
                 return (
-                  <tr key={l.id} style={l.foraDoMes ? { background: 'var(--warning-bg)' } : undefined}>
+                  <tr key={l.id}
+                    className={l.observacao ? 'mm-row-com-nota' : undefined}
+                    style={l.foraDoMes ? { background: 'var(--warning-bg)' } : undefined}>
                     <td className="num">{numeroServico(l)}</td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: indent }}>
@@ -2033,6 +2079,15 @@ export default function MedicaoMensal({
                             dentro de um <td> com overflow:hidden (.tbl-lista, linha fina
                             de 24px) — um popover absoluto ali dentro ficava sempre
                             cortado/invisível, mesmo abrindo de verdade. */}
+                        <button type="button"
+                          className={'mm-visto-btn' + (l.visto ? ' is-visto' : '')}
+                          title={l.visto ? 'Visto (clique para desmarcar)' : 'Marcar como visto'}
+                          aria-pressed={!!l.visto}
+                          aria-label={`${l.visto ? 'Desmarcar visto de' : 'Marcar como visto'} ${l.descricao}`}
+                          disabled={bloqueado}
+                          onClick={() => alternarVisto(l.id)}>
+                          <Icon name="check" size={13} />
+                        </button>
                         <button type="button"
                           className={'mm-row-nota-btn' + (l.observacao ? ' has-nota' : '')}
                           title={l.observacao || 'Adicionar observação'}
@@ -2239,7 +2294,7 @@ export default function MedicaoMensal({
           />
 
           <div className="mm-mobile-filters-row">
-            <select className="input" value={pavimento} onChange={e => setPavimento(e.target.value)}>
+            <select className="input" value={pavimento} onChange={e => escolherPavimento(e.target.value)}>
               {pavimentos.map(p => <option key={p} value={p}>{p === 'Todos' ? 'Pavimento: Todos' : p}</option>)}
             </select>
             <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)}>
@@ -2285,9 +2340,30 @@ export default function MedicaoMensal({
           )}
 
           {linhas.length > 0 && (
-            <div className="mm-mobile-hint">toque numa etapa para abrir só ela — as outras ficam resumidas em 1 linha</div>
+            <div className="mm-mobile-hint">
+              {pavimento === 'Todos'
+                ? 'toque numa etapa para abrir só ela — as outras ficam resumidas em 1 linha'
+                : `mostrando só ${pavimento}, tudo aberto`}
+            </div>
           )}
         </div>
+
+        {/* Mesmos 4 números do site (previstoMesPct/resumo/previstoAcumuladoExibido), nas mesmas
+            variáveis — assim mobile e site não divergem. */}
+        {linhas.length > 0 && (
+          <>
+            <div className="mm-mobile-kpis">
+              <KpiCard compact label="Previsto do mês" value={previstoMesPct} />
+              <KpiCard compact label="Executado do mês" value={resumo.executadoMesPct} />
+              <KpiCard compact label="Previsto acumulado" value={previstoAcumuladoExibido} barColor="var(--brand)" />
+              <KpiCard compact label="Executado acumulado" value={resumo.executadoAcumulado} barColor="var(--success)" />
+            </div>
+            <div className="mm-mobile-resumo">
+              <span>{totais.qtd} atividades · {qtdVistas} vistas</span>
+              <span>{formatBRL(totais.valor, 2)} → {formatBRL(totais.valorAMedir, 2)}</span>
+            </div>
+          </>
+        )}
 
         <div className="mm-mobile-list">
           {linhas.length === 0 ? (
@@ -2353,9 +2429,18 @@ export default function MedicaoMensal({
                 );
               }
               return (
-                <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '')}
+                <div key={l.id} className={'mm-card' + (l.foraDoMes ? ' fora-do-mes' : '') + (l.observacao ? ' com-nota' : '')}
                   style={{ borderLeftColor: corPorLinha[l.id], marginLeft: 14 + Math.max(0, profundidade - 1) * 10 }}>
                   <div className="mm-card-row">
+                    <button type="button"
+                      className={'mm-visto-btn mm-visto-btn-card' + (l.visto ? ' is-visto' : '')}
+                      title={l.visto ? 'Visto (toque para desmarcar)' : 'Marcar como visto'}
+                      aria-pressed={!!l.visto}
+                      aria-label={`${l.visto ? 'Desmarcar visto de' : 'Marcar como visto'} ${l.descricao}`}
+                      disabled={bloqueado}
+                      onClick={() => alternarVisto(l.id)}>
+                      <Icon name="check" size={15} />
+                    </button>
                     <span className="mm-card-nome">{l.descricao}</span>
                     <span className="mm-card-pav">{l.pavimento}</span>
                     <input
@@ -2407,19 +2492,6 @@ export default function MedicaoMensal({
             })
           )}
         </div>
-
-        {linhas.length > 0 && (
-          <div className="mm-mobile-total">
-            <div className="mm-mobile-total-row">
-              <span>Total geral · {totais.qtd} atividades</span>
-              <span>{fmtPct100(totais.med)}</span>
-            </div>
-            <div className="mm-mobile-total-row sub">
-              <span>exec {fmtPct100(totais.exec)}</span>
-              <span>{formatBRL(totais.valor, 2)} → {formatBRL(totais.valorAMedir, 2)}</span>
-            </div>
-          </div>
-        )}
 
         <div className="mm-mobile-footnote">
           Itens do cronograma agendados para {mesLabel(mesRefKey)}
