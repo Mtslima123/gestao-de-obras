@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decidirFonteDeSessao } from '../utils/authGatePure';
+import { decidirFonteDeSessao, avisoAoSair } from '../utils/authGatePure';
 
 const SESSAO = { user: { id: '1', email: 'a@soter.com.br' } };
 
@@ -45,5 +45,30 @@ describe('decidirFonteDeSessao', () => {
 
   it('SIGNED_OUT disparado pelo SDK COM internet desloga (ex.: refresh token recusado)', () => {
     expect(decidirFonteDeSessao({ session: null, event: 'SIGNED_OUT', temCache: true, deslogamentoDeliberado: false, offline: false })).toBe('deslogado');
+  });
+});
+
+describe('avisoAoSair', () => {
+  it('com rede e nada pendente, sai direto', () => {
+    expect(avisoAoSair({ semRede: false, pendentes: 0 })).toBe(null);
+  });
+
+  it('sem rede avisa que só entra de novo com conexão', () => {
+    const a = avisoAoSair({ semRede: true });
+    expect(a.texto).toMatch(/só vai conseguir entrar de novo quando a conexão voltar/);
+    expect(a.confirmar).toBe('Sair mesmo assim');
+  });
+
+  it('com fotos na fila avisa que serão apagadas', () => {
+    const a = avisoAoSair({ semRede: false, pendentes: 3 });
+    expect(a.texto).toBe('3 fotos ainda não foram enviadas e serão apagadas deste aparelho.');
+    expect(a.confirmar).toBe('Sair e apagar');
+    expect(avisoAoSair({ pendentes: 1 }).texto).toBe('1 foto ainda não foi enviada e será apagada deste aparelho.');
+  });
+
+  it('sem rede e com fotos junta os dois avisos', () => {
+    const a = avisoAoSair({ semRede: true, pendentes: 2 });
+    expect(a.titulo).toBe('Sair sem internet?');
+    expect(a.texto).toMatch(/conexão voltar\. 2 fotos ainda não foram enviadas/);
   });
 });

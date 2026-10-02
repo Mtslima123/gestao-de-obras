@@ -13,9 +13,11 @@ import { obrasService, obraDeleteErrorMessage } from './modules/obras/obras.serv
 import { logger, setContext, clearContext } from './services/logger';
 import { friendlyError } from './utils/friendlyError';
 import { isNetworkError, connectivity, useRetryOnReconnect } from './utils/connectivity';
-import { decidirFonteDeSessao } from './utils/authGatePure';
+import { decidirFonteDeSessao, avisoAoSair } from './utils/authGatePure';
 import { OfflineFallback } from './components/OfflineFallback';
 import { offlineCache } from './services/offlineCache';
+import { offlineQueue } from './services/offlineQueue';
+import { pavimentosFotosService } from './services/pavimentosFotos.service';
 import { useIsMobile, useIsTouchDevice } from './utils/useIsMobile';
 import { MobileGate } from './modules/mobile/MobileGate';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
@@ -149,8 +151,9 @@ const AppInner = () => {
   const sessaoGenRef = React.useRef(0); // ver aplicarSessao
   const toast = useToast();
   const [authed, setAuthed]           = React.useState(false);
-  // Aviso "Sair sem internet" (ver pedirSair) e a checagem de rede em andamento.
-  const [avisoSair, setAvisoSair] = React.useState(false);
+  // Aviso do Sair ({ titulo, texto, confirmar, pendentes }, ver pedirSair) e a checagem
+  // de rede/fila em andamento.
+  const [avisoSair, setAvisoSair] = React.useState(null);
   const verificandoSairRef = React.useRef(false);
   // false até a primeira decisão de sessão (real, cache ou login). Antes disso mostra
   // "Verificando acesso…" em vez da tela de login: offline ela aparecia por vários
@@ -163,7 +166,15 @@ const AppInner = () => {
     const saved = sessionStorage.getItem('nav_view');
     return (saved && saved !== 'obra-detail' && saved !== 'fisico-financeiro-detail') ? saved : 'dashboard';
   });
-  const [selectedObra, setSelectedObra] = React.useState(null);
+  // Modo foco Fotos: um reload (o Android recarrega a aba ao voltar da câmera) precisa da
+  // obra já no 1º render; senão ObraDetail abria com a obra de exemplo (AppData) e buscava
+  // dados dela antes do efeito de restauração logo abaixo.
+  const [selectedObra, setSelectedObra] = React.useState(() => {
+    try {
+      if (sessionStorage.getItem('mobile_focus') === 'fotos') return JSON.parse(sessionStorage.getItem('nav_obra') || 'null');
+    } catch { /* sessionStorage indisponível */ }
+    return null;
+  });
   const [selectedObraFF, setSelectedObraFF] = React.useState(null);
   const [modal, setModal] = React.useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
@@ -271,7 +282,15 @@ const AppInner = () => {
           setObras(data);
           setObrasOffline(false);
           setObrasDoAparelho(null);
-          if (fluxoMobileRef.current) offlineCache.gravar('obras', '-', data);
+          if (fluxoMobileRef.current) {
+            offlineCache.gravar('obras', '-', data);
+            // Pavimentos das Fotos de todas as obras, numa consulta só: sem internet a foto
+            // exige escolher um, e a pessoa pode não ter aberto as Fotos daquela obra antes.
+            pavimentosFotosService.listarPorObras(data.map(o => o.id)).then(({ data: porObra, error: e }) => {
+              if (e || cancelado) return;
+              Object.entries(porObra).forEach(([obraId, nomes]) => offlineCache.gravar('pavimentosFotos', obraId, nomes));
+            });
+          }
           connectivity.reportSuccess();
           setObrasLoaded(true);
           return;
@@ -392,6 +411,7 @@ const AppInner = () => {
       setUserProfile(null);
       clearContext(); // some o userId dos logs após logout
       offlineCache.definirUsuario(null);
+      offlineQueue.definirSessao({});
       if (limparCache) {
         limparAuthCache();
         offlineCache.limparTudo(); // tablet compartilhado: nada da pessoa fica pro próximo
@@ -411,6 +431,8 @@ const AppInner = () => {
     const autorizado = !!perfil && perfil.status === 'ativo';
     // Antes do setAuthed: as telas que montam a seguir já leem/gravam o cache deste usuário.
     offlineCache.definirUsuario(autorizado ? session.user.id : null);
+    // Sessão real (mesmo com o perfil vindo do cache): a fila pode enviar o que ficou guardado.
+    offlineQueue.definirSessao(autorizado ? { userId: session.user.id, real: true } : {});
     setUserProfile(perfil);
     setAuthed(autorizado);
     setAcessoNegado(!autorizado); // mantém a sessão para exibir o e-mail na tela de bloqueio
@@ -421,6 +443,7 @@ const AppInner = () => {
     if (autorizado) {
       // Login confirmado pelo servidor: o que outra pessoa deixou neste aparelho sai.
       offlineCache.limparOutrosUsuarios(session.user.id);
+      offlineQueue.limparVencidosDeOutros(session.user.id).catch(() => {});
       salvarAuthCache({ userId: session.user.id, email: session.user.email, perfil });
       // Fire-and-forget: RLS não deixa o usuário comum dar UPDATE direto na própria
       // linha, por isso passa por função SECURITY DEFINER estreita (só grava esta coluna).
@@ -433,6 +456,7 @@ const AppInner = () => {
       // Erro passageiro do servidor (5xx etc.) não chega aqui: não apaga nada.
       limparAuthCache();
       offlineCache.limparUsuario(session.user.id);
+      offlineQueue.limparDoUsuario(session.user.id).catch(() => {});
     }
   };
 
@@ -443,6 +467,7 @@ const AppInner = () => {
     if (!cache || deslogamentoDeliberadoRef.current) return;
     ++sessaoGenRef.current;
     offlineCache.definirUsuario(cache.userId, { sessaoReal: false }); // só lê, ver offlineCache
+    offlineQueue.definirSessao({ userId: cache.userId, real: false }); // mostra a fila, não envia
     setUser({ id: cache.userId, email: cache.email });
     setContext({ userId: cache.userId, userEmail: cache.email });
     setUserProfile(cache.perfil);
@@ -575,18 +600,35 @@ const AppInner = () => {
     }
   };
 
-  // Botões Sair do MobileGate e do menu. Sem internet, sair tranca a pessoa do lado de
-  // fora até a conexão voltar (o login Microsoft precisa de rede), então pede confirmação.
+  // Botões Sair do MobileGate e do menu. Pede confirmação quando sair tem consequência
+  // (ver avisoAoSair): sem internet, ou com fotos ainda na fila do aparelho. Com internet,
+  // tenta mandar as fotos antes de perguntar.
   const pedirSair = async () => {
     if (verificandoSairRef.current) return;
     verificandoSairRef.current = true;
-    const temRede = await authService.servidorAlcancavel();
-    verificandoSairRef.current = false;
-    if (temRede) handleLogout();
-    else setAvisoSair(true);
+    try {
+      const temRede = await authService.servidorAlcancavel();
+      let pendentes = await offlineQueue.contar(user?.id).catch(() => 0);
+      if (temRede && pendentes) {
+        await Promise.race([offlineQueue.flush(), new Promise((r) => setTimeout(r, 10000))]);
+        pendentes = await offlineQueue.contar(user?.id).catch(() => 0);
+      }
+      const aviso = avisoAoSair({ semRede: !temRede, pendentes });
+      if (aviso) setAvisoSair({ ...aviso, pendentes });
+      else handleLogout();
+    } finally {
+      verificandoSairRef.current = false;
+    }
+  };
+  const confirmarSair = async () => {
+    const pendentes = avisoSair?.pendentes;
+    setAvisoSair(null);
+    // A pessoa escolheu sair mesmo assim: o que não foi enviado sai do aparelho junto.
+    if (pendentes && user?.id) await offlineQueue.limparDoUsuario(user.id).catch(() => {});
+    handleLogout();
   };
   // Estável: o Modal registra o Esc uma vez só, com o onClose do primeiro render.
-  const fecharAvisoSair = React.useCallback(() => setAvisoSair(false), []);
+  const fecharAvisoSair = React.useCallback(() => setAvisoSair(null), []);
 
   const bypassMobileGate = () => {
     try { sessionStorage.setItem('mobile_gate_ok', '1'); } catch { /* ignore */ }
@@ -705,17 +747,15 @@ const AppInner = () => {
     <>
       {avisoSair && (
         <Modal
-          title="Sair sem internet?"
+          title={avisoSair.titulo}
           size="sm"
           onClose={fecharAvisoSair}
           footer={<>
             <button type="button" className="btn btn-ghost" onClick={fecharAvisoSair}>Cancelar</button>
-            <button type="button" className="btn btn-danger" onClick={() => { setAvisoSair(false); handleLogout(); }}>Sair mesmo assim</button>
+            <button type="button" className="btn btn-danger" onClick={confirmarSair}>{avisoSair.confirmar}</button>
           </>}
         >
-          <p style={{ margin: 0, lineHeight: 1.5 }}>
-            Você está sem internet. Se sair agora, só vai conseguir entrar de novo quando a conexão voltar.
-          </p>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>{avisoSair.texto}</p>
         </Modal>
       )}
       {!authed && !acessoNegado && (

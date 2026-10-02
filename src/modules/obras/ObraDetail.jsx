@@ -18,6 +18,12 @@ import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.se
 import { getLinhaTotal } from '../fisicoFinanceiro/fisicoFinanceiroPure';
 
 import { pavimentosFotosService } from '../../services/pavimentosFotos.service';
+import { offlineCache } from '../../services/offlineCache';
+import { offlineQueue } from '../../services/offlineQueue';
+import { fotosService } from './fotos.service';
+import { useSemRede, useRetryOnReconnect, connectivity, isNetworkError } from '../../utils/connectivity';
+import { ehFalhaPassageira } from '../../utils/offlinePure';
+import { AvisoOffline } from '../../components/OfflineFallback';
 import { ordenarFotosPorPavimento, posicaoPavimento } from '../../utils/pavimentos';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';import { capaCache } from '../../services/capaCache';
 
@@ -642,6 +648,14 @@ function mesRangeISO(mesStr) {
   return { ini, fim };
 }
 
+// Rede "sem sinal" deixa a requisição pendente em vez de falhar: resolve com erro de tempo
+// esgotado depois de `ms` (o mesmo limite de 8s das outras telas).
+const comLimiteDeRede = (promessa, ms = 8000) => Promise.race([
+  promessa,
+  new Promise((resolve) => setTimeout(() => resolve({ data: null, error: { timeout: true, message: 'tempo esgotado esperando a rede' } }), ms)),
+]);
+const semRedeAgora = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
 const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) => {
   const toast = useToast();
   const isMobile = useIsMobile();
@@ -655,7 +669,6 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   const [tamanhoTotal, setTamanhoTotal] = React.useState(null);
   const [pagina,       setPagina]       = React.useState(1);
   const [showUpload,   setShowUpload]   = React.useState(false);
-  const [uploadingCount, setUploadingCount] = React.useState(0);
   // Captura direta pelo FAB: o input de câmera fica fora do modal (sempre montado) —
   // o .click() sincronizado ao toque no FAB abre a câmera na hora, sem mostrar o
   // modal por trás. O modal só aparece DEPOIS da foto tirada, já com ela carregada
@@ -695,19 +708,69 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   const [showPavimentos, setShowPavimentos] = React.useState(false);
   // A galeria só carrega depois do cadastro: a ordem das fotos depende dele (ver carregarPagina).
   const [pavimentosPronto, setPavimentosPronto] = React.useState(false);
+  // Sem rede a lista vem do aparelho (offlineCache, gravada a cada carga com internet no
+  // modo foco e na tela de atalhos, ver App.jsx): é o que permite escolher o pavimento e
+  // guardar a foto em campo. Nesse caso não há cadastro (precisa do servidor).
+  const [pavimentosDoAparelho, setPavimentosDoAparelho] = React.useState(false);
+  // Lista confirmada pelo servidor nesta abertura: só com ela o cadastro aparece. Com
+  // "sem sinal" a resposta demora até 8s, e nesse meio tempo o cadastro aparecia.
+  const [pavimentosConfirmados, setPavimentosConfirmados] = React.useState(false);
+  const [pavimentosRetry, setPavimentosRetry] = React.useState(0);
   React.useEffect(() => {
     let ativo = true;
     setPavimentosPronto(false);
-    pavimentosFotosService.listar(obra.id).then(lista => { if (ativo) { setPavimentos(lista); setPavimentosPronto(true); } });
+    setPavimentosConfirmados(false);
+    (async () => {
+      // A lista guardada aparece na hora, sem esperar a rede; o servidor substitui depois.
+      const guardado = await offlineCache.ler('pavimentosFotos', obra.id);
+      if (!ativo) return;
+      if (guardado) setPavimentos(guardado.dados);
+      const r = semRedeAgora()
+        ? { data: [], error: { offline: true } }
+        : await comLimiteDeRede(pavimentosFotosService.listar(obra.id));
+      if (!ativo) return;
+      if (!r.error) {
+        setPavimentos(r.data);
+        setPavimentosDoAparelho(false);
+        setPavimentosConfirmados(true);
+        connectivity.reportSuccess();
+      } else {
+        // Avisa o connectivity: assim a 1ª requisição que der certo depois (qualquer tela,
+        // ou a fila) dispara o retry de reconexão abaixo, mesmo sem o evento `online`.
+        if (r.error.timeout || r.error.offline || isNetworkError(r.error)) connectivity.reportError({ message: 'Failed to fetch' });
+        if (!guardado) setPavimentos([]);
+        setPavimentosDoAparelho(true);
+      }
+      setPavimentosPronto(true);
+    })();
     return () => { ativo = false; };
-  }, [obra.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obra.id, pavimentosRetry]);
+  // Guarda no aparelho a cada mudança confirmada pelo servidor, inclusive cadastrar,
+  // renomear e excluir no modal Pavimentos: senão o pavimento recém-cadastrado não
+  // aparecia na próxima abertura sem internet.
+  React.useEffect(() => {
+    if (hideChrome && pavimentosConfirmados) offlineCache.gravar('pavimentosFotos', obra.id, pavimentos);
+  }, [pavimentos, pavimentosConfirmados, hideChrome, obra.id]);
+
+  // Galeria do servidor sem rede: some o "Nenhuma foto cadastrada" falso (ver render).
+  const [galeriaOffline, setGaleriaOffline] = React.useState(false);
+  const semRedeHook = useSemRede();
+  const semRede = semRedeHook || pavimentosDoAparelho || galeriaOffline;
+  const semRedeRef = React.useRef(semRede);
+  semRedeRef.current = semRede;
+  // Cadastrar/renomear/excluir pavimento precisa do servidor: só com a lista confirmada.
+  const podeCadastrarPavimentos = pavimentosConfirmados && !semRede;
+  // A rede caiu com o cadastro aberto: fecha, ele não conseguiria gravar.
+  React.useEffect(() => { if (!podeCadastrarPavimentos) setShowPavimentos(false); }, [podeCadastrarPavimentos]);
 
   // Lista de pavimentos que TÊM foto, pro filtro — query própria e leve (só a coluna
   // pavimento, sem imagem/URL assinada). Com paginação, `fotos` só tem o que já foi
   // carregado, não dá mais pra derivar isso em memória sem perder pavimentos que só
   // apareceriam num lote mais adiante.
   const carregarPavimentosComFoto = React.useCallback(async () => {
-    const { data } = await supabase.from('fotos_obra').select('pavimento').eq('obra_id', obra.id);
+    if (semRedeAgora()) return;
+    const { data } = await comLimiteDeRede(supabase.from('fotos_obra').select('pavimento').eq('obra_id', obra.id));
     setPavimentosComFoto([...new Set((data || []).map(f => f.pavimento).filter(Boolean))]);
   }, [obra.id]);
   React.useEffect(() => { carregarPavimentosComFoto(); }, [carregarPavimentosComFoto]);
@@ -723,7 +786,9 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   // de migration/backfill. `limit` alto porque 64 fotos já viram 128 arquivos (original
   // + thumb) — o padrão do list() é só 100.
   const carregarTamanhoTotal = React.useCallback(async () => {
-    const { data, error } = await supabase.storage.from('obras-images').list(`obras/${obra.id}/fotos`, { limit: 1000 });
+    if (semRedeAgora()) return;
+    const { data, error } = await comLimiteDeRede(supabase.storage.from('obras-images').list(`obras/${obra.id}/fotos`, { limit: 1000 }));
+    if (error?.timeout) return;
     if (error) { logger.error('falha ao calcular tamanho total das fotos', { module: 'obra', action: 'carregarTamanhoTotal', err: error }); return; }
     setTamanhoTotal((data || []).reduce((s, f) => s + (f.metadata?.size || 0), 0));
   }, [obra.id]);
@@ -741,6 +806,10 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   const carregarPagina = React.useCallback(async (pag) => {
     requestIdRef.current += 1;
     const meuId = requestIdRef.current;
+    if (semRedeAgora()) {
+      setFotos([]); setTotalCount(0); setGaleriaOffline(true); setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const LOTE_ORDEM = 1000; // limite de linhas por consulta do Supabase (max_rows)
@@ -760,7 +829,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
              .order('created_at', { ascending: false })
              .order('id', { ascending: true })
              .range(de, de + LOTE_ORDEM - 1);
-        const { data, error } = await q;
+        const { data, error } = await comLimiteDeRede(q);
         if (meuId !== requestIdRef.current) return; // filtro/página mudou enquanto isso corria — descarta
         if (error) throw error;
         leves.push(...(data || []));
@@ -770,7 +839,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       const idsDaPagina = ordenadas.slice((pag - 1) * FOTOS_POR_LOTE, pag * FOTOS_POR_LOTE).map(f => f.id);
       let rows = [];
       if (idsDaPagina.length) {
-        const { data, error } = await supabase.from('fotos_obra').select('*').in('id', idsDaPagina);
+        const { data, error } = await comLimiteDeRede(supabase.from('fotos_obra').select('*').in('id', idsDaPagina));
         if (meuId !== requestIdRef.current) return;
         if (error) throw error;
         const porId = new Map((data || []).map(f => [f.id, f]));
@@ -782,14 +851,21 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       const paths = rows.map(f => f.thumbnail_path || f.storage_path).filter(Boolean);
       const signed = {};
       if (paths.length) {
-        const { data: urls } = await supabase.storage.from('obras-images').createSignedUrls(paths, 3600);
+        const { data: urls } = await comLimiteDeRede(supabase.storage.from('obras-images').createSignedUrls(paths, 3600));
         (urls || []).forEach(u => { if (u.signedUrl && !u.error) signed[u.path] = u.signedUrl; });
       }
       if (meuId !== requestIdRef.current) return;
       setFotos(rows.map(f => ({ ...f, url: signed[f.thumbnail_path || f.storage_path] || f.url })));
       setTotalCount(ordenadas.length);
+      setGaleriaOffline(false);
+      connectivity.reportSuccess();
     } catch (err) {
-      logger.error('falha ao carregar fotos', { module: 'obra', action: 'carregarPagina', err });
+      if (ehFalhaPassageira(err)) {
+        if (err?.timeout || isNetworkError(err)) connectivity.reportError({ message: 'Failed to fetch' });
+        if (meuId === requestIdRef.current) { setFotos([]); setTotalCount(0); setGaleriaOffline(true); }
+      } else {
+        logger.error('falha ao carregar fotos', { module: 'obra', action: 'carregarPagina', err });
+      }
     } finally {
       if (meuId === requestIdRef.current) setLoading(false);
     }
@@ -802,48 +878,123 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
   React.useEffect(() => { if (pavimentosPronto) carregarPagina(pagina); }, [pagina, carregarPagina, pavimentosPronto]);
 
   // Upload em lote: metadados (data/pavimento/descrição) compartilhados por todas as fotos
-  // selecionadas de uma vez; insere tudo num único insert e recarrega a galeria uma só vez.
-  // Processa o lote inteiro em paralelo (comprimir + 2 uploads por foto) em vez de um
-  // arquivo de cada vez — sequencial fazia N fotos esperarem 2×N idas e voltas ao
-  // Storage em série, bem mais lento do que precisava ser. Seguro porque o lote já é
-  // limitado a MAX_FOTOS (ver onFileChange) — não dispara dezenas de uploads de uma vez.
+  // selecionadas de uma vez. Cada foto é comprimida e guardada primeiro no aparelho (fila de
+  // envio, ver fotos.service.js), e o envio sai de lá: na hora, com internet, ou quando a
+  // conexão voltar. Antes, sem rede, as fotos escolhidas eram descartadas ao fechar o modal.
+  // Comprime uma de cada vez: várias fotos de câmera ao mesmo tempo estouram a memória do
+  // celular. O aviso de "enviada" vem da fila (ver efeito da fila abaixo).
   const salvarFotos = async (metadados, files) => {
-    const resultados = await Promise.all(files.map(async (file) => {
-      if (file.size > 5 * 1024 * 1024) {
-        toast(`"${file.name}" muito grande (máx. 5 MB) — não foi enviada`, { tone: 'danger' });
-        return null;
+    const lote = [];
+    for (const file of files) {
+      try {
+        const blob = await compressImagem(file, 1200, 0.82);
+        // Limite no arquivo JÁ reduzido: antes era no original, e foto de câmera boa era
+        // recusada sem precisar.
+        if (blob.size > 5 * 1024 * 1024) {
+          toast(`"${file.name}" muito grande mesmo depois de reduzida (máx. 5 MB): não foi guardada`, { tone: 'danger' });
+          continue;
+        }
+        // Miniatura a partir da já reduzida: decodificar a original de novo é o mais pesado.
+        const thumbBlob = await compressImagem(blob, 600, 0.82);
+        lote.push({ blob, thumbBlob });
+      } catch (err) {
+        logger.error('falha ao preparar foto', { module: 'obra', action: 'salvarFotos', err });
+        toast(`Não foi possível ler "${file.name}".`, { tone: 'danger' });
       }
-      // Sufixo aleatório além do timestamp: evita colisão de path quando várias fotos
-      // do mesmo lote caem no mesmo milissegundo.
-      const path = `obras/${obra.id}/fotos/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`;
-      const thumbPath = path.replace(/\.jpg$/, '_thumb.jpg');
-      const [blob, thumbBlob] = await Promise.all([
-        compressImagem(file, 1200, 0.82),
-        compressImagem(file, 600, 0.82),
-      ]);
-      const { error: upErr } = await supabase.storage.from('obras-images').upload(path, blob, { contentType: 'image/jpeg' });
-      if (upErr) { toast(`Erro no upload de "${file.name}": ${upErr.message}`, { tone: 'danger' }); return null; }
-      // Thumbnail é "best effort": se falhar, a foto ainda é salva (thumbnail_path nulo
-      // cai no fallback pra imagem original, em carregarPagina) — não vale a pena
-      // descartar o upload inteiro por causa só da miniatura.
-      let thumbnailPath = null;
-      const { error: thumbErr } = await supabase.storage.from('obras-images').upload(thumbPath, thumbBlob, { contentType: 'image/jpeg' });
-      if (!thumbErr) thumbnailPath = thumbPath;
-      else logger.error('falha ao subir thumbnail, segue só com a original', { module: 'obra', action: 'salvarFotos', err: thumbErr });
-      // Bucket privado: a exibição é por URL assinada gerada do storage_path. A coluna
-      // `url` é legada e NOT NULL — guardamos o próprio path (não geramos mais URL pública).
-      return { obra_id: obra.id, url: path, storage_path: path, thumbnail_path: thumbnailPath, ...metadados };
-    }));
-    const rows = resultados.filter(Boolean);
-    if (rows.length === 0) return;
-    const { error: dbErr } = await supabase.from('fotos_obra').insert(rows);
-    if (dbErr) { toast('Erro ao salvar fotos', { tone: 'danger' }); return; }
-    toast(rows.length === 1 ? 'Foto salva' : `${rows.length} fotos salvas`, { tone: 'success', icon: 'check' });
-    // Fotos novas entram no topo (ordenação por data/criação desc) — volta pra 1ª página.
+    }
+    if (!lote.length) return;
+    let r;
+    try {
+      r = await fotosService.enfileirar(obra.id, metadados, lote);
+    } catch (err) {
+      // A gravação do lote é tudo ou nada: nada ficou guardado, então tentar de novo não duplica.
+      toast('Não foi possível guardar as fotos neste aparelho. Tente de novo.', { tone: 'danger' });
+      throw err; // mantém o modal aberto com as fotos escolhidas (ver UploadFotoModal.handleSave)
+    }
+    // Aparelho não deixou guardar e as fotos subiram direto (ver fotosService.enfileirar).
+    if (!r.guardadas) {
+      if (r.enviadasDireto) {
+        toast(r.enviadasDireto === 1 ? 'Foto salva' : `${r.enviadasDireto} fotos salvas`, { tone: 'success', icon: 'check' });
+        aoEnviarRef.current?.();
+      }
+      if (r.falharam) toast(`${r.falharam} foto(s) não foram enviadas. Tente de novo.`, { tone: 'danger' });
+      return;
+    }
+    if (semRedeRef.current) {
+      toast(lote.length === 1
+        ? 'Foto guardada neste aparelho. Será enviada quando a internet voltar.'
+        : `${lote.length} fotos guardadas neste aparelho. Serão enviadas quando a internet voltar.`,
+        { tone: 'warning', icon: 'wifi-off' });
+    }
+  };
+
+  // Fotos desta obra ainda no aparelho (fila de envio), no topo da galeria até subirem.
+  const [naFila, setNaFila] = React.useState([]);
+  const [estadoFila, setEstadoFila] = React.useState(() => offlineQueue.estado());
+  const [descartandoFila, setDescartandoFila] = React.useState(null);
+  const idsNaFilaRef = React.useRef(new Set());
+  const statusNaFilaRef = React.useRef(new Map());
+  // Enviadas desta obra na passada em andamento: um aviso e uma recarga da galeria no fim
+  // da passada, e não um por foto.
+  const enviadasNaPassadaRef = React.useRef(0);
+  // Sempre a versão atual (o efeito da fila só se inscreve uma vez por obra).
+  const aoEnviarRef = React.useRef(null);
+  aoEnviarRef.current = () => {
     if (pagina === 1) carregarPagina(1); else setPagina(1);
     carregarPavimentosComFoto();
     carregarTamanhoTotal();
+    if (pavimentosDoAparelho) setPavimentosRetry(t => t + 1); // a rede voltou: traz o cadastro de volta
   };
+  React.useEffect(() => {
+    let ativo = true;
+    idsNaFilaRef.current = new Set();
+    enviadasNaPassadaRef.current = 0;
+    const atualizar = async (evento) => {
+      // Só conta como enviada o que a fila confirma (evento.enviados). Sumir da lista não
+      // basta: o Sair com "apagar" e a queda da sessão também esvaziam a lista.
+      if (evento?.enviados) {
+        enviadasNaPassadaRef.current += evento.enviados.filter(id => idsNaFilaRef.current.has(id)).length;
+      }
+      const itens = (await offlineQueue.listar('foto').catch(() => [])).filter(i => i.payload?.obraId === obra.id);
+      if (!ativo) return;
+      // Acabou de ser recusada pelo servidor: avisa uma vez (o selo na miniatura fica).
+      const recusadas = itens.filter(i => i.status === 'revisar' && statusNaFilaRef.current.get(i.id) === 'pendente');
+      idsNaFilaRef.current = new Set(itens.map(i => i.id));
+      statusNaFilaRef.current = new Map(itens.map(i => [i.id, i.status]));
+      const estado = offlineQueue.estado();
+      setNaFila(itens);
+      setEstadoFila(estado);
+      if (!estado.enviando && enviadasNaPassadaRef.current) {
+        const n = enviadasNaPassadaRef.current;
+        enviadasNaPassadaRef.current = 0;
+        toast(n === 1 ? 'Foto enviada' : `${n} fotos enviadas`, { tone: 'success', icon: 'check' });
+        aoEnviarRef.current?.();
+      }
+      if (recusadas.length) toast(`Foto não enviada: ${recusadas[0].ultimoErro || 'recusada pelo servidor'}`, { tone: 'danger' });
+    };
+    atualizar();
+    const sair = offlineQueue.subscribe(atualizar);
+    return () => { ativo = false; sair(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obra.id]);
+  // Miniatura de cada foto da fila direto do blob guardado (ainda não existe no servidor).
+  const urlsFila = React.useMemo(
+    () => new Map(naFila.map(i => [i.id, URL.createObjectURL(i.payload.thumbBlob || i.payload.blob)])),
+    [naFila]
+  );
+  React.useEffect(() => () => urlsFila.forEach(u => URL.revokeObjectURL(u)), [urlsFila]);
+  const confirmarDescarte = async () => {
+    const item = descartandoFila;
+    setDescartandoFila(null);
+    if (!item) return;
+    await offlineQueue.descartar(item.id);
+  };
+
+  // Conexão voltou: relê o que veio do aparelho ou não carregou.
+  useRetryOnReconnect(() => {
+    if (pavimentosDoAparelho) setPavimentosRetry(t => t + 1);
+    if (galeriaOffline) carregarPagina(pagina);
+  });
 
   const atualizarFoto = async (id, metadados) => {
     const { error } = await supabase.from('fotos_obra').update(metadados).eq('id', id);
@@ -968,9 +1119,11 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
         )}
         {!readOnly && (
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="btn btn-ghost" onClick={() => setShowPavimentos(true)}>
-              <Icon name="layers" size={15} />Pavimentos
-            </button>
+            {podeCadastrarPavimentos && (
+              <button className="btn btn-ghost" onClick={() => setShowPavimentos(true)}>
+                <Icon name="layers" size={15} />Pavimentos
+              </button>
+            )}
             <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
               <Icon name="upload" size={15} />Upload
             </button>
@@ -992,10 +1145,12 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
               onClick={() => setShowUpload(true)}>
               <Icon name="image" size={15} />Galeria
             </button>
-            <button type="button" className="btn btn-ghost" style={{ flex: 1 }}
-              onClick={() => setShowPavimentos(true)}>
-              <Icon name="layers" size={15} />Pavimentos
-            </button>
+            {podeCadastrarPavimentos && (
+              <button type="button" className="btn btn-ghost" style={{ flex: 1 }}
+                onClick={() => setShowPavimentos(true)}>
+                <Icon name="layers" size={15} />Pavimentos
+              </button>
+            )}
           </div>
         )}
 
@@ -1020,12 +1175,62 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
           </button>
         )}
 
-        <span className="fotos-mobile-count">{totalCount} foto{totalCount !== 1 ? 's' : ''}{tamanhoTotal != null && ` · ${formatBytes(tamanhoTotal)}`}</span>
+        <span className="fotos-mobile-count">
+          {totalCount} foto{totalCount !== 1 ? 's' : ''}{tamanhoTotal != null && ` · ${formatBytes(tamanhoTotal)}`}
+          {naFila.length > 0 && ` · ${naFila.length} no aparelho`}
+        </span>
       </div>
+      )}
+
+      {semRede && (
+        <AvisoOffline texto={naFila.length
+          ? 'Sem internet. As fotos guardadas neste aparelho serão enviadas quando a conexão voltar.'
+          : 'Sem internet. Pode tirar fotos: elas ficam guardadas neste aparelho e são enviadas quando a conexão voltar.'} />
+      )}
+      {!semRede && estadoFila.semSessao && naFila.length > 0 && (
+        <AvisoOffline texto="Entre de novo com internet para enviar as fotos guardadas neste aparelho." />
+      )}
+      {naFila.length > 0 && (
+        <div className={'gallery' + (mobileView ? ' gallery-mobile' : '')} style={{ marginBottom: 12 }}>
+          {naFila.map(item => (
+            <div key={item.id} className="photo photo-na-fila">
+              <img src={urlsFila.get(item.id)} alt="" />
+              {item.status !== 'revisar' && (
+                <button type="button" className="icon-btn photo-na-fila-x" title="Descartar foto" onClick={() => setDescartandoFila(item)}>
+                  <Icon name="x" size={13} />
+                </button>
+              )}
+              <div className="photo-na-fila-info">
+                <span className={'photo-na-fila-selo' + (item.status === 'revisar' ? ' revisar' : '')}>
+                  {item.status === 'revisar' ? 'Não enviada' : estadoFila.enviando ? 'Enviando…' : semRede ? 'Aguardando internet' : 'Na fila de envio'}
+                </span>
+                {item.payload.pavimento && <div style={{ fontWeight: 600 }}>{item.payload.pavimento}</div>}
+                {item.payload.data && <div style={{ opacity: 0.85, fontSize: 11 }}>{isoToBR(item.payload.data)}</div>}
+                {item.status === 'revisar' && (
+                  <>
+                    {item.ultimoErro && <div className="photo-na-fila-erro">{item.ultimoErro}</div>}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                      <button type="button" className="photo-na-fila-acao" onClick={() => offlineQueue.tentarDeNovo(item.id)}>Tentar de novo</button>
+                      <button type="button" className="photo-na-fila-acao" onClick={() => setDescartandoFila(item)}>Descartar</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {loading
         ? <div className="text-muted" style={{ padding: 48, textAlign: 'center' }}>Carregando…</div>
+        : galeriaOffline
+          ? <div className="card" style={{ padding: '40px 24px', textAlign: 'center' }}>
+              <Icon name="wifi-off" size={32} style={{ color: 'var(--text-faint)' }} />
+              <div className="text-muted" style={{ marginTop: 12 }}>Galeria indisponível sem internet.</div>
+              <button className="btn btn-ghost" style={{ marginTop: 12 }} onClick={() => { carregarPagina(pagina); if (pavimentosDoAparelho) setPavimentosRetry(t => t + 1); }}>
+                <Icon name="refresh-cw" size={14} />Tentar novamente
+              </button>
+            </div>
         : fotos.length === 0
           ? semFiltro
             ? <div className="card" style={{ padding: '64px 24px', textAlign: 'center' }}>
@@ -1038,12 +1243,6 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
               </div>
           : <div style={{ maxHeight: fotosBodyMaxH || undefined, overflowY: 'auto' }}>
               <div className={'gallery' + (mobileView ? ' gallery-mobile' : '')}>
-                {mobileView && Array.from({ length: uploadingCount }, (_, i) => (
-                  <div key={'uploading-' + i} className="photo photo-uploading">
-                    <span className="photo-uploading-spinner" />
-                    <span>Enviando…</span>
-                  </div>
-                ))}
                 {fotos.map((f, i) => (
                   <div key={f.id} className="photo" style={{ position: 'relative', overflow: 'hidden', cursor: 'zoom-in' }}
                        onClick={() => setLightboxIdx(i)}>
@@ -1107,10 +1306,11 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       {showUpload && (
         <UploadFotoModal
           obra={obra} pavimentos={pavimentos}
-          onGerenciarPavimentos={() => setShowPavimentos(true)}
+          onGerenciarPavimentos={podeCadastrarPavimentos ? () => setShowPavimentos(true) : undefined}
+          semRede={semRede}
           initialFiles={pendingFiles}
           mobileView={mobileView}
-          onSave={async (metadados, files) => { setUploadingCount(files.length); try { await salvarFotos(metadados, files); } finally { setUploadingCount(0); } }}
+          onSave={salvarFotos}
           onClose={() => { setShowUpload(false); setPendingFiles(null); }}
         />
       )}
@@ -1119,7 +1319,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
           isAdmin={isAdmin} onClose={() => setShowPavimentos(false)}
           onRenomeado={(antigo, novo) => { if (filtroPavimento === antigo) setFiltroPavimento(novo); carregarPavimentosComFoto(); }} />
       )}
-      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onGerenciarPavimentos={() => setShowPavimentos(true)} mobileView={mobileView} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
+      {editando && <EditFotoModal foto={editando} pavimentos={pavimentos} onGerenciarPavimentos={podeCadastrarPavimentos ? () => setShowPavimentos(true) : undefined} mobileView={mobileView} onSave={async (m) => { if (await atualizarFoto(editando.id, m)) setEditando(null); }} onClose={() => setEditando(null)} />}
       {lightboxIdx !== null && (
         <FotoLightbox
           fotos={fotos}
@@ -1130,6 +1330,15 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
           urlOriginal={originalUrls[fotos[lightboxIdx]?.id]}
           onRequestOriginal={garantirUrlOriginal}
         />
+      )}
+      {descartandoFila && (
+        <Modal title="Descartar foto" onClose={() => setDescartandoFila(null)}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setDescartandoFila(null)}>Cancelar</button>
+            <button className="btn btn-danger" onClick={confirmarDescarte}>Descartar</button>
+          </>}>
+          <p style={{ fontSize: 14 }}>Esta foto ainda não foi enviada. Descartar apaga ela deste aparelho.</p>
+        </Modal>
       )}
       {deleteFoto && (
         <Modal title="Excluir foto" onClose={() => setDeleteFoto(null)}
@@ -1148,18 +1357,22 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
 };
 
 // ----- Helper de compressão de imagens -----
+// Aceita File ou Blob (a miniatura sai do blob já reduzido). Rejeita em vez de ficar
+// pendurada: arquivo que não decodifica deixava o botão em "Salvando…" pra sempre.
 function compressImagem(file, maxW = 1200, quality = 0.82) {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('falha ao ler a imagem'));
     reader.onload = ev => {
       const img = new Image();
+      img.onerror = () => reject(new Error('imagem inválida'));
       img.onload = () => {
         const scale = Math.min(1, maxW / img.width);
         const canvas = document.createElement('canvas');
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(resolve, 'image/jpeg', quality);
+        canvas.toBlob(b => (b ? resolve(b) : reject(new Error('falha ao comprimir a imagem'))), 'image/jpeg', quality);
       };
       img.src = ev.target.result;
     };
@@ -1170,18 +1383,25 @@ function compressImagem(file, maxW = 1200, quality = 0.82) {
 // Campo Pavimento: lista suspensa FECHADA com os pavimentos cadastrados para as Fotos da
 // obra (modal "Pavimentos"). Não aceita texto livre. `atual` é o valor já gravado na foto
 // (edição): se não estiver mais no cadastro, entra como opção para não ser perdido ao salvar.
-const PavimentoSelect = ({ value, onChange, options = [], atual = '', onGerenciar }) => {
+// Sem rede (onGerenciar ausente, semRede) mostra só a lista guardada no aparelho: o
+// cadastro precisa do servidor.
+const PavimentoSelect = ({ value, onChange, options = [], atual = '', onGerenciar, semRede = false }) => {
   const lista = atual && !options.includes(atual) ? [...options, atual] : options;
   return (
     <>
       <select className="input" value={value} onChange={e => onChange(e.target.value)} style={{ width: '100%' }}>
-        <option value="">{lista.length ? 'Selecione o pavimento' : 'Nenhum pavimento cadastrado'}</option>
+        <option value="">{lista.length ? 'Selecione o pavimento' : semRede ? 'Nenhum pavimento guardado neste aparelho' : 'Nenhum pavimento cadastrado'}</option>
         {lista.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
       {onGerenciar && lista.length === 0 && (
         <button type="button" className="btn btn-ghost" style={{ marginTop: 6, height: 28, fontSize: 12 }} onClick={onGerenciar}>
           <Icon name="plus" size={12} />Cadastrar pavimentos
         </button>
+      )}
+      {semRede && lista.length === 0 && (
+        <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-muted)' }}>
+          Com internet, abra as Fotos desta obra uma vez para guardar os pavimentos neste aparelho.
+        </div>
       )}
     </>
   );
@@ -1327,7 +1547,7 @@ const PavimentosFotosModal = ({ obraId, pavimentos, setPavimentos, isAdmin = fal
 // ----- Modal: Upload de Foto -----
 const MAX_FOTOS = 7;
 
-const UploadFotoModal = ({ obra, pavimentos = [], onGerenciarPavimentos, initialFiles = null, mobileView = false, onSave, onClose }) => {
+const UploadFotoModal = ({ obra, pavimentos = [], onGerenciarPavimentos, semRede = false, initialFiles = null, mobileView = false, onSave, onClose }) => {
   const toast = useToast();
   // initialFiles: foto já tirada pelo FAB antes do modal abrir (ver onFabCapture em
   // Fotos) — chega pronta, sem precisar de outro clique em "Tirar foto agora".
@@ -1386,7 +1606,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onGerenciarPavimentos, initial
       await onSave(form, files.map(f => f.file));
       onClose();
     } catch (e) {
-      // onSave normalmente já exibe o toast de erro; mantém o modal aberto para nova tentativa
+      // onSave já exibe o toast de erro; mantém o modal aberto (com as fotos) para nova tentativa
       logger.error('falha ao salvar foto', { module: 'obra', action: 'salvarFoto', err: e });
     } finally {
       setSaving(false);
@@ -1398,7 +1618,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onGerenciarPavimentos, initial
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
         <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-          <Icon name="upload" size={14} />{saving ? 'Salvando…' : (files.length > 1 ? `Salvar ${files.length} fotos` : 'Salvar foto')}
+          <Icon name="upload" size={14} />{saving ? 'Guardando…' : (files.length > 1 ? `Salvar ${files.length} fotos` : 'Salvar foto')}
         </button>
       </>}
     >
@@ -1466,7 +1686,7 @@ const UploadFotoModal = ({ obra, pavimentos = [], onGerenciarPavimentos, initial
           </div>
           <div className="field">
             <label>Pavimento <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <PavimentoSelect value={form.pavimento} onChange={v => { set('pavimento', v); setErros(er => ({ ...er, pavimento: undefined })); }} options={pavimentos} onGerenciar={onGerenciarPavimentos} />
+            <PavimentoSelect value={form.pavimento} onChange={v => { set('pavimento', v); setErros(er => ({ ...er, pavimento: undefined })); }} options={pavimentos} onGerenciar={onGerenciarPavimentos} semRede={semRede} />
             {erros.pavimento && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 3 }}>{erros.pavimento}</div>}
           </div>
           <div className="field full">
@@ -1840,6 +2060,9 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   const [baselinesObra, setBaselinesObra] = React.useState([]);
 
   React.useEffect(() => {
+    // Modo foco Fotos (hideChrome): cronograma, vínculos e financeiro não aparecem, e o
+    // cronograma tem vários MB que disputariam a banda com o envio das fotos.
+    if (hideChrome) return undefined;
     let cancelled = false;
     // Pinta o cache imediatamente para não piscar, mas SEMPRE rebusca do banco
     // (fonte da verdade). Assim edições/exclusões feitas no módulo Cronograma
@@ -1866,6 +2089,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   const [vinculosObra, setVinculosObra] = React.useState([]);
   const [orcamentoItensMapObra, setOrcamentoItensMapObra] = React.useState({});
   React.useEffect(() => {
+    if (hideChrome) return undefined; // ver efeito do cronograma acima
     let cancelled = false;
     vinculoService.listarPorObra(o.id).then(({ data }) => {
       if (cancelled) return;
@@ -1883,6 +2107,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   // do Dashboard) — não é mais um valor digitado à mão.
   const [financeiroPct, setFinanceiroPct] = React.useState(null);
   React.useEffect(() => {
+    if (hideChrome) return undefined; // ver efeito do cronograma acima
     let cancelled = false;
     setFinanceiroPct(null);
     fisicoFinanceiroService.buscarUltimosPorObras([o.id]).then(({ data }) => {

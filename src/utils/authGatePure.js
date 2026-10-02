@@ -23,6 +23,25 @@
 // expirado existe); deslogamentoDeliberado (a pessoa clicou Sair nesta página); erroDeRede
 // (getSession falhou por rede); offline (navigator.onLine === false).
 // Retorna 'sessao' | 'cache' | 'deslogado' | 'ignorar'.
+// Aviso do botão Sair, ou null quando pode sair direto (com rede e nada pendente). Sem
+// rede, sair tranca a pessoa do lado de fora até a conexão voltar (login Microsoft precisa
+// de internet); com fotos ainda na fila do aparelho, sair apaga essas fotos.
+export function avisoAoSair({ semRede = false, pendentes = 0 } = {}) {
+  if (!semRede && !pendentes) return null;
+  const partes = [];
+  if (semRede) partes.push('Você está sem internet. Se sair agora, só vai conseguir entrar de novo quando a conexão voltar.');
+  if (pendentes) {
+    partes.push(pendentes === 1
+      ? '1 foto ainda não foi enviada e será apagada deste aparelho.'
+      : `${pendentes} fotos ainda não foram enviadas e serão apagadas deste aparelho.`);
+  }
+  return {
+    titulo: semRede ? 'Sair sem internet?' : 'Sair com fotos não enviadas?',
+    texto: partes.join(' '),
+    confirmar: pendentes ? 'Sair e apagar' : 'Sair mesmo assim',
+  };
+}
+
 export function decidirFonteDeSessao({ session, event, temCache, deslogamentoDeliberado, erroDeRede, offline }) {
   if (event === 'INITIAL_SESSION') return 'ignorar';
   if (deslogamentoDeliberado) return 'deslogado';

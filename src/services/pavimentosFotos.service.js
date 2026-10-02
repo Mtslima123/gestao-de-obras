@@ -7,15 +7,37 @@ import { logger } from './logger';
 // avisar o usuário quando a gravação falhar (ex.: sem permissão).
 export const pavimentosFotosService = {
   // Nomes na ordem de cadastro (não alfabética: "10" intercalaria entre "1" e "2").
+  // { data, error }: sem rede a aba Fotos usa a lista guardada no aparelho em vez de
+  // mostrar "Nenhum pavimento cadastrado" (que travava a foto, pavimento é obrigatório).
   async listar(obraId) {
-    if (!obraId) return [];
+    if (!obraId) return { data: [], error: null };
     const { data, error } = await supabase
       .from('pavimentos_fotos_obra')
       .select('nome')
       .eq('obra_id', obraId)
       .order('id');
-    if (error) { logger.error('falha ao listar pavimentos das fotos', { module: 'pavimentosFotos', action: 'listar', obraId, err: error }); return []; }
-    return (data || []).map(r => r.nome);
+    if (error) {
+      logger.error('falha ao listar pavimentos das fotos', { module: 'pavimentosFotos', action: 'listar', obraId, err: error });
+      return { data: [], error };
+    }
+    return { data: (data || []).map(r => r.nome), error: null };
+  },
+
+  // Várias obras numa consulta só: { [obraId]: nomes } (obra sem pavimento fica com []).
+  // Usado pra guardar no aparelho os pavimentos de todas as obras da tela de atalhos, e
+  // assim a pessoa conseguir tirar foto sem internet numa obra cujas Fotos ainda não abriu.
+  async listarPorObras(obraIds) {
+    const ids = [...new Set((obraIds || []).filter(Boolean))];
+    if (!ids.length) return { data: {}, error: null };
+    const { data, error } = await supabase
+      .from('pavimentos_fotos_obra')
+      .select('obra_id, nome')
+      .in('obra_id', ids)
+      .order('id');
+    if (error) return { data: {}, error };
+    const porObra = Object.fromEntries(ids.map(id => [id, []]));
+    (data || []).forEach(r => { (porObra[r.obra_id] ||= []).push(r.nome); });
+    return { data: porObra, error: null };
   },
 
   async criar(obraId, nome) {

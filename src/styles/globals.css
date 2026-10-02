@@ -2907,3 +2907,29 @@ input, textarea, [contenteditable="true"] {
   flex-shrink: 0; border: 0; background: transparent; color: inherit;
   font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 4px;
 }
+
+/* Fotos ainda na fila do aparelho (ver naFila em ObraDetail.jsx): miniatura do blob
+   guardado com o selo do estado do envio. */
+.photo.photo-na-fila { position: relative; overflow: hidden; }
+.photo.photo-na-fila img { width: 100%; height: 100%; object-fit: cover; opacity: 0.75; }
+.photo-na-fila-info {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 18px 8px 8px; color: #fff; font-size: 11.5px;
+  background: linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.85));
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+.photo-na-fila-selo {
+  display: inline-block; margin-bottom: 4px; padding: 2px 8px; border-radius: 20px;
+  background: var(--warning-bg); color: var(--warning); font-weight: 700; font-size: 10.5px;
+  text-shadow: none;
+}
+.photo-na-fila-selo.revisar { background: var(--danger); color: #fff; }
+.photo-na-fila-erro { margin-top: 2px; font-size: 10.5px; opacity: 0.9; }
+.photo-na-fila-acao {
+  border: 1px solid rgba(255,255,255,0.6); background: rgba(0,0,0,0.35); color: #fff;
+  border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 11px; cursor: pointer;
+}
+.photo-na-fila-x {
+  position: absolute; top: 6px; right: 6px; width: 26px; height: 26px;
+  background: rgba(0,0,0,0.5); color: #fff;
+}

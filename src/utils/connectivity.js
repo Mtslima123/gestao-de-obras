@@ -88,6 +88,21 @@ export function onNetworkReconnect(fn) {
   return () => reconnectListeners.delete(fn);
 }
 
+// "Agora sem rede?" pra decidir o que mostrar (ex.: esconder cadastro que precisa do
+// servidor). Junta o modo avião (navigator.onLine, que só erra pro lado de "tem rede") com
+// a última falha real de requisição (bus acima, que pega o "sem sinal").
+export function useSemRede() {
+  const falhaReal = useConnectivity();
+  const [aviao, setAviao] = React.useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
+  React.useEffect(() => {
+    const atualizar = () => setAviao(navigator.onLine === false);
+    window.addEventListener('online', atualizar);
+    window.addEventListener('offline', atualizar);
+    return () => { window.removeEventListener('online', atualizar); window.removeEventListener('offline', atualizar); };
+  }, []);
+  return aviao || falhaReal;
+}
+
 export function useRetryOnReconnect(fn) {
   React.useEffect(() => onNetworkReconnect(fn), [fn]);
 }
