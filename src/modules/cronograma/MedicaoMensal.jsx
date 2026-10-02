@@ -748,6 +748,13 @@ export default function MedicaoMensal({
     // Mesmo limite de 8s do carregamento do cronograma (Cronograma.jsx): rede real
     // "sem sinal" pode ficar pendente muito tempo em vez de falhar na hora.
     const TIMEOUT_REDE = { timeout: true };
+    // Modo avião: o navegador já sabe que não há rede, não adianta esperar os 8s.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      connectivity.reportError({ message: 'Failed to fetch' });
+      setMedicaoOffline(true);
+      setCarregando(false);
+      return;
+    }
     const { data: reg, error: regErro } = await Promise.race([
       medicaoMensalService.buscarPorMes(obraId, mesRefKey),
       new Promise((resolve) => setTimeout(() => resolve({ data: null, error: TIMEOUT_REDE }), 8000)),

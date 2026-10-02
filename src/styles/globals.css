@@ -2586,6 +2586,11 @@ tr:hover .obras-row-actions {
 .mobile-gate-body {
   flex: 1;
   padding: 24px 20px;
+  /* No tablet (ver useIsTouchDevice) os botões não esticam a tela inteira. */
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 .mobile-gate-brand {
   display: flex; align-items: center; gap: 10px;

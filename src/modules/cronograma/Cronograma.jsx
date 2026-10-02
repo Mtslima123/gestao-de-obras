@@ -2162,8 +2162,12 @@ function carregarBaselines(obraId) {
   try { return JSON.parse(localStorage.getItem(`cronograma_baselines_${obraId}`)) || []; }
   catch { return []; }
 }
+// Cópia local é só reserva (o banco é a fonte). Cada linha de base/reprogramação guarda
+// o cronograma inteiro, então o localStorage (~5 MB) enche; sem o try/catch o erro de
+// cota estourava dentro de carregar() e a tela ficava em "Carregando…" pra sempre.
 function salvarBaselines(obraId, bls) {
-  localStorage.setItem(`cronograma_baselines_${obraId}`, JSON.stringify(bls));
+  try { localStorage.setItem(`cronograma_baselines_${obraId}`, JSON.stringify(bls)); }
+  catch (err) { logger.warn('sem espaco pra copia local das linhas de base', { module: 'cronograma', obraId, err }); }
 }
 
 // ─── Helpers de Reprogramação (retrato do cronograma antes de reprogramar) ──
@@ -2172,7 +2176,8 @@ function carregarReprogramacoes(obraId) {
   catch { return []; }
 }
 function salvarReprogramacoesLocal(obraId, reps) {
-  localStorage.setItem(`cronograma_reprogramacoes_${obraId}`, JSON.stringify(reps));
+  try { localStorage.setItem(`cronograma_reprogramacoes_${obraId}`, JSON.stringify(reps)); }
+  catch (err) { logger.warn('sem espaco pra copia local das reprogramacoes', { module: 'cronograma', obraId, err }); }
 }
 // defaultRepId/defaultBlId e a seleção visível da Curva (carregarBlVisivel etc.) moram
 // em ./curvaFisica.js — o Dashboard Executivo usa as mesmas regras.
@@ -2631,6 +2636,13 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       // (diferente do DevTools Offline, que rejeita instantâneo) — sem o timeout, isso travava
       // em "Carregando…" pra sempre, o fallback de "Sem conexão" nunca chegava a aparecer.
       const TIMEOUT_REDE = { timeout: true };
+      // Modo avião: o navegador já sabe que não há rede, não adianta esperar os 8s.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        connectivity.reportError({ message: 'Failed to fetch' });
+        setCronogramaErro(TIMEOUT_REDE);
+        setLoadedObraId(obraSel);
+        return;
+      }
       const { data: db, error: dbErro } = await Promise.race([
         carregarCronogramaDB(obraSel),
         new Promise((resolve) => setTimeout(() => resolve({ data: null, error: TIMEOUT_REDE }), 8000)),

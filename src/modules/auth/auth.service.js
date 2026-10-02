@@ -78,4 +78,28 @@ export const authService = {
   revogarNoServidor: (accessToken) => {
     supabase.auth.admin.signOut(accessToken, 'global').catch(() => { /* sem rede: ignora */ });
   },
+
+  // Confere se o servidor de login responde, antes de Sair ou de abrir o SSO. Sem rede,
+  // Sair deixa a pessoa trancada do lado de fora (o login Microsoft precisa de internet)
+  // e o SSO cai na página de erro do Chrome. navigator.onLine sozinho não basta: com
+  // "sem sinal" ou Wi-Fi que pede login ele continua true. Qualquer resposta HTTP conta
+  // como "tem rede"; o portal de Wi-Fi responde sem cabeçalho CORS, o navegador barra e
+  // cai no catch, que é o que queremos.
+  servidorAlcancavel: async (limiteMs = 3000) => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), limiteMs);
+    try {
+      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/auth/v1/health`, {
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY },
+        cache: 'no-store',
+        signal: ctrl.signal,
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  },
 };

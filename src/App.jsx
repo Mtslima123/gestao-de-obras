@@ -2,7 +2,7 @@ import React from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { AppData } from './utils/data';
 import { Icon } from './components/Icons';
-import { ToastProvider, useToast, NovaObraModal, NovaMedicaoModal, SolicitarCompraModal, NovoOrcamentoModal } from './components/Modals';
+import { Modal, ToastProvider, useToast, NovaObraModal, NovaMedicaoModal, SolicitarCompraModal, NovoOrcamentoModal } from './components/Modals';
 import { Sidebar, Topbar } from './Chrome';
 import { LoginScreen } from './modules/auth/Login';
 import { AcessoNaoAutorizado } from './modules/auth/AcessoNaoAutorizado';
@@ -15,7 +15,7 @@ import { friendlyError } from './utils/friendlyError';
 import { isNetworkError, connectivity, useRetryOnReconnect } from './utils/connectivity';
 import { decidirFonteDeSessao } from './utils/authGatePure';
 import { OfflineFallback } from './components/OfflineFallback';
-import { useIsMobile } from './utils/useIsMobile';
+import { useIsMobile, useIsTouchDevice } from './utils/useIsMobile';
 import { MobileGate } from './modules/mobile/MobileGate';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
 // Renderizadas dentro de <Suspense> no corpo do App.
@@ -141,11 +141,15 @@ const AppInner = () => {
   // true só entre o clique em "Sair" e o SIGNED_OUT que ele provoca chegar — é o que
   // diferencia um logout de verdade (deve sempre derrubar, mesmo com cache disponível)
   // de um SIGNED_OUT disparado pelo próprio SDK sem ação nenhuma da pessoa (ver
-  // decidirFonteDeSessao). Reseta a cada novo login bem-sucedido (aplicarSessao).
+  // decidirFonteDeSessao). Só volta a false com a página recarregando: o login SSO
+  // sempre chega por redirect.
   const deslogamentoDeliberadoRef = React.useRef(false);
   const sessaoGenRef = React.useRef(0); // ver aplicarSessao
   const toast = useToast();
   const [authed, setAuthed]           = React.useState(false);
+  // Aviso "Sair sem internet" (ver pedirSair) e a checagem de rede em andamento.
+  const [avisoSair, setAvisoSair] = React.useState(false);
+  const verificandoSairRef = React.useRef(false);
   // false até a primeira decisão de sessão (real, cache ou login). Antes disso mostra
   // "Verificando acesso…" em vez da tela de login: offline ela aparecia por vários
   // segundos, com o botão do SSO que tiraria a pessoa do app.
@@ -182,6 +186,7 @@ const AppInner = () => {
   const [adminTab,        setAdminTab]        = React.useState(() => sessionStorage.getItem('nav_admin_tab') || 'usuarios');
   const [sidebarPinned,   setSidebarPinned]   = React.useState(false); // menu fixado aberto (sem persistir)
   const isMobile = useIsMobile();
+  const isTouch = useIsTouchDevice();
   const [mobileGateBypassed, setMobileGateBypassed] = React.useState(() => {
     try { return sessionStorage.getItem('mobile_gate_ok') === '1'; } catch { return false; }
   });
@@ -226,6 +231,13 @@ const AppInner = () => {
       setObras([]);
       setObrasOffline(true);
     };
+    // Modo avião: o navegador já sabe que não há rede, não adianta esperar os 8s abaixo.
+    // A volta da conexão dispara o evento `online` e o retry de baixo (useRetryOnReconnect).
+    if (estaOffline()) {
+      falhaDeRede();
+      setObrasLoaded(true);
+      return;
+    }
     // Rede real "sem sinal" pode ficar PENDENTE por muito tempo em vez de rejeitar na
     // hora (diferente do DevTools Offline, que rejeita instantâneo) — sem isto, o Mobile
     // Gate ficava preso em "Carregando obras…" pra sempre.
@@ -417,7 +429,12 @@ const AppInner = () => {
   // que já estava em voo pode ter regravado a sessão depois do clique.
   const encerrarSessao = () => {
     const deliberado = deslogamentoDeliberadoRef.current;
-    if (deliberado) authService.limparSessaoLocal();
+    if (deliberado) {
+      authService.limparSessaoLocal();
+      // Tablet compartilhado: navegação, obra aberta e abas da pessoa anterior não podem
+      // ficar pro próximo usuário.
+      try { sessionStorage.clear(); } catch { /* storage indisponível */ }
+    }
     aplicarSessao(null, { limparCache: deliberado });
   };
 
@@ -532,6 +549,19 @@ const AppInner = () => {
     }
   };
 
+  // Botões Sair do MobileGate e do menu. Sem internet, sair tranca a pessoa do lado de
+  // fora até a conexão voltar (o login Microsoft precisa de rede), então pede confirmação.
+  const pedirSair = async () => {
+    if (verificandoSairRef.current) return;
+    verificandoSairRef.current = true;
+    const temRede = await authService.servidorAlcancavel();
+    verificandoSairRef.current = false;
+    if (temRede) handleLogout();
+    else setAvisoSair(true);
+  };
+  // Estável: o Modal registra o Esc uma vez só, com o onClose do primeiro render.
+  const fecharAvisoSair = React.useCallback(() => setAvisoSair(false), []);
+
   const bypassMobileGate = () => {
     try { sessionStorage.setItem('mobile_gate_ok', '1'); } catch { /* ignore */ }
     setMobileGateBypassed(true);
@@ -640,10 +670,28 @@ const AppInner = () => {
     ['dashboard', 'obras', 'orcamentos', 'cronograma', 'fisico-financeiro']
       .find(v => moduloLiberado(userProfile, v)) || 'dashboard';
 
-  const showMobileGate = isMobile && !mobileGateBypassed && !mobileFocus;
+  // Tablet de obra (toque como entrada principal) também usa os atalhos de Medição/Fotos,
+  // que é onde o modo offline vale; pela largura sozinha um tablet de 10" cairia no
+  // sistema completo.
+  const showMobileGate = (isMobile || isTouch) && !mobileGateBypassed && !mobileFocus;
 
   return (
     <>
+      {avisoSair && (
+        <Modal
+          title="Sair sem internet?"
+          size="sm"
+          onClose={fecharAvisoSair}
+          footer={<>
+            <button type="button" className="btn btn-ghost" onClick={fecharAvisoSair}>Cancelar</button>
+            <button type="button" className="btn btn-danger" onClick={() => { setAvisoSair(false); handleLogout(); }}>Sair mesmo assim</button>
+          </>}
+        >
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            Você está sem internet. Se sair agora, só vai conseguir entrar de novo quando a conexão voltar.
+          </p>
+        </Modal>
+      )}
       {!authed && !acessoNegado && (
         sessaoVerificada ? <LoginScreen /> : (
           <div className="content-loading" style={{ flexDirection: 'column', gap: 12, minHeight: '100vh' }}>
@@ -663,7 +711,7 @@ const AppInner = () => {
             obrasOffline={obrasOffline}
             onRetryObras={() => setObrasRetryTick((t) => t + 1)}
             userProfile={userProfile}
-            onLogout={handleLogout}
+            onLogout={pedirSair}
             onEnterFull={bypassMobileGate}
             onGoMedicao={(obraId) => {
               try { sessionStorage.setItem('mobile_focus_obra_id', obraId); } catch { /* ignore */ }
@@ -724,7 +772,7 @@ const AppInner = () => {
         onNavigate={handleNavigate}
         user={user}
         userProfile={userProfile}
-        onLogout={handleLogout}
+        onLogout={pedirSair}
         cronogramaTab={cronogramaTab}
         onCronogramaTabChange={setCronogramaTab}
         adminTab={adminTab}

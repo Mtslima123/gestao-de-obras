@@ -23,6 +23,12 @@ const LoginScreen = () => {
   const handleSSO = async () => {
     setError(null);
     setLoading(true);
+    // Sem internet o redirect pra Microsoft cai na página de erro do Chrome, fora do app.
+    if (!(await authService.servidorAlcancavel())) {
+      setLoading(false);
+      setError('Sem internet. O login com a conta Microsoft precisa de conexão. Conecte-se e tente de novo.');
+      return;
+    }
     const { error: err } = await authService.signInWithSSO();
     if (err) {
       setLoading(false);
