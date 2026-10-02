@@ -5,7 +5,7 @@ import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
   computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
-  mesesDaMedicao, mergePercMedido, ordenarPavimentos,
+  mesesDaMedicao, mergePercMedido, ordenarPavimentos, chavePavimento,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
@@ -532,6 +532,21 @@ describe('ordenarPavimentos', () => {
     expect(ordenarPavimentos(usados, ['Térreo'])).toEqual(['Térreo', '2º tipo', '10º tipo', '—']);
   });
 
+  it('nome da tarefa igual ao cadastrado (espaço nas pontas, maiúscula) não repete: prevalece o cadastro', () => {
+    const cadastro = ['subsolo 1', 'PUC', '1° tipo/puc', 'garagem elevada'];
+    const usados = [' subsolo 1', ' puc', '1° tipo/puc', ' 1° tipo/puc', 'garagem  elevada', 'subsolo 1'];
+    expect(ordenarPavimentos(usados, cadastro)).toEqual(['subsolo 1', 'PUC', '1° tipo/puc', 'garagem elevada']);
+  });
+
+  it('só aparece o que tem nome diferente do cadastro, já sem espaço sobrando', () => {
+    const r = ordenarPavimentos([' Mezanino', 'PUC', ' 3° tipo'], ['PUC', '3° tipo']);
+    expect(r).toEqual(['PUC', '3° tipo', 'Mezanino']);
+  });
+
+  it('acento continua diferenciando (térreo x Terreo)', () => {
+    expect(ordenarPavimentos(['térreo', 'Terreo'], ['térreo'])).toEqual(['térreo', 'Terreo']);
+  });
+
   it('sem cadastro cai em ordem natural e ignora duplicados', () => {
     expect(ordenarPavimentos(['10', '2', '2', '1'], [])).toEqual(['1', '2', '10']);
     expect(ordenarPavimentos([], ['A'])).toEqual([]);
@@ -561,5 +576,15 @@ describe('visto por tarefa', () => {
     const base = buildItensMedicao(etapas, MES, opts);
     const comVisto = base.map(i => ({ ...i, visto: true }));
     expect(computeTotaisMedicao(comVisto, 2500)).toEqual(computeTotaisMedicao(base, 2500));
+  });
+});
+
+describe('chavePavimento', () => {
+  it('ignora espaço nas pontas/duplicado e maiúscula, e vazio vira traço', () => {
+    expect(chavePavimento(' 1° tipo/puc ')).toBe(chavePavimento('1° tipo/puc'));
+    expect(chavePavimento(' puc')).toBe(chavePavimento('PUC'));
+    expect(chavePavimento('garagem   elevada')).toBe(chavePavimento('Garagem Elevada'));
+    expect(chavePavimento('   ')).toBe('—');
+    expect(chavePavimento(undefined)).toBe('—');
   });
 });

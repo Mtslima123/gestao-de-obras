@@ -16,7 +16,7 @@ import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
-  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, ordenarPavimentos,
+  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, ordenarPavimentos, chavePavimento,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -919,13 +919,22 @@ export default function MedicaoMensal({
     () => ['Todos', ...ordenarPavimentos(itensTrabalho.map(i => i.pavimento), pavimentosOrdem)],
     [itensTrabalho, pavimentosOrdem]
   );
+  // Nome que prevalece para cada pavimento (o do cadastro, se houver): " puc" na tarefa
+  // aparece como "PUC", e o filtro compara pela mesma chave (chavePavimento), não pelo texto cru.
+  const nomePavimento = React.useMemo(() => {
+    const mapa = new Map(pavimentos.slice(1).map(p => [chavePavimento(p), p]));
+    return (p) => mapa.get(chavePavimento(p)) ?? String(p ?? '').trim();
+  }, [pavimentos]);
 
-  const filtradas = React.useMemo(() => itensTrabalho.filter(i => (
-    (pavimento === 'Todos' || i.pavimento === pavimento) &&
-    (busca.trim() === '' ||
-      i.descricao.toLowerCase().includes(busca.trim().toLowerCase()) ||
-      i.wbs.includes(busca.trim()))
-  )), [itensTrabalho, pavimento, busca]);
+  const filtradas = React.useMemo(() => {
+    const chavePav = chavePavimento(pavimento);
+    return itensTrabalho.filter(i => (
+      (pavimento === 'Todos' || chavePavimento(i.pavimento) === chavePav) &&
+      (busca.trim() === '' ||
+        i.descricao.toLowerCase().includes(busca.trim().toLowerCase()) ||
+        i.wbs.includes(busca.trim()))
+    ));
+  }, [itensTrabalho, pavimento, busca]);
 
   // Denominador = só o previsto do mês. Itens fora do mês somam ao realizado
   // (numerador) mas não ao previsto, então % executado pode passar de 100%.
@@ -1418,7 +1427,7 @@ export default function MedicaoMensal({
     switch (colId) {
       case 'servico':     return String(numeroServico(l) ?? '');
       case 'descricao':   return '  '.repeat(l.nivel || 0) + l.descricao + (l.foraDoMes ? ' (fora do mês)' : '');
-      case 'pavimento':   return grupo ? '' : l.pavimento;
+      case 'pavimento':   return grupo ? '' : nomePavimento(l.pavimento);
       case 'inicio':      return offsetToDate(l.inicioOff);
       case 'termino':     return offsetToDate(l.terminoOff - 1); // terminoOff é exclusivo; -1 pra exibir/exportar
       case 'dur':         return l.duracaoDias;
@@ -2124,7 +2133,7 @@ export default function MedicaoMensal({
                         )}
                       </div>
                     </td>
-                    <td>{l.pavimento}</td>
+                    <td>{nomePavimento(l.pavimento)}</td>
                     <td className="center num">{l.dataInicio}</td>
                     <td className="center num">{l.dataTermino}</td>
                     <td className="center num">{l.duracaoDias}</td>
@@ -2425,7 +2434,7 @@ export default function MedicaoMensal({
                       <Icon name="check" size={15} />
                     </button>
                     <span className="mm-card-nome">{l.descricao}</span>
-                    <span className="mm-card-pav">{l.pavimento}</span>
+                    <span className="mm-card-pav">{nomePavimento(l.pavimento)}</span>
                     <input
                       className="input medicao-input-medido mm-card-input"
                       inputMode="decimal"

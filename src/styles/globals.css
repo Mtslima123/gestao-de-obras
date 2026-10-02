@@ -2716,7 +2716,12 @@ tr:hover .obras-row-actions {
   width: 20px; height: 20px; border-radius: 5px; border: 1px solid var(--border-strong); background: none;
   color: var(--text-faint); cursor: pointer; flex-shrink: 0;
 }
-.mm-visto-btn:hover:not(:disabled) { background: var(--surface-muted); color: var(--text-muted); }
+/* O hover só vale para o botão ainda NÃO visto, e só com mouse de verdade: senão, com o
+   ponteiro (ou o toque, que "gruda" o hover no celular) ainda em cima do botão, o cinza do
+   hover ganhava do verde de .is-visto e o check só mudava de cor depois de mexer em outro. */
+@media (hover: hover) {
+  .mm-visto-btn:not(.is-visto):hover:not(:disabled) { background: var(--surface-muted); color: var(--text-muted); }
+}
 .mm-visto-btn.is-visto { background: var(--success); border-color: var(--success); color: #fff; }
 .mm-visto-btn:disabled { cursor: default; opacity: .6; }
 .mm-visto-btn-card { width: 28px; height: 28px; border-radius: 7px; margin-top: 1px; }
