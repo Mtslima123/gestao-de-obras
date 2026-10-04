@@ -16,6 +16,9 @@
 // ícone aparecia sem o quadrado azul. Esses 3 PNGs foram refeitos à mão: fundo #1C4584
 // com cantos arredondados (raio 20%) e o mark ocupando 70%. Rodar o gerador de novo
 // sobrescreve com a versão transparente; se precisar, refaça os pwa-*.png do mesmo jeito.
+// Os de celular também foram refeitos à mão (o padding daqui saía grande demais no
+// aparelho): maskable-icon-512 com o mark em 46% e apple-touch-icon-180 em 60%, fundo
+// azul cheio (quem arredonda/recorta é o próprio sistema).
 import { defineConfig, minimal2023Preset as preset } from '@vite-pwa/assets-generator/config';
 
 export default defineConfig({
