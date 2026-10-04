@@ -45,6 +45,13 @@ const PDF_COLS = [
 ];
 const PDF_BRAND = [28, 69, 132];   // #1C4584 (identidade Soter) = BANDA_ESCURA
 const PDF_CLARA = [195, 211, 234]; // #c3d3ea = BANDA_CLARA
+// Mesmas cores semânticas da tela (globals.css: --success, --warning, --danger, --text-muted).
+const PDF_COR = {
+  success: [31, 139, 92],
+  warning: [179, 113, 26],
+  danger:  [179, 36, 30],
+  neutral: [107, 120, 144],
+};
 
 // ── Importação da planilha de fechamento (Excel/CSV) ───────────────────────────
 const ImportarFechamentoModal = ({ obraId, obraNome, mesInicial, mesesExistentes, onImported, onClose }) => {
@@ -416,18 +423,21 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
       let y = 27;
       if (kpis) {
         // Faixa de KPIs: 4 caixas lado a lado, % grande e R$ embaixo (igual aos cards).
+        // O % usa a mesma cor semântica da tela (verde/vermelho/âmbar) e vai em negrito.
         const cards = [
-          ['Delta (%) Físico × Financeiro', kpis.deltaFisicoFinanceiroPct, kpis.deltaFisicoFinanceiroReal],
-          ['Saving', kpis.savingRealPct, kpis.savingReal],
-          ['Ganhos em INCC', kpis.ganhosInccRealPct, kpis.ganhosInccReal],
-          ['Tendência de Fechamento', kpis.tendenciaFechamentoPct, kpis.tendenciaFechamentoReal],
+          ['Delta (%) Físico × Financeiro', kpis.deltaFisicoFinanceiroPct, kpis.deltaFisicoFinanceiroReal, kpis.corDeltaFisicoFinanceiro],
+          ['Saving', kpis.savingRealPct, kpis.savingReal, kpis.corSavingReal],
+          ['Ganhos em INCC', kpis.ganhosInccRealPct, kpis.ganhosInccReal, kpis.corGanhosInccReal],
+          ['Tendência de Fechamento', kpis.tendenciaFechamentoPct, kpis.tendenciaFechamentoReal, kpis.corTendencia],
         ];
         const gap = 4, cw = (W - 28 - gap * 3) / 4, ch = 18;
-        cards.forEach(([rot, pct, real], i) => {
+        cards.forEach(([rot, pct, real, sem], i) => {
           const x = 14 + i * (cw + gap);
           doc.setDrawColor(220); doc.roundedRect(x, y, cw, ch, 1.5, 1.5);
+          doc.setFont(undefined, 'bold');
           doc.setFontSize(7); doc.setTextColor(110); doc.text(rot.toUpperCase(), x + 4, y + 5);
-          doc.setFontSize(13); doc.setTextColor(20); doc.text(pctFmt(pct), x + 4, y + 12);
+          doc.setFontSize(13); doc.setTextColor(...(PDF_COR[sem] || PDF_COR.neutral)); doc.text(pctFmt(pct), x + 4, y + 12);
+          doc.setFont(undefined, 'normal');
           doc.setFontSize(7); doc.setTextColor(120); doc.text(formatBRL(real), x + 4, y + 16);
         });
         doc.setTextColor(0);

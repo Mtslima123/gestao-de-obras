@@ -19,6 +19,7 @@ import './styles/globals.css';
 import { App } from './App';
 import { logger } from './services/logger';
 import { armazenamentoBloqueado } from './services/supabase';
+import { instalarSelecaoDoZero } from './utils/selecionarZero';
 // Só o import já liga a fila de envio do aparelho (gatilhos de reconexão) e registra o
 // envio das fotos: precisa estar ativo desde o boot pra mandar o que ficou guardado
 // mesmo com a aba Fotos fechada, e pra nenhuma reconexão passar em branco.
@@ -43,6 +44,9 @@ window.addEventListener('wheel', () => {
   const el = document.activeElement;
   if (el?.tagName === 'INPUT' && el.type === 'number') el.blur();
 }, { passive: true });
+
+// Campo numérico com 0 no celular: o 0 já vem selecionado pra o 1º dígito substituí-lo.
+instalarSelecaoDoZero();
 
 // Última proteção: erro de render fora dos ErrorBoundary das telas (login, "Verificando
 // acesso", barra lateral, aviso de versão) desmontava o app inteiro no React 19 e a tela
