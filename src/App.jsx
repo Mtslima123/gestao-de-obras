@@ -210,7 +210,7 @@ const AppInner = () => {
   });
   // Deep links "de uma vez só" para dentro dos módulos — ver handleOpenCronograma/handleOpenObra abaixo.
   const [cronogramaInitialTab, setCronogramaInitialTab] = React.useState(null);
-  const [selectedObraInitialTab, setSelectedObraInitialTab] = React.useState('visao');
+  const [selectedObraInitialTab, setSelectedObraInitialTab] = React.useState('cronograma');
   // "Modo foco" do Mobile Gate: tela cheia sem Sidebar/Topbar/cabeçalho próprio do
   // módulo, só o conteúdo pedido (Medição ou Fotos) + um botão de sair. Diferente de
   // "Acessar sistema completo" (que usa mobileGateBypassed e mostra o shell inteiro).
@@ -653,7 +653,7 @@ const AppInner = () => {
     setView(v);
   };
 
-  const handleOpenObra = (obra, tab = 'visao') => {
+  const handleOpenObra = (obra, tab = 'cronograma') => {
     sessionStorage.setItem('nav_view', 'obra-detail');
     try { sessionStorage.setItem('nav_obra', JSON.stringify(obra)); } catch {}
     setSelectedObra(obra);

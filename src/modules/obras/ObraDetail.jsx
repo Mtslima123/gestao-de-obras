@@ -12,8 +12,6 @@ import { useIsMobile } from '../../utils/useIsMobile';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd, taskEndDisplay } from '../cronograma/cronogramaDateUtils';
 import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
-import { SCurveChart2 } from '../cronograma/SCurveChart2';
-import { agregarDist, distDeRetrato, computeCurvaSeries } from '../cronograma/curvaFisica';
 import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
 import { getLinhaTotal } from '../fisicoFinanceiro/fisicoFinanceiroPure';
 
@@ -24,7 +22,8 @@ import { fotosService } from './fotos.service';
 import { useSemRede, useRetryOnReconnect, connectivity, isNetworkError } from '../../utils/connectivity';
 import { ehFalhaPassageira } from '../../utils/offlinePure';
 import { AvisoOffline } from '../../components/OfflineFallback';
-import { ordenarFotosPorPavimento, posicaoPavimento, moverNaLista, nomeDaCopia, inserirDepois } from '../../utils/pavimentos';
+import { ordenarFotosPorPavimento, posicaoPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos } from '../../utils/pavimentos';
+import { zipSync } from 'fflate';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';import { capaCache } from '../../services/capaCache';
 
 // Obra Detail Page
@@ -64,6 +63,9 @@ function computeJanela(etapasAll) {
 
   return { meses, mesesDias, inicioDias, spanDias: fimDias - inicioDias, totalMeses };
 }
+
+const LABEL_W_KEY = 'obra_gantt_label_w';
+const LABEL_W_PADRAO = 220, LABEL_W_MIN = 160, LABEL_W_MAX = 600;
 
 const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
   // "Cronograma resumido" mostra só o Nível 1 (grupos de topo, nivel 0) — antes pegava
@@ -108,6 +110,33 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
     return out;
   }, [rows, collapsed, resumoOnly]);
 
+  // Largura da coluna de nomes (ETAPA) — arrastável pela borda direita do cabeçalho e
+  // lembrada entre visitas, pra nomes longos ("Limpeza de terreno + ...") não ficarem cortados.
+  const [labelW, setLabelW] = React.useState(() => {
+    let w = NaN;
+    try { w = Number(localStorage.getItem(LABEL_W_KEY)); } catch {}
+    return w >= LABEL_W_MIN && w <= LABEL_W_MAX ? w : LABEL_W_PADRAO;
+  });
+  const iniciarResize = (ev) => {
+    ev.preventDefault();
+    const x0 = ev.clientX, w0 = labelW;
+    let atual = w0;
+    const mover = (e) => {
+      atual = Math.min(LABEL_W_MAX, Math.max(LABEL_W_MIN, w0 + e.clientX - x0));
+      setLabelW(atual);
+    };
+    const soltar = () => {
+      window.removeEventListener('mousemove', mover);
+      window.removeEventListener('mouseup', soltar);
+      document.body.style.cursor = '';
+      try { localStorage.setItem(LABEL_W_KEY, String(atual)); } catch {}
+    };
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('mousemove', mover);
+    window.addEventListener('mouseup', soltar);
+  };
+  const gridCols = { gridTemplateColumns: `${labelW}px 1fr` };
+
   // Valores de grupo por rollup (mesmo cálculo do Gantt real): início/fim/avanço agregados.
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
   const janela = computeJanela(etapas);
@@ -133,9 +162,9 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
 
   return (
     <div className="gantt" style={{ overflowX: 'auto', ...(maxHeight ? { maxHeight, overflowY: 'auto' } : null) }}>
-      <div style={{ minWidth: 220 + totalMonths * 70, position: 'relative', paddingTop: 12 }}>
-        <div className="gantt-head">
-          <div style={{ padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ minWidth: labelW + totalMonths * 70, position: 'relative', paddingTop: 12 }}>
+        <div className="gantt-head" style={gridCols}>
+          <div style={{ padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
             <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>ETAPA</span>
             {/* Select em vez de um botão por nível: com EAPs profundas (N1..N9+) a fileira de
                 botões passava da coluna de 220px reservada pra "ETAPA" e vazava visualmente
@@ -152,6 +181,9 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
                 ))}
               </select>
             )}
+            <div onMouseDown={iniciarResize} onDoubleClick={() => { setLabelW(LABEL_W_PADRAO); try { localStorage.removeItem(LABEL_W_KEY); } catch {} }}
+              title="Arraste para ajustar a largura da coluna (duplo clique volta ao padrão)"
+              style={{ position: 'absolute', top: 0, bottom: 0, right: -4, width: 8, cursor: 'col-resize', zIndex: 2 }} />
           </div>
           <div className="gantt-month-row" style={{ gridTemplateColumns: janelaMesesDias.map(d => `${d}fr`).join(' ') }}>
             {janelaMeses.map((m, i) => <div key={i} className="gantt-month">{m}</div>)}
@@ -160,7 +192,7 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
         {visibleRows.map((e, i) => {
           const v = effVals(e);
           return (
-            <div className="gantt-row" key={i}>
+            <div className="gantt-row" key={i} style={gridCols}>
               <div className="gantt-label" style={{ paddingLeft: 14 + (e.nivel || 0) * 14, fontWeight: e.isGroup ? 700 : 400 }}>
                 {/* Nome (com chevron do grupo) num span flex:1 próprio — trunca com "…" sem
                     afetar o badge de %, que fica FORA daqui como segundo item do flex, sempre
@@ -197,7 +229,7 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
           );
         })}
         {!resumoOnly && mostrarHoje && (
-          <div className="gantt-today-line" style={{ left: `calc(220px + (100% - 220px) * ${hojePct / 100})` }}>
+          <div className="gantt-today-line" style={{ left: `calc(${labelW}px + (100% - ${labelW}px) * ${hojePct / 100})` }}>
             <span className="gantt-today-label" style={{ top: 0 }}>Hoje</span>
           </div>
         )}
@@ -209,113 +241,6 @@ const Gantt = ({ etapas, resumoOnly = false, maxHeight }) => {
           <span className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--brand-400)', display: 'inline-block' }} />Planejado</span>
         </div>
       )}
-    </div>
-  );
-};
-
-// ----- Visão Geral tab -----
-const VisaoGeral = ({ etapas, etapasLoaded, baselines = [], custoOrcadoMap = {}, valorVinculadoMap = {} }) => {
-  // Card "Cronograma resumido" gruda sob a topbar ao rolar, mesmo padrão do card
-  // "Cronograma físico" (aba Cronograma) e da toolbar da aba Fotos: STICKY_TOP =
-  // topbar 60px + 32px de respiro. O corpo (mini-Gantt) ganha scroll próprio limitado
-  // ao espaço restante da viewport, pro cabeçalho do card ficar sempre visível.
-  const RESUMO_STICKY_TOP = 92;
-  // Contagem exibida no subtítulo do card — mesma regra de fallback do componente Gantt
-  // (resumoOnly): grupos de nível 1 (topo); sem nenhum, todo grupo; sem grupo nenhum, tudo.
-  const etapasPrincipaisCount = React.useMemo(() => {
-    const topo = etapas.filter(e => e.isGroup && (e.nivel || 0) === 0).length;
-    if (topo) return topo;
-    const todosGrupos = etapas.filter(e => e.isGroup).length;
-    return todosGrupos || etapas.length;
-  }, [etapas]);
-  const resumoHeaderRef = React.useRef(null);
-  const [resumoBodyMaxH, setResumoBodyMaxH] = React.useState(null);
-  React.useLayoutEffect(() => {
-    const recompute = () => {
-      const H = resumoHeaderRef.current?.offsetHeight || 0;
-      setResumoBodyMaxH(Math.max(200, window.innerHeight - RESUMO_STICKY_TOP - H - 24));
-    };
-    recompute();
-    window.addEventListener('resize', recompute);
-    return () => window.removeEventListener('resize', recompute);
-  }, [etapas.length]);
-
-  // "Previsto" = a linha de base mais antiga da obra (plano original aprovado), a mesma
-  // fonte usada como "Linha de Base" no Cronograma → Curva Física.
-  const baseline = React.useMemo(() => (
-    baselines.length
-      ? [...baselines].sort((a, b) => (a.criadaEm || '').localeCompare(b.criadaEm || ''))[0]
-      : null
-  ), [baselines]);
-
-  // Curva S faseada (MESMA fórmula do Cronograma → Curva Física / Dashboard, ver
-  // cronograma/curvaFisica.js): peso por Custo Orçado — não por duração — senão os %
-  // divergem dos números oficiais mostrados nessas duas telas. "Real" (rrA) é o plano ao
-  // vivo, colorido verde (Executado) até o mês atual e azul (Replanejado) dali em diante,
-  // comparado com o "Previsto" (linha de base), quando existir.
-  const curva = React.useMemo(() => {
-    const months = getMonthRange(etapas);
-    if (!months.length) return { months: [], series: null, hasBL: false, todayIdx: -1 };
-    const planned = agregarDist(computeMonthlyDist(etapas, custoOrcadoMap));
-    const baselineDist = distDeRetrato(baseline?.etapas || null, valorVinculadoMap);
-    const series = computeCurvaSeries({ months, planned, baselineDist, repDist: null });
-
-    const now = new Date();
-    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    // Fora da janela: obra já concluída (hoje depois do fim) conta tudo como Executado;
-    // obra ainda não iniciada (hoje antes do início) conta tudo como Replanejado.
-    let todayIdx = months.findIndex(m => m.key === todayKey);
-    if (todayIdx === -1) todayIdx = todayKey > months[months.length - 1].key ? months.length - 1 : -1;
-    return { months, series, hasBL: !!baselineDist, todayIdx };
-  }, [etapas, baseline, custoOrcadoMap, valorVinculadoMap]);
-
-  return (
-    <div className="stack">
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Curva S — Real x Replanejado</div>
-            </div>
-            <div className="card-actions" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-              <div className="legend">
-                <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--brand)' }}></span>Real</span>
-                {curva.hasBL && (
-                  <span className="legend-item"><span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '2px dashed #94a3b8', marginRight: 4, verticalAlign: 'middle' }}></span>Previsto</span>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="card-body" style={{ overflowX: 'auto' }}>
-            {!etapasLoaded ? (
-              <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Carregando cronograma…</div>
-            ) : curva.months.length ? (
-              <SCurveChart2 months={curva.months} selIdx={curva.todayIdx}
-                execA={curva.series.rrA} replanA={curva.series.rrA} baselineA={curva.hasBL ? curva.series.blA : null}
-                show={{ bl: curva.hasBL, rep: true, real: true }} showBarras={false}
-                execColor="var(--brand)" />
-            ) : (
-              <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>Sem cronograma com datas para exibir a curva.</div>
-            )}
-          </div>
-        </div>
-
-        <div className="card" style={{ position: 'sticky', top: RESUMO_STICKY_TOP, zIndex: 2 }}>
-          <div className="card-header" ref={resumoHeaderRef}>
-            <div>
-              <div className="card-title">Cronograma resumido</div>
-              <div className="card-subtitle">{etapasPrincipaisCount} etapa{etapasPrincipaisCount === 1 ? '' : 's'} principa{etapasPrincipaisCount === 1 ? 'l' : 'is'}</div>
-            </div>
-          </div>
-          <div className="card-body" style={{ padding: '4px 0 0' }}>
-            {!etapasLoaded ? (
-              <div className="text-muted" style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13 }}>
-                Carregando cronograma…
-              </div>
-            ) : (
-              <Gantt etapas={etapas} resumoOnly maxHeight={resumoBodyMaxH} />
-            )}
-          </div>
-        </div>
     </div>
   );
 };
@@ -1074,13 +999,98 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       const blobUrl = URL.createObjectURL(blob);
       const el = document.createElement('a');
       el.href = blobUrl;
-      el.download = foto.storage_path?.split('/').pop() || `foto-${foto.id}.jpg`;
+      // Nome "Pavimento - dd-mm-aaaa" (fotos do mesmo dia e pavimento o navegador numera sozinho).
+      const ext = (foto.storage_path?.split('.').pop() || '').toLowerCase();
+      el.download = nomeArquivoFoto(foto, /^[a-z0-9]{2,5}$/.test(ext) ? ext : (blob.type.split('/')[1] || 'jpg'));
       document.body.appendChild(el);
       el.click();
       el.remove();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
     } catch {
       toast('Falha ao baixar a foto.', { tone: 'danger', icon: 'alert' });
+    }
+  };
+
+  // Baixa num .zip TODAS as fotos do mês filtrado (respeitando também o filtro de pavimento),
+  // não só as da página aberta: refaz a consulta sem paginação, assina as URLs das originais
+  // e monta o zip no navegador. Sem compressão (level 0): JPG/PNG já vêm comprimidos.
+  const [zipProgresso, setZipProgresso] = React.useState(null); // { feitas, total } enquanto gera
+  const baixarZipDoMes = async () => {
+    if (!filtroMes || zipProgresso) return;
+    setZipProgresso({ feitas: 0, total: 0 });
+    try {
+      const LOTE = 1000;
+      const lista = [];
+      for (let de = 0; ; de += LOTE) {
+        const { ini, fim } = mesRangeISO(filtroMes);
+        let q = supabase.from('fotos_obra')
+          .select('id, data, pavimento, created_at, storage_path')
+          .eq('obra_id', obra.id).gte('data', ini).lt('data', fim);
+        if (filtroPavimento) q = q.eq('pavimento', filtroPavimento);
+        q = q.order('data', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true })
+             .range(de, de + LOTE - 1);
+        const { data, error } = await q;
+        if (error) throw error;
+        lista.push(...(data || []));
+        if ((data || []).length < LOTE) break;
+      }
+      const fotosZip = lista.filter(f => f.storage_path);
+      if (!fotosZip.length) { toast('Nenhuma foto neste mês para baixar.', { tone: 'warning', icon: 'alert' }); return; }
+      setZipProgresso({ feitas: 0, total: fotosZip.length });
+
+      const urls = {};
+      for (let i = 0; i < fotosZip.length; i += 100) {
+        const paths = fotosZip.slice(i, i + 100).map(f => f.storage_path);
+        const { data, error } = await supabase.storage.from('obras-images').createSignedUrls(paths, 3600);
+        if (error) throw error;
+        (data || []).forEach(u => { if (u.signedUrl && !u.error) urls[u.path] = u.signedUrl; });
+      }
+
+      // Baixa 4 por vez: rápido sem estourar conexões nem a memória do navegador.
+      const blobs = new Array(fotosZip.length).fill(null);
+      let proxima = 0, feitas = 0;
+      const trabalhador = async () => {
+        while (proxima < fotosZip.length) {
+          const i = proxima++;
+          const url = urls[fotosZip[i].storage_path];
+          if (url) {
+            try { const r = await fetch(url); if (r.ok) blobs[i] = new Uint8Array(await r.arrayBuffer()); } catch {}
+          }
+          feitas += 1;
+          setZipProgresso({ feitas, total: fotosZip.length });
+        }
+      };
+      await Promise.all(Array.from({ length: 4 }, trabalhador));
+
+      const ok = fotosZip.map((f, i) => ({ f, bytes: blobs[i] })).filter(x => x.bytes);
+      if (!ok.length) throw new Error('nenhuma foto baixada');
+      const nomes = nomesUnicos(ok.map(({ f }) => {
+        const ext = (f.storage_path.split('.').pop() || '').toLowerCase();
+        return nomeArquivoFoto(f, /^[a-z0-9]{2,5}$/.test(ext) ? ext : 'jpg');
+      }));
+      const arquivos = {};
+      ok.forEach(({ bytes }, i) => { arquivos[nomes[i]] = [bytes, { level: 0 }]; });
+      const zip = zipSync(arquivos);
+
+      const [ano, mes] = filtroMes.split('-');
+      const limpa = (t) => String(t || '').replace(/[\\/:*?"<>|]+/g, '-').trim();
+      const nomeZip = [limpa(obra.nome) || 'Obra', `Fotos ${mes}-${ano}`, filtroPavimento && limpa(filtroPavimento)].filter(Boolean).join(' - ') + '.zip';
+      const blobUrl = URL.createObjectURL(new Blob([zip], { type: 'application/zip' }));
+      const el = document.createElement('a');
+      el.href = blobUrl;
+      el.download = nomeZip;
+      document.body.appendChild(el);
+      el.click();
+      el.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+
+      const falhas = fotosZip.length - ok.length;
+      if (falhas) toast(`${falhas} foto${falhas > 1 ? 's' : ''} não ${falhas > 1 ? 'puderam' : 'pôde'} ser baixada${falhas > 1 ? 's' : ''} e ficou fora do zip.`, { tone: 'warning', icon: 'alert' });
+    } catch (err) {
+      logger.error('falha ao gerar zip das fotos', { module: 'obra', action: 'baixarZipDoMes', err });
+      toast('Falha ao gerar o zip das fotos.', { tone: 'danger', icon: 'alert' });
+    } finally {
+      setZipProgresso(null);
     }
   };
 
@@ -1131,18 +1141,27 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
             )}
           </>
         )}
-        {!readOnly && (
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            {podeCadastrarPavimentos && (
-              <button className="btn btn-ghost" onClick={abrirPavimentos}>
-                <Icon name="layers" size={15} />Pavimentos
-              </button>
-            )}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {filtroMes && totalCount > 0 && !loading && (
+            <button className="btn btn-ghost" onClick={baixarZipDoMes} disabled={!!zipProgresso}
+              title="Baixar todas as fotos do mês filtrado em um arquivo .zip">
+              <Icon name="download" size={15} />
+              {zipProgresso
+                ? (zipProgresso.total ? `Baixando ${zipProgresso.feitas}/${zipProgresso.total}…` : 'Preparando…')
+                : 'Baixar mês (.zip)'}
+            </button>
+          )}
+          {!readOnly && podeCadastrarPavimentos && (
+            <button className="btn btn-ghost" onClick={abrirPavimentos}>
+              <Icon name="layers" size={15} />Pavimentos
+            </button>
+          )}
+          {!readOnly && (
             <button className="btn btn-primary" onClick={() => setShowUpload(true)}>
               <Icon name="upload" size={15} />Upload
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
       )}
 
@@ -2126,12 +2145,12 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
 
 // ----- Main ObraDetail -----
 const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma, initialTab, hideChrome = false }) => {
-  // Sempre abre em "Visão geral" ao entrar numa obra — antes ficava salvo em
+  // Sempre abre em "Cronograma" ao entrar numa obra — antes ficava salvo em
   // sessionStorage sem distinguir qual obra, então abrir a obra B na aba "Fotos"
   // reaproveitava a aba que tinha ficado selecionada na obra A. `initialTab` é a
   // única exceção de propósito: só o Mobile Gate passa isso, pra abrir direto em
-  // Fotos — sem a prop, o comportamento acima continua intacto (default 'visao').
-  const [tab, setTab] = React.useState(initialTab || 'visao');
+  // Fotos — sem a prop, o comportamento acima continua intacto (default 'cronograma').
+  const [tab, setTab] = React.useState(initialTab || 'cronograma');
   const [cronoView, setCronoView] = React.useState('gantt');
   const [cronoCollapsed, setCronoCollapsed] = React.useState(() => new Set()); // grupos recolhidos na mini-Lista
   const [showEdit,   setShowEdit]   = React.useState(false);
@@ -2198,8 +2217,6 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); };
   }, []);
   const [etapasLoaded, setEtapasLoaded] = React.useState(!!AppData.cronograma[o.id]?.length);
-  // Linhas de base do cronograma — usadas na Curva S da Visão Geral como "Previsto".
-  const [baselinesObra, setBaselinesObra] = React.useState([]);
 
   React.useEffect(() => {
     // Modo foco Fotos (hideChrome): cronograma, vínculos e financeiro não aparecem, e o
@@ -2213,13 +2230,12 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     if (cache?.length) { setEtapasObra(cache); setEtapasLoaded(true); }
     else setEtapasLoaded(false);
     // maybeSingle: cronograma inexistente/apagado retorna data=null (sem erro)
-    supabase.from('cronogramas').select('etapas, baselines').eq('obra_id', o.id).maybeSingle().then(({ data, error }) => {
+    supabase.from('cronogramas').select('etapas').eq('obra_id', o.id).maybeSingle().then(({ data, error }) => {
       if (cancelled) return;
       if (error) { setEtapasLoaded(true); return; } // falha de rede: mantém o que já havia
       const etapas = data?.etapas ? migrateEtapas(data.etapas) : []; // apagado = vazio (não volta pro cache)
       AppData.cronograma[o.id] = etapas; // mantém o cache compartilhado com o módulo Cronograma
       setEtapasObra(etapas);
-      setBaselinesObra(data?.baselines || []);
       setEtapasLoaded(true);
     });
     return () => { cancelled = true; };
@@ -2310,7 +2326,6 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
   };
 
   const tabs = [
-    { id: 'visao',      label: 'Visão geral' },
     { id: 'cronograma', label: 'Cronograma'  },
     { id: 'fotos',      label: 'Fotos'       },
   ].map(t => ({ ...t, locked: !podeVerAba(userProfile, 'obras', t.id) }));
@@ -2414,8 +2429,6 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
       </>
       )}
 
-      {tab === 'visao' && <VisaoGeral etapas={etapasObra} etapasLoaded={etapasLoaded} baselines={baselinesObra}
-        custoOrcadoMap={custoOrcadoMapObra} valorVinculadoMap={valorVinculadoMapObra} />}
       {tab === 'cronograma' && (
         <>
           <div ref={cronoSentinelRef} aria-hidden="true" style={{ height: 0 }} />

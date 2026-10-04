@@ -111,3 +111,28 @@ export function ordenarFotosPorPavimento(fotos, ordemCadastro = []) {
     return String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0;
   });
 }
+
+// Nome do arquivo ao baixar uma foto: "Pavimento - dd-mm-aaaa.ext". Data com hífen porque
+// "/" não pode em nome de arquivo; tira também os outros caracteres proibidos no Windows.
+// Sem pavimento ou sem data, usa só o que tiver; sem nenhum dos dois, "foto-<id>".
+export function nomeArquivoFoto(foto, ext = 'jpg') {
+  const pav = String(foto?.pavimento || '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(foto?.data || '');
+  const data = m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+  const base = [pav, data].filter(Boolean).join(' - ') || `foto-${foto?.id ?? ''}`;
+  return `${base}.${ext}`;
+}
+
+// Garante nomes únicos dentro do .zip: repetidos ganham " (2)", " (3)"... antes da extensão
+// (zip com dois arquivos de mesmo nome sobrescreve um com o outro ao extrair).
+export function nomesUnicos(nomes) {
+  const usados = new Map();
+  return nomes.map(nome => {
+    const chave = nome.toLowerCase();
+    const n = (usados.get(chave) || 0) + 1;
+    usados.set(chave, n);
+    if (n === 1) return nome;
+    const i = nome.lastIndexOf('.');
+    return i > 0 ? `${nome.slice(0, i)} (${n})${nome.slice(i)}` : `${nome} (${n})`;
+  });
+}

@@ -10,7 +10,6 @@
 export const MODULOS = [
   { id: 'dashboard',   label: 'Dashboard',         icon: 'dashboard' },
   { id: 'obras',       label: 'Obras',             icon: 'building', abas: [
-      { id: 'visao',      label: 'Visão geral' },
       { id: 'cronograma', label: 'Cronograma' },
       { id: 'fotos',      label: 'Fotos' },
   ] },

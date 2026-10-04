@@ -1,6 +1,6 @@
 // Testes das regras de pavimento compartilhadas (Medição e Fotos). Executar: npm test
 import { describe, it, expect } from 'vitest';
-import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois } from '../utils/pavimentos';
+import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos } from '../utils/pavimentos';
 
 const foto = (id, data, pavimento, created_at = '2026-09-30T10:00:00Z') => ({ id, data, pavimento, created_at });
 
@@ -118,5 +118,26 @@ describe('cadastro de pavimentos das fotos: subir/descer e duplicar', () => {
   it('inserirDepois coloca a cópia logo abaixo do original', () => {
     expect(inserirDepois(lista, 'Subsolo 1', 'Subsolo 1 (cópia)')).toEqual(['Subsolo 2', 'Subsolo 1', 'Subsolo 1 (cópia)', 'Térreo']);
     expect(inserirDepois(lista, 'Inexistente', 'Novo')).toEqual([...lista, 'Novo']);
+  });
+});
+
+describe('nomeArquivoFoto', () => {
+  it('monta "Pavimento - dd-mm-aaaa.ext"', () => {
+    expect(nomeArquivoFoto({ id: 1, pavimento: 'Térreo', data: '2026-09-14' }, 'jpg')).toBe('Térreo - 14-09-2026.jpg');
+  });
+  it('troca caracteres proibidos em nome de arquivo', () => {
+    expect(nomeArquivoFoto({ id: 1, pavimento: 'Tipo 1/2', data: '2026-09-14' }, 'png')).toBe('Tipo 1-2 - 14-09-2026.png');
+  });
+  it('usa só o que tiver e cai em foto-<id> sem pavimento nem data', () => {
+    expect(nomeArquivoFoto({ id: 1, pavimento: 'Garagem' })).toBe('Garagem.jpg');
+    expect(nomeArquivoFoto({ id: 1, data: '2026-09-14' })).toBe('14-09-2026.jpg');
+    expect(nomeArquivoFoto({ id: 7 })).toBe('foto-7.jpg');
+  });
+});
+
+describe('nomesUnicos', () => {
+  it('numera repetidos antes da extensão, sem diferenciar maiúscula', () => {
+    expect(nomesUnicos(['Térreo - 14-09-2026.jpg', 'Garagem.jpg', 'térreo - 14-09-2026.jpg', 'Térreo - 14-09-2026.jpg']))
+      .toEqual(['Térreo - 14-09-2026.jpg', 'Garagem.jpg', 'térreo - 14-09-2026 (2).jpg', 'Térreo - 14-09-2026 (3).jpg']);
   });
 });
