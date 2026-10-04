@@ -82,3 +82,20 @@ export function mesAtualKey() {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
 }
+
+// % planejado acumulado até `hoje` numa distribuição mensal ({ 'AAAA-MM': valor }), em
+// pontos percentuais 0..100 do total dela: meses anteriores inteiros + a fração do mês
+// atual proporcional aos dias corridos. Distribuição vazia/sem total, null.
+export function percentualPlanejadoAte(dist, hoje = new Date()) {
+  if (!dist) return null;
+  const total = Object.values(dist).reduce((s, v) => s + (v || 0), 0);
+  if (!total) return null;
+  const chave = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+  const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  let acc = 0;
+  Object.entries(dist).forEach(([k, v]) => {
+    if (k < chave) acc += v || 0;
+    else if (k === chave) acc += (v || 0) * hoje.getDate() / diasNoMes;
+  });
+  return acc / total * 100;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agregarDist, computeCurvaSeries, defaultBlId, defaultRepId } from '../modules/cronograma/curvaFisica';
+import { agregarDist, computeCurvaSeries, defaultBlId, defaultRepId, percentualPlanejadoAte } from '../modules/cronograma/curvaFisica';
 
 const months = [{ key: '2026-09' }, { key: '2026-10' }, { key: '2026-11' }];
 
@@ -45,5 +45,21 @@ describe('seleção padrão', () => {
     const reps = [{ id: 'a', criadaEm: '2026-07-10' }, { id: 'b', criadaEm: '2026-09-05' }];
     expect(defaultRepId(reps, '2026-09')).toBe('a');
     expect(defaultRepId(reps, '2026-07')).toBe('b');
+  });
+});
+
+describe('percentualPlanejadoAte', () => {
+  const dist = { '2026-09': 30, '2026-10': 30, '2026-11': 40 };
+  it('soma meses anteriores e a fração do mês atual pelos dias corridos', () => {
+    // 15/10: setembro inteiro (30) + 15/31 de outubro (30) = 44,516... de 100
+    expect(percentualPlanejadoAte(dist, new Date(2026, 9, 15))).toBeCloseTo(30 + 30 * 15 / 31, 6);
+  });
+  it('antes do início é 0 e depois do fim é 100', () => {
+    expect(percentualPlanejadoAte(dist, new Date(2026, 7, 20))).toBe(0);
+    expect(percentualPlanejadoAte(dist, new Date(2027, 0, 5))).toBe(100);
+  });
+  it('sem distribuição ou sem total, null', () => {
+    expect(percentualPlanejadoAte(null)).toBeNull();
+    expect(percentualPlanejadoAte({ '2026-09': 0 })).toBeNull();
   });
 });

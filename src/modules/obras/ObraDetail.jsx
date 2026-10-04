@@ -11,9 +11,10 @@ import { podeVerAba, moduloSomenteLeitura, isAdmin, abaSomenteLeitura } from '..
 import { useIsMobile } from '../../utils/useIsMobile';
 import { migrateEtapas, offsetToISO, offsetToDate, dateToOffset, computeValorVinculadoMap, computeCustoOrcadoMap } from '../cronograma/ganttUtils';
 import { isoToBR, taskEnd, taskEndDisplay } from '../cronograma/cronogramaDateUtils';
-import { getMonthRange, computeMonthlyDist, computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
+import { computeGroupValues, computeAvancoFisico, effStatus } from '../cronograma/scheduleEngine';
 import { fisicoFinanceiroService } from '../fisicoFinanceiro/fisicoFinanceiro.service';
 import { getLinhaTotal } from '../fisicoFinanceiro/fisicoFinanceiroPure';
+import { distDeRetrato, defaultBlId, carregarBlVisivel, percentualPlanejadoAte } from '../cronograma/curvaFisica';
 
 import { pavimentosFotosService } from '../../services/pavimentosFotos.service';
 import { offlineCache } from '../../services/offlineCache';
@@ -1011,21 +1012,24 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
     }
   };
 
-  // Baixa num .zip TODAS as fotos do mês filtrado (respeitando também o filtro de pavimento),
+  // Baixa num .zip TODAS as fotos do filtro ativo (mês, pavimento ou os dois),
   // não só as da página aberta: refaz a consulta sem paginação, assina as URLs das originais
   // e monta o zip no navegador. Sem compressão (level 0): JPG/PNG já vêm comprimidos.
   const [zipProgresso, setZipProgresso] = React.useState(null); // { feitas, total } enquanto gera
-  const baixarZipDoMes = async () => {
-    if (!filtroMes || zipProgresso) return;
+  const baixarZipDoFiltro = async () => {
+    if ((!filtroMes && !filtroPavimento) || zipProgresso) return;
     setZipProgresso({ feitas: 0, total: 0 });
     try {
       const LOTE = 1000;
       const lista = [];
       for (let de = 0; ; de += LOTE) {
-        const { ini, fim } = mesRangeISO(filtroMes);
         let q = supabase.from('fotos_obra')
           .select('id, data, pavimento, created_at, storage_path')
-          .eq('obra_id', obra.id).gte('data', ini).lt('data', fim);
+          .eq('obra_id', obra.id);
+        if (filtroMes) {
+          const { ini, fim } = mesRangeISO(filtroMes);
+          q = q.gte('data', ini).lt('data', fim);
+        }
         if (filtroPavimento) q = q.eq('pavimento', filtroPavimento);
         q = q.order('data', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true })
              .range(de, de + LOTE - 1);
@@ -1035,7 +1039,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
         if ((data || []).length < LOTE) break;
       }
       const fotosZip = lista.filter(f => f.storage_path);
-      if (!fotosZip.length) { toast('Nenhuma foto neste mês para baixar.', { tone: 'warning', icon: 'alert' }); return; }
+      if (!fotosZip.length) { toast('Nenhuma foto neste filtro para baixar.', { tone: 'warning', icon: 'alert' }); return; }
       setZipProgresso({ feitas: 0, total: fotosZip.length });
 
       const urls = {};
@@ -1072,9 +1076,9 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       ok.forEach(({ bytes }, i) => { arquivos[nomes[i]] = [bytes, { level: 0 }]; });
       const zip = zipSync(arquivos);
 
-      const [ano, mes] = filtroMes.split('-');
+      const [ano, mes] = filtroMes ? filtroMes.split('-') : [];
       const limpa = (t) => String(t || '').replace(/[\\/:*?"<>|]+/g, '-').trim();
-      const nomeZip = [limpa(obra.nome) || 'Obra', `Fotos ${mes}-${ano}`, filtroPavimento && limpa(filtroPavimento)].filter(Boolean).join(' - ') + '.zip';
+      const nomeZip = [limpa(obra.nome) || 'Obra', filtroMes ? `Fotos ${mes}-${ano}` : 'Fotos', filtroPavimento && limpa(filtroPavimento)].filter(Boolean).join(' - ') + '.zip';
       const blobUrl = URL.createObjectURL(new Blob([zip], { type: 'application/zip' }));
       const el = document.createElement('a');
       el.href = blobUrl;
@@ -1087,7 +1091,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       const falhas = fotosZip.length - ok.length;
       if (falhas) toast(`${falhas} foto${falhas > 1 ? 's' : ''} não ${falhas > 1 ? 'puderam' : 'pôde'} ser baixada${falhas > 1 ? 's' : ''} e ficou fora do zip.`, { tone: 'warning', icon: 'alert' });
     } catch (err) {
-      logger.error('falha ao gerar zip das fotos', { module: 'obra', action: 'baixarZipDoMes', err });
+      logger.error('falha ao gerar zip das fotos', { module: 'obra', action: 'baixarZipDoFiltro', err });
       toast('Falha ao gerar o zip das fotos.', { tone: 'danger', icon: 'alert' });
     } finally {
       setZipProgresso(null);
@@ -1142,13 +1146,13 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
           </>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {filtroMes && totalCount > 0 && !loading && (
-            <button className="btn btn-ghost" onClick={baixarZipDoMes} disabled={!!zipProgresso}
-              title="Baixar todas as fotos do mês filtrado em um arquivo .zip">
+          {!semFiltro && totalCount > 0 && !loading && (
+            <button className="btn btn-ghost" onClick={baixarZipDoFiltro} disabled={!!zipProgresso}
+              title="Baixar todas as fotos do filtro (mês e/ou pavimento) em um arquivo .zip">
               <Icon name="download" size={15} />
               {zipProgresso
                 ? (zipProgresso.total ? `Baixando ${zipProgresso.feitas}/${zipProgresso.total}…` : 'Preparando…')
-                : 'Baixar mês (.zip)'}
+                : `Baixar ${filtroMes && filtroPavimento ? 'filtro' : filtroMes ? 'mês' : 'pavimento'} (.zip)`}
             </button>
           )}
           {!readOnly && podeCadastrarPavimentos && (
@@ -2217,6 +2221,8 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); };
   }, []);
   const [etapasLoaded, setEtapasLoaded] = React.useState(!!AppData.cronograma[o.id]?.length);
+  // Linhas de base do cronograma — referência do "vs planejado" do cabeçalho.
+  const [baselinesObra, setBaselinesObra] = React.useState([]);
 
   React.useEffect(() => {
     // Modo foco Fotos (hideChrome): cronograma, vínculos e financeiro não aparecem, e o
@@ -2230,12 +2236,13 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     if (cache?.length) { setEtapasObra(cache); setEtapasLoaded(true); }
     else setEtapasLoaded(false);
     // maybeSingle: cronograma inexistente/apagado retorna data=null (sem erro)
-    supabase.from('cronogramas').select('etapas').eq('obra_id', o.id).maybeSingle().then(({ data, error }) => {
+    supabase.from('cronogramas').select('etapas, baselines').eq('obra_id', o.id).maybeSingle().then(({ data, error }) => {
       if (cancelled) return;
       if (error) { setEtapasLoaded(true); return; } // falha de rede: mantém o que já havia
       const etapas = data?.etapas ? migrateEtapas(data.etapas) : []; // apagado = vazio (não volta pro cache)
       AppData.cronograma[o.id] = etapas; // mantém o cache compartilhado com o módulo Cronograma
       setEtapasObra(etapas);
+      setBaselinesObra(data?.baselines || []);
       setEtapasLoaded(true);
     });
     return () => { cancelled = true; };
@@ -2293,24 +2300,18 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     () => computeCustoOrcadoMap(etapasObra, valorVinculadoMapObra),
     [etapasObra, valorVinculadoMapObra]
   );
+  // "vs planejado" = quanto a LINHA DE BASE previa até hoje, com o mesmo peso de Custo
+  // Orçado do avanço físico (antes pesava por duração e usava o cronograma ao vivo, então
+  // não era comparável). Mesma linha de base que a Curva Física / Dashboard mostram
+  // (seleção visível da obra, senão a mais recente); mês atual entra proporcional aos dias.
+  // Sem linha de base, null — o cabeçalho avisa em vez de inventar um número.
   const heroStats = React.useMemo(() => {
     const avancoFisico = computeAvancoFisico(etapasObra, custoOrcadoMapObra);
-    const months = getMonthRange(etapasObra);
-    let planejadoHoje = 0;
-    if (months.length) {
-      const durW = {}; etapasObra.forEach(e => { if (!e.isGroup) durW[e.id] = Math.max(1, e.dur || 1); });
-      const dist = computeMonthlyDist(etapasObra, durW);
-      const t = {}; months.forEach(m => { t[m.key] = 0; });
-      Object.values(dist).forEach(d => months.forEach(m => { t[m.key] += (d[m.key] || 0); }));
-      const grand = months.reduce((s, m) => s + t[m.key], 0) || 1;
-      const now = new Date();
-      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      let acc = 0;
-      for (const m of months) { acc += t[m.key]; if (m.key >= todayKey) break; }
-      planejadoHoje = acc / grand * 100;
-    }
+    const blId = carregarBlVisivel(o.id) ?? defaultBlId(baselinesObra);
+    const bl = baselinesObra.find(b => b.id === blId) || null;
+    const planejadoHoje = bl?.etapas ? percentualPlanejadoAte(distDeRetrato(bl.etapas, valorVinculadoMapObra)) : null;
     return { avancoFisico, planejadoHoje };
-  }, [etapasObra, custoOrcadoMapObra]);
+  }, [etapasObra, custoOrcadoMapObra, baselinesObra, valorVinculadoMapObra, o.id]);
 
   // Valores agregados dos grupos (avanço/início/dur a partir dos filhos) — para a mini-Lista.
   const groupValsObra = React.useMemo(() => computeGroupValues(etapasObra, custoOrcadoMapObra), [etapasObra, custoOrcadoMapObra]);
@@ -2383,7 +2384,9 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
             <div className="hero-stat">
               <div className="label">Avanço físico</div>
               <div className="value num" style={{ color: 'var(--brand)' }}>{heroStats.avancoFisico.toFixed(2)}%</div>
-              <div className="meta">vs planejado {heroStats.planejadoHoje.toFixed(2)}%</div>
+              <div className="meta">{heroStats.planejadoHoje != null
+                ? `vs planejado ${heroStats.planejadoHoje.toFixed(2)}% (linha de base)`
+                : (etapasLoaded ? 'Sem linha de base' : 'Carregando…')}</div>
             </div>
             <div className="hero-stat">
               <div className="label">Financeiro</div>

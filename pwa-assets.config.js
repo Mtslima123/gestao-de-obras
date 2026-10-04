@@ -10,6 +10,12 @@
 // Rodar com: npx pwa-assets-generator (gera os PNGs dentro de public/assets/, ao lado
 // da fonte). Resultado fica versionado, igual ao favicon.ico/favicon.png hoje — não é
 // regenerado a cada build.
+//
+// ATENÇÃO: na categoria `transparent` (pwa-64/192/512) o gerador IGNORA o background e
+// sai o S branco sobre fundo transparente — no atalho da área de trabalho do Windows o
+// ícone aparecia sem o quadrado azul. Esses 3 PNGs foram refeitos à mão: fundo #1C4584
+// com cantos arredondados (raio 20%) e o mark ocupando 70%. Rodar o gerador de novo
+// sobrescreve com a versão transparente; se precisar, refaça os pwa-*.png do mesmo jeito.
 import { defineConfig, minimal2023Preset as preset } from '@vite-pwa/assets-generator/config';
 
 export default defineConfig({
