@@ -11,6 +11,11 @@ import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
 
 const mesAtualISO = () => new Date().toISOString().slice(0, 7);
+// 'AAAA-MM' do mês seguinte (dezembro vira janeiro do ano seguinte).
+const mesSeguinteISO = (mes) => {
+  const [ano, m] = mes.split('-').map(Number);
+  return m === 12 ? `${ano + 1}-01` : `${ano}-${String(m + 1).padStart(2, '0')}`;
+};
 const corCss = (sem) => (sem === 'neutral' ? 'var(--text-muted)' : `var(--${sem})`);
 
 // Cores dos 2 grupos de coluna da tabela (Orçamento/Fechamento = clara, Acumulado =
@@ -621,7 +626,9 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
         <ImportarFechamentoModal
           obraId={obraId}
           obraNome={obra?.nome}
-          mesInicial={mesSel || mesAtualISO()}
+          // Importação é sempre do próximo fechamento: o mês seguinte ao último já
+          // importado (meses vem mais recente primeiro), não o que está aberto na tela.
+          mesInicial={meses[0] ? mesSeguinteISO(meses[0].mes_referencia) : mesAtualISO()}
           mesesExistentes={mesesExistentes}
           onImported={handleImported}
           onClose={() => setModalAberto(false)}
