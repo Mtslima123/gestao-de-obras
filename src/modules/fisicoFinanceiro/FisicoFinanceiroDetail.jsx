@@ -24,30 +24,47 @@ const corCss = (sem) => (sem === 'neutral' ? 'var(--text-muted)' : `var(--${sem}
 const BANDA_CLARA  = { background: '#c3d3ea', color: 'var(--brand)' };
 const BANDA_ESCURA = { background: 'var(--brand)', color: '#ffffff' };
 
-// Colunas do PDF — mesma ordem e mesmo formato de LinhaFechamento (tela). Ficam aqui em
-// vez de derivadas do JSX porque o autoTable precisa de texto pronto por célula.
+// Colunas da tabela de fechamento — uma definição só pra tela, pré-visualização da
+// importação e PDF, pra que ocultar uma coluna na tela valha igual no PDF. O autoTable
+// precisa de texto pronto por célula, por isso o `fmt` fica aqui e não no JSX.
+// grupo = banda de cima; fixa = não pode ser ocultada (sem código e nome a linha não diz
+// de qual disciplina é); muted = texto mais apagado na tela.
 const pctFmt = (v) => `${formatNum(v)}%`;
-const PDF_COLS = [
-  { label: 'Código',               campo: 'codigo' },
-  { label: 'Nome',                 campo: 'nome' },
-  { label: 'Orçamento',            campo: 'valorOrcamentoBase',       fmt: formatBRL },
-  { label: 'Orçamento INCC',       campo: 'valorInccBase',            fmt: formatNum },
-  { label: 'Orçamento Atualizado', campo: 'valorOrcamentoAtualizado', fmt: formatBRL },
-  { label: 'Previsto (%)',         campo: 'previstoLinhaBase',        fmt: pctFmt },
-  { label: 'Exec. físico (%)',     campo: 'executadoFisico',          fmt: pctFmt },
-  { label: 'Gasto (%)',            campo: 'gastoPct',                 fmt: pctFmt },
-  { label: 'Gasto (INCC)',         campo: 'gastoIncc',                fmt: formatNum },
-  { label: 'Gasto (R$)',           campo: 'gastoReal',                fmt: formatBRL },
-  { label: 'Tendência (R$)',       campo: 'tendencia',                fmt: formatBRL },
-  { label: 'Créd. Modificações',   campo: 'creditoModificacoes',      fmt: formatBRL },
-  { label: 'Ganhos (INCC)',        campo: 'ganhosIncc',               fmt: formatBRL },
-  { label: 'Saving',               campo: 'saving',                   fmt: formatBRL },
-  { label: 'Ganhos (INCC) Real',   campo: 'ganhosInccReal',           fmt: formatBRL },
-  { label: 'Saving Real',          campo: 'savingReal',               fmt: formatBRL },
-  { label: 'Reserva Financeira',   campo: 'reservaFinanceira',        fmt: formatBRL },
-  { label: 'Saldo (R$)',           campo: 'saldoDistribuirReal',      fmt: formatBRL },
-  { label: 'Saldo (INCC)',         campo: 'saldoDistribuirIncc',      fmt: formatNum },
+const COLUNAS = [
+  { label: 'Código',               campo: 'codigo',                   grupo: 'orcamento', fixa: true },
+  { label: 'Nome',                 campo: 'nome',                     grupo: 'orcamento', fixa: true },
+  { label: 'Orçamento',            campo: 'valorOrcamentoBase',       grupo: 'orcamento', fmt: formatBRL, muted: true },
+  { label: 'Orçamento INCC',       campo: 'valorInccBase',            grupo: 'orcamento', fmt: formatNum, muted: true },
+  { label: 'Orçamento Atualizado', campo: 'valorOrcamentoAtualizado', grupo: 'orcamento', fmt: formatBRL },
+  { label: 'Previsto (%)',         campo: 'previstoLinhaBase',        grupo: 'acumulado', fmt: pctFmt, muted: true },
+  { label: 'Exec. físico (%)',     campo: 'executadoFisico',          grupo: 'acumulado', fmt: pctFmt },
+  { label: 'Gasto (%)',            campo: 'gastoPct',                 grupo: 'acumulado', fmt: pctFmt },
+  { label: 'Gasto (INCC)',         campo: 'gastoIncc',                grupo: 'acumulado', fmt: formatNum, muted: true },
+  { label: 'Gasto (R$)',           campo: 'gastoReal',                grupo: 'acumulado', fmt: formatBRL },
+  { label: 'Tendência (R$)',       campo: 'tendencia',                grupo: 'fechamento', fmt: formatBRL },
+  { label: 'Créd. Modificações',   campo: 'creditoModificacoes',      grupo: 'fechamento', fmt: formatBRL, muted: true },
+  { label: 'Ganhos (INCC)',        campo: 'ganhosIncc',               grupo: 'fechamento', fmt: formatBRL },
+  { label: 'Saving',               campo: 'saving',                   grupo: 'fechamento', fmt: formatBRL },
+  { label: 'Ganhos (INCC) Real',   campo: 'ganhosInccReal',           grupo: 'fechamento', fmt: formatBRL },
+  { label: 'Saving Real',          campo: 'savingReal',               grupo: 'fechamento', fmt: formatBRL },
+  { label: 'Reserva Financeira',   campo: 'reservaFinanceira',        grupo: 'fechamento', fmt: formatBRL },
+  { label: 'Saldo (R$)',           campo: 'saldoDistribuirReal',      grupo: 'fechamento', fmt: formatBRL },
+  { label: 'Saldo (INCC)',         campo: 'saldoDistribuirIncc',      grupo: 'fechamento', fmt: formatNum, muted: true },
 ];
+const GRUPOS = [
+  { id: 'orcamento',  rotulo: () => 'Orçamento',                       escura: false },
+  { id: 'acumulado',  rotulo: (mes) => `Acumulado até ${mesCurto(mes)}`, escura: true },
+  { id: 'fechamento', rotulo: () => 'Fechamento',                      escura: false },
+];
+const grupoEscuro = (id) => GRUPOS.find(g => g.id === id).escura;
+// Bandas de cima a partir das colunas visíveis: o colSpan acompanha quantas colunas
+// sobraram no grupo, e o grupo some se todas as dele estiverem ocultas.
+const bandasDe = (cols) => GRUPOS
+  .map(g => ({ ...g, span: cols.filter(c => c.grupo === g.id).length }))
+  .filter(g => g.span > 0);
+// Preferência do navegador, igual pra todas as obras (as colunas do fechamento são
+// sempre as mesmas, não faz sentido escolher de novo a cada obra).
+const COLS_OCULTAS_KEY = 'ff_cols_ocultas';
 const PDF_BRAND = [28, 69, 132];   // #1C4584 (identidade Soter) = BANDA_ESCURA
 const PDF_CLARA = [195, 211, 234]; // #c3d3ea = BANDA_CLARA
 // Mesmas cores semânticas da tela (globals.css: --success, --warning, --danger, --text-muted).
@@ -259,38 +276,12 @@ const ImportarFechamentoModal = ({ obraId, obraNome, mesInicial, mesesExistentes
               Pré-visualização ({disciplinas.length} linhas) — arraste para o lado pra ver as demais colunas
             </div>
             <div style={{ maxHeight: 320, overflow: 'auto' }}>
+              {/* Pré-visualização mostra sempre todas as colunas: é pra conferir a planilha inteira antes de gravar. */}
               <table className="tbl" style={{ minWidth: 2000, whiteSpace: 'nowrap', fontSize: 12.5 }}>
-                <thead>
-                  <tr className="band-row">
-                    <th colSpan={5} style={{ ...BANDA_CLARA, textAlign: 'center' }}>Orçamento</th>
-                    <th colSpan={5} style={{ ...BANDA_ESCURA, borderLeft: '2px solid var(--brand)', textAlign: 'center' }}>Acumulado até {mesCurto(mesEscolhido)}</th>
-                    <th colSpan={9} style={{ ...BANDA_CLARA, borderLeft: '2px solid var(--brand)', textAlign: 'center' }}>Fechamento</th>
-                  </tr>
-                  <tr>
-                    <th className="center" style={BANDA_CLARA}>Código</th>
-                    <th className="center" style={BANDA_CLARA}>Nome</th>
-                    <th className="center" style={BANDA_CLARA}>Orçamento</th>
-                    <th className="center" style={BANDA_CLARA}>Orçamento INCC</th>
-                    <th className="center" style={BANDA_CLARA}>Orçamento Atualizado</th>
-                    <th className="center" style={{ ...BANDA_ESCURA, borderLeft: '2px solid var(--brand)' }}>Previsto (%)</th>
-                    <th className="center" style={BANDA_ESCURA}>Exec. físico (%)</th>
-                    <th className="center" style={BANDA_ESCURA}>Gasto (%)</th>
-                    <th className="center" style={BANDA_ESCURA}>Gasto (INCC)</th>
-                    <th className="center" style={BANDA_ESCURA}>Gasto (R$)</th>
-                    <th className="center" style={{ ...BANDA_CLARA, borderLeft: '2px solid var(--brand)' }}>Tendência (R$)</th>
-                    <th className="center" style={BANDA_CLARA}>Créd. Modificações</th>
-                    <th className="center" style={BANDA_CLARA}>Ganhos (INCC)</th>
-                    <th className="center" style={BANDA_CLARA}>Saving</th>
-                    <th className="center" style={BANDA_CLARA}>Ganhos (INCC) Real</th>
-                    <th className="center" style={BANDA_CLARA}>Saving Real</th>
-                    <th className="center" style={BANDA_CLARA}>Reserva Financeira</th>
-                    <th className="center" style={BANDA_CLARA}>Saldo (R$)</th>
-                    <th className="center" style={BANDA_CLARA}>Saldo (INCC)</th>
-                  </tr>
-                </thead>
+                <CabecalhoFechamento cols={COLUNAS} mes={mesEscolhido} />
                 <tbody>
-                  {total && <LinhaFechamento key={total.codigo} item={total} total />}
-                  {disciplinas.map((it, i) => <LinhaFechamento key={it.codigo} item={it} striped={i % 2 === 1} />)}
+                  {total && <LinhaFechamento key={total.codigo} item={total} cols={COLUNAS} total />}
+                  {disciplinas.map((it, i) => <LinhaFechamento key={it.codigo} item={it} cols={COLUNAS} striped={i % 2 === 1} />)}
                 </tbody>
               </table>
             </div>
@@ -301,33 +292,44 @@ const ImportarFechamentoModal = ({ obraId, obraNome, mesInicial, mesesExistentes
   );
 };
 
-// ── Uma linha da tabela de 19 colunas (disciplina ou total da obra) ────────────
-const LinhaFechamento = ({ item, total = false, striped = false }) => {
+// ── Cabeçalho da tabela (bandas + rótulos), só com as colunas recebidas ────────
+const CabecalhoFechamento = ({ cols, mes }) => {
+  const separador = { borderLeft: '2px solid var(--brand)' };
+  return (
+    <thead>
+      <tr className="band-row">
+        {bandasDe(cols).map((b, i) => (
+          <th key={b.id} colSpan={b.span}
+            style={{ ...(b.escura ? BANDA_ESCURA : BANDA_CLARA), ...(i > 0 ? separador : null), textAlign: 'center' }}>
+            {b.rotulo(mes)}
+          </th>
+        ))}
+      </tr>
+      <tr>
+        {/* A borda grossa vai na 1ª coluna visível de cada grupo, que muda conforme o que foi ocultado. */}
+        {cols.map((c, i) => (
+          <th key={c.campo} className="center"
+            style={{ ...(grupoEscuro(c.grupo) ? BANDA_ESCURA : BANDA_CLARA), ...(i > 0 && cols[i - 1].grupo !== c.grupo ? separador : null) }}>
+            {c.label}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+};
+
+// ── Uma linha da tabela (disciplina ou total da obra) ──────────────────────────
+const LinhaFechamento = ({ item, cols, total = false, striped = false }) => {
   const rowStyle = total
     ? { background: 'var(--brand-tint)', borderTop: '2px solid var(--brand)' }
     : striped ? { background: 'var(--surface-muted)' } : undefined;
   const strong   = total ? ' strong' : ''; // só a linha de total (destacada em azul) fica em negrito
   return (
     <tr style={rowStyle}>
-      <td className={strong} style={total ? { color: 'var(--brand)' } : undefined}>{item.codigo}</td>
-      <td className={strong}>{item.nome}</td>
-      <td className={'right mono text-muted' + strong}>{formatBRL(item.valorOrcamentoBase)}</td>
-      <td className={'right mono text-muted' + strong}>{formatNum(item.valorInccBase)}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.valorOrcamentoAtualizado)}</td>
-      <td className={'right mono text-muted' + strong}>{formatNum(item.previstoLinhaBase)}%</td>
-      <td className={'right mono' + strong}>{formatNum(item.executadoFisico)}%</td>
-      <td className={'right mono' + strong}>{formatNum(item.gastoPct)}%</td>
-      <td className={'right mono text-muted' + strong}>{formatNum(item.gastoIncc)}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.gastoReal)}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.tendencia)}</td>
-      <td className={'right mono text-muted' + strong}>{formatBRL(item.creditoModificacoes)}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.ganhosIncc)}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.saving)}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.ganhosInccReal)}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.savingReal)}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.reservaFinanceira)}</td>
-      <td className={'right mono' + strong}>{formatBRL(item.saldoDistribuirReal)}</td>
-      <td className={'right mono text-muted' + strong}>{formatNum(item.saldoDistribuirIncc)}</td>
+      {cols.map(c => (c.fmt
+        ? <td key={c.campo} className={'right mono' + (c.muted ? ' text-muted' : '') + strong}>{c.fmt(item[c.campo])}</td>
+        : <td key={c.campo} className={strong} style={total && c.campo === 'codigo' ? { color: 'var(--brand)' } : undefined}>{item[c.campo]}</td>
+      ))}
     </tr>
   );
 };
@@ -408,6 +410,31 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
   const kpis = computeKPIs(itens);
   const mesesExistentes = React.useMemo(() => new Set(meses.map(m => m.mes_referencia)), [meses]);
 
+  // Colunas ocultas da tabela (botão "Colunas"). A tela e o PDF usam a mesma lista de
+  // visíveis, então o que some aqui some também no PDF exportado.
+  const [colsOcultas, setColsOcultas] = React.useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(COLS_OCULTAS_KEY) || '[]')); }
+    catch { return new Set(); }
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem(COLS_OCULTAS_KEY, JSON.stringify([...colsOcultas])); } catch { /* ignore */ }
+  }, [colsOcultas]);
+  const colsVisiveis = COLUNAS.filter(c => c.fixa || !colsOcultas.has(c.campo));
+  const qtdOcultas = COLUNAS.length - colsVisiveis.length;
+  const toggleColuna = (campo) => setColsOcultas(prev => {
+    const next = new Set(prev);
+    next.has(campo) ? next.delete(campo) : next.add(campo);
+    return next;
+  });
+  const [colsMenuAberto, setColsMenuAberto] = React.useState(false);
+  const colsMenuRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!colsMenuAberto) return;
+    const fechar = (e) => { if (colsMenuRef.current && !colsMenuRef.current.contains(e.target)) setColsMenuAberto(false); };
+    document.addEventListener('mousedown', fechar);
+    return () => document.removeEventListener('mousedown', fechar);
+  }, [colsMenuAberto]);
+
   // Exporta KPIs + tabela de fechamento do mês em PDF (A3 paisagem: 19 colunas não cabem
   // legíveis em A4). Mesmo padrão de exportarPDF da Medição Mensal (jspdf sob demanda).
   const [exportando, setExportando] = React.useState(false);
@@ -457,21 +484,22 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
       });
       autoTable(doc, {
         startY: y,
+        // Só as colunas visíveis na tela, com as bandas recalculadas pelo que sobrou.
         head: [
-          [banda('ORÇAMENTO', 5, false), banda(`ACUMULADO ATÉ ${mesCurto(mesSel).toUpperCase()}`, 5, true), banda('FECHAMENTO', 9, false)],
-          PDF_COLS.map((c, i) => ({
+          bandasDe(colsVisiveis).map(b => banda(b.rotulo(mesSel).toUpperCase(), b.span, b.escura)),
+          colsVisiveis.map(c => ({
             content: c.label.toUpperCase(),
-            styles: (i >= 5 && i < 10)
+            styles: grupoEscuro(c.grupo)
               ? { fillColor: PDF_BRAND, textColor: 255 }
               : { fillColor: PDF_CLARA, textColor: PDF_BRAND },
           })),
         ],
-        body: linhas.map(it => PDF_COLS.map(c => cel(it, c))),
+        body: linhas.map(it => colsVisiveis.map(c => cel(it, c))),
         theme: 'grid',
         headStyles: { fontSize: 6.5, fontStyle: 'bold', halign: 'center', valign: 'middle' },
         bodyStyles: { fontSize: 7, textColor: 40 },
         alternateRowStyles: { fillColor: [248, 249, 250] },
-        columnStyles: Object.fromEntries(PDF_COLS.map((c, i) => [i, { halign: i < 2 ? 'left' : 'right' }])),
+        columnStyles: Object.fromEntries(colsVisiveis.map((c, i) => [i, { halign: c.fmt ? 'right' : 'left' }])),
         margin: { top: 14, right: 14, bottom: 14, left: 14 },
         didParseCell: (data) => {
           // Linha de total da obra (1ª do corpo): negrito com fundo azul claro, como na tela.
@@ -515,7 +543,7 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
           )}
           {/* Exportar não altera nada: aparece também em somente leitura. */}
           {mesSel && registro && (
-            <button className="btn btn-ghost" title="Exportar KPIs e fechamento deste mês em PDF" onClick={exportarPDF} disabled={exportando}>
+            <button className="btn btn-ghost" title="Exportar KPIs e as colunas visíveis do fechamento deste mês em PDF" onClick={exportarPDF} disabled={exportando}>
               <Icon name="download" size={14} />{exportando ? 'Exportando…' : 'Exportar PDF'}
             </button>
           )}
@@ -581,40 +609,39 @@ const FisicoFinanceiroDetail = ({ obra, userProfile, onBack }) => {
               <div>
                 <div className="card-title">Fechamento</div>
               </div>
+              <div className="card-actions">
+                <div ref={colsMenuRef} style={{ position: 'relative' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setColsMenuAberto(v => !v)} title="Mostrar/ocultar colunas (o PDF exporta só as visíveis)">
+                    <Icon name="layers" size={13} />Colunas{qtdOcultas > 0 && <span className="text-muted">· {qtdOcultas} {qtdOcultas === 1 ? 'oculta' : 'ocultas'}</span>}
+                  </button>
+                  {colsMenuAberto && (
+                    <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 10, minWidth: 220, maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {GRUPOS.map(g => (
+                        <React.Fragment key={g.id}>
+                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)', padding: '6px 4px 2px' }}>{g.rotulo(mesSel)}</div>
+                          {COLUNAS.filter(c => c.grupo === g.id && !c.fixa).map(c => (
+                            <label key={c.campo} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', padding: '3px 4px' }}>
+                              <input type="checkbox" checked={!colsOcultas.has(c.campo)} onChange={() => toggleColuna(c.campo)} />
+                              {c.label}
+                            </label>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                      {qtdOcultas > 0 && (
+                        <button className="btn btn-ghost btn-sm" style={{ marginTop: 6 }} onClick={() => setColsOcultas(new Set())}>Mostrar todas</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="card-body flush" style={{ overflowX: 'auto' }}>
-              <table className="tbl" style={{ minWidth: 2000, whiteSpace: 'nowrap' }}>
-                <thead>
-                  <tr className="band-row">
-                    <th colSpan={5} style={{ ...BANDA_CLARA, textAlign: 'center' }}>Orçamento</th>
-                    <th colSpan={5} style={{ ...BANDA_ESCURA, borderLeft: '2px solid var(--brand)', textAlign: 'center' }}>Acumulado até {mesCurto(mesSel)}</th>
-                    <th colSpan={9} style={{ ...BANDA_CLARA, borderLeft: '2px solid var(--brand)', textAlign: 'center' }}>Fechamento</th>
-                  </tr>
-                  <tr>
-                    <th className="center" style={BANDA_CLARA}>Código</th>
-                    <th className="center" style={BANDA_CLARA}>Nome</th>
-                    <th className="center" style={BANDA_CLARA}>Orçamento</th>
-                    <th className="center" style={BANDA_CLARA}>Orçamento INCC</th>
-                    <th className="center" style={BANDA_CLARA}>Orçamento Atualizado</th>
-                    <th className="center" style={{ ...BANDA_ESCURA, borderLeft: '2px solid var(--brand)' }}>Previsto (%)</th>
-                    <th className="center" style={BANDA_ESCURA}>Exec. físico (%)</th>
-                    <th className="center" style={BANDA_ESCURA}>Gasto (%)</th>
-                    <th className="center" style={BANDA_ESCURA}>Gasto (INCC)</th>
-                    <th className="center" style={BANDA_ESCURA}>Gasto (R$)</th>
-                    <th className="center" style={{ ...BANDA_CLARA, borderLeft: '2px solid var(--brand)' }}>Tendência (R$)</th>
-                    <th className="center" style={BANDA_CLARA}>Créd. Modificações</th>
-                    <th className="center" style={BANDA_CLARA}>Ganhos (INCC)</th>
-                    <th className="center" style={BANDA_CLARA}>Saving</th>
-                    <th className="center" style={BANDA_CLARA}>Ganhos (INCC) Real</th>
-                    <th className="center" style={BANDA_CLARA}>Saving Real</th>
-                    <th className="center" style={BANDA_CLARA}>Reserva Financeira</th>
-                    <th className="center" style={BANDA_CLARA}>Saldo (R$)</th>
-                    <th className="center" style={BANDA_CLARA}>Saldo (INCC)</th>
-                  </tr>
-                </thead>
+              {/* ~105px por coluna: com todas visíveis dá os mesmos 2000px de antes, e encolhe ao ocultar. */}
+              <table className="tbl" style={{ minWidth: colsVisiveis.length * 105, whiteSpace: 'nowrap' }}>
+                <CabecalhoFechamento cols={colsVisiveis} mes={mesSel} />
                 <tbody>
-                  {total && <LinhaFechamento key={total.codigo} item={total} total />}
-                  {disciplinas.map((it, i) => <LinhaFechamento key={it.codigo} item={it} striped={i % 2 === 1} />)}
+                  {total && <LinhaFechamento key={total.codigo} item={total} cols={colsVisiveis} total />}
+                  {disciplinas.map((it, i) => <LinhaFechamento key={it.codigo} item={it} cols={colsVisiveis} striped={i % 2 === 1} />)}
                 </tbody>
               </table>
             </div>
