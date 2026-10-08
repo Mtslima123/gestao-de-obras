@@ -128,6 +128,7 @@ const Dashboard = ({ obras = [] }) => {
           sigla: o.sigla || o.id,
           status: o.status,
           previsto: o.previsto,
+          dataFimObra: o.dataFimObra || null,
           temCronograma: etapas.length > 0,
           tarefas: folhas.length,
           avanco: etapas.length ? computeAvancoFisico(etapas, custoMap) : 0,
@@ -175,6 +176,20 @@ const Dashboard = ({ obras = [] }) => {
 
   const ativas = obrasAtivas.length;
   const areaTotal = porObra.reduce((s, o) => s + (o.area || 0), 0);
+
+  // Tabela Avanço Físico × Financeiro: da obra que termina primeiro para a última.
+  // Término = "Data fim da obra" do cadastro; sem ela, o fim do cronograma. Obra sem
+  // nenhuma das duas vai pro fim. Empate (mesma data) desempata pelo nome.
+  const terminoDe = (o) => o.dataFimObra || o.fimCronograma || null;
+  const porObraPorTermino = [...porObra].sort((a, b) => {
+    const ta = terminoDe(a), tb = terminoDe(b);
+    if (ta !== tb) {
+      if (!ta) return 1;
+      if (!tb) return -1;
+      return ta < tb ? -1 : 1;
+    }
+    return a.nome.localeCompare(b.nome, 'pt-BR');
+  });
 
   // ── Físico Financeiro e Curva S: sempre de UMA obra (sem visão consolidada
   // da carteira). Sem escolha explícita (ou se a obra escolhida saiu da lista), cai na
@@ -317,7 +332,7 @@ const Dashboard = ({ obras = [] }) => {
                     {loading && (
                       <tr><td colSpan={6} style={{ color: 'var(--text-faint)', fontSize: 13 }}>Carregando…</td></tr>
                     )}
-                    {!loading && porObra.map((o) => {
+                    {!loading && porObraPorTermino.map((o) => {
                       const totalObra = fechamentosPorObra[o.id] ? getLinhaTotal(fechamentosPorObra[o.id]) : null;
                       const delta = totalObra ? (totalObra.executadoFisico || 0) - (totalObra.gastoPct || 0) : null;
                       return (
