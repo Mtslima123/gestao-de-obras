@@ -1521,171 +1521,178 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
             <button className="btn btn-ghost" onClick={fecharModal}>Fechar</button>
           }
         >
-          {/* Reatribuir esta associação pra outra tarefa, caso tenha escolhido a errada */}
-          {isAdmin(userProfile) && (
-            <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-              <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                Mover para outra tarefa
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
-                  <TarefaCronogramaSelect
-                    etapas={etapas.filter(e => e.id !== editandoEtapaId)}
-                    rowNumberMap={rowNumberMap}
-                    value={novaTarefaId}
-                    onChange={setNovaTarefaId}
-                    dropdown
-                  />
+          {/* Coluna flex com a altura do corpo do modal: é o que permite a lista de "Adicionar
+              itens" crescer junto quando o modal é redimensionado (ver <Modal resizable>). */}
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            {/* Reatribuir esta associação pra outra tarefa, caso tenha escolhido a errada */}
+            {isAdmin(userProfile) && (
+              <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                  Mover para outra tarefa
                 </div>
-                <button className="btn btn-ghost" style={{ flexShrink: 0 }}
-                  disabled={!novaTarefaId || movendoTarefa}
-                  onClick={handleMoverVinculos}>
-                  {movendoTarefa ? 'Movendo…' : 'Mover'}
-                </button>
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 6 }}>
-                Transfere os {vinculosEtapa.length} itens vinculados desta tarefa para a tarefa escolhida acima, caso a tarefa atual esteja errada.
-              </div>
-            </div>
-          )}
-
-          {/* Itens atualmente vinculados */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, minHeight: 26 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                Itens vinculados ({vinculosEtapa.length})
-              </div>
-              {/* Remover todos de uma vez. Confirmação inline (não modal aninhado) pelo mesmo
-                  motivo da lixeira individual, e com a contagem no texto para o usuário ver o
-                  que está prestes a apagar. */}
-              {isAdmin(userProfile) && vinculosEtapa.length > 0 && (
-                confirmRemoveTodos ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-                    <button className="btn btn-danger" disabled={removendoTodos}
-                      style={{ fontSize: 11.5, padding: '2px 10px', height: 26 }}
-                      onClick={handleRemoveTodos}>
-                      {removendoTodos ? 'Removendo…' : `Confirmar remoção de ${vinculosEtapa.length} ${vinculosEtapa.length === 1 ? 'item' : 'itens'}`}
-                    </button>
-                    <button className="btn btn-ghost" title="Cancelar" disabled={removendoTodos}
-                      style={{ fontSize: 14, padding: 0, width: 26, height: 26, lineHeight: 1, justifyContent: 'center' }}
-                      onClick={() => setConfirmRemoveTodos(false)}>
-                      ×
-                    </button>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <TarefaCronogramaSelect
+                      etapas={etapas.filter(e => e.id !== editandoEtapaId)}
+                      rowNumberMap={rowNumberMap}
+                      value={novaTarefaId}
+                      onChange={setNovaTarefaId}
+                      dropdown
+                    />
                   </div>
-                ) : (
-                  <button className="btn btn-ghost"
-                    style={{ marginLeft: 'auto', fontSize: 11.5, padding: '2px 10px', height: 26, color: 'var(--danger)' }}
-                    title="Remove todos os itens vinculados a esta tarefa"
-                    onClick={() => setConfirmRemoveTodos(true)}>
-                    <Icon name="trash" size={13} />
-                    Excluir todos
+                  <button className="btn btn-ghost" style={{ flexShrink: 0 }}
+                    disabled={!novaTarefaId || movendoTarefa}
+                    onClick={handleMoverVinculos}>
+                    {movendoTarefa ? 'Movendo…' : 'Mover'}
                   </button>
-                )
-              )}
-            </div>
-            {vinculosEtapa.length === 0 ? (
-              <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: '8px 0' }}>
-                Nenhum item associado a esta tarefa.
-              </div>
-            ) : (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 160, overflowY: 'auto' }}>
-                {vinculosEtapa.map(v => (
-                  <div key={v.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
-                  }}>
-                    <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
-                      {v.orcamento_itens?.codigo || '—'}
-                    </span>
-                    <span style={{ flex: 1, fontSize: 13 }}>
-                      {v.orcamento_itens?.nome || <span style={{ color: 'var(--text-faint)' }}>Item removido</span>}
-                    </span>
-                    <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
-                      {formatBRL(itemValor(v.orcamento_itens))}
-                    </span>
-                    {confirmRemoveId === v.id ? (
-                      <>
-                        <button
-                          className="btn btn-danger"
-                          style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0 }}
-                          onClick={() => { setConfirmRemoveId(null); handleRemove(v.id); }}
-                        >
-                          Confirmar
-                        </button>
-                        <button
-                          className="btn btn-ghost"
-                          title="Cancelar"
-                          style={{ fontSize: 14, padding: 0, width: 26, height: 26, flexShrink: 0, lineHeight: 1, justifyContent: 'center' }}
-                          onClick={() => setConfirmRemoveId(null)}
-                        >
-                          ×
-                        </button>
-                      </>
-                    ) : isAdmin(userProfile) ? (
-                      <button
-                        className="icon-btn"
-                        title="Remover vínculo"
-                        onClick={() => setConfirmRemoveId(v.id)}
-                        style={{ color: 'var(--danger)', flexShrink: 0 }}
-                      >
-                        <Icon name="trash" size={13} />
-                      </button>
-                    ) : null}
-                  </div>
-                ))}
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 6 }}>
+                  Transfere os {vinculosEtapa.length} itens vinculados desta tarefa para a tarefa escolhida acima, caso a tarefa atual esteja errada.
+                </div>
               </div>
             )}
-          </div>
 
-          {/* Adicionar novos itens */}
-          <div>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-              Adicionar itens
-            </div>
-            <input
-              className="input"
-              placeholder="Buscar item do orçamento…"
-              value={buscaModalItem}
-              onChange={e => setBuscaModalItem(e.target.value)}
-              style={{ width: '100%', marginBottom: 8 }}
-            />
-            <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 160, overflowY: 'auto' }}>
-              {itensNaoVinculados.length === 0 ? (
-                <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>
-                  {buscaModalItem ? 'Nenhum item encontrado para essa busca.' : 'Todos os itens já foram vinculados.'}
+            {/* Itens atualmente vinculados */}
+            <div style={{ marginBottom: 20, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, minHeight: 26 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                  Itens vinculados ({vinculosEtapa.length})
                 </div>
-              ) : (
-                itensNaoVinculados.map(it => {
-                  const resumo = resumoIds.has(it.id);
-                  return (
-                    <div key={it.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
-                      opacity: resumo ? 0.45 : 1,
-                    }}>
-                      <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
-                        {it.codigo}
-                      </span>
-                      <span style={{ flex: 1, fontSize: 13 }}>
-                        {it.nome}
-                        {resumo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>resumo</span>}
-                      </span>
-                      <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
-                        {formatBRL(itemValor(it))}
-                      </span>
-                      <button
-                        className="btn btn-ghost"
-                        style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0, gap: 4 }}
-                        onClick={() => handleAddVinculoModal(it.id)}
-                        disabled={saving || resumo}
-                        title={resumo ? 'Item-resumo não pode ser vinculado diretamente' : undefined}
-                      >
-                        <Icon name="plus" size={12} />Vincular
+                {/* Remover todos de uma vez. Confirmação inline (não modal aninhado) pelo mesmo
+                    motivo da lixeira individual, e com a contagem no texto para o usuário ver o
+                    que está prestes a apagar. */}
+                {isAdmin(userProfile) && vinculosEtapa.length > 0 && (
+                  confirmRemoveTodos ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                      <button className="btn btn-danger" disabled={removendoTodos}
+                        style={{ fontSize: 11.5, padding: '2px 10px', height: 26 }}
+                        onClick={handleRemoveTodos}>
+                        {removendoTodos ? 'Removendo…' : `Confirmar remoção de ${vinculosEtapa.length} ${vinculosEtapa.length === 1 ? 'item' : 'itens'}`}
+                      </button>
+                      <button className="btn btn-ghost" title="Cancelar" disabled={removendoTodos}
+                        style={{ fontSize: 14, padding: 0, width: 26, height: 26, lineHeight: 1, justifyContent: 'center' }}
+                        onClick={() => setConfirmRemoveTodos(false)}>
+                        ×
                       </button>
                     </div>
-                  );
-                })
+                  ) : (
+                    <button className="btn btn-ghost"
+                      style={{ marginLeft: 'auto', fontSize: 11.5, padding: '2px 10px', height: 26, color: 'var(--danger)' }}
+                      title="Remove todos os itens vinculados a esta tarefa"
+                      onClick={() => setConfirmRemoveTodos(true)}>
+                      <Icon name="trash" size={13} />
+                      Excluir todos
+                    </button>
+                  )
+                )}
+              </div>
+              {vinculosEtapa.length === 0 ? (
+                <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: '8px 0' }}>
+                  Nenhum item associado a esta tarefa.
+                </div>
+              ) : (
+                <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 160, overflowY: 'auto' }}>
+                  {vinculosEtapa.map(v => (
+                    <div key={v.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
+                    }}>
+                      <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
+                        {v.orcamento_itens?.codigo || '—'}
+                      </span>
+                      <span style={{ flex: 1, fontSize: 13 }}>
+                        {v.orcamento_itens?.nome || <span style={{ color: 'var(--text-faint)' }}>Item removido</span>}
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
+                        {formatBRL(itemValor(v.orcamento_itens))}
+                      </span>
+                      {confirmRemoveId === v.id ? (
+                        <>
+                          <button
+                            className="btn btn-danger"
+                            style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0 }}
+                            onClick={() => { setConfirmRemoveId(null); handleRemove(v.id); }}
+                          >
+                            Confirmar
+                          </button>
+                          <button
+                            className="btn btn-ghost"
+                            title="Cancelar"
+                            style={{ fontSize: 14, padding: 0, width: 26, height: 26, flexShrink: 0, lineHeight: 1, justifyContent: 'center' }}
+                            onClick={() => setConfirmRemoveId(null)}
+                          >
+                            ×
+                          </button>
+                        </>
+                      ) : isAdmin(userProfile) ? (
+                        <button
+                          className="icon-btn"
+                          title="Remover vínculo"
+                          onClick={() => setConfirmRemoveId(v.id)}
+                          style={{ color: 'var(--danger)', flexShrink: 0 }}
+                        >
+                          <Icon name="trash" size={13} />
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
               )}
+            </div>
+
+            {/* Adicionar novos itens */}
+            <div style={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em', flexShrink: 0 }}>
+                Adicionar itens
+              </div>
+              <input
+                className="input"
+                placeholder="Buscar item do orçamento…"
+                value={buscaModalItem}
+                onChange={e => setBuscaModalItem(e.target.value)}
+                style={{ width: '100%', marginBottom: 8, flexShrink: 0 }}
+              />
+              {/* flex-basis de 160px mantém a altura de antes com o modal no tamanho padrão;
+                  flex-grow é o que faz a lista ocupar o espaço extra ao arrastar o canto do
+                  modal (com maxHeight fixo o modal crescia e a lista ficava parada). */}
+              <div style={{ flex: '1 1 160px', minHeight: 120, border: '1px solid var(--border)', borderRadius: 6, overflowY: 'auto' }}>
+                {itensNaoVinculados.length === 0 ? (
+                  <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>
+                    {buscaModalItem ? 'Nenhum item encontrado para essa busca.' : 'Todos os itens já foram vinculados.'}
+                  </div>
+                ) : (
+                  itensNaoVinculados.map(it => {
+                    const resumo = resumoIds.has(it.id);
+                    return (
+                      <div key={it.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
+                        opacity: resumo ? 0.45 : 1,
+                      }}>
+                        <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
+                          {it.codigo}
+                        </span>
+                        <span style={{ flex: 1, fontSize: 13 }}>
+                          {it.nome}
+                          {resumo && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>resumo</span>}
+                        </span>
+                        <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
+                          {formatBRL(itemValor(it))}
+                        </span>
+                        <button
+                          className="btn btn-ghost"
+                          style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0, gap: 4 }}
+                          onClick={() => handleAddVinculoModal(it.id)}
+                          disabled={saving || resumo}
+                          title={resumo ? 'Item-resumo não pode ser vinculado diretamente' : undefined}
+                        >
+                          <Icon name="plus" size={12} />Vincular
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
         </Modal>
