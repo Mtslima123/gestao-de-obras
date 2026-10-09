@@ -752,6 +752,12 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
   );
 });
 
+// Altura da lista "Itens vinculados" do modal Editar Itens Associados: arrastável pela
+// alça logo abaixo dela e lembrada entre sessões (mesmo padrão do TaskFormPanel).
+const VINC_LISTA_H     = 160; // altura padrão, a mesma que era fixa
+const VINC_LISTA_H_MIN = 60;  // ainda mostra uma linha inteira
+const VINC_LISTA_H_KEY = 'orc_cron_vinculados_h';
+
 // ─── OrcamentoCronogramaScreen ────────────────────────────────────────────────
 const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   const toast = useToast();
@@ -817,6 +823,37 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   // Confirmação da remoção em lote — inline pelo mesmo motivo da individual
   const [confirmRemoveTodos, setConfirmRemoveTodos] = React.useState(false);
   const [removendoTodos,     setRemovendoTodos]     = React.useState(false);
+
+  const [vincListaH, setVincListaH] = React.useState(() => {
+    try { return Number(localStorage.getItem(VINC_LISTA_H_KEY)) || VINC_LISTA_H; } catch { return VINC_LISTA_H; }
+  });
+  const vincListaRef  = React.useRef(null);
+  const vincResizeRef = React.useRef(null); // { startY, startH, maxH, liveH } enquanto arrasta
+  // Ponteiro (não mouse) pra funcionar com o dedo no tablet, igual ao Modal; a captura
+  // mantém os eventos na alça mesmo se o ponteiro sair dela durante o arrasto.
+  const iniciarResizeVinc = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const lista = vincListaRef.current;
+    if (!lista) return;
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ponteiro já solto */ }
+    const startH = lista.offsetHeight;
+    // Teto = altura do conteúdo: passar disso só criaria espaço vazio dentro da borda,
+    // e a alça ficaria "presa" ao arrastar de volta.
+    const maxH = Math.max(startH, lista.scrollHeight + (lista.offsetHeight - lista.clientHeight));
+    vincResizeRef.current = { startY: e.clientY, startH, maxH, liveH: startH };
+  };
+  const moverResizeVinc = (e) => {
+    const r = vincResizeRef.current;
+    if (!r) return;
+    r.liveH = Math.round(Math.min(r.maxH, Math.max(VINC_LISTA_H_MIN, r.startH + (e.clientY - r.startY))));
+    setVincListaH(r.liveH);
+  };
+  const terminarResizeVinc = () => {
+    const r = vincResizeRef.current;
+    vincResizeRef.current = null;
+    if (r && r.liveH !== r.startH) { try { localStorage.setItem(VINC_LISTA_H_KEY, String(r.liveH)); } catch { /* best-effort */ } }
+  };
 
   // Estado do modal de distribuição de pesos (fator_peso das subtarefas de um grupo)
   const [salvandoPeso,      setSalvandoPeso]      = React.useState(false);
@@ -1552,8 +1589,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
               </div>
             )}
 
-            {/* Itens atualmente vinculados */}
-            <div style={{ marginBottom: 20, flexShrink: 0 }}>
+            {/* Itens atualmente vinculados (com lista, a alça de altura abaixo dela já faz o espaçamento) */}
+            <div style={{ marginBottom: vinculosEtapa.length === 0 ? 20 : 4, flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, minHeight: 26 }}>
                 <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                   Itens vinculados ({vinculosEtapa.length})
@@ -1591,52 +1628,72 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                   Nenhum item associado a esta tarefa.
                 </div>
               ) : (
-                <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 160, overflowY: 'auto' }}>
-                  {vinculosEtapa.map(v => (
-                    <div key={v.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
-                    }}>
-                      <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
-                        {v.orcamento_itens?.codigo || '—'}
-                      </span>
-                      <span style={{ flex: 1, fontSize: 13 }}>
-                        {v.orcamento_itens?.nome || <span style={{ color: 'var(--text-faint)' }}>Item removido</span>}
-                      </span>
-                      <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
-                        {formatBRL(itemValor(v.orcamento_itens))}
-                      </span>
-                      {confirmRemoveId === v.id ? (
-                        <>
+                <>
+                  <div ref={vincListaRef} style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: vincListaH, overflowY: 'auto' }}>
+                    {vinculosEtapa.map(v => (
+                      <div key={v.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
+                      }}>
+                        <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
+                          {v.orcamento_itens?.codigo || '—'}
+                        </span>
+                        <span style={{ flex: 1, fontSize: 13 }}>
+                          {v.orcamento_itens?.nome || <span style={{ color: 'var(--text-faint)' }}>Item removido</span>}
+                        </span>
+                        <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
+                          {formatBRL(itemValor(v.orcamento_itens))}
+                        </span>
+                        {confirmRemoveId === v.id ? (
+                          <>
+                            <button
+                              className="btn btn-danger"
+                              style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0 }}
+                              onClick={() => { setConfirmRemoveId(null); handleRemove(v.id); }}
+                            >
+                              Confirmar
+                            </button>
+                            <button
+                              className="btn btn-ghost"
+                              title="Cancelar"
+                              style={{ fontSize: 14, padding: 0, width: 26, height: 26, flexShrink: 0, lineHeight: 1, justifyContent: 'center' }}
+                              onClick={() => setConfirmRemoveId(null)}
+                            >
+                              ×
+                            </button>
+                          </>
+                        ) : isAdmin(userProfile) ? (
                           <button
-                            className="btn btn-danger"
-                            style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0 }}
-                            onClick={() => { setConfirmRemoveId(null); handleRemove(v.id); }}
+                            className="icon-btn"
+                            title="Remover vínculo"
+                            onClick={() => setConfirmRemoveId(v.id)}
+                            style={{ color: 'var(--danger)', flexShrink: 0 }}
                           >
-                            Confirmar
+                            <Icon name="trash" size={13} />
                           </button>
-                          <button
-                            className="btn btn-ghost"
-                            title="Cancelar"
-                            style={{ fontSize: 14, padding: 0, width: 26, height: 26, flexShrink: 0, lineHeight: 1, justifyContent: 'center' }}
-                            onClick={() => setConfirmRemoveId(null)}
-                          >
-                            ×
-                          </button>
-                        </>
-                      ) : isAdmin(userProfile) ? (
-                        <button
-                          className="icon-btn"
-                          title="Remover vínculo"
-                          onClick={() => setConfirmRemoveId(v.id)}
-                          style={{ color: 'var(--danger)', flexShrink: 0 }}
-                        >
-                          <Icon name="trash" size={13} />
-                        </button>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Alça entre as duas listas: arrastar pra baixo mostra mais itens vinculados e
+                      tira espaço da lista de Adicionar itens (que tem altura mínima própria). */}
+                  <div
+                    role="separator"
+                    aria-orientation="horizontal"
+                    title="Arraste para ajustar a altura (duplo clique volta ao padrão)"
+                    onPointerDown={iniciarResizeVinc}
+                    onPointerMove={moverResizeVinc}
+                    onPointerUp={terminarResizeVinc}
+                    onPointerCancel={terminarResizeVinc}
+                    onDoubleClick={() => {
+                      setVincListaH(VINC_LISTA_H);
+                      try { localStorage.removeItem(VINC_LISTA_H_KEY); } catch { /* best-effort */ }
+                    }}
+                    style={{ height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'row-resize', touchAction: 'none', userSelect: 'none' }}
+                  >
+                    <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)' }} />
+                  </div>
+                </>
               )}
             </div>
 
