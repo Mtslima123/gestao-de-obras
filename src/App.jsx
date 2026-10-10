@@ -32,6 +32,7 @@ const UsuariosScreen            = React.lazy(() => import('./modules/admin/Usuar
 const AuditoriaScreen           = React.lazy(() => import('./modules/admin/Auditoria').then(m => ({ default: m.AuditoriaScreen })));
 const FisicoFinanceiroList      = React.lazy(() => import('./modules/fisicoFinanceiro/FisicoFinanceiroList').then(m => ({ default: m.FisicoFinanceiroList })));
 const FisicoFinanceiroDetail    = React.lazy(() => import('./modules/fisicoFinanceiro/FisicoFinanceiroDetail').then(m => ({ default: m.FisicoFinanceiroDetail })));
+const MaoDeObraEfetivo          = React.lazy(() => import('./modules/maoDeObra/efetivo/MaoDeObraEfetivo').then(m => ({ default: m.MaoDeObraEfetivo })));
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
 // Um módulo (React.lazy) que já estava carregado na aba e o site foi atualizado (novo
@@ -42,6 +43,17 @@ import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakCol
 // não é a internet do usuário, é a aba estar com a versão antiga do app).
 const CHUNK_LOAD_ERROR_RE = /dynamically imported module|failed to fetch dynamically|importing a module script failed|chunkloaderror/i;
 const isChunkLoadError = (error) => CHUNK_LOAD_ERROR_RE.test(String(error?.message || error?.name || ''));
+
+// Mão de Obra > Efetivo tem URL própria: /mao-de-obra/efetivo/:obraId (o app não tem roteador;
+// a URL acompanha a tela por history.replaceState e um link direto abre a obra certa).
+// null = a URL não é do módulo; '' = é do módulo, sem obra na URL.
+const MO_URL_RE = /^\/mao-de-obra\/efetivo(?:\/([^/]+))?\/?$/;
+const obraIdDaUrlMO = () => {
+  try {
+    const m = window.location.pathname.match(MO_URL_RE);
+    return m ? decodeURIComponent(m[1] || '') : null;
+  } catch { return null; }
+};
 
 // Captura erros de render e exibe mensagem em vez de tela branca
 class ErrorBoundary extends React.Component {
@@ -163,6 +175,7 @@ const AppInner = () => {
   const [user,   setUser]             = React.useState(null);
   const [userProfile, setUserProfile] = React.useState(null);
   const [view, setView] = React.useState(() => {
+    if (obraIdDaUrlMO() !== null) return 'mao-de-obra';
     const saved = sessionStorage.getItem('nav_view');
     return (saved && saved !== 'obra-detail' && saved !== 'fisico-financeiro-detail') ? saved : 'dashboard';
   });
@@ -176,6 +189,9 @@ const AppInner = () => {
     return null;
   });
   const [selectedObraFF, setSelectedObraFF] = React.useState(null);
+  const [moObraId, setMoObraId] = React.useState(() => {
+    try { return obraIdDaUrlMO() || sessionStorage.getItem('nav_obra_mo') || null; } catch { return null; }
+  });
   const [modal, setModal] = React.useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
@@ -571,6 +587,19 @@ const AppInner = () => {
     }
   }, []);
 
+  // Mantém a URL do módulo Mão de Obra em sincronia com a tela; ao sair dele, volta para "/".
+  React.useEffect(() => {
+    try {
+      const { pathname, search, hash } = window.location;
+      if (view === 'mao-de-obra') {
+        const alvo = `/mao-de-obra/efetivo${moObraId ? '/' + encodeURIComponent(moObraId) : ''}`;
+        if (pathname !== alvo) window.history.replaceState(null, '', alvo + search + hash);
+      } else if (pathname.startsWith('/mao-de-obra')) {
+        window.history.replaceState(null, '', '/' + search + hash);
+      }
+    } catch { /* history indisponível: a tela funciona sem URL própria */ }
+  }, [view, moObraId]);
+
   // Reseta a rolagem ao trocar de tela/obra — sem isso a janela mantinha a
   // posição de scroll anterior (nenhum container tem overflow próprio, quem
   // rola é o window), fazendo a tela nova abrir "no meio".
@@ -668,6 +697,11 @@ const AppInner = () => {
     setView('fisico-financeiro-detail');
   };
 
+  const handleTrocarObraMO = React.useCallback((id) => {
+    setMoObraId(id);
+    try { sessionStorage.setItem('nav_obra_mo', id); } catch { /* ignore */ }
+  }, []);
+
   const handleOpenCronograma = (obraId, tab) => {
     setCronogramaObraId(obraId);
     // "Ir para Cronograma" sempre quer dizer o Gantt/Lista — só o Mobile Gate passa
@@ -699,6 +733,7 @@ const AppInner = () => {
     'admin':      'Administração',
     'fisico-financeiro':        'Físico Financeiro — Lista',
     'fisico-financeiro-detail': 'Físico Financeiro — Detalhe',
+    'mao-de-obra': 'Mão de Obra — Efetivo',
   };
 
   const buildBreadcrumb = () => {
@@ -714,6 +749,7 @@ const AppInner = () => {
       { label: 'Físico Financeiro', onClick: () => handleNavigate('fisico-financeiro') },
       { label: selectedObraFF ? selectedObraFF.nome : AppData.obraAtual.nome },
     ];
+    if (view === 'mao-de-obra') return [home, { label: 'Mão de Obra' }, { label: 'Efetivo' }];
     const map = {
       obras: 'Obras',
       orcamentos: 'Orçamentos', cronograma: 'Cronogramas',
@@ -735,11 +771,12 @@ const AppInner = () => {
     dashboard: 'dashboard', obras: 'obras', 'obra-detail': 'obras',
     orcamentos: 'orcamentos', cronograma: 'cronograma',
     'fisico-financeiro': 'fisico-financeiro', 'fisico-financeiro-detail': 'fisico-financeiro',
+    'mao-de-obra': 'mao-de-obra',
   };
   const moduloDaView = VIEW_MODULO[view];
   const viewBloqueada = !!moduloDaView && !moduloLiberado(userProfile, moduloDaView);
   const primeiraViewLiberada =
-    ['dashboard', 'obras', 'orcamentos', 'cronograma', 'fisico-financeiro']
+    ['dashboard', 'obras', 'orcamentos', 'cronograma', 'fisico-financeiro', 'mao-de-obra']
       .find(v => moduloLiberado(userProfile, v)) || 'dashboard';
 
   // Tablet de obra (toque como entrada principal) também usa os atalhos de Medição/Fotos,
@@ -915,6 +952,14 @@ const AppInner = () => {
               onBack={() => handleNavigate('fisico-financeiro')}
             />
           )}
+          {view === 'mao-de-obra' && (
+            <MaoDeObraEfetivo
+              obras={obrasVisiveis}
+              obraId={moObraId}
+              onTrocarObra={handleTrocarObraMO}
+              userProfile={userProfile}
+            />
+          )}
           {/* 🔒 SEGURANÇA [VULN-3]: telas admin bloqueadas para não-admin no frontend */}
           {view === 'admin' && (
             userProfile?.perfil === 'admin' ? (
@@ -931,7 +976,7 @@ const AppInner = () => {
           {view !== 'dashboard' && view !== 'obra-detail' && view !== 'obras' &&
            view !== 'orcamentos' &&
            view !== 'cronograma' && view !== 'admin' &&
-           view !== 'fisico-financeiro' && view !== 'fisico-financeiro-detail' && (
+           view !== 'fisico-financeiro' && view !== 'fisico-financeiro-detail' && view !== 'mao-de-obra' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
           </>

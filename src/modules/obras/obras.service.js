@@ -31,6 +31,9 @@ export const obraDeleteErrorMessage = (error) => {
     if (error.message?.includes('orcamento_cronograma_vinculos_obra_id_fkey')) {
       return 'Não é possível excluir: esta obra tem vínculos entre orçamento e cronograma. Remova os vínculos antes de excluir a obra.';
     }
+    if (/mo_(obra_config|previsto|apropriacao)_obra_id_fkey/.test(error.message || '')) {
+      return 'Não é possível excluir: esta obra tem efetivo (previsto ou apropriações) em Mão de Obra. Fale com o TI para remover esses dados antes de excluir a obra.';
+    }
     return 'Não é possível excluir: esta obra ainda tem dados vinculados em outro cadastro. Remova-os antes de excluir a obra.';
   }
   return 'Erro ao excluir obra. ' + friendlyError(error);

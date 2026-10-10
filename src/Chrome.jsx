@@ -34,7 +34,7 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogr
 
   // Abre accordion ao entrar na seção; fecha ao sair para outro módulo
   React.useEffect(() => {
-    if (currentView === 'cronograma' || currentView === 'admin') {
+    if (currentView === 'cronograma' || currentView === 'admin' || currentView === 'mao-de-obra') {
       setExpandedSection(currentView);
     } else {
       setExpandedSection(null);
@@ -51,6 +51,8 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogr
     { id: 'gantt',       label: 'Cronograma',       mod: 'cronograma' },
     { id: 'orc-x-cron',  label: 'Orç. × Cronograma', mod: 'orc-x-cron' },
   ].map(sub => ({ ...sub, locked: !moduloLiberado(userProfile, sub.mod) }));
+  // Mão de Obra: por ora só a tela Efetivo (as abas Previsto/Apropriação/Análise ficam dentro dela).
+  const maoDeObraSubItems = [{ id: 'efetivo', label: 'Efetivo' }];
   const adminSubItems = [
     { id: 'usuarios',  label: 'Usuários' },
     { id: 'auditoria', label: 'Auditoria do Sistema' },
@@ -131,9 +133,23 @@ const Sidebar = ({ currentView, onNavigate, user, userProfile, onLogout, cronogr
             {navItems.length > 0 && !collapsed && <div className="nav-group-label">Principal</div>}
             {navItems.map(item => {
               const isCronograma = item.id === 'cronograma';
+              const isMaoDeObra = item.id === 'mao-de-obra';
               return (
                 <React.Fragment key={item.id}>
-                  {renderItem(item, isCronograma ? () => handleSectionClick('cronograma') : null)}
+                  {renderItem(item, isCronograma ? () => handleSectionClick('cronograma') : isMaoDeObra ? () => handleSectionClick('mao-de-obra') : null)}
+                  {isMaoDeObra && !collapsed && expandedSection === 'mao-de-obra' && (
+                    <div className="nav-sub-group">
+                      {maoDeObraSubItems.map(sub => (
+                        <button
+                          key={sub.id}
+                          className={'nav-sub-item' + (currentView === 'mao-de-obra' ? ' active' : '')}
+                          onClick={() => onNavigate('mao-de-obra')}
+                        >
+                          {sub.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {isCronograma && !collapsed && expandedSection === 'cronograma' && (
                     <div className="nav-sub-group">
                       {cronogramaSubItems.map(sub => (

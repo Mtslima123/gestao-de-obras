@@ -27,10 +27,11 @@ const MOD_COLORS = {
   contratos:     '#ea580c',
   autenticacao:  '#374151',
   ia:            '#6d28d9',
+  'mao-de-obra': '#0d9488',
 };
 
 const ACOES = ['criou', 'editou', 'excluiu', 'aprovou', 'reprovou', 'login', 'logout', 'importou', 'exportou'];
-const MODULOS = ['usuarios', 'obras', 'cronograma', 'orcamentos', 'medicoes', 'contratos', 'autenticacao'];
+const MODULOS = ['usuarios', 'obras', 'cronograma', 'orcamentos', 'medicoes', 'contratos', 'autenticacao', 'mao-de-obra'];
 
 const MOCK_LOGS = [
   { id: 'm1', created_at: new Date(Date.now()-3*60000).toISOString(), user_nome: 'Administrador', user_perfil: 'admin', modulo: 'usuarios', acao: 'editou', entidade_tipo: 'usuario', entidade_id: '25', descricao: 'Alterou o perfil do usuário João da Silva de Usuário para Administrador', obra_nome: 'Todas as Obras', ip: '177.68.32.10', criticidade: 'critica', valor_anterior: { Perfil: 'Usuário', Status: 'Ativo' }, valor_novo: { Perfil: 'Administrador', Status: 'Ativo' }, sessao_id: '5f8d9...', duracao_ms: 842 },
@@ -281,7 +282,7 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
             <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Módulo</label>
             <select style={inputStyle} value={filtros.modulo} onChange={e => setFiltros(f => ({ ...f, modulo: e.target.value }))}>
               <option value="">Todos os módulos</option>
-              {MODULOS.map(m => <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>)}
+              {MODULOS.map(m => <option key={m} value={m}>{m === 'mao-de-obra' ? 'Mão de Obra' : m.charAt(0).toUpperCase() + m.slice(1)}</option>)}
             </select>
           </div>
           <div>

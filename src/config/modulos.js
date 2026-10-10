@@ -24,6 +24,11 @@ export const MODULOS = [
   ] },
   { id: 'orc-x-cron',  label: 'Orç. × Cronograma', icon: 'link', subDe: 'cronograma' },
   { id: 'fisico-financeiro', label: 'Físico Financeiro', icon: 'chart' },
+  { id: 'mao-de-obra', label: 'Mão de Obra',       icon: 'users', abas: [
+      { id: 'previsto',    label: 'Previsto' },
+      { id: 'apropriacao', label: 'Apropriação' },
+      { id: 'analise',     label: 'Análise' },
+  ] },
 ];
 
 // Módulos de nível superior no menu (exclui sub-itens, ex.: orc-x-cron)
