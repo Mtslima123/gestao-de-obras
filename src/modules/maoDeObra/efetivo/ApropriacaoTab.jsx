@@ -71,7 +71,8 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
 
   const ap = apropDe(s, mesSel, q);
   const locked = ap?.status === 'LANCADA';
-  const editavel = !locked && !somenteLeitura;
+  const aguardaPrimeira = q === 2 && apropDe(s, mesSel, 1)?.status !== 'LANCADA'; // a 2ª só se apropria com a 1ª lançada e fechada
+  const editavel = !locked && !somenteLeitura && !aguardaPrimeira;
   const ultimo = ultimoDia(mesSel.ano, mesSel.mes);
   const range = (n) => (n === 1 ? '01 a 15' : `16 a ${ultimo}`);
 
@@ -127,6 +128,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
         await recarregar();
         return toast(`${q}ª apropriação reaberta para edição.`);
       }
+      if (aguardaPrimeira) return erro('Lance e feche a 1ª apropriação antes de apropriar a 2ª.');
       if (!ap || !ap.itens.some(temValor)) return erro('Preencha ao menos uma função antes de lançar.');
       const negativas = ap.itens.filter((i) => trabCanteiro(i) < 0).map((i) => s.funcoes.find((f) => f.id === i.funcaoId)?.nome).filter(Boolean);
       if (negativas.length) return erro(`"Trab. no canteiro" ficou negativo em: ${negativas.join(', ')}. Corrija antes de lançar.`);
@@ -276,7 +278,9 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
             ? <span style={{ ...pill(T.texto2, T.faixa), fontWeight: 600 }}><Icon name="lock" size={12} stroke={2.2} />Lançada e fechada</span>
             : somenteLeitura
               ? <span style={{ ...pill(T.texto2, T.faixa), fontWeight: 600 }}>Somente consulta</span>
-              : <>
+              : aguardaPrimeira
+                ? null
+                : <>
                 {q === 2 && <button type="button" style={btn} disabled={ocupado} onClick={pedirCopia}>Copiar da 1ª</button>}
                 <label style={{ ...btn, opacity: ocupado ? 0.6 : 1, pointerEvents: ocupado ? 'none' : 'auto' }}>
                   <Icon name="download" size={15} stroke={2.2} />Importar efetivo (.xlsx)
@@ -284,11 +288,19 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
                 </label>
               </>}
           {!somenteLeitura && (
-            <button type="button" style={locked ? btnSec : btnPrim} disabled={ocupado} onClick={lancarOuReabrir}>
+            <button type="button" style={locked ? btnSec : btnPrim} disabled={ocupado || aguardaPrimeira} onClick={lancarOuReabrir}>
               <Icon name={locked ? 'unlock' : 'lock'} size={14} stroke={2.2} />{locked ? 'Reabrir apropriação' : 'Lançar apropriação'}
             </button>
           )}
         </div>
+
+        {aguardaPrimeira && !locked && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 20px', fontSize: 13, fontWeight: 500, color: T.laranja, background: T.laranjaBg, borderBottom: `1px solid ${T.borda}` }}>
+            <Icon name="lock" size={14} stroke={2.2} />
+            <span>A 2ª apropriação só pode ser preenchida depois que a 1ª for lançada e fechada.</span>
+            <button type="button" onClick={() => setQ(1)} style={{ font: 'inherit', fontSize: 13, fontWeight: 600, border: 0, background: 'none', color: T.azul, cursor: 'pointer', padding: 0 }}>Ir para a 1ª apropriação</button>
+          </div>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', flexWrap: 'wrap', fontSize: 13, color: T.texto2, background: T.faixa, borderBottom: `1px solid ${T.borda}` }}>
           <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar função…" style={{ font: 'inherit', fontSize: 13, padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8, width: 220, background: 'var(--surface)', color: T.texto }} />
