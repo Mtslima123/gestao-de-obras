@@ -38,9 +38,10 @@ export const efetivoService = {
   criarClassificacao: (nome) => chamar('criarClassificacao', 'mo_classificacao_criar', { p_nome: nome }),
   removerClassificacao: (nome) => chamar('removerClassificacao', 'mo_classificacao_remover', { p_nome: nome }),
 
-  // Previsto: salvar tranca; destrancar = "Editar previsto". itens: [{ funcaoId, qtdMes, inicio, termino }].
-  salvarPrevisto: (obraId, terminoObra, itens) =>
-    chamar('salvarPrevisto', 'mo_previsto_salvar', { p_obra: obraId, p_termino_obra: terminoObra, p_itens: itens.map(itemPrevisto) }, { obraId }),
+  // Previsto: salvar grava início e término da obra e tranca; destrancar = "Editar previsto".
+  // itens: [{ funcaoId, qtdMes, inicio, termino }].
+  salvarPrevisto: (obraId, inicioObra, terminoObra, itens) =>
+    chamar('salvarPrevisto', 'mo_previsto_salvar', { p_obra: obraId, p_termino_obra: terminoObra, p_itens: itens.map(itemPrevisto), p_inicio_obra: inicioObra }, { obraId }),
   destrancarPrevisto: (obraId) => chamar('destrancarPrevisto', 'mo_previsto_destrancar', { p_obra: obraId }, { obraId }),
 
   // Apropriação por obra/mês/quinzena (1 ou 2). salvar = rascunho; lançar tranca; reabrir destranca.

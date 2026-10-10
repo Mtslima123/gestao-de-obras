@@ -6,6 +6,7 @@ import { GRUPOS, consumidoAte, fimDoMesIso, funcoesDoGrupo, mesDeAbs, prevDe } f
 import { efetivoService } from './efetivo.service';
 import { ehConflito } from './efetivoErro';
 import { GruposModal } from './GruposModal';
+import { CampoData } from './CampoData';
 import { lerPlanilha } from './importXlsx';
 import { lerPlanilhaPrevisto } from './importXlsxPure';
 import { ImportarPlanilhaModal } from './ImportarPlanilhaModal';
@@ -50,9 +51,11 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
         setS((st) => ({ ...st, obra: { ...st.obra, previstoTrancado: false } }));
         toast('Previsto aberto para edição.');
       } else {
+        if (!s.obra.inicio) return erro('Informe o início da obra.');
         if (!s.obra.termino) return erro('Informe o término da obra.');
+        if (s.obra.termino < s.obra.inicio) return erro('O término da obra não pode ser antes do início.');
         const itens = s.previsto.filter((p) => s.funcoes.some((f) => f.ativo && f.id === p.funcaoId));
-        const { error } = await efetivoService.salvarPrevisto(s.obra.id, s.obra.termino, itens);
+        const { error } = await efetivoService.salvarPrevisto(s.obra.id, s.obra.inicio, s.obra.termino, itens);
         if (error) return falhou(error);
         setNova(null);
         await recarregar();
@@ -151,9 +154,14 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
             <Icon name={locked ? 'lock' : 'unlock'} size={12} stroke={2.2} />{etiqueta}
           </span>
           <div style={{ flex: 1 }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: T.texto2 }}>Início da obra
+            <CampoData value={s.obra.inicio} max={s.obra.termino} disabled={locked || somenteLeitura} aria-label="Início da obra"
+              onConfirmar={(v) => setS((st) => ({ ...st, obra: { ...st.obra, inicio: v } }))}
+              style={{ ...inp(locked, 'auto'), fontWeight: 600, padding: '7px 10px', borderRadius: 8 }} />
+          </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: T.texto2 }}>Término da obra
-            <input type="date" value={s.obra.termino} disabled={locked}
-              onChange={(e) => e.target.value && setS((st) => ({ ...st, obra: { ...st.obra, termino: e.target.value } }))}
+            <CampoData value={s.obra.termino} min={s.obra.inicio} disabled={locked || somenteLeitura} aria-label="Término da obra"
+              onConfirmar={(v) => setS((st) => ({ ...st, obra: { ...st.obra, termino: v } }))}
               style={{ ...inp(locked, 'auto'), fontWeight: 600, padding: '7px 10px', borderRadius: 8 }} />
           </label>
           {!locked && !somenteLeitura && ehAdmin && <>
@@ -211,8 +219,8 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
                   <tr key={f.id}>
                     <td style={{ ...td, textAlign: 'left', paddingLeft: 32 }}>{f.nome}</td>
                     <td style={td}><input type="number" min={0} value={q} disabled={locked} onChange={(e) => setPrev(f.id, { qtdMes: Math.max(0, parseInt(e.target.value, 10) || 0) })} style={{ ...inp(locked, 56), fontWeight: 600 }} /></td>
-                    <td style={{ ...td, textAlign: 'left' }}><input type="date" value={p?.inicio ?? s.obra.inicio} disabled={locked} onChange={(e) => e.target.value && setPrev(f.id, { inicio: e.target.value })} style={inp(locked, 'auto')} /></td>
-                    <td style={{ ...td, textAlign: 'left' }}><input type="date" value={p?.termino ?? fimDoMesIso(mesDeAbs(OF))} disabled={locked} onChange={(e) => e.target.value && setPrev(f.id, { termino: e.target.value })} style={inp(locked, 'auto')} /></td>
+                    <td style={{ ...td, textAlign: 'left' }}><CampoData value={p?.inicio ?? s.obra.inicio} disabled={locked} aria-label={`Início de ${f.nome}`} onConfirmar={(v) => setPrev(f.id, { inicio: v })} style={inp(locked, 'auto')} /></td>
+                    <td style={{ ...td, textAlign: 'left' }}><CampoData value={p?.termino ?? fimDoMesIso(mesDeAbs(OF))} disabled={locked} aria-label={`Término de ${f.nome}`} onConfirmar={(v) => setPrev(f.id, { termino: v })} style={inp(locked, 'auto')} /></td>
                     <td style={{ ...td, fontWeight: 600, color: T.texto2 }}>{meses}</td>
                     <td style={{ ...td, textAlign: 'right' }}>{fmt(tot)}</td>
                     <td style={{ ...td, textAlign: 'right', color: T.texto2 }}>{fmt(c)}</td>

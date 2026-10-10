@@ -115,20 +115,30 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
     );
   } else if (!s) {
     corpo = <div className="content-loading"><span className="spinner" /></div>;
-  } else if (!s.obra.inicio) {
-    corpo = <div style={{ ...card, padding: 24, fontSize: 14, color: T.texto2 }}>Esta obra não tem data de início cadastrada. Preencha o início em Obras para usar o efetivo.</div>;
-  } else if (!s.obra.termino) {
-    // Sem término na obra nem no cadastro de efetivo: ele define a duração e os meses restantes.
+  } else if (!meses.length) {
+    // Obra sem início e/ou término (nem no cadastro de obras nem no de efetivo), ou com as datas
+    // trocadas: as duas datas definem os meses da tela e os meses restantes. Quando ficam
+    // válidas, este cartão some sozinho; são gravadas junto com o previsto.
+    const campo = { background: 'var(--surface)', color: T.texto, font: 'inherit', fontSize: 13, padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8 };
     corpo = (
-      <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 14 }}>Esta obra ainda não tem término cadastrado. Informe o término da obra para montar o previsto.</span>
-        <input type="date" aria-label="Término da obra" min={s.obra.inicio}
-          onChange={(e) => e.target.value && setS((st) => ({ ...st, obra: { ...st.obra, termino: e.target.value } }))}
-          style={{ font: 'inherit', fontSize: 13, padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8, background: 'var(--surface)', color: T.texto }} />
+      <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'flex-start' }}>
+        <span style={{ fontSize: 14 }}>
+          {s.obra.inicio && s.obra.termino
+            ? 'O término da obra é anterior ao início. Corrija as datas.'
+            : 'Informe o início e o término da obra para montar o previsto.'}
+        </span>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: T.texto2 }}>Início da obra
+            <CampoData value={s.obra.inicio ?? ''} aria-label="Início da obra" style={campo}
+              onConfirmar={(v) => setS((st) => ({ ...st, obra: { ...st.obra, inicio: v } }))} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: T.texto2 }}>Término da obra
+            <CampoData value={s.obra.termino ?? ''} aria-label="Término da obra" style={campo}
+              onConfirmar={(v) => setS((st) => ({ ...st, obra: { ...st.obra, termino: v } }))} />
+          </label>
+        </div>
       </div>
     );
-  } else if (!meses.length) {
-    corpo = <div style={{ ...card, padding: 24, fontSize: 14, color: T.texto2 }}>O término da obra é anterior ao início. Corrija as datas da obra.</div>;
   } else {
     const mesSel = meses.find((m) => m.abs === mesAbsSel) ?? meses[0];
     const ctx = {
