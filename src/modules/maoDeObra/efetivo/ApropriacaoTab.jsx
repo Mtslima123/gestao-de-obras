@@ -3,14 +3,15 @@ import { Icon } from '../../../components/Icons';
 import { Modal } from '../../../components/Modals';
 import { STATUS_UI, ativos, classificacaoEfetiva, corSaldo, status, temValor, trabCanteiro, usoPct } from './regras';
 import { T, card, h2, btn, btnPrim, btnSec, th, td, inp, pill, corUi } from './tokens';
-import { GRUPOS, apropDe, funcoesAtivas, itemDe, previstoMes, saldoAcumulado, ultimoDia } from './efetivoStore';
+import { GRUPOS, apropDe, aplicarPatchItem, funcoesAtivas, itemDe, previstoMes, saldoAcumulado, totalEfetivoTela, ultimoDia } from './efetivoStore';
 import { efetivoService } from './efetivo.service';
 import { ehConflito } from './efetivoErro';
 import { lerPlanilha } from './importXlsx';
 import { avisosDeContexto, lerPlanilhaEfetivo } from './importXlsxPure';
 import { ImportarPlanilhaModal } from './ImportarPlanilhaModal';
+import { CampoQtd } from './CampoQtd';
 
-const NUM = ['totalEfetivo', 'trabAdm', 'inssSeguro', 'ferias', 'emprestManut', 'recebidoOutraObra'];
+const NUM = ['trabAdm', 'inssSeguro', 'ferias', 'emprestManut', 'recebidoOutraObra'];
 const sg = (v) => (v > 0 ? '+' + v : v < 0 ? '−' + -v : '0');
 const chaveQ = (ano, mes, q) => `${ano}-${mes}-${q}`;
 
@@ -46,6 +47,9 @@ const BarrasGrupo = ({ grupos, preenchido }) => (
 // "Reabrir" destranca. A trava de verdade é do banco (409).
 export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somenteLeitura }) {
   const [q, setQ] = React.useState(1);
+  // Trocou o período: volta para a 1ª apropriação (ajuste durante a renderização, sem piscar a 2ª do mês novo).
+  const [absVisto, setAbsVisto] = React.useState(mesSel.abs);
+  if (absVisto !== mesSel.abs) { setAbsVisto(mesSel.abs); setQ(1); }
   const [busca, setBusca] = React.useState('');
   const [agrupar, setAgrupar] = React.useState('grupo');
   const [recolhidos, setRecolhidos] = React.useState({});
@@ -53,6 +57,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
   const [salvando, setSalvando] = React.useState(false);
   const [rascunhoSalvo, setRascunhoSalvo] = React.useState(false);
   const [confirmaCopia, setConfirmaCopia] = React.useState(false);
+  const [linhaFoco, setLinhaFoco] = React.useState(null); // função cuja linha tem um campo em edição
 
   // Gravação do rascunho: fila (nunca duas ao mesmo tempo, na ordem em que foram pedidas) e,
   // por quinzena, um contador de alterações ainda não gravadas. O contador (e não um simples
@@ -104,7 +109,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
     setS((st0) => {
       const [st, a] = garantirAprop(st0, q);
       const ex = itemDe(a, funcaoId);
-      const it = { ...(ex ?? { apropriacaoId: a.id, funcaoId, totalEfetivo: null, trabAdm: null, inssSeguro: null, ferias: null, emprestManut: null, destino: null, recebidoOutraObra: null, origem: null }), ...patch };
+      const it = aplicarPatchItem(ex ?? { apropriacaoId: a.id, funcaoId, totalEfetivo: null, trabAdm: null, inssSeguro: null, ferias: null, emprestManut: null, destino: null, recebidoOutraObra: null, origem: null }, patch);
       const itens = ex ? a.itens.map((i) => (i.funcaoId === funcaoId ? it : i)) : [...a.itens, it];
       return { ...st, apropriacoes: st.apropriacoes.map((x) => (x.id === a.id ? { ...a, itens } : x)) };
     });
@@ -208,22 +213,23 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
     ? GRUPOS.map((g) => ({ key: g.id, nome: g.nome, funcoes: visiveis.filter((f) => f.grupoId === g.id) }))
     : [...new Set(visiveis.map(classificacaoEfetiva))].sort((a, b) => a.localeCompare(b, 'pt-BR')).map((c) => ({ key: c, nome: c, funcoes: visiveis.filter((f) => classificacaoEfetiva(f) === c) }));
 
-  const Z = () => ({ prev: 0, totalEfetivo: 0, trabAdm: 0, can: 0, inssSeguro: 0, ferias: 0, emprestManut: 0, recebidoOutraObra: 0, at: 0, any: false });
-  const TOT = Z();
+  const Z = () => ({ prev: 0, totalEfetivo: 0, trabAdm: 0, can: 0, inssSeguro: 0, ferias: 0, emprestManut: 0, recebidoOutraObra: 0, at: 0, any: false });  const TOT = Z();
   const grupos = defs.filter((d) => d.funcoes.length).map((d) => {
     const G = Z();
     const rows = d.funcoes.map((f) => {
       const it = itemDe(ap, f.id);
       const pv = previstoMes(s, f.id, mesSel);
       const at = it ? ativos(it) : null;
+      const tot = totalEfetivoTela(it);
       const can = it && temValor(it) ? trabCanteiro(it) : null;
       for (const o of [G, TOT]) {
         o.prev += pv;
         NUM.forEach((k) => { o[k] += it?.[k] ?? 0; });
         if (can != null) o.can += can;
+        if (tot != null) o.totalEfetivo += tot;
         if (at != null) { o.at += at; o.any = true; }
       }
-      return { f, it, pv, at, can };
+      return { f, it, pv, at, can, tot };
     });
     return { ...d, rows, G };
   });
@@ -233,11 +239,11 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
   const acum = funcoesAtivas(s).reduce((a, f) => a + (saldoAcumulado(s, f.id, mesSel) ?? 0), 0);
   const estadoQ = (n) => { const a = apropDe(s, mesSel, n); return a?.status === 'LANCADA' ? 'Lançada' : a?.itens.some(temValor) ? 'Rascunho' : 'Pendente'; };
 
-  const numInput = (f, it, k, label) => (
+  const numInput = (f, it, k, label, valor = it?.[k]) => (
     <td style={{ ...td, padding: '4px' }}>
-      <input type="number" min={0} disabled={!editavel} aria-label={label} placeholder="—" value={it?.[k] ?? ''}
+      <CampoQtd min={0} disabled={!editavel} aria-label={label} placeholder="—" value={valor}
         onChange={(e) => setItem(f.id, { [k]: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0) })} onBlur={salvarRascunho}
-        style={{ ...inp(!editavel, 50), fontWeight: 500 }} />
+        style={{ ...inp(!editavel, 50), fontWeight: 500, color: valor < 0 ? T.vermelho : T.texto }} />
     </td>
   );
   const txtInput = (f, it, k, label) => (
@@ -304,8 +310,8 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
             <thead style={{ background: T.faixa }}>
               <tr>
                 <th style={{ ...th, textAlign: 'left', paddingLeft: 20 }}>Função</th>
-                <th style={th}>Previsto<br />(mês)</th><th style={th}>Total<br />efetivo</th><th style={th}>Trab. na<br />ADM</th>
-                <th style={{ ...th, background: T.grupo }}>Trab. no<br />canteiro</th><th style={th}>INSS/<br />Seguro</th><th style={th}>Férias</th><th style={th}>Emprest./<br />Manut.</th>
+                <th style={th}>Previsto<br />(mês)</th><th style={{ ...th, background: T.grupo }}>Total<br />efetivo</th><th style={th}>Trab. na<br />ADM</th>
+                <th style={th}>Trab. no<br />canteiro</th><th style={th}>INSS/<br />Seguro</th><th style={th}>Férias</th><th style={th}>Emprest./<br />Manut.</th>
                 <th style={{ ...th, textAlign: 'left' }}>Destino</th><th style={th}>Recebido<br />outra obra</th><th style={{ ...th, textAlign: 'left' }}>Origem</th>
                 <th style={{ ...th, background: T.azulClaro, color: T.azul }}>Ativos</th><th style={{ ...th, textAlign: 'right' }}>Saldo</th><th style={{ ...th, textAlign: 'left', paddingRight: 20 }}>Status</th>
               </tr>
@@ -325,21 +331,24 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
                     <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: G.any ? corUi(corSaldo(G.prev - G.at)) : T.texto2 }}>{G.any ? sg(G.prev - G.at) : '—'}</td>
                     <td style={{ ...td, textAlign: 'left', fontWeight: 600, color: okUi(gst).cor, paddingRight: 20 }}>{G.any ? `${usoPct(G.at, G.prev) ?? '—'}%` : '—'}</td>
                   </tr>
-                  {!recolhidos[key] && rows.map(({ f, it, pv, at, can }) => {
+                  {!recolhidos[key] && rows.map(({ f, it, pv, at, can, tot }) => {
                     const ui = okUi(status(pv, at));
+                    const foco = linhaFoco === f.id;
                     return (
-                      <tr key={f.id}>
-                        <td style={{ ...td, textAlign: 'left', paddingLeft: 42 }}>
+                      <tr key={f.id} style={foco ? { background: T.linhaSel } : undefined}
+                        onFocus={() => setLinhaFoco(f.id)}
+                        onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setLinhaFoco(null); }}>
+                        <td style={{ ...td, textAlign: 'left', paddingLeft: 42, boxShadow: foco ? `inset 3px 0 0 ${T.azul}` : undefined, fontWeight: foco ? 600 : undefined }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{f.nome}
                             {agrupar === 'grupo' && f.classificacao && <span style={pill(T.azul, T.azulClaro)}>{f.classificacao}</span>}
                           </span>
                         </td>
                         <td style={{ ...td, color: T.texto2 }}>{pv}</td>
-                        {numInput(f, it, 'totalEfetivo', 'Total efetivo')}{numInput(f, it, 'trabAdm', 'Trabalhando na ADM')}
-                        <td style={{ ...td, fontWeight: 600, background: T.colSaldo, color: (can ?? 0) < 0 ? T.vermelho : T.texto }}>{can ?? '—'}</td>
+                        <td style={{ ...td, fontWeight: 600, background: foco ? 'transparent' : T.colSaldo }}>{tot ?? '—'}</td>
+                        {numInput(f, it, 'trabAdm', 'Trabalhando na ADM')}{numInput(f, it, 'canteiro', 'Trabalhando no canteiro', can)}
                         {numInput(f, it, 'inssSeguro', 'INSS/Seguro')}{numInput(f, it, 'ferias', 'Férias')}{numInput(f, it, 'emprestManut', 'Emprestado/Manutenção')}
                         {txtInput(f, it, 'destino', 'Destino')}{numInput(f, it, 'recebidoOutraObra', 'Recebido outra obra')}{txtInput(f, it, 'origem', 'Origem')}
-                        <td style={{ ...td, fontWeight: 700, color: T.azul, background: T.destaque }}>{at ?? '—'}</td>
+                        <td style={{ ...td, fontWeight: 700, color: T.azul, background: foco ? 'transparent' : T.destaque }}>{at ?? '—'}</td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: at == null ? T.texto2 : corUi(corSaldo(pv - at)) }}>{at == null ? '—' : sg(pv - at)}</td>
                         <td style={{ ...td, textAlign: 'left', paddingRight: 20 }}><span style={pill(ui.cor, ui.fundo)}><span style={{ width: 6, height: 6, borderRadius: '50%', background: ui.cor }} />{ui.rotulo}</span></td>
                       </tr>
@@ -359,7 +368,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
             </tfoot>
           </table>
           <div style={{ padding: '10px 20px', borderTop: `1px solid ${T.borda}`, fontSize: 12, color: T.texto2, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-            <span>Trab. no canteiro = total efetivo − trab. na ADM − INSS/seguro − férias − emprest./manut.</span>
+            <span>Total efetivo = trab. na ADM + trab. no canteiro + emprest./manut. (calculado, não se digita)</span>
             <span style={{ color: T.azul, fontWeight: 600 }}>Ativos = trab. na ADM + trab. no canteiro + recebido outra obra</span>
           </div>
         </div>

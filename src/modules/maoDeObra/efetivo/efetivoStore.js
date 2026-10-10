@@ -5,7 +5,7 @@
 // (é o que a view vw_mo_efetivo_mes faz no banco). O handoff somava também rascunho; assim
 // front e banco divergiam. A aba Apropriação, que precisa mostrar o rascunho, pede
 // incluirRascunho.
-import { ativos, efetivoDoMes, mesAbs, mesesEntre, orcado, previstoNoMes } from './regras';
+import { ativos, efetivoDoMes, mesAbs, mesesEntre, orcado, previstoNoMes, temValor, trabCanteiro } from './regras';
 
 export const GRUPOS = [
   { id: 'ADM_TEC', nome: 'Administrativo e técnico', ordem: 1 },
@@ -41,6 +41,25 @@ export const mesesFuncao = (s, funcaoId) => { const p = prevDe(s, funcaoId); ret
 
 export const apropDe = (s, m, q) => s.apropriacoes.find((a) => a.ano === m.ano && a.mes === m.mes && a.quinzena === q);
 export const itemDe = (a, funcaoId) => a?.itens.find((i) => i.funcaoId === funcaoId);
+
+// "Total efetivo" da tela = trab. ADM + trab. canteiro + emprest./manut. Calculado, não se digita.
+export const totalEfetivoTela = (i) => (i && temValor(i) ? (i.trabAdm ?? 0) + trabCanteiro(i) + (i.emprestManut ?? 0) : null);
+
+// Edição de uma linha da apropriação. "Trab. no canteiro" é digitado (patch.canteiro) e o
+// "Total efetivo" da tela é calculado (totalEfetivoTela). O banco guarda total_efetivo
+// bruto (canteiro + ADM + INSS + férias + emprest.), de onde o canteiro sai pela fórmula de
+// sempre (regras.trabCanteiro). Por isso, ao mexer em ADM, INSS, férias ou emprest., o total
+// bruto é refeito para o canteiro digitado não mudar sozinho.
+const CAMPOS_DO_TOTAL = ['canteiro', 'trabAdm', 'inssSeguro', 'ferias', 'emprestManut'];
+export const aplicarPatchItem = (base, patch) => {
+  const { canteiro, ...resto } = patch;
+  const novo = { ...base, ...resto };
+  if (!CAMPOS_DO_TOTAL.some((k) => k in patch)) return novo;
+  const can = 'canteiro' in patch ? canteiro : (temValor(base) ? Math.max(0, trabCanteiro(base)) : null);
+  const outros = [novo.trabAdm, novo.inssSeguro, novo.ferias, novo.emprestManut];
+  novo.totalEfetivo = can == null && outros.every((v) => v == null) ? null : (can ?? 0) + outros.reduce((a, v) => a + (v ?? 0), 0);
+  return novo;
+};
 
 // ATIVOS da função na quinzena. Só quinzena LANCADA, salvo incluirRascunho.
 export const ativosQ = (s, funcaoId, m, q, incluirRascunho = false) => {

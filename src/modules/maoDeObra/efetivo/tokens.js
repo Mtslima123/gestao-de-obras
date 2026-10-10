@@ -7,7 +7,7 @@ export const T = {
   borda: 'var(--border)', bordaInput: 'var(--border-strong)', linha: 'var(--border)',
   fundo: 'var(--bg-app)', superficie: 'var(--surface)', faixa: 'var(--surface-muted)',
   grupo: 'var(--brand-tint)', destaque: 'var(--brand-tint)', azulClaro: 'var(--brand-50)',
-  projecao: 'var(--brand-100)', previsto: 'var(--brand-100)',
+  projecao: 'var(--brand-100)', previsto: 'var(--brand-100)', linhaSel: 'var(--brand-100)',
   colSaldo: 'var(--surface-muted)', colMedia: 'var(--brand-50)', colMediaGrupo: 'var(--brand-100)',
   verde: 'var(--success)', verdeBg: 'var(--success-bg)',
   vermelho: 'var(--danger)', vermelhoBg: 'var(--danger-bg)',

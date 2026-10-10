@@ -7,6 +7,7 @@ import { efetivoService } from './efetivo.service';
 import { ehConflito } from './efetivoErro';
 import { GruposModal } from './GruposModal';
 import { CampoData } from './CampoData';
+import { CampoQtd } from './CampoQtd';
 import { lerPlanilha } from './importXlsx';
 import { lerPlanilhaPrevisto } from './importXlsxPure';
 import { ImportarPlanilhaModal } from './ImportarPlanilhaModal';
@@ -26,6 +27,7 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
   const [modal, setModal] = React.useState(false);
   const [nova, setNova] = React.useState(null); // { nome, g, q, ini, fim }
   const [ocupado, setOcupado] = React.useState(false);
+  const [linhaFoco, setLinhaFoco] = React.useState(null); // função cuja linha tem um campo em edição
 
   const OF = mesAbs(s.obra.termino);
   const rest = mesesRestantes(mesSel.iso, s.obra.termino);
@@ -215,19 +217,24 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
                   <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: corUi(corSaldo(gt - gc)), background: T.colMedia }}>{fmtSaldo(gt - gc)}</td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 700, background: T.colMediaGrupo, paddingRight: 20 }}>{gm == null ? '—' : fmt(gm)}</td>
                 </tr>
-                {rows.map(({ f, p, q, meses, tot, c, sd, med }) => (
-                  <tr key={f.id}>
-                    <td style={{ ...td, textAlign: 'left', paddingLeft: 32 }}>{f.nome}</td>
-                    <td style={td}><input type="number" min={0} value={q} disabled={locked} onChange={(e) => setPrev(f.id, { qtdMes: Math.max(0, parseInt(e.target.value, 10) || 0) })} style={{ ...inp(locked, 56), fontWeight: 600 }} /></td>
+                {rows.map(({ f, p, q, meses, tot, c, sd, med }) => {
+                  const foco = linhaFoco === f.id;
+                  return (
+                  <tr key={f.id} style={foco ? { background: T.linhaSel } : undefined}
+                    onFocus={() => setLinhaFoco(f.id)}
+                    onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setLinhaFoco(null); }}>
+                    <td style={{ ...td, textAlign: 'left', paddingLeft: 32, boxShadow: foco ? `inset 3px 0 0 ${T.azul}` : undefined, fontWeight: foco ? 600 : undefined }}>{f.nome}</td>
+                    <td style={td}><CampoQtd min={0} value={q} disabled={locked} onChange={(e) => setPrev(f.id, { qtdMes: Math.max(0, parseInt(e.target.value, 10) || 0) })} style={{ ...inp(locked, 56), fontWeight: 600 }} /></td>
                     <td style={{ ...td, textAlign: 'left' }}><CampoData value={p?.inicio ?? s.obra.inicio} disabled={locked} aria-label={`Início de ${f.nome}`} onConfirmar={(v) => setPrev(f.id, { inicio: v })} style={inp(locked, 'auto')} /></td>
                     <td style={{ ...td, textAlign: 'left' }}><CampoData value={p?.termino ?? fimDoMesIso(mesDeAbs(OF))} disabled={locked} aria-label={`Término de ${f.nome}`} onConfirmar={(v) => setPrev(f.id, { termino: v })} style={inp(locked, 'auto')} /></td>
                     <td style={{ ...td, fontWeight: 600, color: T.texto2 }}>{meses}</td>
                     <td style={{ ...td, textAlign: 'right' }}>{fmt(tot)}</td>
                     <td style={{ ...td, textAlign: 'right', color: T.texto2 }}>{fmt(c)}</td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: corUi(corSaldo(sd)), background: T.colSaldo }}>{fmtSaldo(sd)}</td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: corUi(corMediaRestante(med, q)), background: T.grupo, paddingRight: 20 }}>{med == null ? '—' : (med < 0 ? '−' : '') + fmt(Math.abs(med))}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: corUi(corSaldo(sd)), background: foco ? 'transparent' : T.colSaldo }}>{fmtSaldo(sd)}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: corUi(corMediaRestante(med, q)), background: foco ? 'transparent' : T.grupo, paddingRight: 20 }}>{med == null ? '—' : (med < 0 ? '−' : '') + fmt(Math.abs(med))}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             ))}
           </table>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mesesEntre, previstoNoMes, orcado, ativos, trabCanteiro, efetivoDoMes, status, mesesRestantes, mediaRestante } from '../modules/maoDeObra/efetivo/regras';
-import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ } from '../modules/maoDeObra/efetivo/efetivoStore';
+import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela } from '../modules/maoDeObra/efetivo/efetivoStore';
 
 const item = (funcaoId, campos) => ({ apropriacaoId: 'x', funcaoId, totalEfetivo: null, trabAdm: null, inssSeguro: null, ferias: null, emprestManut: null, destino: null, recebidoOutraObra: null, origem: null, ...campos });
 const apr = (mes, quinzena, status, itens) => ({ id: `${mes}-${quinzena}`, obraId: 'O1', ano: 2026, mes, quinzena, dataReferencia: '', status, lancadaEm: null, lancadaPor: null, itens });
@@ -97,5 +97,83 @@ describe('efetivoStore', () => {
     const set = mesDeAbs(2026 * 12 + 8);
     expect(consumidoAte(s, '1', set)).toBe(0);
     expect(saldoAcumulado(s, '1', set)).toBeNull();
+  });
+});
+
+describe('aplicarPatchItem (canteiro digitado, total efetivo calculado)', () => {
+  it('digitar o canteiro numa linha vazia: ativos = canteiro e o canteiro volta igual', () => {
+    const i = aplicarPatchItem(item('1', {}), { canteiro: 4 });
+    expect(trabCanteiro(i)).toBe(4);
+    expect(ativos(i)).toBe(4);
+  });
+
+  it('ativos = ADM + canteiro + recebido; total efetivo da tela = ADM + canteiro + emprest.', () => {
+    let i = aplicarPatchItem(item('1', {}), { canteiro: 3 });
+    i = aplicarPatchItem(i, { trabAdm: 2 });
+    i = aplicarPatchItem(i, { recebidoOutraObra: 1 });
+    i = aplicarPatchItem(i, { emprestManut: 4 });
+    expect(trabCanteiro(i)).toBe(3);
+    expect(ativos(i)).toBe(2 + 3 + 1);
+    expect(totalEfetivoTela(i)).toBe(2 + 3 + 4);
+  });
+
+  it('mexer em ADM, INSS, férias ou emprest. não muda o canteiro digitado', () => {
+    let i = aplicarPatchItem(item('1', {}), { canteiro: 5 });
+    for (const patch of [{ trabAdm: 2 }, { inssSeguro: 1 }, { ferias: 3 }, { emprestManut: 1 }, { trabAdm: 0 }, { ferias: null }]) {
+      i = aplicarPatchItem(i, patch);
+      expect(trabCanteiro(i)).toBe(5);
+    }
+    expect(i.totalEfetivo).toBe(5 + 0 + 1 + 0 + 1);
+  });
+
+  it('INSS e férias ficam fora do total efetivo da tela e dos ativos', () => {
+    const i = aplicarPatchItem(aplicarPatchItem(item('1', {}), { canteiro: 2 }), { inssSeguro: 4, ferias: 1 });
+    expect(totalEfetivoTela(i)).toBe(2);
+    expect(ativos(i)).toBe(2);
+  });
+
+  it('limpar tudo volta a linha para vazia (sem valor)', () => {
+    let i = aplicarPatchItem(item('1', {}), { canteiro: 2 });
+    i = aplicarPatchItem(i, { canteiro: null });
+    expect(i.totalEfetivo).toBeNull();
+    expect(ativos(i)).toBeNull();
+  });
+
+  it('canteiro 0 digitado conta como preenchido', () => {
+    const i = aplicarPatchItem(item('1', {}), { canteiro: 0 });
+    expect(i.totalEfetivo).toBe(0);
+    expect(ativos(i)).toBe(0);
+  });
+
+  it('linha antiga (total bruto do banco) mantém o canteiro que a tela já mostrava', () => {
+    const antigo = item('1', { totalEfetivo: 10, trabAdm: 2, inssSeguro: 1, ferias: 1, emprestManut: 1, recebidoOutraObra: 3 }); // canteiro 5
+    const i = aplicarPatchItem(antigo, { trabAdm: 3 });
+    expect(trabCanteiro(i)).toBe(5);
+    expect(ativos(i)).toBe(3 + 5 + 3);
+  });
+
+  it('só recebido outra obra: total do banco continua vazio', () => {
+    const i = aplicarPatchItem(item('1', {}), { recebidoOutraObra: 2 });
+    expect(i.totalEfetivo).toBeNull();
+    expect(ativos(i)).toBe(2);
+  });
+
+  it('destino e origem não mexem nos números', () => {
+    const base = item('1', { totalEfetivo: 10, trabAdm: 2 });
+    const i = aplicarPatchItem(base, { destino: 'CRI' });
+    expect(i.totalEfetivo).toBe(10);
+    expect(i.destino).toBe('CRI');
+  });
+});
+
+describe('totalEfetivoTela', () => {
+  it('ADM + canteiro + emprest./manut.; recebido outra obra, INSS e férias não entram', () => {
+    const i = item('1', { totalEfetivo: 10, trabAdm: 2, inssSeguro: 1, ferias: 1, emprestManut: 1, recebidoOutraObra: 3 }); // canteiro 5
+    expect(totalEfetivoTela(i)).toBe(2 + 5 + 1);
+  });
+
+  it('linha sem nenhum valor não tem total', () => {
+    expect(totalEfetivoTela(item('1', {}))).toBeNull();
+    expect(totalEfetivoTela(undefined)).toBeNull();
   });
 });
