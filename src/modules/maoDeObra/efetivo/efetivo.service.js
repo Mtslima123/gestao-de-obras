@@ -54,4 +54,11 @@ export const efetivoService = {
     chamar('reabrir', 'mo_apropriacao_reabrir', { p_obra: obraId, p_ano: ano, p_mes: mes, p_quinzena: quinzena }, { obraId, ano, mes, quinzena }),
   copiarDaPrimeira: (obraId, ano, mes) =>
     chamar('copiarDaPrimeira', 'mo_apropriacao_copiar_da_1', { p_obra: obraId, p_ano: ano, p_mes: mes }, { obraId, ano, mes }),
+
+  // Meses liberados para apropriação além do mês atual e dos que já têm apropriação (só admin; o
+  // banco recusa os demais com PT403). Remover só vale para mês sem apropriação (PT409).
+  habilitarMes: (obraId, ano, mes) =>
+    chamar('habilitarMes', 'mo_mes_habilitar', { p_obra: obraId, p_ano: ano, p_mes: mes }, { obraId, ano, mes }),
+  desabilitarMes: (obraId, ano, mes) =>
+    chamar('desabilitarMes', 'mo_mes_desabilitar', { p_obra: obraId, p_ano: ano, p_mes: mes }, { obraId, ano, mes }),
 };

@@ -2,12 +2,14 @@ import React from 'react';
 import { useToast } from '../../../components/Modals';
 import { abaSomenteLeitura, filtrarAbas, isAdmin } from '../../../utils/permissions';
 import { MODULO_ABAS } from '../../../config/modulos';
-import { T, card } from './tokens';
+import { Icon } from '../../../components/Icons';
+import { T, card, btn } from './tokens';
 import { efetivoService } from './efetivo.service';
-import { mesesDaObra } from './efetivoStore';
+import { mesesApropriaveis, mesesDaObra } from './efetivoStore';
 import { PrevistoTab } from './PrevistoTab';
 import { ApropriacaoTab } from './ApropriacaoTab';
 import { AnaliseTab } from './AnaliseTab';
+import { MesesApropriacaoModal } from './MesesApropriacaoModal';
 
 const MOD = 'mao-de-obra';
 const mesAtualAbs = () => { const d = new Date(); return d.getFullYear() * 12 + d.getMonth(); };
@@ -33,6 +35,7 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
   const [s, setState] = React.useState(null);
   const [falha, setFalha] = React.useState(null);
   const [mesAbsSel, setMesAbsSel] = React.useState(null);
+  const [modalMeses, setModalMeses] = React.useState(false);
   const pedido = React.useRef(0);
 
   // Obra sem seleção válida: abre a primeira da lista.
@@ -76,6 +79,14 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
     return <div style={{ padding: '48px 16px', textAlign: 'center', color: T.texto2, fontSize: 14 }}>Você não tem nenhuma aba de Mão de Obra liberada. Fale com o administrador.</div>;
   }
 
+  // Na Apropriação a lista de períodos é menor: só o mês atual, os que já têm apropriação e os
+  // que um admin habilitou. Previsto e Análise seguem com todos os meses da obra. O mês da
+  // Apropriação é derivado (não mexe em mesAbsSel): fora da lista, vale o atual ou o último.
+  const ehAdmin = isAdmin(userProfile);
+  const naApropriacao = abaAtual === 'apropriacao';
+  const listaPeriodo = naApropriacao && s ? mesesApropriaveis(s, meses, mesAtualAbs()) : meses;
+  const mesListado = listaPeriodo.find((m) => m.abs === mesAbsSel) ?? listaPeriodo.find((m) => m.abs === mesAtualAbs()) ?? listaPeriodo[listaPeriodo.length - 1];
+
   const cabecalho = (
     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
       <div>
@@ -89,10 +100,15 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
           </select>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: T.texto2 }}>Período
-          <select value={mesAbsSel ?? ''} disabled={!meses.length} onChange={(e) => setMesAbsSel(+e.target.value)} style={selStyle}>
-            {meses.map((m) => <option key={m.abs} value={m.abs}>{m.label.replace('/', '/20')}</option>)}
+          <select value={mesListado?.abs ?? ''} disabled={!listaPeriodo.length} onChange={(e) => setMesAbsSel(+e.target.value)} style={selStyle}>
+            {listaPeriodo.map((m) => <option key={m.abs} value={m.abs}>{m.label.replace('/', '/20')}</option>)}
           </select>
         </label>
+        {ehAdmin && naApropriacao && s && meses.length > 0 && (
+          <button type="button" style={{ ...btn, padding: '8px 12px' }} onClick={() => setModalMeses(true)}>
+            <Icon name="calendar" size={15} stroke={2.2} />Habilitar mês
+          </button>
+        )}
         <div role="tablist" style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--surface)', border: `1px solid ${T.borda}`, borderRadius: 10 }}>
           {abasLiberadas.map((a) => (
             <button key={a.id} type="button" role="tab" aria-selected={abaAtual === a.id} onClick={() => setAba(a.id)}
@@ -139,11 +155,20 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
         </div>
       </div>
     );
+  } else if (naApropriacao && !mesListado) {
+    corpo = (
+      <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>Nenhum mês habilitado para apropriação nesta obra.</span>
+        <span style={{ fontSize: 13.5, color: T.texto2 }}>
+          {ehAdmin ? 'Use "Habilitar mês" para liberar um mês.' : 'Fale com o administrador para habilitar um mês.'}
+        </span>
+      </div>
+    );
   } else {
-    const mesSel = meses.find((m) => m.abs === mesAbsSel) ?? meses[0];
+    const mesSel = (naApropriacao ? mesListado : meses.find((m) => m.abs === mesAbsSel)) ?? meses[0];
     const ctx = {
       s, setS, mesSel, setMesSel: (m) => setMesAbsSel(m.abs), meses, toast, erro, recarregar, userProfile,
-      ehAdmin: isAdmin(userProfile),
+      ehAdmin,
       somenteLeitura: abaSomenteLeitura(userProfile, MOD, abaAtual),
     };
     if (abaAtual === 'previsto') corpo = <PrevistoTab {...ctx} />;
@@ -155,6 +180,10 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, fontFamily: T.fonte, color: T.texto }}>
       {cabecalho}
       {corpo}
+      {modalMeses && s && (
+        <MesesApropriacaoModal s={s} meses={meses} mesAtualAbs={mesAtualAbs()} recarregar={recarregar} toast={toast} erro={erro}
+          onHabilitado={setMesAbsSel} onClose={() => setModalMeses(false)} />
+      )}
     </div>
   );
 }

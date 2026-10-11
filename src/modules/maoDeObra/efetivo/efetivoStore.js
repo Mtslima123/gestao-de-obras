@@ -87,5 +87,18 @@ export const saldoAcumulado = (s, funcaoId, ate) => {
   return tem ? acc : null;
 };
 
-export const funcoesAtivas = (s) => s.funcoes.filter((f) => f.ativo);
+// Meses em que a obra aceita apropriação: o mês atual, os que já têm apropriação e os que um
+// admin habilitou. Mesma regra de mo_exigir_mes_habilitado no banco. `meses` é a lista da obra.
+export const mesApropriavel = (s, m, mesAtualAbs) =>
+  m.abs === mesAtualAbs
+  || s.apropriacoes.some((a) => a.ano === m.ano && a.mes === m.mes)
+  || (s.mesesHabilitados ?? []).some((h) => h.ano === m.ano && h.mes === m.mes);
+export const mesesApropriaveis = (s, meses, mesAtualAbs) => meses.filter((m) => mesApropriavel(s, m, mesAtualAbs));
+export const mesesParaHabilitar = (s, meses, mesAtualAbs) => meses.filter((m) => !mesApropriavel(s, m, mesAtualAbs));
+// Habilitados por admin que ainda não têm apropriação: são os que dá para remover.
+export const habilitadosRemoviveis = (s, meses) =>
+  meses.filter((m) => (s.mesesHabilitados ?? []).some((h) => h.ano === m.ano && h.mes === m.mes)
+    && !s.apropriacoes.some((a) => a.ano === m.ano && a.mes === m.mes));
+
+export const funcoesAtivas = (s) =>s.funcoes.filter((f) => f.ativo);
 export const funcoesDoGrupo = (s, g) => funcoesAtivas(s).filter((f) => f.grupoId === g);

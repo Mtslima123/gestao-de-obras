@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mesesEntre, previstoNoMes, orcado, ativos, trabCanteiro, efetivoDoMes, status, mesesRestantes, mediaRestante } from '../modules/maoDeObra/efetivo/regras';
-import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela } from '../modules/maoDeObra/efetivo/efetivoStore';
+import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis } from '../modules/maoDeObra/efetivo/efetivoStore';
 
 const item = (funcaoId, campos) => ({ apropriacaoId: 'x', funcaoId, totalEfetivo: null, trabAdm: null, inssSeguro: null, ferias: null, emprestManut: null, destino: null, recebidoOutraObra: null, origem: null, ...campos });
 const apr = (mes, quinzena, status, itens) => ({ id: `${mes}-${quinzena}`, obraId: 'O1', ano: 2026, mes, quinzena, dataReferencia: '', status, lancadaEm: null, lancadaPor: null, itens });
@@ -175,5 +175,41 @@ describe('totalEfetivoTela', () => {
   it('linha sem nenhum valor não tem total', () => {
     expect(totalEfetivoTela(item('1', {}))).toBeNull();
     expect(totalEfetivoTela(undefined)).toBeNull();
+  });
+});
+
+describe('meses disponíveis para apropriação', () => {
+  const OUT = 2026 * 12 + 9; // mês atual: Out/26
+  const labels = (ms) => ms.map((m) => m.label);
+  const todos = mesesDaObra(estado([]).obra); // Set/26 a Dez/26
+
+  it('sem apropriação e sem habilitação só o mês atual aparece', () => {
+    const s = estado([]);
+    expect(labels(mesesApropriaveis(s, todos, OUT))).toEqual(['Out/26']);
+    expect(labels(mesesParaHabilitar(s, todos, OUT))).toEqual(['Set/26', 'Nov/26', 'Dez/26']);
+  });
+
+  it('mês que já tem apropriação (rascunho ou lançada) continua na lista', () => {
+    const s = estado([apr(9, 1, 'LANCADA', [item('1', { totalEfetivo: 3 })]), apr(11, 2, 'RASCUNHO', [])]);
+    expect(labels(mesesApropriaveis(s, todos, OUT))).toEqual(['Set/26', 'Out/26', 'Nov/26']);
+  });
+
+  it('mês habilitado pelo admin entra na lista', () => {
+    const s = { ...estado([]), mesesHabilitados: [{ ano: 2026, mes: 12 }] };
+    expect(labels(mesesApropriaveis(s, todos, OUT))).toEqual(['Out/26', 'Dez/26']);
+    expect(mesApropriavel(s, mesDeAbs(2026 * 12 + 10), OUT)).toBe(false);
+  });
+
+  it('estado sem mesesHabilitados (banco ainda sem a migration) não quebra', () => {
+    expect(labels(mesesApropriaveis(estado([]), todos, OUT))).toEqual(['Out/26']);
+  });
+
+  it('mês atual fora do período da obra não aparece', () => {
+    expect(mesesApropriaveis(estado([]), todos, 2027 * 12)).toEqual([]);
+  });
+
+  it('só dá para remover habilitado que ainda não tem apropriação', () => {
+    const s = { ...estado([apr(11, 1, 'RASCUNHO', [])]), mesesHabilitados: [{ ano: 2026, mes: 11 }, { ano: 2026, mes: 12 }] };
+    expect(labels(habilitadosRemoviveis(s, todos))).toEqual(['Dez/26']);
   });
 });
