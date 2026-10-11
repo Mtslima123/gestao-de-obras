@@ -57,6 +57,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
   const [salvando, setSalvando] = React.useState(false);
   const [rascunhoSalvo, setRascunhoSalvo] = React.useState(false);
   const [confirmaCopia, setConfirmaCopia] = React.useState(false);
+  const [confirmaLimpar, setConfirmaLimpar] = React.useState(false);
   const [linhaFoco, setLinhaFoco] = React.useState(null); // função cuja linha tem um campo em edição
 
   // Gravação do rascunho: fila (nunca duas ao mesmo tempo, na ordem em que foram pedidas) e,
@@ -160,6 +161,25 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
       setOcupado(false);
     }
   };
+  // Limpar: esvazia o rascunho da quinzena aberta (a tela e o banco) depois da confirmação.
+  // Quinzena lançada não chega aqui: o botão só aparece quando é editável.
+  const limparQuinzena = async () => {
+    setConfirmaLimpar(false);
+    if (ocupado || !ap) return;
+    setOcupado(true);
+    try {
+      const alvo = ap.id;
+      marcarSujo(chaveQ(mesSel.ano, mesSel.mes, q));
+      setRascunhoSalvo(false);
+      setS((st0) => ({ ...st0, apropriacoes: st0.apropriacoes.map((x) => (x.id === alvo ? { ...x, itens: [] } : x)) }));
+      sRef.current = { ...sRef.current, apropriacoes: sRef.current.apropriacoes.map((x) => (x.id === alvo ? { ...x, itens: [] } : x)) };
+      if (!(await gravar(mesSel.ano, mesSel.mes, q))) return;
+      toast(`${q}ª apropriação limpa.`);
+    } finally {
+      setOcupado(false);
+    }
+  };
+
   // ---- importar a planilha de efetivo (.xlsx): lê, mostra a conferência e só então aplica ao
   // rascunho da quinzena aberta (substitui o que estava digitado) e grava.
   const [previa, setPrevia] = React.useState(null);
@@ -282,6 +302,9 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
                 ? null
                 : <>
                 {q === 2 && <button type="button" style={btn} disabled={ocupado} onClick={pedirCopia}>Copiar da 1ª</button>}
+                <button type="button" style={{ ...btn, opacity: ocupado || !ap?.itens.length ? 0.5 : 1 }} disabled={ocupado || !ap?.itens.length} onClick={() => setConfirmaLimpar(true)}>
+                  <Icon name="trash" size={15} stroke={2.2} />Limpar
+                </button>
                 <label style={{ ...btn, opacity: ocupado ? 0.6 : 1, pointerEvents: ocupado ? 'none' : 'auto' }}>
                   <Icon name="download" size={15} stroke={2.2} />Importar efetivo (.xlsx)
                   <input type="file" accept=".xlsx,.xls" hidden onChange={escolherArquivo} />
@@ -447,6 +470,20 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
           onConfirmar={aplicarImportacao}
           onClose={() => setPrevia(null)}
         />
+      )}
+
+      {confirmaLimpar && (
+        <Modal
+          title={`Limpar a ${q}ª apropriação?`}
+          size="sm"
+          onClose={() => setConfirmaLimpar(false)}
+          footer={<>
+            <button type="button" className="btn btn-ghost" onClick={() => setConfirmaLimpar(false)}>Cancelar</button>
+            <button type="button" className="btn btn-danger" onClick={limparQuinzena}>Limpar</button>
+          </>}
+        >
+          <p style={{ margin: 0, lineHeight: 1.5 }}>Todas as quantidades, destinos e origens digitados na {q}ª apropriação ({range(q)}) serão apagados. Essa ação não pode ser desfeita.</p>
+        </Modal>
       )}
 
       {confirmaCopia && (
