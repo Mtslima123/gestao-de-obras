@@ -1,9 +1,9 @@
 import React from 'react';
 import { Icon } from '../../../components/Icons';
-import { STATUS_UI, classificacaoEfetiva, corSaldo, status, usoPct } from './regras';
+import { STATUS_UI, corSaldo, status, usoPct } from './regras';
 import { T, card, h2, sub, th, td, pill, corUi } from './tokens';
-import { GRUPOS, funcoesAtivas } from './efetivoStore';
-import { evolucao, kpisAnalise, linhasAnalise, opcoesClassificacao, saldoPorGrupo, serieProjecao } from './analisePure';
+import { GRUPOS } from './efetivoStore';
+import { TODOS, evolucao, funcoesDaOpcao, kpisAnalise, linhasAnalise, opcoesClassificacao, saldoPorGrupo, serieProjecao } from './analisePure';
 
 const fmt = (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 const sg = (v) => (v > 0.05 ? '+' + fmt(v) : v < -0.05 ? '−' + fmt(-v) : '0');
@@ -143,11 +143,10 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses }) {
 
 /* ---------- Gráfico realizado x projeção ---------- */
 function GraficoProjecao({ s, mesSel, meses }) {
-  const funcoes = funcoesAtivas(s);
-  const opcoes = React.useMemo(() => opcoesClassificacao(s), [s.funcoes, s.previsto]); // eslint-disable-line react-hooks/exhaustive-deps
+  const opcoes = React.useMemo(() => { const o = opcoesClassificacao(s); return o.length ? [TODOS, ...o] : []; }, [s.funcoes]); // eslint-disable-line react-hooks/exhaustive-deps
   const [sel, setSel] = React.useState('Carpinteiro');
   const atual = opcoes.includes(sel) ? sel : opcoes[0];
-  const fs = funcoes.filter((f) => classificacaoEfetiva(f) === atual);
+  const fs = funcoesDaOpcao(s, atual);
   const { tot, cons, saldo: saldoV, rest, proj, qtd, pts } = serieProjecao(s, fs, mesSel, meses);
   const mx = Math.max(1, ...pts.map((p) => Math.max(p.v, p.prev))) * 1.12;
   const fim = meses[meses.length - 1];
@@ -160,7 +159,7 @@ function GraficoProjecao({ s, mesSel, meses }) {
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h2 style={h2}>Realizado e projeção até o término da obra</h2>
-          <span style={sub}>{fs.length > 1 ? `${atual} · ${fs.map((f) => f.nome).join(' + ')}` : atual} · meses até {mesSel.label} mostram o realizado; depois, o saldo distribuído até {fim?.label}</span>
+          <span style={sub}>{atual === TODOS ? 'Todas as funções somadas' : fs.length > 1 ? `${atual} · ${fs.map((f) => f.nome).join(' + ')}` : atual} · meses até {mesSel.label} mostram o realizado; depois, o saldo distribuído até {fim?.label}</span>
         </div>
         <div style={{ flex: 1 }} />
         <ClassificacaoSelect opcoes={opcoes} valor={atual} onChange={setSel} />
@@ -223,7 +222,7 @@ function ClassificacaoSelect({ opcoes, valor, onChange }) {
               style={{ font: 'inherit', fontSize: 13, width: '100%', boxSizing: 'border-box', padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 7, background: 'var(--surface)', color: T.texto }} />
           </div>
           <div role="listbox" style={{ maxHeight: 280, overflowY: 'auto', padding: 4, display: 'flex', flexDirection: 'column' }}>
-            {lista.length === 0 && <span style={{ fontSize: 13, color: T.texto3, padding: '8px 10px' }}>Nenhuma classificação encontrada</span>}
+            {lista.length === 0 && <span style={{ fontSize: 13, color: T.texto3, padding: '8px 10px' }}>Nenhuma função encontrada</span>}
             {lista.map((o) => (
               <button key={o} type="button" role="option" aria-selected={o === valor} onClick={() => escolher(o)} style={{ font: 'inherit', fontSize: 13, textAlign: 'left', border: 0, borderRadius: 6, padding: '8px 10px', cursor: 'pointer', background: o === valor ? T.azulClaro : 'transparent', color: o === valor ? T.azul : T.texto, fontWeight: o === valor ? 600 : 400 }}>{o}</button>
             ))}

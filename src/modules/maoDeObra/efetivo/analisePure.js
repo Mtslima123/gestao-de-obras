@@ -80,12 +80,16 @@ export const saldoPorGrupo = (s, mesSel) => {
   }).filter((x) => x.p || x.m);
 };
 
-// Opções do seletor do gráfico: classificações efetivas com previsto ou classificação própria
-// cadastrada, em ordem alfabética.
+// Opções do seletor do gráfico: a classificação efetiva de toda função ativa (a própria função
+// quando não tem classificação), em ordem alfabética. Não filtra por previsto: função sem
+// previsto também precisa aparecer para acompanhar o realizado.
 export const opcoesClassificacao = (s) =>
-  [...new Set(funcoesAtivas(s)
-    .filter((f) => (prevDe(s, f.id)?.qtdMes ?? 0) > 0 || f.classificacao)
-    .map(classificacaoEfetiva))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  [...new Set(funcoesAtivas(s).map(classificacaoEfetiva))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+// Opção "Todos" do seletor do gráfico: soma todas as funções ativas.
+export const TODOS = 'Todos';
+export const funcoesDaOpcao = (s, opcao) =>
+  (opcao === TODOS ? funcoesAtivas(s) : funcoesAtivas(s).filter((f) => classificacaoEfetiva(f) === opcao));
 
 // Série do gráfico "Realizado e projeção até o término da obra" para as funções fs:
 //  - meses até o selecionado: valor = Σ efetivo do mês (realizado)

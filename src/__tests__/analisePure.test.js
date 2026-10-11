@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mesDeAbs, mesesDaObra } from '../modules/maoDeObra/efetivo/efetivoStore';
-import { evolucao, kpisAnalise, linhasAnalise, opcoesClassificacao, saldoPorGrupo, serieProjecao } from '../modules/maoDeObra/efetivo/analisePure';
+import { TODOS, evolucao, funcoesDaOpcao, kpisAnalise, linhasAnalise, opcoesClassificacao, saldoPorGrupo, serieProjecao } from '../modules/maoDeObra/efetivo/analisePure';
 
 const item = (funcaoId, totalEfetivo) => ({ apropriacaoId: 'x', funcaoId, totalEfetivo, trabAdm: 0, inssSeguro: 0, ferias: 0, emprestManut: 0, destino: null, recebidoOutraObra: 0, origem: null });
 const apr = (mes, quinzena, status, itens) => ({ id: `${mes}-${quinzena}`, obraId: 'O1', ano: 2026, mes, quinzena, dataReferencia: '', status, lancadaEm: null, lancadaPor: null, itens });
@@ -111,6 +111,19 @@ describe('serieProjecao', () => {
 describe('demais seletores', () => {
   it('opções do gráfico: classificações em ordem alfabética, sem funções inativas', () => {
     expect(opcoesClassificacao(base)).toEqual(['Carpinteiro', 'Servente']);
+  });
+
+  it('opções do gráfico incluem função sem previsto e sem classificação', () => {
+    const s = { ...base, previsto: [prev('1', 4)], funcoes: [...base.funcoes, { id: '5', nome: 'Almoxarife', grupoId: 'ADM_TEC', classificacao: null, ativo: true }] };
+    expect(opcoesClassificacao(s)).toEqual(['Almoxarife', 'Carpinteiro', 'Servente']);
+  });
+
+  it('opção Todos soma todas as funções ativas; as demais filtram pela classificação', () => {
+    expect(funcoesDaOpcao(base, TODOS).map((f) => f.id)).toEqual(['1', '2', '3']);
+    expect(funcoesDaOpcao(base, 'Carpinteiro').map((f) => f.id)).toEqual(['1', '2']);
+    const { cons, tot } = serieProjecao(base, funcoesDaOpcao(base, TODOS), OUT, mesesDaObra(base.obra));
+    expect(tot).toBe(4 * 4 + 2 * 4 + 10 * 4); // orçado de Set a Dez das três funções
+    expect(cons).toBeGreaterThan(0);
   });
 
   it('evolução vai do início da obra até o mês pedido', () => {
