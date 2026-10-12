@@ -1390,30 +1390,44 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface, #fff)', position: 'sticky', top: 0, zIndex: 6 }}>
             {/* Anos */}
             <div style={{ display: 'flex', height: GM_ROW_ANO, borderBottom: '1px solid var(--border)', background: 'rgba(1,67,134,0.018)' }}>
-              {calYears.map((yg, yi) => (
-                <div key={yi} style={{
-                  width: yg.days * zoomDayW,
-                  fontSize: 10, fontWeight: 700, color: 'var(--brand-500)',
-                  letterSpacing: '0.05em', padding: '3px 10px',
-                  borderRight: '1px solid var(--border)',
-                }}>
-                  {yg.year}
-                </div>
-              ))}
+              {calYears.map((yg, yi) => {
+                // Ano cortado (a grade começa no mês da 1ª tarefa): sem espaço para "2024", o
+                // rótulo vira "'24" ou some, em vez de vazar por cima do ano seguinte.
+                const w = yg.days * zoomDayW;
+                const estreito = w < 48;
+                return (
+                  <div key={yi} title={estreito ? String(yg.year) : undefined} style={{
+                    width: w,
+                    fontSize: 10, fontWeight: 700, color: 'var(--brand-500)',
+                    letterSpacing: '0.05em', padding: estreito ? '3px 2px' : '3px 10px',
+                    borderRight: '1px solid var(--border)',
+                    ...(estreito ? { overflow: 'hidden', whiteSpace: 'nowrap', textAlign: 'center' } : null),
+                  }}>
+                    {estreito ? (w >= 26 ? `'${String(yg.year).slice(2)}` : '') : yg.year}
+                  </div>
+                );
+              })}
             </div>
             {/* Trimestres — sempre calendário real (Jan-Mar/Abr-Jun/Jul-Set/Out-Dez) */}
             <div style={{ display: 'flex', height: GM_ROW_TRI, borderBottom: '1px solid var(--border)' }}>
-              {calQuarters.map((q, qi) => (
-                <div key={qi} style={{
-                  width: q.days * zoomDayW,
-                  fontSize: 10, fontWeight: 600, color: 'var(--text-soft)',
-                  textTransform: 'uppercase', letterSpacing: '0.06em',
-                  padding: '7px 10px', borderRight: '1px solid var(--border)',
-                  background: qi % 2 === 0 ? 'rgba(1,67,134,0.025)' : 'transparent',
-                }}>
-                  {q.label}
-                </div>
-              ))}
+              {calQuarters.map((q, qi) => {
+                // Trimestre cortado (ex.: só Set no começo): "T3/2024" não cabe e vazava por cima
+                // do próximo. Abaixo de um trimestre cheio vira "T3" ou some (o title mantém o nome).
+                const w = q.days * zoomDayW;
+                const estreito = w < 50;
+                return (
+                  <div key={qi} title={estreito ? q.label : undefined} style={{
+                    width: w,
+                    fontSize: 10, fontWeight: 600, color: 'var(--text-soft)',
+                    textTransform: 'uppercase', letterSpacing: '0.06em',
+                    padding: estreito ? '7px 2px' : '7px 10px', borderRight: '1px solid var(--border)',
+                    background: qi % 2 === 0 ? 'rgba(1,67,134,0.025)' : 'transparent',
+                    ...(estreito ? { overflow: 'hidden', whiteSpace: 'nowrap', textAlign: 'center' } : null),
+                  }}>
+                    {estreito ? (w >= 20 ? q.label.split('/')[0] : '') : q.label}
+                  </div>
+                );
+              })}
             </div>
             {/* Meses — ocultos no zoom Trimestre, que se resume a Ano/Trimestre */}
             {zoom !== 'trimestre' && (
