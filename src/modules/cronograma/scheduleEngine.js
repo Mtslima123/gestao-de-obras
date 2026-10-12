@@ -974,3 +974,31 @@ export function collectDescendantIds(parentId, etapas) {
   collect(parentId);
   return ids;
 }
+
+// Aplica um filtro mantendo o contexto da EAP: devolve, na ordem de `linhas`, as tarefas que
+// passam em `passa` MAIS os grupos ancestrais delas (subindo por parentId até a raiz).
+// Sem isso, filtrar "início em fevereiro" deixava as filhas soltas: o início de um grupo é o
+// da sua primeira filha, então um grupo que começa em janeiro reprova no filtro mesmo tendo
+// filhas em fevereiro, e o separador sumia da tela.
+//
+// `linhas` é o que pode aparecer, já na ordem da tela (getVisibleEtapas; sem os grupos se
+// "Tarefas Resumo" estiver desligado). `etapas` são todas, para subir a árvore. O predicado
+// roda em TODAS as etapas, não só em `linhas`: uma filha escondida por grupo recolhido que
+// passa faz o grupo recolhido aparecer (continua recolhido), em vez de o resultado sumir.
+export function filtrarComAncestrais(linhas, etapas, passa) {
+  const casaram = new Set();
+  etapas.forEach(e => { if (passa(e)) casaram.add(e.id); });
+  // Map por id: etapas.find a cada subida seria O(n x profundidade) por tarefa.
+  const byId = new Map(etapas.map(e => [e.id, e]));
+  const ancestrais = new Set();
+  casaram.forEach(id => {
+    // Para no primeiro ancestral já visitado: cada nó sobe uma vez só (O(n) no total) e um
+    // parentId em ciclo não prende o laço.
+    let p = byId.get(id)?.parentId;
+    while (p && !ancestrais.has(p)) {
+      ancestrais.add(p);
+      p = byId.get(p)?.parentId;
+    }
+  });
+  return linhas.filter(e => casaram.has(e.id) || ancestrais.has(e.id));
+}

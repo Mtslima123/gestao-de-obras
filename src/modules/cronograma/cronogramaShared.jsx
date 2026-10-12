@@ -298,6 +298,8 @@ export const FILTRO_PRESETS = [
 // Predicado único de filtro de tarefas, compartilhado pela Lista e pelo Gantt (para os dois
 // verem exatamente o mesmo conjunto filtrado). Tarefa Pai inclui toda a descendência (grupos
 // e folhas), preservando a hierarquia EAP; os demais critérios testam cada tarefa individualmente.
+// O predicado em si não olha a hierarquia: quem o aplica (Lista e Gantt) usa
+// filtrarComAncestrais (scheduleEngine.js) para manter também os grupos-pai de quem passou.
 export function buildTaskFilterPredicate({ filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas }) {
   const allowedIds = (filtroTaskIds && filtroTaskIds.length)
     ? filtroTaskIds.reduce((set, id) => {

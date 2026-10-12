@@ -10,7 +10,7 @@ import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, tas
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
-         nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap } from './scheduleEngine';
+         nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap, filtrarComAncestrais } from './scheduleEngine';
 import { PavimentosModal } from './cronogramaModais';
 import { TaskFormPanel } from './TaskFormPanel';
 import { logger } from '../../services/logger';
@@ -666,7 +666,10 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
     const v = getVisibleEtapas(etapas);
     const base = showSummaryTasks ? v : v.filter(e => !e.isGroup);
     const passesGlobal = buildTaskFilterPredicate({ filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas });
-    return base.filter(passesGlobal);
+    // Mesma regra da Lista: com filtro ativo, o grupo-pai de quem passa fica junto, mesmo que
+    // ele próprio não passe (o início do grupo é o da primeira filha). Sem filtro, igual a antes.
+    const filtrando = !!(filtroResp || filtroPreset || filtroTaskIds.length || filtroTexto || filtroVinculo);
+    return filtrando ? filtrarComAncestrais(base, etapas, passesGlobal) : base.filter(passesGlobal);
   }, [etapas, showSummaryTasks, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds]);
   // Índice por id no conjunto VISÍVEL (para as setas de dependência casarem com as barras
   // mesmo com grupos recolhidos — antes usava o índice em `etapas`, um bug latente).

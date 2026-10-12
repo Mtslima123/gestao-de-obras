@@ -20,7 +20,7 @@ import {
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
   createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
   moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento,
-  reprogramarRestante, computeSuccessors, computeRowNumberMap,
+  reprogramarRestante, computeSuccessors, computeRowNumberMap, filtrarComAncestrais,
 } from './scheduleEngine';
 import { computeAutofillSeries } from './autofillSeries';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal } from './cronogramaModais';
@@ -695,11 +695,18 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Aplica filtros sobre as linhas visíveis
   const filtrada = React.useMemo(() => {
     const passesGlobal = buildTaskFilterPredicate({ filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas });
-    const base = visible.filter(e =>
-      (showSummaryTasks || !e.isGroup) &&
-      passesGlobal(e) &&
-      passesColumnFilters(e)
-    );
+    // Com filtro ativo, o grupo-pai de quem passa fica junto (contexto da EAP), mesmo que ele
+    // próprio não passe: o início de um grupo é o da primeira filha, então filtrar "início em
+    // fevereiro" derrubava o grupo que começa em janeiro e deixava as filhas de fevereiro soltas.
+    // Sem filtro, segue a expressão de sempre.
+    const filtrando = !!(filtroResp || filtroPreset || filtroTaskIds.length || filtroTexto || filtroVinculo || Object.keys(columnFilters).length);
+    const base = filtrando
+      ? filtrarComAncestrais(
+          showSummaryTasks ? visible : visible.filter(e => !e.isGroup),
+          etapas,
+          e => passesGlobal(e) && passesColumnFilters(e),
+        )
+      : visible.filter(e => (showSummaryTasks || !e.isGroup) && passesGlobal(e) && passesColumnFilters(e));
     return applySiblingSort(base, sortSpec);
   }, [visible, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
