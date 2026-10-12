@@ -258,6 +258,15 @@ export const resolveColType = (colId, customCols) => {
   return 'text'; // 'text' | 'list'
 };
 
+// "Digitar direto" (tecla imprimível com a célula só selecionada, ListaInterativa.jsx) normalmente
+// cancela a tecla e "semeia" o caractere no input que acabou de abrir. Num <input type="date">
+// isso não funciona: "0" não é data válida e o navegador ignora o valor semeado, e o
+// preventDefault ainda cancelava o keypress. O 1º dígito se perdia, o dia ficava com um dígito
+// só (sem pular pro mês) e a digitação seguinte caía de novo no dia. Para dígito em coluna de
+// data a tecla vai NATIVA pro campo (que já abre focado) e ele mesmo pula dia > mês > ano.
+export const teclaNativaNoCampo = (tipoColuna, tecla) =>
+  tipoColuna === 'date' && /^[0-9]$/.test(tecla ?? '');
+
 // Sentinela para "valor em branco" nas listas de filtro — não pode colidir com nenhum
 // valor real exibido em célula.
 export const FILTER_BLANK_KEY = ' blank';

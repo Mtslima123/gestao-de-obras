@@ -2,6 +2,7 @@
 // Cronograma.jsx (movimento verbatim). Recebe etapas/callbacks via props.
 
 import React from 'react';
+import { flushSync } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { passoDeRolagem } from './listaAutoScroll';
 import { logger } from '../../services/logger';
@@ -30,7 +31,7 @@ import { substituirTokens } from './spellcheckPure';
 import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, VIRT_MIN,
-  ColumnHeaderFilterMenu, resolveColType, FILTER_BLANK_KEY, passaFiltroColuna,
+  ColumnHeaderFilterMenu, resolveColType, teclaNativaNoCampo, FILTER_BLANK_KEY, passaFiltroColuna,
   buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter, gmConflicts,
   XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
@@ -1698,7 +1699,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
       nativeSetter ? nativeSetter.call(input, seedChar) : (input.value = seedChar);
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.setSelectionRange?.(seedChar.length, seedChar.length);
+      // type="number" e type="date" não têm seleção de texto: setSelectionRange lança
+      // InvalidStateError e o main.jsx registrava cada ocorrência como erro global.
+      try { input.setSelectionRange?.(seedChar.length, seedChar.length); } catch { /* sem seleção nesse tipo de input */ }
     });
   };
 
@@ -1908,8 +1911,18 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // (letra/número/símbolo), sem Ctrl/Alt/Meta — as teclas especiais (setas, Delete,
     // Tab etc.) têm nomes com mais de um caractere e já ficam de fora sozinhas.
     if (selectedCell && !readOnly && ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-      ev.preventDefault();
-      abrirEdicaoCelula(selectedCell, ev.key);
+      if (teclaNativaNoCampo(resolveColType(selectedCell.colId, customCols), ev.key)) {
+        // Dígito em célula de DATA: o input de data nativo não aceita o caractere "semeado"
+        // por script (ver teclaNativaNoCampo), então aqui a tecla NÃO é cancelada nem
+        // semeada. flushSync monta e foca o input agora, ainda dentro do keydown: o navegador
+        // entrega o keypress ao campo já focado, que trata o dígito sozinho e pula
+        // dia > mês > ano. (Confirmado em Chromium com teclado real: 01022027 vira 01/02/2027;
+        // com o preventDefault + semear de antes virava 10/02/2027.)
+        flushSync(() => abrirEdicaoCelula(selectedCell));
+      } else {
+        ev.preventDefault();
+        abrirEdicaoCelula(selectedCell, ev.key);
+      }
     }
   };
 
