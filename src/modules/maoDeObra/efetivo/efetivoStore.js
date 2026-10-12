@@ -100,5 +100,12 @@ export const habilitadosRemoviveis = (s, meses) =>
   meses.filter((m) => (s.mesesHabilitados ?? []).some((h) => h.ano === m.ano && h.mes === m.mes)
     && !s.apropriacoes.some((a) => a.ano === m.ano && a.mes === m.mes));
 
+// Mês fechado pelo admin: só consulta, mesmo com apropriação lançada. A trava de verdade é do
+// gatilho do banco (mo_apropriacao e mo_apropriacao_item).
+export const mesFechado = (s, m) => (s.mesesFechados ?? []).some((f) => f.ano === m.ano && f.mes === m.mes);
+// Meses com apropriação, do mais antigo ao mais novo: são os únicos que dá para fechar/reabrir.
+export const mesesFechaveis = (s) =>
+  [...new Set(s.apropriacoes.map((a) => a.ano * 12 + a.mes - 1))].sort((a, b) => a - b).map(mesDeAbs);
+
 export const funcoesAtivas = (s) =>s.funcoes.filter((f) => f.ativo);
 export const funcoesDoGrupo = (s, g) => funcoesAtivas(s).filter((f) => f.grupoId === g);

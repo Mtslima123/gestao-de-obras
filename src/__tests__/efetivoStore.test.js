@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mesesEntre, previstoNoMes, orcado, ativos, trabCanteiro, efetivoDoMes, status, mesesRestantes, mediaRestante } from '../modules/maoDeObra/efetivo/regras';
-import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis } from '../modules/maoDeObra/efetivo/efetivoStore';
+import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis, mesFechado, mesesFechaveis } from '../modules/maoDeObra/efetivo/efetivoStore';
 
 const item = (funcaoId, campos) => ({ apropriacaoId: 'x', funcaoId, totalEfetivo: null, trabAdm: null, inssSeguro: null, ferias: null, emprestManut: null, destino: null, recebidoOutraObra: null, origem: null, ...campos });
 const apr = (mes, quinzena, status, itens) => ({ id: `${mes}-${quinzena}`, obraId: 'O1', ano: 2026, mes, quinzena, dataReferencia: '', status, lancadaEm: null, lancadaPor: null, itens });
@@ -211,5 +211,31 @@ describe('meses disponíveis para apropriação', () => {
   it('só dá para remover habilitado que ainda não tem apropriação', () => {
     const s = { ...estado([apr(11, 1, 'RASCUNHO', [])]), mesesHabilitados: [{ ano: 2026, mes: 11 }, { ano: 2026, mes: 12 }] };
     expect(labels(habilitadosRemoviveis(s, todos))).toEqual(['Dez/26']);
+  });
+});
+
+describe('meses fechados', () => {
+  const OUT = 2026 * 12 + 9;
+  const todos = mesesDaObra(estado([]).obra);
+  const comApropriacao = estado([apr(11, 2, 'LANCADA', []), apr(9, 1, 'LANCADA', []), apr(9, 2, 'RASCUNHO', [])]);
+
+  it('só dá para fechar mês com apropriação, do mais antigo ao mais novo, sem repetir o mês', () => {
+    expect(mesesFechaveis(comApropriacao).map((m) => m.label)).toEqual(['Set/26', 'Nov/26']);
+    expect(mesesFechaveis(estado([]))).toEqual([]);
+  });
+
+  it('mesFechado olha a lista que o banco devolve', () => {
+    const s = { ...comApropriacao, mesesFechados: [{ ano: 2026, mes: 9 }] };
+    expect(mesFechado(s, mesDeAbs(2026 * 12 + 8))).toBe(true);
+    expect(mesFechado(s, mesDeAbs(2026 * 12 + 10))).toBe(false);
+  });
+
+  it('estado sem mesesFechados (banco ainda sem a migration) não quebra e nada fica fechado', () => {
+    expect(mesFechado(comApropriacao, mesDeAbs(2026 * 12 + 8))).toBe(false);
+  });
+
+  it('mês fechado continua na lista de períodos da Apropriação', () => {
+    const s = { ...comApropriacao, mesesFechados: [{ ano: 2026, mes: 9 }] };
+    expect(mesesApropriaveis(s, todos, OUT).map((m) => m.label)).toEqual(['Set/26', 'Out/26', 'Nov/26']);
   });
 });

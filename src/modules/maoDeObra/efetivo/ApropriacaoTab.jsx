@@ -45,7 +45,7 @@ const BarrasGrupo = ({ grupos, preenchido }) => (
 // espelhando a planilha de efetivo. As digitações ficam num rascunho local e são gravadas no
 // banco ao sair de cada campo (uma de cada vez, em fila). "Lançar" tranca a quinzena; só
 // "Reabrir" destranca. A trava de verdade é do banco (409).
-export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somenteLeitura }) {
+export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somenteLeitura, mesFechado }) {
   const [q, setQ] = React.useState(1);
   // Trocou o período: volta para a 1ª apropriação (ajuste durante a renderização, sem piscar a 2ª do mês novo).
   const [absVisto, setAbsVisto] = React.useState(mesSel.abs);
@@ -294,7 +294,9 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
           </div>
           <div style={{ flex: 1 }} />
           {editavel && (salvando || rascunhoSalvo) && <span style={{ fontSize: 12, color: T.texto3 }}>{salvando ? 'Salvando…' : 'Rascunho salvo'}</span>}
-          {locked
+          {mesFechado
+            ? <span style={{ ...pill(T.texto2, T.faixa), fontWeight: 600 }}><Icon name="lock" size={12} stroke={2.2} />Mês fechado, só consulta</span>
+            : locked
             ? <span style={{ ...pill(T.texto2, T.faixa), fontWeight: 600 }}><Icon name="lock" size={12} stroke={2.2} />Lançada e fechada</span>
             : somenteLeitura
               ? <span style={{ ...pill(T.texto2, T.faixa), fontWeight: 600 }}>Somente consulta</span>
@@ -317,7 +319,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
           )}
         </div>
 
-        {aguardaPrimeira && !locked && (
+        {aguardaPrimeira && !locked && !mesFechado && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 20px', fontSize: 13, fontWeight: 500, color: T.laranja, background: T.laranjaBg, borderBottom: `1px solid ${T.borda}` }}>
             <Icon name="lock" size={14} stroke={2.2} />
             <span>A 2ª apropriação só pode ser preenchida depois que a 1ª for lançada e fechada.</span>

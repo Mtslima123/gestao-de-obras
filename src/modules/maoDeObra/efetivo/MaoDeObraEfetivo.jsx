@@ -5,7 +5,7 @@ import { MODULO_ABAS } from '../../../config/modulos';
 import { Icon } from '../../../components/Icons';
 import { T, card, btn } from './tokens';
 import { efetivoService } from './efetivo.service';
-import { mesesApropriaveis, mesesDaObra } from './efetivoStore';
+import { mesFechado, mesesApropriaveis, mesesDaObra } from './efetivoStore';
 import { PrevistoTab } from './PrevistoTab';
 import { ApropriacaoTab } from './ApropriacaoTab';
 import { AnaliseTab } from './AnaliseTab';
@@ -106,7 +106,7 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
         </label>
         {ehAdmin && naApropriacao && s && meses.length > 0 && (
           <button type="button" style={{ ...btn, padding: '8px 12px' }} onClick={() => setModalMeses(true)}>
-            <Icon name="calendar" size={15} stroke={2.2} />Habilitar mês
+            <Icon name="calendar" size={15} stroke={2.2} />Gerenciar meses
           </button>
         )}
         <div role="tablist" style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--surface)', border: `1px solid ${T.borda}`, borderRadius: 10 }}>
@@ -160,16 +160,18 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
       <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 6 }}>
         <span style={{ fontSize: 14, fontWeight: 600 }}>Nenhum mês habilitado para apropriação nesta obra.</span>
         <span style={{ fontSize: 13.5, color: T.texto2 }}>
-          {ehAdmin ? 'Use "Habilitar mês" para liberar um mês.' : 'Fale com o administrador para habilitar um mês.'}
+          {ehAdmin ? 'Use "Gerenciar meses" para liberar um mês.' : 'Fale com o administrador para habilitar um mês.'}
         </span>
       </div>
     );
   } else {
     const mesSel = (naApropriacao ? mesListado : meses.find((m) => m.abs === mesAbsSel)) ?? meses[0];
+    const fechado = naApropriacao && mesFechado(s, mesSel);
     const ctx = {
       s, setS, mesSel, setMesSel: (m) => setMesAbsSel(m.abs), meses, toast, erro, recarregar, userProfile,
       ehAdmin,
-      somenteLeitura: abaSomenteLeitura(userProfile, MOD, abaAtual),
+      somenteLeitura: abaSomenteLeitura(userProfile, MOD, abaAtual) || fechado,
+      mesFechado: fechado,
     };
     if (abaAtual === 'previsto') corpo = <PrevistoTab {...ctx} />;
     else if (abaAtual === 'apropriacao') corpo = <ApropriacaoTab {...ctx} />;

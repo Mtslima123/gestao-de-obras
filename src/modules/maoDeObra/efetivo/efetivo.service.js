@@ -61,4 +61,11 @@ export const efetivoService = {
     chamar('habilitarMes', 'mo_mes_habilitar', { p_obra: obraId, p_ano: ano, p_mes: mes }, { obraId, ano, mes }),
   desabilitarMes: (obraId, ano, mes) =>
     chamar('desabilitarMes', 'mo_mes_desabilitar', { p_obra: obraId, p_ano: ano, p_mes: mes }, { obraId, ano, mes }),
+
+  // Fechar trava a edição de um mês que já tem apropriação (só admin; PT409 se o mês não tem
+  // apropriação). Reabrir o mês devolve a edição.
+  fecharMes: (obraId, ano, mes) =>
+    chamar('fecharMes', 'mo_mes_fechar', { p_obra: obraId, p_ano: ano, p_mes: mes }, { obraId, ano, mes }),
+  reabrirMes: (obraId, ano, mes) =>
+    chamar('reabrirMes', 'mo_mes_reabrir', { p_obra: obraId, p_ano: ano, p_mes: mes }, { obraId, ano, mes }),
 };
