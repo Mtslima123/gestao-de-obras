@@ -23,7 +23,7 @@ import {
 } from './scheduleEngine';
 import MedicaoMensal from './MedicaoMensal';
 import {
-  computeCurvaSeries, defaultRepId, defaultBlId,
+  computeCurvaSeries, defaultRepId, defaultBlId, distDeRetrato, percentualPlanejadoAte,
   carregarBlVisivel, carregarRepVisivel, carregarMesRef, mesAtualKey,
 } from './curvaFisica';
 import {
@@ -3100,6 +3100,15 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     [etapas, custoOrcadoMap]
   );
 
+  // "Previsto" do card Avanço físico = quanto a linha de base selecionada previa até hoje, com o
+  // mesmo peso de Custo Orçado do avanço (mês atual proporcional aos dias). É a mesma conta do
+  // cabeçalho da obra (ObraDetail), então os dois mostram o mesmo número. Sem linha de base
+  // selecionada, null: o card avisa em vez de comparar com o cronograma ao vivo.
+  const previstoBasePct = React.useMemo(
+    () => (baselineEtapas ? percentualPlanejadoAte(distDeRetrato(baselineEtapas, valorVinculadoMapFull)) : null),
+    [baselineEtapas, valorVinculadoMapFull]
+  );
+
   // Distribuição mensal de custos — alimenta Uso da Tarefa e Curva S
   const months      = React.useMemo(() => getMonthRange(etapas),                           [etapas]);
   const monthlyDist = React.useMemo(() => computeMonthlyDist(etapas, weightOverride),      [etapas, weightOverride]);
@@ -3397,29 +3406,23 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
               {/* KPIs — faixa de 5 (redesenho handoff). Dados reais onde há; mock sinalizado. */}
               {(() => {
                 const leaves = etapas.filter(e => !e.isGroup);
-                // Previsto acumulado até hoje, a partir da distribuição mensal já computada
-                const totalPlan = Object.values(monthlyTotals).reduce((s, v) => s + v, 0);
-                const todayKey = new Date().toISOString().slice(0, 7);
-                const planToDate = Object.entries(monthlyTotals).reduce((s, [k, v]) => k <= todayKey ? s + v : s, 0);
-                const plannedPct = totalPlan > 0 ? planToDate / totalPlan * 100 : 0;
-                const deltaPp = avancoTotal - plannedPct;
+                // Previsto acumulado até hoje, pela linha de base selecionada (null = sem base)
+                const plannedPct = previstoBasePct;
+                const deltaPp = plannedPct != null ? avancoTotal - plannedPct : null;
+                const semBaseMsg = baselines.length > 0 ? 'nenhuma linha de base selecionada' : 'sem linha de base salva';
                 // Término projetado = maior data de término das tarefas (real). Comparação com base = TODO.
                 // -1: taskEnd é o offset exclusivo (dia seguinte ao último dia trabalhado);
                 // aqui só serve pra exibir o mês/ano, então já entra ajustado.
                 const maxEnd = leaves.length ? Math.max(...leaves.map(e => taskEnd(e))) - 1 : 0;
                 const termino = leaves.length ? offsetToDate(maxEnd).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }) : '—';
-                // ── Derivações por-view da Curva Física (aba view === 'curva') ────────
-                const previstoPct  = plannedPct; // planToDate / totalPlan (%)
                 return (
                   view === 'curva' ? (
                   <div className="kpi-grid">
                     <div className="kpi" style={{ padding: '18px 20px' }}>
                       <div className="kpi-label">Avanço físico</div>
-                      {/* Mesma ressalva do card "Avanço físico": previstoPct vem do cronograma
-                          vivo, não de linha de base — só faz sentido comparar com baseline salva. */}
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
                         <div className="kpi-value num" style={{ fontSize: 30 }}>{avancoTotal.toFixed(2)}<span className="unit">%</span></div>
-                        {baselines.length > 0 && (
+                        {deltaPp != null && (
                           <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600, fontSize: 12 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp.toFixed(2)} pp vs previsto</span>
                         )}
                       </div>
@@ -3428,7 +3431,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                       </div>
                       <div className="kpi-foot" style={{ marginTop: 6 }}>
                         <span className="kpi-foot-text">
-                          {baselines.length > 0 ? `realizado × previsto (${previstoPct.toFixed(2)}%)` : 'sem linha de base salva'}
+                          {plannedPct != null ? `realizado × previsto até hoje (${plannedPct.toFixed(2)}%)` : semBaseMsg}
                         </span>
                       </div>
                     </div>
@@ -3448,20 +3451,17 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   <div className="kpi" style={{ padding: '18px 20px' }}>
                     <div className="kpi-label">Avanço físico</div>
                     <div className="kpi-value num" style={{ fontSize: 30, marginTop: 4 }}>{avancoTotal.toFixed(2)}<span className="unit">%</span></div>
-                    {/* "Previsto" aqui vem do próprio cronograma vivo (plannedPct), não de uma
-                        linha de base congelada — sem baseline salva, comparar com isso não é
-                        "vs previsto" de verdade, é só "vs o que está agendado agora". */}
                     <div className="kpi-bar">
                       <span className="kpi-bar-fill" style={{ width: avancoTotal + '%' }} />
                     </div>
                     <div className="kpi-foot" style={{ marginTop: 6 }}>
-                      {baselines.length > 0 ? (
+                      {plannedPct != null ? (
                         <>
                           <span style={{ color: deltaPp < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{deltaPp >= 0 ? '+' : ''}{deltaPp.toFixed(2)} pp</span>
-                          <span className="kpi-foot-text"> vs previsto ({plannedPct.toFixed(2)}%)</span>
+                          <span className="kpi-foot-text"> vs previsto até hoje ({plannedPct.toFixed(2)}%)</span>
                         </>
                       ) : (
-                        <span className="kpi-foot-text">sem linha de base salva</span>
+                        <span className="kpi-foot-text">{semBaseMsg}</span>
                       )}
                     </div>
                   </div>
