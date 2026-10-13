@@ -3,7 +3,7 @@ import { Icon } from '../../../components/Icons';
 import { STATUS_UI, corSaldo, status, usoPct } from './regras';
 import { T, card, h2, sub, th, td, pill, corUi } from './tokens';
 import { GRUPOS } from './efetivoStore';
-import { TODOS, evolucao, funcoesDaOpcao, kpisAnalise, linhasAnalise, opcoesClassificacao, saldoPorGrupo, serieProjecao } from './analisePure';
+import { TODOS, evolucao, funcoesDaOpcao, kpisAnalise, linhasAnalise, opcoesClassificacao, serieProjecao } from './analisePure';
 
 const fmt = (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 const sg = (v) => (v > 0.05 ? '+' + fmt(v) : v < -0.05 ? '−' + fmt(-v) : '0');
@@ -26,102 +26,89 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses }) {
 
   const evo = React.useMemo(() => evolucao(s, meses, mesAtualAbs()), [s, meses]);
   const mxE = Math.max(1, ...evo.map((x) => Math.max(x.p, x.e))) * 1.08;
-  const porGrupo = React.useMemo(() => saldoPorGrupo(s, mesSel), [s, mesSel]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <GraficoProjecao s={s} mesSel={mesSel} meses={meses} />
 
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <section style={{ ...card, flex: '2 1 640px', minWidth: 0 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '18px 20px', borderBottom: `1px solid ${T.borda}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <h2 style={h2}>{verPor === 'classificacao' ? 'Efetivo do mês por classificação' : 'Efetivo do mês por função'}</h2>
-                <span style={sub}>Efetivo do mês = última apropriação lançada · {nA === 2 ? 'usando a 2ª' : nA === 1 ? 'usando a 1ª' : 'sem apropriações lançadas'}</span>
-              </div>
-              <div style={{ flex: 1 }} />
-              <div style={{ display: 'flex', border: `1px solid ${T.bordaInput}`, borderRadius: 8, overflow: 'hidden' }}>
-                {['funcao', 'classificacao'].map((v) => <button key={v} type="button" onClick={() => setVerPor(v)} style={{ font: 'inherit', fontSize: 12.5, fontWeight: 500, border: 0, padding: '7px 11px', cursor: 'pointer', background: verPor === v ? T.azul : 'var(--surface)', color: verPor === v ? '#fff' : T.texto }}>{v === 'funcao' ? 'Por função' : 'Por classificação'}</button>)}
-              </div>
-              <select value={ordem} onChange={(e) => setOrdem(e.target.value)} style={{ font: 'inherit', fontSize: 13, padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8, background: 'var(--surface)', color: T.texto }}>
-                <option value="grupo">Ordenar por grupo</option><option value="desvio">Maior desvio (qtd)</option><option value="pct">Maior desvio (%)</option>
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {[{ id: null, nome: 'Todos' }, ...GRUPOS].map((g) => {
-                const on = grupoF === g.id;
-                return <button key={g.nome} type="button" onClick={() => setGrupoF(g.id)} style={{ font: 'inherit', fontSize: 12.5, fontWeight: 500, padding: '5px 11px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${on ? T.azul : T.bordaInput}`, background: on ? T.azul : 'var(--surface)', color: on ? '#fff' : T.texto }}>{g.nome}</button>;
-              })}
-            </div>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 820 }}>
-              <thead><tr>
-                <th style={{ ...th, textAlign: 'left', paddingLeft: 20 }}>{verPor === 'classificacao' ? 'Classificação' : 'Função'}</th><th style={{ ...th, textAlign: 'right' }}>Previsto</th><th style={{ ...th, textAlign: 'right' }}>1ª</th><th style={{ ...th, textAlign: 'right' }}>2ª</th><th style={{ ...th, textAlign: 'right' }}>Efetivo</th>
-                <th style={{ ...th, width: 180, textAlign: 'left' }}>Efetivo x previsto</th><th style={{ ...th, textAlign: 'right' }}>Saldo mês</th><th style={{ ...th, textAlign: 'right', background: T.grupo }}>Saldo acum.</th><th style={{ ...th, textAlign: 'left', paddingRight: 20 }}>Status</th>
-              </tr></thead>
-              <tbody>
-                {linhas.length === 0 && <tr><td colSpan={9} style={{ ...td, padding: 24, color: T.texto2 }}>Nenhuma função com previsto ou efetivo neste mês.</td></tr>}
-                {linhas.map((l) => {
-                  const ui = okUi(status(l.p, l.m));
-                  return (
-                    <tr key={l.nome}>
-                      <td style={{ ...td, textAlign: 'left', paddingLeft: 20 }}><div style={{ fontWeight: 500 }}>{l.nome}</div><div style={{ fontSize: 11.5, color: T.texto3 }}>{l.sub}</div></td>
-                      <td style={{ ...td, textAlign: 'right' }}>{l.p}</td><td style={{ ...td, textAlign: 'right', color: T.texto2 }}>{l.a1 ?? '—'}</td><td style={{ ...td, textAlign: 'right', color: T.texto2 }}>{l.a2 ?? '—'}</td>
-                      <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{l.m ?? '—'}</td>
-                      <td style={{ ...td, padding: '8px 14px' }}><div style={{ position: 'relative', height: 16 }}>
-                        <div style={{ position: 'absolute', left: 0, top: 2, height: 5, borderRadius: 3, background: T.previsto, width: `${(l.p / mx) * 100}%` }} />
-                        <div style={{ position: 'absolute', left: 0, top: 9, height: 5, borderRadius: 3, background: ui.cor, width: `${((l.m ?? 0) / mx) * 100}%` }} />
-                      </div></td>
-                      <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: l.m == null ? T.texto2 : corUi(corSaldo(l.p - l.m)) }}>{l.m == null ? '—' : sg(l.p - l.m)}<div style={{ fontSize: 11.5, fontWeight: 400 }}>{l.m == null ? '' : `uso ${usoPct(l.m, l.p) ?? '—'}%`}</div></td>
-                      <td style={{ ...td, textAlign: 'right', background: T.colSaldo }}><b style={{ color: l.ac == null ? T.texto2 : corUi(corSaldo(l.ac)) }}>{l.ac == null ? '—' : sg(l.ac)}</b><div style={{ fontSize: 11.5, color: T.texto2 }}>{l.ac == null ? '' : l.ac > 0.05 ? 'não utilizado' : l.ac < -0.05 ? 'excedido' : 'zerado'}</div></td>
-                      <td style={{ ...td, textAlign: 'left', paddingRight: 20 }}><span style={pill(ui.cor, ui.fundo)}><span style={{ width: 6, height: 6, borderRadius: '50%', background: ui.cor }} />{ui.rotulo}</span></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ display: 'flex', gap: 16, padding: '12px 20px', borderTop: `1px solid ${T.borda}`, fontSize: 12, color: T.texto2, flexWrap: 'wrap' }}>
-            <Leg cor={T.previsto} t="Previsto" /><Leg cor={T.verde} t="Até 100% do previsto" /><Leg cor={T.vermelho} t="Acima de 100%" />
-            <span>Saldo = previsto − utilizado · acumulado em pessoa-mês desde {meses[0]?.label}</span>
-          </div>
-        </section>
-
-        <div style={{ flex: '1 1 340px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <section style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-              <h2 style={h2}>Evolução do efetivo</h2>
-              <span style={{ display: 'flex', gap: 10, fontSize: 12, color: T.texto2 }}><Leg cor={T.previsto} t="Previsto" /><Leg cor={T.azul} t="Efetivo" /></span>
-            </div>
-            {evo.length === 0
-              ? <span style={{ fontSize: 13, color: T.texto2 }}>A obra ainda não começou.</span>
-              : <>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 170, borderBottom: `1px solid ${T.bordaInput}` }}>
-                  {evo.map((x) => (
-                    <div key={x.m.abs} onClick={() => setMesSel(x.m)} title={`${x.m.label}: previsto ${x.p}, efetivo ${x.e}`} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, cursor: 'pointer', borderRadius: 6, background: x.m.abs === mesSel.abs ? T.destaque : 'transparent' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600 }}>{x.e}</span>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, width: '100%', justifyContent: 'center', height: '80%' }}>
-                        <div style={{ width: '38%', maxWidth: 16, borderRadius: '3px 3px 0 0', background: T.previsto, height: `${(x.p / mxE) * 100}%` }} />
-                        <div style={{ width: '38%', maxWidth: 16, borderRadius: '3px 3px 0 0', background: T.azul, height: `${(x.e / mxE) * 100}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>{evo.map((x) => <span key={x.m.abs} style={{ flex: 1, textAlign: 'center', fontSize: 11.5, color: T.texto2, fontWeight: x.m.abs === mesSel.abs ? 700 : 400 }}>{x.m.label}</span>)}</div>
-              </>}
-          </section>
-          <section style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><h2 style={h2}>Saldo por grupo</h2><span style={{ fontSize: 12, color: T.texto2 }}>efetivo / previsto · saldo acum.</span></div>
-            {porGrupo.map(({ g, p, m, ac }) => (
-              <div key={g.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto auto', gap: 12, alignItems: 'center', fontSize: 13, padding: '6px 0', borderTop: `1px solid ${T.linha}` }}>
-                <span>{g.nome}</span><span style={{ color: T.texto2, fontSize: 12 }}>{m} / {p}</span><b style={{ color: corUi(corSaldo(ac)), minWidth: 52, textAlign: 'right' }}>{sg(ac)}</b>
-              </div>
-            ))}
-          </section>
+      <section style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+          <h2 style={h2}>Evolução do efetivo</h2>
+          <span style={{ display: 'flex', gap: 10, fontSize: 12, color: T.texto2 }}><Leg cor={T.previsto} t="Previsto" /><Leg cor={T.azul} t="Efetivo" /></span>
         </div>
-      </div>
+        {evo.length === 0
+          ? <span style={{ fontSize: 13, color: T.texto2 }}>A obra ainda não começou.</span>
+          : <>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 170, borderBottom: `1px solid ${T.bordaInput}` }}>
+              {evo.map((x) => (
+                <div key={x.m.abs} onClick={() => setMesSel(x.m)} title={`${x.m.label}: previsto ${x.p}, efetivo ${x.e}`} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, cursor: 'pointer', borderRadius: 6, background: x.m.abs === mesSel.abs ? T.destaque : 'transparent' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600 }}>{x.e}</span>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, width: '100%', justifyContent: 'center', height: '80%' }}>
+                    <div style={{ width: '38%', maxWidth: 16, borderRadius: '3px 3px 0 0', background: T.previsto, height: `${(x.p / mxE) * 100}%` }} />
+                    <div style={{ width: '38%', maxWidth: 16, borderRadius: '3px 3px 0 0', background: T.azul, height: `${(x.e / mxE) * 100}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>{evo.map((x) => <span key={x.m.abs} style={{ flex: 1, textAlign: 'center', fontSize: 11.5, color: T.texto2, fontWeight: x.m.abs === mesSel.abs ? 700 : 400 }}>{x.m.label}</span>)}</div>
+          </>}
+      </section>
+
+      <section style={{ ...card, minWidth: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '18px 20px', borderBottom: `1px solid ${T.borda}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h2 style={h2}>{verPor === 'classificacao' ? 'Efetivo do mês por classificação' : 'Efetivo do mês por função'}</h2>
+              <span style={sub}>Efetivo do mês = última apropriação lançada · {nA === 2 ? 'usando a 2ª' : nA === 1 ? 'usando a 1ª' : 'sem apropriações lançadas'}</span>
+            </div>
+            <div style={{ flex: 1 }} />
+            <div style={{ display: 'flex', border: `1px solid ${T.bordaInput}`, borderRadius: 8, overflow: 'hidden' }}>
+              {['funcao', 'classificacao'].map((v) => <button key={v} type="button" onClick={() => setVerPor(v)} style={{ font: 'inherit', fontSize: 12.5, fontWeight: 500, border: 0, padding: '7px 11px', cursor: 'pointer', background: verPor === v ? T.azul : 'var(--surface)', color: verPor === v ? '#fff' : T.texto }}>{v === 'funcao' ? 'Por função' : 'Por classificação'}</button>)}
+            </div>
+            <select value={ordem} onChange={(e) => setOrdem(e.target.value)} style={{ font: 'inherit', fontSize: 13, padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8, background: 'var(--surface)', color: T.texto }}>
+              <option value="grupo">Ordenar por grupo</option><option value="desvio">Maior desvio (qtd)</option><option value="pct">Maior desvio (%)</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[{ id: null, nome: 'Todos' }, ...GRUPOS].map((g) => {
+              const on = grupoF === g.id;
+              return <button key={g.nome} type="button" onClick={() => setGrupoF(g.id)} style={{ font: 'inherit', fontSize: 12.5, fontWeight: 500, padding: '5px 11px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${on ? T.azul : T.bordaInput}`, background: on ? T.azul : 'var(--surface)', color: on ? '#fff' : T.texto }}>{g.nome}</button>;
+            })}
+          </div>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 820 }}>
+            <thead><tr>
+              <th style={{ ...th, textAlign: 'left', paddingLeft: 20 }}>{verPor === 'classificacao' ? 'Classificação' : 'Função'}</th><th style={{ ...th, textAlign: 'right' }}>Previsto</th><th style={{ ...th, textAlign: 'right' }}>1ª</th><th style={{ ...th, textAlign: 'right' }}>2ª</th><th style={{ ...th, textAlign: 'right' }}>Efetivo</th>
+              <th style={{ ...th, width: 180, textAlign: 'left' }}>Efetivo x previsto</th><th style={{ ...th, textAlign: 'right' }}>Saldo mês</th><th style={{ ...th, textAlign: 'right', background: T.grupo }}>Saldo acum.</th><th style={{ ...th, textAlign: 'left', paddingRight: 20 }}>Status</th>
+            </tr></thead>
+            <tbody>
+              {linhas.length === 0 && <tr><td colSpan={9} style={{ ...td, padding: 24, color: T.texto2 }}>Nenhuma função com previsto ou efetivo neste mês.</td></tr>}
+              {linhas.map((l) => {
+                const ui = okUi(status(l.p, l.m));
+                return (
+                  <tr key={l.nome}>
+                    <td style={{ ...td, textAlign: 'left', paddingLeft: 20 }}><div style={{ fontWeight: 500 }}>{l.nome}</div><div style={{ fontSize: 11.5, color: T.texto3 }}>{l.sub}</div></td>
+                    <td style={{ ...td, textAlign: 'right' }}>{l.p}</td><td style={{ ...td, textAlign: 'right', color: T.texto2 }}>{l.a1 ?? '—'}</td><td style={{ ...td, textAlign: 'right', color: T.texto2 }}>{l.a2 ?? '—'}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{l.m ?? '—'}</td>
+                    <td style={{ ...td, padding: '8px 14px' }}><div style={{ position: 'relative', height: 16 }}>
+                      <div style={{ position: 'absolute', left: 0, top: 2, height: 5, borderRadius: 3, background: T.previsto, width: `${(l.p / mx) * 100}%` }} />
+                      <div style={{ position: 'absolute', left: 0, top: 9, height: 5, borderRadius: 3, background: ui.cor, width: `${((l.m ?? 0) / mx) * 100}%` }} />
+                    </div></td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: l.m == null ? T.texto2 : corUi(corSaldo(l.p - l.m)) }}>{l.m == null ? '—' : sg(l.p - l.m)}<div style={{ fontSize: 11.5, fontWeight: 400 }}>{l.m == null ? '' : `uso ${usoPct(l.m, l.p) ?? '—'}%`}</div></td>
+                    <td style={{ ...td, textAlign: 'right', background: T.colSaldo }}><b style={{ color: l.ac == null ? T.texto2 : corUi(corSaldo(l.ac)) }}>{l.ac == null ? '—' : sg(l.ac)}</b><div style={{ fontSize: 11.5, color: T.texto2 }}>{l.ac == null ? '' : l.ac > 0.05 ? 'não utilizado' : l.ac < -0.05 ? 'excedido' : 'zerado'}</div></td>
+                    <td style={{ ...td, textAlign: 'left', paddingRight: 20 }}><span style={pill(ui.cor, ui.fundo)}><span style={{ width: 6, height: 6, borderRadius: '50%', background: ui.cor }} />{ui.rotulo}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ display: 'flex', gap: 16, padding: '12px 20px', borderTop: `1px solid ${T.borda}`, fontSize: 12, color: T.texto2, flexWrap: 'wrap' }}>
+          <Leg cor={T.previsto} t="Previsto" /><Leg cor={T.verde} t="Até 100% do previsto" /><Leg cor={T.vermelho} t="Acima de 100%" />
+          <span>Saldo = previsto − utilizado · acumulado em pessoa-mês desde {meses[0]?.label}</span>
+        </div>
+      </section>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mesDeAbs, mesesDaObra } from '../modules/maoDeObra/efetivo/efetivoStore';
-import { TODOS, evolucao, funcoesDaOpcao, kpisAnalise, linhasAnalise, opcoesClassificacao, saldoPorGrupo, serieProjecao } from '../modules/maoDeObra/efetivo/analisePure';
+import { TODOS, evolucao, funcoesDaOpcao, kpisAnalise, linhasAnalise, opcoesClassificacao, serieProjecao } from '../modules/maoDeObra/efetivo/analisePure';
 
 const item = (funcaoId, totalEfetivo) => ({ apropriacaoId: 'x', funcaoId, totalEfetivo, trabAdm: 0, inssSeguro: 0, ferias: 0, emprestManut: 0, destino: null, recebidoOutraObra: 0, origem: null });
 const apr = (mes, quinzena, status, itens) => ({ id: `${mes}-${quinzena}`, obraId: 'O1', ano: 2026, mes, quinzena, dataReferencia: '', status, lancadaEm: null, lancadaPor: null, itens });
@@ -132,11 +132,5 @@ describe('demais seletores', () => {
     expect(e.map((x) => x.m.label)).toEqual(['Set/26', 'Out/26']);
     expect(e[1]).toMatchObject({ p: 16, e: 18 });
     expect(evolucao(base, meses, 2026 * 12 + 7)).toEqual([]);
-  });
-
-  it('saldo por grupo só lista grupos com previsto ou efetivo', () => {
-    const g = saldoPorGrupo(base, OUT);
-    expect(g.map((x) => x.g.id)).toEqual(['OFICIAL', 'MEIO_OFICIAL', 'SERVENTE']);
-    expect(g.find((x) => x.g.id === 'SERVENTE')).toMatchObject({ p: 10, m: 12, ac: -2 });
   });
 });

@@ -66,20 +66,6 @@ export const evolucao = (s, meses, ateAbs) => {
   }));
 };
 
-// Saldo por grupo no mês selecionado.
-export const saldoPorGrupo = (s, mesSel) => {
-  const funcoes = funcoesAtivas(s);
-  return GRUPOS.map((g) => {
-    const fs = funcoes.filter((f) => f.grupoId === g.id);
-    return {
-      g,
-      p: fs.reduce((a, f) => a + previstoMes(s, f.id, mesSel), 0),
-      m: fs.reduce((a, f) => a + (efetivoMes(s, f.id, mesSel) ?? 0), 0),
-      ac: fs.reduce((a, f) => a + (saldoAcumulado(s, f.id, mesSel) ?? 0), 0),
-    };
-  }).filter((x) => x.p || x.m);
-};
-
 // Opções do seletor do gráfico: a classificação efetiva de toda função ativa (a própria função
 // quando não tem classificação), em ordem alfabética. Não filtra por previsto: função sem
 // previsto também precisa aparecer para acompanhar o realizado.
