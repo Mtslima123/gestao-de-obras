@@ -149,7 +149,6 @@ function GraficoProjecao({ s, mesSel, meses }) {
   const fs = funcoesDaOpcao(s, atual);
   const { tot, cons, saldo: saldoV, rest, proj, qtd, pts } = serieProjecao(s, fs, mesSel, meses);
   const mx = Math.max(1, ...pts.map((p) => Math.max(p.v, p.prev))) * 1.12;
-  const fim = meses[meses.length - 1];
 
   if (!atual) {
     return <section style={{ ...card, padding: '18px 20px', fontSize: 13, color: T.texto2 }}>Cadastre o previsto para ver o gráfico de realizado e projeção.</section>;
@@ -159,7 +158,6 @@ function GraficoProjecao({ s, mesSel, meses }) {
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h2 style={h2}>Realizado e projeção até o término da obra</h2>
-          <span style={sub}>{atual === TODOS ? 'Todas as funções somadas' : fs.length > 1 ? `${atual} · ${fs.map((f) => f.nome).join(' + ')}` : atual} · meses até {mesSel.label} mostram o realizado; depois, o saldo distribuído até {fim?.label}</span>
         </div>
         <div style={{ flex: 1 }} />
         <ClassificacaoSelect opcoes={opcoes} valor={atual} onChange={setSel} />

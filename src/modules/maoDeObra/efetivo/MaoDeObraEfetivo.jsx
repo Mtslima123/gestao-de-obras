@@ -10,6 +10,7 @@ import { PrevistoTab } from './PrevistoTab';
 import { ApropriacaoTab } from './ApropriacaoTab';
 import { AnaliseTab } from './AnaliseTab';
 import { MesesApropriacaoModal } from './MesesApropriacaoModal';
+import { CampoData } from './CampoData';
 
 const MOD = 'mao-de-obra';
 const mesAtualAbs = () => { const d = new Date(); return d.getFullYear() * 12 + d.getMonth(); };
@@ -91,7 +92,6 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
       <div>
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: T.texto }}>Efetivo da obra {s?.obra.codigo ?? ''}</h1>
-        <p style={{ margin: '4px 0 0', color: T.texto2, fontSize: 14 }}>Quantidade por função: previsto do mês x apropriações quinzenais.</p>
       </div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: T.texto2 }}>Obra
@@ -170,6 +170,9 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
     const ctx = {
       s, setS, mesSel, setMesSel: (m) => setMesAbsSel(m.abs), meses, toast, erro, recarregar, userProfile,
       ehAdmin,
+      // mo_efetivo_estado só devolve o código da obra; o nome vem da lista de obras da tela
+      // (usado no título dos arquivos exportados).
+      obraNome: obras.find((o) => o.id === obraValida)?.nome ?? '',
       somenteLeitura: abaSomenteLeitura(userProfile, MOD, abaAtual) || fechado,
       mesFechado: fechado,
     };

@@ -3,13 +3,14 @@ import { Icon } from '../../../components/Icons';
 import { Modal } from '../../../components/Modals';
 import { STATUS_UI, ativos, classificacaoEfetiva, corSaldo, status, temValor, trabCanteiro, usoPct } from './regras';
 import { T, card, h2, btn, btnPrim, btnSec, th, td, inp, pill, corUi } from './tokens';
-import { GRUPOS, apropDe, aplicarPatchItem, funcoesAtivas, itemDe, previstoMes, saldoAcumulado, totalEfetivoTela, ultimoDia } from './efetivoStore';
+import { GRUPOS, apropDe, aplicarPatchItem, funcoesAtivas, itemDe, previstoMes, totalEfetivoTela, ultimoDia } from './efetivoStore';
 import { efetivoService } from './efetivo.service';
 import { ehConflito } from './efetivoErro';
 import { lerPlanilha } from './importXlsx';
 import { avisosDeContexto, lerPlanilhaEfetivo } from './importXlsxPure';
 import { ImportarPlanilhaModal } from './ImportarPlanilhaModal';
 import { CampoQtd } from './CampoQtd';
+import { logger } from '../../../services/logger';
 
 const NUM = ['trabAdm', 'inssSeguro', 'ferias', 'emprestManut', 'recebidoOutraObra'];
 // O previsto pode ser quebrado (2,5): soma e diferença são arredondadas a 2 casas para não
@@ -19,37 +20,11 @@ const n2 = (v) => String(r2(v)).replace('.', ',');
 const sg = (v) => { const x = r2(v); return x > 0 ? '+' + n2(x) : x < 0 ? '−' + n2(-x) : '0'; };
 const chaveQ = (ano, mes, q) => `${ano}-${mes}-${q}`;
 
-const Box = ({ label, valor }) => (
-  <div style={{ border: `1px solid ${T.borda}`, borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-    <span style={{ fontSize: 12, color: T.texto2 }}>{label}</span><span style={{ fontSize: 26, fontWeight: 600 }}>{valor}</span>
-  </div>
-);
-
-const BarrasGrupo = ({ grupos, preenchido }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-    <span style={{ fontSize: 12, color: T.texto2, fontWeight: 600 }}>Por grupo (apropriado / previsto)</span>
-    {grupos.filter((g) => g.prev > 0 || g.val > 0).map((g) => {
-      const mx = Math.max(g.prev, g.val, 1) * 1.15;
-      const cor = preenchido ? corUi(STATUS_UI[status(g.prev, g.val)].cor) : T.texto2;
-      return (
-        <div key={g.nome} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}><span>{g.nome}</span><b style={{ color: cor }}>{preenchido ? g.val : '—'} / {n2(g.prev)}</b></div>
-          <div style={{ position: 'relative', height: 6, background: T.linha, borderRadius: 3 }}>
-            <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 3, background: cor, width: `${(g.val / mx) * 100}%` }} />
-            <div style={{ position: 'absolute', top: -3, bottom: -3, width: 2, background: T.texto, left: `${(g.prev / mx) * 100}%` }} />
-          </div>
-        </div>
-      );
-    })}
-    <span style={{ fontSize: 11.5, color: T.texto3 }}>Traço = previsto do grupo</span>
-  </div>
-);
-
 // Aba Apropriação: efetivo real por função, duas por mês (1ª = dias 01-15, 2ª = 16-fim),
 // espelhando a planilha de efetivo. As digitações ficam num rascunho local e são gravadas no
 // banco ao sair de cada campo (uma de cada vez, em fila). "Lançar" tranca a quinzena; só
 // "Reabrir" destranca. A trava de verdade é do banco (409).
-export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somenteLeitura, mesFechado }) {
+export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somenteLeitura, mesFechado, obraNome }) {
   const [q, setQ] = React.useState(1);
   // Trocou o período: volta para a 1ª apropriação (ajuste durante a renderização, sem piscar a 2ª do mês novo).
   const [absVisto, setAbsVisto] = React.useState(mesSel.abs);
@@ -62,6 +37,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
   const [rascunhoSalvo, setRascunhoSalvo] = React.useState(false);
   const [confirmaCopia, setConfirmaCopia] = React.useState(false);
   const [confirmaLimpar, setConfirmaLimpar] = React.useState(false);
+  const [exportando, setExportando] = React.useState(false);
   const [linhaFoco, setLinhaFoco] = React.useState(null); // função cuja linha tem um campo em edição
 
   // Gravação do rascunho: fila (nunca duas ao mesmo tempo, na ordem em que foram pedidas) e,
@@ -262,8 +238,30 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
 
   const st = TOT.any ? status(TOT.prev, TOT.at) : 'pend';
   const d = r2(TOT.at - TOT.prev);
-  const acum = funcoesAtivas(s).reduce((a, f) => a + (saldoAcumulado(s, f.id, mesSel) ?? 0), 0);
   const estadoQ = (n) => { const a = apropDe(s, mesSel, n); return a?.status === 'LANCADA' ? 'Lançada' : a?.itens.some(temValor) ? 'Rascunho' : 'Pendente'; };
+
+  // Exportar a quinzena aberta, do jeito que está na tela (agrupamento e busca). Só leitura:
+  // por isso os botões aparecem também com a quinzena lançada, o mês fechado ou em somente
+  // consulta. O módulo de exportação (e o jspdf/xlsx dentro dele) só é baixado no clique.
+  const exportar = async (formato) => {
+    if (exportando) return;
+    setExportando(true);
+    try {
+      const { exportarPDF, exportarExcel } = await import('./exportApropriacao');
+      const dados = {
+        obraNome, obraCodigo: s.obra.codigo,
+        mesLabel: mesSel.label.replace('/', '/20'), ano: mesSel.ano, mes: mesSel.mes,
+        quinzena: q, periodo: range(q), situacao: estadoQ(q),
+        busca: busca.trim(), grupos, total: TOT,
+      };
+      await (formato === 'pdf' ? exportarPDF(dados) : exportarExcel(dados));
+    } catch (e) {
+      logger.error(`erro ao exportar a apropriação (${formato})`, { module: 'maoDeObra', action: 'exportarApropriacao', obraId: s.obra.id, err: e });
+      erro(`Erro ao exportar para ${formato === 'pdf' ? 'PDF' : 'Excel'}.`);
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const numInput = (f, it, k, label, valor = it?.[k]) => (
     <td style={{ ...td, padding: '4px' }}>
@@ -316,6 +314,12 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
                   <input type="file" accept=".xlsx,.xls" hidden onChange={escolherArquivo} />
                 </label>
               </>}
+          {[['pdf', 'PDF'], ['xlsx', 'Excel']].map(([formato, rotulo]) => (
+            <button key={formato} type="button" style={{ ...btn, opacity: exportando ? 0.6 : 1 }} disabled={exportando} onClick={() => exportar(formato)}
+              title={`Baixar a ${q}ª apropriação em ${rotulo}`}>
+              <Icon name="download" size={15} stroke={2.2} />{exportando ? 'Exportando…' : `Exportar ${rotulo}`}
+            </button>
+          ))}
           {!somenteLeitura && (
             <button type="button" style={locked ? btnSec : btnPrim} disabled={ocupado || aguardaPrimeira} onClick={lancarOuReabrir}>
               <Icon name={locked ? 'unlock' : 'lock'} size={14} stroke={2.2} />{locked ? 'Reabrir apropriação' : 'Lançar apropriação'}
@@ -339,7 +343,6 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
             </span>
           </span>
           <div style={{ flex: 1 }} />
-          <span>Verde até 100% · vermelho acima</span>
           <button type="button" style={{ font: 'inherit', fontSize: 13, border: 0, background: 'none', color: T.azul, cursor: 'pointer', fontWeight: 500 }}
             onClick={() => { const abrir = grupos.every((g) => recolhidos[g.key]); setRecolhidos(Object.fromEntries(grupos.map((g) => [g.key, !abrir]))); }}>
             {grupos.every((g) => recolhidos[g.key]) ? 'Expandir grupos' : 'Recolher grupos'}
@@ -416,32 +419,6 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
       </section>
 
       <div style={{ flex: '1 1 100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(340px,1fr))', gap: 20, alignItems: 'start' }}>
-        <section style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <h2 style={h2}>Resumo · {q}ª apropriação</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Box label="Previsto (mês)" valor={n2(TOT.prev)} />
-            <Box label="Apropriado" valor={TOT.any ? TOT.at : '—'} />
-            <div style={{ gridColumn: '1 / -1', borderRadius: 10, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: !TOT.any ? T.faixa : -d > 0 ? T.azulClaro : -d < 0 ? T.vermelhoBg : T.faixa }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: T.texto2 }}><span>Saldo da quinzena</span>
-                <span>{!TOT.any ? 'aguardando apropriação' : d < 0 ? `${n2(-d)} ${-d === 1 ? 'vaga prevista não utilizada' : 'vagas previstas não utilizadas'}` : d > 0 ? `${n2(d)} acima do previsto` : 'previsto totalmente utilizado'}</span></div>
-              <span style={{ fontSize: 26, fontWeight: 600, color: TOT.any ? corUi(corSaldo(-d)) : T.texto2 }}>{TOT.any ? sg(-d) : '—'}</span>
-            </div>
-            <div style={{ gridColumn: '1 / -1', border: `1px solid ${T.borda}`, borderRadius: 10, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: T.texto2 }}><span>Saldo acumulado da obra</span><span>pessoa-mês não utilizada até {mesSel.label}</span></div>
-              <span style={{ fontSize: 22, fontWeight: 600, color: corUi(corSaldo(acum)) }}>{sg(acum)}</span>
-            </div>
-          </div>
-          <div style={{ borderRadius: 10, padding: '12px 14px', background: okUi(st).fundo, color: okUi(st).cor, fontSize: 13.5, fontWeight: 500 }}>
-            {!TOT.any ? 'Apropriação ainda não preenchida. Digite as quantidades por função.'
-              : d <= 0 ? `Dentro do previsto: uso de ${usoPct(TOT.at, TOT.prev)}%${d < 0 ? `, ${n2(-d)} ${-d === 1 ? 'vaga' : 'vagas'} de saldo` : ''}.`
-                : `Efetivo acima do previsto: ${n2(d)} ${d === 1 ? 'pessoa' : 'pessoas'} a mais (${usoPct(TOT.at, TOT.prev)}%).`}
-          </div>
-          <BarrasGrupo grupos={GRUPOS.map((g) => {
-            const fs = funcoesAtivas(s).filter((f) => f.grupoId === g.id);
-            return { nome: g.nome, prev: r2(fs.reduce((a, f) => a + previstoMes(s, f.id, mesSel), 0)), val: fs.reduce((a, f) => a + (ativos(itemDe(ap, f.id) ?? {}) ?? 0), 0) };
-          })} preenchido={TOT.any} />
-        </section>
-
         <section style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <h2 style={h2}>Apropriações de {mesSel.label.replace('/', '/20')}</h2>
           {[1, 2].map((n) => {
