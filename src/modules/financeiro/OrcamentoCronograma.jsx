@@ -752,11 +752,66 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
   );
 });
 
-// Altura da lista "Itens vinculados" do modal Editar Itens Associados: arrastável pela
-// alça logo abaixo dela e lembrada entre sessões (mesmo padrão do TaskFormPanel).
-const VINC_LISTA_H     = 160; // altura padrão, a mesma que era fixa
-const VINC_LISTA_H_MIN = 60;  // ainda mostra uma linha inteira
-const VINC_LISTA_H_KEY = 'orc_cron_vinculados_h';
+// Altura arrastável das listas do modal Editar Itens Associados (Itens vinculados e
+// Adicionar itens): alça logo abaixo da lista, altura lembrada entre sessões (mesmo padrão
+// do TaskFormPanel). `padrao` null = a lista não tem altura própria e segue o layout (flex)
+// até o usuário arrastar a alça pela 1ª vez; duplo clique na alça volta pro padrão.
+const LISTA_H_MIN = 60; // ainda mostra uma linha inteira
+const useAlturaLista = (chave, padrao) => {
+  const [altura, setAltura] = React.useState(() => {
+    try { return Number(localStorage.getItem(chave)) || padrao; } catch { return padrao; }
+  });
+  const listaRef = React.useRef(null);
+  const arrasto  = React.useRef(null); // { startY, startH, maxH, liveH } enquanto arrasta
+
+  // Ponteiro (não mouse) pra funcionar com o dedo no tablet, igual ao Modal; a captura
+  // mantém os eventos na alça mesmo se o ponteiro sair dela durante o arrasto.
+  const iniciar = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const lista = listaRef.current;
+    if (!lista) return;
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ponteiro já solto */ }
+    const startH = lista.offsetHeight;
+    // Teto = altura do conteúdo: passar disso só criaria espaço vazio dentro da borda,
+    // e a alça ficaria "presa" ao arrastar de volta.
+    const maxH = Math.max(startH, lista.scrollHeight + (lista.offsetHeight - lista.clientHeight));
+    arrasto.current = { startY: e.clientY, startH, maxH, liveH: startH };
+  };
+  const mover = (e) => {
+    const r = arrasto.current;
+    if (!r) return;
+    r.liveH = Math.round(Math.min(r.maxH, Math.max(LISTA_H_MIN, r.startH + (e.clientY - r.startY))));
+    setAltura(r.liveH);
+  };
+  const terminar = () => {
+    const r = arrasto.current;
+    arrasto.current = null;
+    if (r && r.liveH !== r.startH) { try { localStorage.setItem(chave, String(r.liveH)); } catch { /* best-effort */ } }
+  };
+  const restaurar = () => {
+    setAltura(padrao);
+    try { localStorage.removeItem(chave); } catch { /* best-effort */ }
+  };
+
+  return {
+    altura,
+    listaRef,
+    alcaProps: { onPointerDown: iniciar, onPointerMove: mover, onPointerUp: terminar, onPointerCancel: terminar, onDoubleClick: restaurar },
+  };
+};
+
+const AlcaAltura = ({ alcaProps }) => (
+  <div
+    role="separator"
+    aria-orientation="horizontal"
+    title="Arraste para ajustar a altura (duplo clique volta ao padrão)"
+    {...alcaProps}
+    style={{ height: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'row-resize', touchAction: 'none', userSelect: 'none' }}
+  >
+    <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)' }} />
+  </div>
+);
 
 // ─── OrcamentoCronogramaScreen ────────────────────────────────────────────────
 const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
@@ -824,36 +879,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   const [confirmRemoveTodos, setConfirmRemoveTodos] = React.useState(false);
   const [removendoTodos,     setRemovendoTodos]     = React.useState(false);
 
-  const [vincListaH, setVincListaH] = React.useState(() => {
-    try { return Number(localStorage.getItem(VINC_LISTA_H_KEY)) || VINC_LISTA_H; } catch { return VINC_LISTA_H; }
-  });
-  const vincListaRef  = React.useRef(null);
-  const vincResizeRef = React.useRef(null); // { startY, startH, maxH, liveH } enquanto arrasta
-  // Ponteiro (não mouse) pra funcionar com o dedo no tablet, igual ao Modal; a captura
-  // mantém os eventos na alça mesmo se o ponteiro sair dela durante o arrasto.
-  const iniciarResizeVinc = (e) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    const lista = vincListaRef.current;
-    if (!lista) return;
-    e.preventDefault();
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ponteiro já solto */ }
-    const startH = lista.offsetHeight;
-    // Teto = altura do conteúdo: passar disso só criaria espaço vazio dentro da borda,
-    // e a alça ficaria "presa" ao arrastar de volta.
-    const maxH = Math.max(startH, lista.scrollHeight + (lista.offsetHeight - lista.clientHeight));
-    vincResizeRef.current = { startY: e.clientY, startH, maxH, liveH: startH };
-  };
-  const moverResizeVinc = (e) => {
-    const r = vincResizeRef.current;
-    if (!r) return;
-    r.liveH = Math.round(Math.min(r.maxH, Math.max(VINC_LISTA_H_MIN, r.startH + (e.clientY - r.startY))));
-    setVincListaH(r.liveH);
-  };
-  const terminarResizeVinc = () => {
-    const r = vincResizeRef.current;
-    vincResizeRef.current = null;
-    if (r && r.liveH !== r.startH) { try { localStorage.setItem(VINC_LISTA_H_KEY, String(r.liveH)); } catch { /* best-effort */ } }
-  };
+  // 160px = a altura que era fixa antes; Adicionar itens começa sem altura própria (null),
+  // crescendo com o modal, e passa a ter a escolhida pelo usuário depois de arrastar a alça.
+  const vincLista = useAlturaLista('orc_cron_vinculados_h', 160);
+  const addLista  = useAlturaLista('orc_cron_adicionar_h', null);
 
   // Estado do modal de distribuição de pesos (fator_peso das subtarefas de um grupo)
   const [salvandoPeso,      setSalvandoPeso]      = React.useState(false);
@@ -1629,7 +1658,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                 </div>
               ) : (
                 <>
-                  <div ref={vincListaRef} style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: vincListaH, overflowY: 'auto' }}>
+                  <div ref={vincLista.listaRef} style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: vincLista.altura, overflowY: 'auto' }}>
                     {vinculosEtapa.map(v => (
                       <div key={v.id} style={{
                         display: 'flex', alignItems: 'center', gap: 10,
@@ -1677,22 +1706,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                   </div>
                   {/* Alça entre as duas listas: arrastar pra baixo mostra mais itens vinculados e
                       tira espaço da lista de Adicionar itens (que tem altura mínima própria). */}
-                  <div
-                    role="separator"
-                    aria-orientation="horizontal"
-                    title="Arraste para ajustar a altura (duplo clique volta ao padrão)"
-                    onPointerDown={iniciarResizeVinc}
-                    onPointerMove={moverResizeVinc}
-                    onPointerUp={terminarResizeVinc}
-                    onPointerCancel={terminarResizeVinc}
-                    onDoubleClick={() => {
-                      setVincListaH(VINC_LISTA_H);
-                      try { localStorage.removeItem(VINC_LISTA_H_KEY); } catch { /* best-effort */ }
-                    }}
-                    style={{ height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'row-resize', touchAction: 'none', userSelect: 'none' }}
-                  >
-                    <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)' }} />
-                  </div>
+                  <AlcaAltura alcaProps={vincLista.alcaProps} />
                 </>
               )}
             </div>
@@ -1709,10 +1723,15 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                 onChange={e => setBuscaModalItem(e.target.value)}
                 style={{ width: '100%', marginBottom: 8, flexShrink: 0 }}
               />
-              {/* flex-basis de 160px mantém a altura de antes com o modal no tamanho padrão;
-                  flex-grow é o que faz a lista ocupar o espaço extra ao arrastar o canto do
-                  modal (com maxHeight fixo o modal crescia e a lista ficava parada). */}
-              <div style={{ flex: '1 1 160px', minHeight: 120, border: '1px solid var(--border)', borderRadius: 6, overflowY: 'auto' }}>
+              {/* Sem altura escolhida: flex-basis de 160px mantém a altura de antes com o modal
+                  no tamanho padrão, e flex-grow faz a lista ocupar o espaço extra ao arrastar
+                  o canto do modal. Depois de arrastar a alça abaixo, a altura vira fixa. */}
+              <div ref={addLista.listaRef} style={{
+                ...(addLista.altura
+                  ? { flex: '0 0 auto', height: addLista.altura, minHeight: LISTA_H_MIN }
+                  : { flex: '1 1 160px', minHeight: 120 }),
+                border: '1px solid var(--border)', borderRadius: 6, overflowY: 'auto',
+              }}>
                 {itensNaoVinculados.length === 0 ? (
                   <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>
                     {buscaModalItem ? 'Nenhum item encontrado para essa busca.' : 'Todos os itens já foram vinculados.'}
@@ -1750,6 +1769,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
                   })
                 )}
               </div>
+              <AlcaAltura alcaProps={addLista.alcaProps} />
             </div>
           </div>
         </Modal>
