@@ -21,15 +21,8 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses }) {
 
   const linhas = React.useMemo(() => linhasAnalise(s, mesSel, { verPor, ordem, grupoF }), [s, mesSel, verPor, ordem, grupoF]);
   const mx = Math.max(1, ...linhas.map((l) => Math.max(l.p, l.m ?? 0)));
-  const { previsto: MP, efetivo: MM, acumulado: ACT, acima, nA } = kpisAnalise(s, mesSel, linhas);
-
-  const kpis = [
-    { l: 'Previsto do mês', v: fmt(MP), s: 'pessoas (soma das funções)', c: T.texto },
-    { l: 'Efetivo apropriado', v: fmt(MM), s: nA ? `última apropriação (${nA}ª)` : 'sem apropriações lançadas', c: T.azul },
-    { l: 'Saldo do mês', v: sg(MP - MM), s: MP ? `uso ${usoPct(MM, MP)}% do previsto` : '', c: corUi(corSaldo(MP - MM)) },
-    { l: 'Saldo acumulado', v: sg(ACT), s: `pessoa-mês não utilizada · ${meses[0]?.label} a ${mesSel.label}`, c: corUi(corSaldo(ACT)) },
-    { l: 'Acima do previsto', v: String(acima), s: `de ${linhas.length} ${verPor === 'classificacao' ? 'itens' : 'funções'} com previsão ou efetivo`, c: acima ? T.vermelho : T.verde },
-  ];
+  // nA = quantas quinzenas lançadas o mês tem (0, 1 ou 2): só ele é usado, no subtítulo da tabela.
+  const { nA } = kpisAnalise(s, mesSel, linhas);
 
   const evo = React.useMemo(() => evolucao(s, meses, mesAtualAbs()), [s, meses]);
   const mxE = Math.max(1, ...evo.map((x) => Math.max(x.p, x.e))) * 1.08;
@@ -37,14 +30,6 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
-        {kpis.map((k) => (
-          <div key={k.l} style={{ ...card, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 12.5, color: T.texto2 }}>{k.l}</span><span style={{ fontSize: 28, fontWeight: 600, color: k.c }}>{k.v}</span><span style={{ fontSize: 12, color: T.texto2 }}>{k.s}</span>
-          </div>
-        ))}
-      </div>
-
       <GraficoProjecao s={s} mesSel={mesSel} meses={meses} />
 
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
