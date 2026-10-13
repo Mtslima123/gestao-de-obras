@@ -1355,14 +1355,20 @@ a:hover { color: var(--brand-600); }
   letter-spacing: -0.01em;
 }
 .modal-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
-.modal-close {
+.modal-close,
+.modal-max {
   margin-left: auto;
   width: 30px; height: 30px;
   border-radius: 6px;
   color: var(--text-muted);
   display: grid; place-items: center;
+  flex-shrink: 0;
 }
-.modal-close:hover { background: var(--surface-muted); color: var(--text); }
+.modal-close:hover,
+.modal-max:hover { background: var(--surface-muted); color: var(--text); }
+/* Com o botão de tela cheia antes do X, só ele empurra pra direita: duas margens auto
+   dividiriam o espaço livre e os dois botões ficariam separados. */
+.modal-max + .modal-close { margin-left: 2px; }
 .modal-body {
   padding: 22px;
   overflow-y: auto;

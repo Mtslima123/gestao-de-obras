@@ -21,6 +21,10 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   const resizing = React.useRef(false);
   const resizeStart = React.useRef({ x: 0, y: 0, w: 0, h: 0 });
   const [customSize, setCustomSize] = React.useState(null);
+  // Tela cheia (botão ao lado do X, ou duplo clique no cabeçalho) — vem junto com
+  // `resizable`. Só sobrepõe o estilo: `pos` e `customSize` ficam intactos, então
+  // restaurar devolve o modal exatamente onde e do tamanho que estava.
+  const [maximizado, setMaximizado] = React.useState(false);
   // Mover e redimensionar por ponteiro (mouse, dedo ou caneta): só com mousedown/mousemove,
   // no celular e no tablet nada acontecia (o toque gera evento de mouse só no toque rápido,
   // nunca no arrasto). touch-action:none no cabeçalho e na alça impede o navegador de
@@ -70,7 +74,7 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   }, [draggable]);
 
   const handleHeaderDown = (e) => {
-    if (!draggable || e.target.closest('button')) return;
+    if (!draggable || maximizado || e.target.closest('button')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return; // só o botão principal
     capturar(e);
     dragging.current = true;
@@ -140,8 +144,18 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     position: 'relative', // âncora pra alça de redimensionar (position:absolute); "fixed" abaixo sobrescreve quando draggable
     ...(draggable && pos ? { position: 'fixed', left: pos.x, top: pos.y, margin: 0 } : {}),
     ...(customSize ? { width: customSize.w, height: customSize.h, maxWidth: 'none', maxHeight: 'none' } : {}),
+    // 100dvh pelo mesmo motivo do .modal no celular: 100vh conta a barra do navegador
+    // escondida e o rodapé ficaria abaixo da tela.
+    ...(maximizado ? {
+      position: 'fixed', left: 8, top: 8, margin: 0,
+      width: 'calc(100vw - 16px)', height: 'calc(100dvh - 16px)', maxWidth: 'none', maxHeight: 'none',
+    } : {}),
   };
-  const headerStyle = draggable ? { cursor: 'grab', userSelect: 'none', touchAction: 'none' } : {};
+  const headerStyle = draggable && !maximizado ? { cursor: 'grab', userSelect: 'none', touchAction: 'none' } : {};
+  const handleHeaderDoubleClick = (e) => {
+    if (!resizable || e.target.closest('button')) return;
+    setMaximizado(m => !m);
+  };
 
   // Portal pra document.body: sem isso, um modal aberto de dentro de um contêiner com
   // rolagem própria (ex.: .mobile-focus-body do modo foco mobile) fica sujeito a um bug
@@ -155,18 +169,24 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
       onClick={(e) => overlay && e.target === e.currentTarget && onClose()}>
       <div ref={nodeRef} className={'modal ' + sizeClass} style={modalStyle}
            role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
-        <div className="modal-header" style={headerStyle} onPointerDown={handleHeaderDown}>
+        <div className="modal-header" style={headerStyle} onPointerDown={handleHeaderDown} onDoubleClick={handleHeaderDoubleClick}>
           <div>
             <div className="modal-title">{title}</div>
             {subtitle && <div className="modal-sub">{subtitle}</div>}
           </div>
+          {resizable && (
+            <button className="modal-max" onClick={() => setMaximizado(m => !m)}
+              aria-label={maximizado ? 'Restaurar tamanho' : 'Tela cheia'} title={maximizado ? 'Restaurar tamanho' : 'Tela cheia'}>
+              <Icon name={maximizado ? 'minimize' : 'maximize'} size={15} />
+            </button>
+          )}
           <button className="modal-close" onClick={onClose} aria-label="Fechar" title="Fechar"><Icon name="dots" size={16} style={{ display: 'none' }} />
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-footer">{footer}</div>}
-        {resizable && (
+        {resizable && !maximizado && (
           <div className="modal-resize" onPointerDown={handleResizeDown} title="Arraste para redimensionar">
             <svg width="10" height="10" viewBox="0 0 10 10" style={{ opacity: 0.45 }}>
               <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.4" />
