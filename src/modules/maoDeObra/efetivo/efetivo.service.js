@@ -38,6 +38,14 @@ export const efetivoService = {
   criarClassificacao: (nome) => chamar('criarClassificacao', 'mo_classificacao_criar', { p_nome: nome }),
   removerClassificacao: (nome) => chamar('removerClassificacao', 'mo_classificacao_remover', { p_nome: nome }),
 
+  // Lista de funções DA OBRA (não do cadastro): remover tira a função só desta obra, sem mexer no
+  // cadastro nem nas outras obras, e restaurar a devolve. Quem edita o previsto pode. O banco
+  // recusa (PT409) com o previsto trancado e, ao remover, se a obra já tem apropriação dela.
+  removerFuncaoDaObra: (obraId, funcaoId) =>
+    chamar('removerFuncaoDaObra', 'mo_obra_funcao_remover', { p_obra: obraId, p_funcao: funcaoId }, { obraId, funcaoId }),
+  restaurarFuncaoNaObra: (obraId, funcaoId) =>
+    chamar('restaurarFuncaoNaObra', 'mo_obra_funcao_restaurar', { p_obra: obraId, p_funcao: funcaoId }, { obraId, funcaoId }),
+
   // Previsto: salvar grava início e término da obra e tranca; destrancar = "Editar previsto".
   // itens: [{ funcaoId, qtdMes, inicio, termino }].
   salvarPrevisto: (obraId, inicioObra, terminoObra, itens) =>

@@ -1,8 +1,9 @@
 import React from 'react';
 import { Icon } from '../../../components/Icons';
+import { Modal } from '../../../components/Modals';
 import { corMediaRestante, corSaldo, mediaRestante, mesAbs, mesesEntre, mesesRestantes, orcado } from './regras';
 import { T, card, h2, sub, btn, btnPrim, btnSec, th, td, inp, pill, corUi } from './tokens';
-import { GRUPOS, consumidoAte, fimDoMesIso, funcoesDoGrupo, lerQtd, mesDeAbs, prevDe } from './efetivoStore';
+import { GRUPOS, consumidoAte, fimDoMesIso, funcoesComApropriacao, funcoesDoGrupo, lerQtd, mesDeAbs, porOrdemDoCadastro, prevDe } from './efetivoStore';
 import { efetivoService } from './efetivo.service';
 import { ehConflito } from './efetivoErro';
 import { GruposModal } from './GruposModal';
@@ -28,6 +29,13 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
   const [nova, setNova] = React.useState(null); // { nome, g, q, ini, fim }
   const [ocupado, setOcupado] = React.useState(false);
   const [linhaFoco, setLinhaFoco] = React.useState(null); // função cuja linha tem um campo em edição
+  const [confirmaRemover, setConfirmaRemover] = React.useState(null); // função a tirar da lista desta obra
+
+  // Lista de funções DESTA obra (o cadastro é global): quem edita o previsto tira as que a obra
+  // não usa e devolve as removidas. Só com o previsto destrancado, como o resto da edição.
+  const podeRemover = !locked && !somenteLeitura;
+  const removidas = s.funcoesRemovidas ?? [];
+  const comAprop = React.useMemo(() => funcoesComApropriacao(s), [s.apropriacoes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const OF = mesAbs(s.obra.termino);
   const rest = mesesRestantes(mesSel.iso, s.obra.termino);
@@ -73,6 +81,8 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
     const nome = nova.nome.trim();
     if (!nome) return erro('Informe o nome da função.');
     if (s.funcoes.some((f) => f.ativo && f.nome.toLowerCase() === nome.toLowerCase())) return erro('Já existe uma função com esse nome.');
+    // O cadastro é global: a função removida desta obra ainda existe nele e o banco recusaria o nome.
+    if (removidas.some((f) => f.nome.toLowerCase() === nome.toLowerCase())) return erro('Essa função já existe no cadastro e foi removida desta obra. Restaure-a abaixo da tabela.');
     setOcupado(true);
     try {
       const { data: f, error } = await efetivoService.criarFuncao(nome, nova.g);
@@ -80,6 +90,45 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
       setS((st) => ({ ...st, funcoes: [...st.funcoes, f], previsto: [...st.previsto, { obraId: st.obra.id, funcaoId: f.id, qtdMes: nova.q, inicio: nova.ini, termino: nova.fim }] }));
       setNova(null);
       toast(`Função "${nome}" cadastrada.`);
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  // Remover/restaurar valem na hora (como Nova função): o objeto da função só troca de lista na
+  // tela, sem recarregar, para não perder o que está digitado no rascunho do previsto. O banco
+  // confere de novo (previsto trancado, apropriação); em erro 409 a tela recarrega.
+  const removerDaObra = async () => {
+    const f = confirmaRemover;
+    setConfirmaRemover(null);
+    if (!f || ocupado) return;
+    setOcupado(true);
+    try {
+      const { error } = await efetivoService.removerFuncaoDaObra(s.obra.id, f.id);
+      if (error) return falhou(error);
+      setS((st) => ({
+        ...st,
+        funcoes: st.funcoes.filter((x) => x.id !== f.id),
+        previsto: st.previsto.filter((p) => p.funcaoId !== f.id),
+        funcoesRemovidas: [...(st.funcoesRemovidas ?? []), f].sort(porOrdemDoCadastro),
+      }));
+      toast(`Função "${f.nome}" removida desta obra.`);
+    } finally {
+      setOcupado(false);
+    }
+  };
+  const restaurar = async (f) => {
+    if (ocupado) return;
+    setOcupado(true);
+    try {
+      const { error } = await efetivoService.restaurarFuncaoNaObra(s.obra.id, f.id);
+      if (error) return falhou(error);
+      setS((st) => ({
+        ...st,
+        funcoes: [...st.funcoes, f].sort(porOrdemDoCadastro),
+        funcoesRemovidas: (st.funcoesRemovidas ?? []).filter((x) => x.id !== f.id),
+      }));
+      toast(`Função "${f.nome}" voltou para a lista desta obra.`);
     } finally {
       setOcupado(false);
     }
@@ -206,6 +255,7 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
                 <th style={{ ...th, textAlign: 'right', background: T.colMedia, paddingRight: 20 }} title="Saldo ÷ meses restantes até o término da obra">
                   Média restante<div style={{ fontSize: 11, fontWeight: 500, textTransform: 'none' }}>{rest} {rest === 1 ? 'mês restante' : 'meses restantes'}</div>
                 </th>
+                {podeRemover && <th style={{ ...th, width: 44 }} aria-label="Remover da obra" />}
               </tr>
             </thead>
             {grupos.map(({ g, rows, gt, gc, gm }) => rows.length > 0 && (
@@ -216,9 +266,11 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
                   <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmt(gc)}</td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: corUi(corSaldo(gt - gc)), background: T.colMedia }}>{fmtSaldo(gt - gc)}</td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 700, background: T.colMediaGrupo, paddingRight: 20 }}>{gm == null ? '—' : fmt(gm)}</td>
+                  {podeRemover && <td style={td} />}
                 </tr>
                 {rows.map(({ f, p, q, meses, tot, c, sd, med }) => {
                   const foco = linhaFoco === f.id;
+                  const bloqueada = comAprop.has(f.id); // já tem apropriação nesta obra: não sai da lista
                   return (
                   <tr key={f.id} style={foco ? { background: T.linhaSel } : undefined}
                     onFocus={() => setLinhaFoco(f.id)}
@@ -232,6 +284,16 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
                     <td style={{ ...td, textAlign: 'right', color: T.texto2 }}>{fmt(c)}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: corUi(corSaldo(sd)), background: foco ? 'transparent' : T.colSaldo }}>{fmtSaldo(sd)}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: corUi(corMediaRestante(med, q)), background: foco ? 'transparent' : T.grupo, paddingRight: 20 }}>{med == null ? '—' : (med < 0 ? '−' : '') + fmt(Math.abs(med))}</td>
+                    {podeRemover && (
+                      <td style={{ ...td, paddingRight: 12 }}>
+                        <button type="button" disabled={ocupado || bloqueada} onClick={() => setConfirmaRemover(f)}
+                          aria-label={`Remover ${f.nome} desta obra`}
+                          title={bloqueada ? 'Tem apropriação nesta obra, não pode ser removida' : 'Remover esta função da lista desta obra'}
+                          style={{ font: 'inherit', border: 0, background: 'none', padding: 6, borderRadius: 6, display: 'inline-flex', color: T.vermelho, cursor: ocupado || bloqueada ? 'not-allowed' : 'pointer', opacity: bloqueada ? 0.3 : 1 }}>
+                          <Icon name="trash" size={14} stroke={2.2} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                   );
                 })}
@@ -239,6 +301,17 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
             ))}
           </table>
         </div>
+        {podeRemover && removidas.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px', borderTop: `1px solid ${T.borda}`, background: T.faixa, fontSize: 12.5, color: T.texto2, flexWrap: 'wrap' }}>
+            <span>Funções removidas desta obra:</span>
+            {removidas.map((f) => (
+              <button key={f.id} type="button" disabled={ocupado} onClick={() => restaurar(f)} title="Trazer de volta para a lista desta obra"
+                style={{ ...btn, padding: '4px 10px', fontSize: 12.5, color: T.azul }}>
+                <Icon name="plus" size={12} stroke={2.2} />Restaurar {f.nome}
+              </button>
+            ))}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 16, padding: '12px 20px', borderTop: `1px solid ${T.borda}`, fontSize: 12, color: T.texto2, flexWrap: 'wrap' }}>
           <span>Orçado, consumido e saldo em pessoa-mês · saldo = orçado − consumido · média restante = saldo ÷ meses do mês selecionado até o término da obra</span>
           <span><b style={{ color: T.azul }}>●</b> Média acima da qtd/mês</span>
@@ -260,6 +333,19 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
           onConfirmar={aplicarImportacao}
           onClose={() => setPrevia(null)}
         />
+      )}
+
+      {confirmaRemover && (
+        <Modal title={`Remover "${confirmaRemover.nome}" desta obra?`} size="sm" onClose={() => setConfirmaRemover(null)}
+          footer={<>
+            <button type="button" className="btn btn-ghost" onClick={() => setConfirmaRemover(null)}>Cancelar</button>
+            <button type="button" className="btn btn-danger" onClick={removerDaObra}>Remover</button>
+          </>}>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            A função sai do Previsto, da Apropriação e da Análise da obra {s.obra.codigo}, e a quantidade prevista dela aqui é apagada.
+            Ela continua no cadastro e nas outras obras, e dá para trazê-la de volta em "Funções removidas desta obra", abaixo da tabela.
+          </p>
+        </Modal>
       )}
 
       {modal && <GruposModal s={s} setS={setS} toast={toast} erro={erro} recarregar={recarregar} onClose={() => setModal(false)} />}

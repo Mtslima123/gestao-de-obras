@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mesesEntre, previstoNoMes, orcado, ativos, trabCanteiro, efetivoDoMes, status, mesesRestantes, mediaRestante } from '../modules/maoDeObra/efetivo/regras';
-import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis, mesFechado, mesesFechaveis, mesSemDados, lerQtd } from '../modules/maoDeObra/efetivo/efetivoStore';
+import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis, mesFechado, mesesFechaveis, mesSemDados, lerQtd, funcoesComApropriacao, porOrdemDoCadastro } from '../modules/maoDeObra/efetivo/efetivoStore';
 
 const item = (funcaoId, campos) => ({ apropriacaoId: 'x', funcaoId, totalEfetivo: null, trabAdm: null, inssSeguro: null, ferias: null, emprestManut: null, destino: null, recebidoOutraObra: null, origem: null, ...campos });
 const apr = (mes, quinzena, status, itens) => ({ id: `${mes}-${quinzena}`, obraId: 'O1', ano: 2026, mes, quinzena, dataReferencia: '', status, lancadaEm: null, lancadaPor: null, itens });
@@ -276,5 +276,45 @@ describe('lerQtd (quantidade do previsto, pode ser quebrada)', () => {
     expect(lerQtd(null)).toBe(0);
     expect(lerQtd('-3')).toBe(0);
     expect(lerQtd('abc')).toBe(0);
+  });
+});
+
+describe('funcoesComApropriacao (função que não pode sair da lista da obra)', () => {
+  const com = (apropriacoes) => funcoesComApropriacao({ apropriacoes });
+
+  it('valor diferente de zero em qualquer campo numérico conta', () => {
+    for (const campo of ['totalEfetivo', 'trabAdm', 'inssSeguro', 'ferias', 'emprestManut', 'recebidoOutraObra']) {
+      expect(com([apr(9, 1, 'RASCUNHO', [item('1', { [campo]: 2 })])]).has('1')).toBe(true);
+    }
+  });
+
+  it('destino ou origem preenchidos contam, mesmo sem número', () => {
+    expect(com([apr(9, 1, 'RASCUNHO', [item('1', { destino: 'Obra B' })])]).has('1')).toBe(true);
+    expect(com([apr(9, 1, 'RASCUNHO', [item('2', { origem: 'Obra C' })])]).has('2')).toBe(true);
+  });
+
+  it('linha zerada (o que o Lançar grava para toda função) e texto em branco não contam', () => {
+    const zerada = item('1', { totalEfetivo: 0, trabAdm: 0, inssSeguro: 0, ferias: 0, emprestManut: 0, recebidoOutraObra: 0, destino: '  ', origem: '' });
+    expect(com([apr(9, 1, 'LANCADA', [zerada])]).has('1')).toBe(false);
+    expect(com([apr(9, 1, 'RASCUNHO', [item('1', {})])]).has('1')).toBe(false);
+  });
+
+  it('vale rascunho ou lançada, em qualquer quinzena ou mês, e só para a função que tem valor', () => {
+    const set = com([
+      apr(9, 1, 'RASCUNHO', [item('1', { trabAdm: 1 })]),
+      apr(10, 2, 'LANCADA', [item('3', { ferias: 4 }), item('2', {})]),
+    ]);
+    expect([...set].sort()).toEqual(['1', '3']);
+  });
+
+  it('obra sem apropriação: ninguém tem', () => {
+    expect(com([]).size).toBe(0);
+  });
+});
+
+describe('porOrdemDoCadastro', () => {
+  it('ordena por ordem e desempata pelo id numérico (10 depois de 9)', () => {
+    const lista = [{ id: '10', ordem: 1 }, { id: '9', ordem: 1 }, { id: '3', ordem: 0 }, { id: '4' }];
+    expect(lista.sort(porOrdemDoCadastro).map((f) => f.id)).toEqual(['3', '4', '9', '10']);
   });
 });

@@ -123,3 +123,16 @@ export const lerQtd = (v) => {
 
 export const funcoesAtivas = (s) =>s.funcoes.filter((f) => f.ativo);
 export const funcoesDoGrupo = (s, g) => funcoesAtivas(s).filter((f) => f.grupoId === g);
+
+// Funções da obra que já têm apropriação (rascunho ou lançada, qualquer quinzena): não podem ser
+// removidas da lista da obra. Só conta valor de verdade: o "Lançar" grava uma linha zerada para
+// toda função ativa, e essa não é apropriação. Mesma regra de mo_obra_funcao_remover; o banco
+// confere de novo e é ele quem vale (aqui só serve para desabilitar o botão).
+const temDado = (i) =>
+  [i.totalEfetivo, i.trabAdm, i.inssSeguro, i.ferias, i.emprestManut, i.recebidoOutraObra].some((v) => (v ?? 0) !== 0)
+  || !!i.destino?.trim() || !!i.origem?.trim();
+export const funcoesComApropriacao = (s) =>
+  new Set(s.apropriacoes.flatMap((a) => a.itens.filter(temDado).map((i) => i.funcaoId)));
+
+// Ordem do cadastro (a mesma que o banco devolve) ao devolver uma função à lista da obra.
+export const porOrdemDoCadastro = (a, b) => (a.ordem ?? 0) - (b.ordem ?? 0) || Number(a.id) - Number(b.id);
