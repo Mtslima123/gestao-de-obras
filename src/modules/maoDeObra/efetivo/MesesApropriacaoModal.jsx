@@ -2,15 +2,16 @@ import React from 'react';
 import { Modal } from '../../../components/Modals';
 import { T, pill } from './tokens';
 import { efetivoService } from './efetivo.service';
-import { habilitadosRemoviveis, mesFechado, mesesFechaveis, mesesParaHabilitar } from './efetivoStore';
+import { habilitadosRemoviveis, mesFechado, mesSemDados, mesesFechaveis, mesesParaHabilitar } from './efetivoStore';
 
 const rotulo = (m) => m.label.replace('/', '/20');
 const campo = { background: 'var(--surface)', color: T.texto, font: 'inherit', fontSize: 13, padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8, minWidth: 160 };
 const linhaMes = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '6px 0', borderTop: `1px solid ${T.linha}`, fontSize: 13.5 };
 
 // Só admin. Libera um mês da obra para apropriação (além do mês atual e dos que já têm
-// apropriação), remove habilitações que ainda não foram usadas e fecha/reabre meses que já têm
-// apropriação (mês fechado é só consulta). A trava de verdade é do banco.
+// apropriação), remove habilitações que ainda não foram usadas, exclui mês sem nenhum dado
+// preenchido e fecha/reabre meses que já têm apropriação (mês fechado é só consulta). A trava
+// de verdade é do banco.
 export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast, erro, onHabilitado, onClose }) {
   const opcoes = mesesParaHabilitar(s, meses, mesAtualAbs);
   const removiveis = habilitadosRemoviveis(s, meses);
@@ -35,6 +36,7 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
 
   const habilitar = () => alvo && executar(efetivoService.habilitarMes, alvo, `${rotulo(alvo)} habilitado para apropriação.`, () => { onHabilitado(alvo.abs); onClose(); });
   const remover = (m) => executar(efetivoService.desabilitarMes, m, `${rotulo(m)} removido da lista de apropriação.`);
+  const excluir = (m) => executar(efetivoService.excluirMes, m, `${rotulo(m)} excluído da lista de apropriação.`);
   const fechar = (m) => executar(efetivoService.fecharMes, m, `${rotulo(m)} fechado. Só consulta até ser reaberto.`);
   const reabrir = (m) => executar(efetivoService.reabrirMes, m, `${rotulo(m)} reaberto para edição.`);
 
@@ -50,7 +52,7 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <p style={{ margin: 0, lineHeight: 1.5, fontSize: 13.5, color: T.texto2 }}>
-          A lista de períodos da Apropriação mostra o mês atual, os meses que já têm apropriação e os que você habilitar aqui. Mês fechado continua na lista, só para consulta.
+          A lista de períodos da Apropriação mostra o mês atual, os meses que já têm apropriação e os que você habilitar aqui. Mês fechado continua na lista, só para consulta. Mês sem nenhum dado preenchido pode ser excluído.
         </p>
         {opcoes.length
           ? (
@@ -78,14 +80,16 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
             <div style={{ maxHeight: 240, overflowY: 'auto' }}>
               {fechaveis.map((m) => {
                 const fechado = mesFechado(s, m);
+                const vazio = mesSemDados(s, m);
                 return (
                   <div key={m.abs} style={linhaMes}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {rotulo(m)}
                       <span style={fechado ? pill(T.texto2, T.faixa) : pill(T.verde, T.verdeBg)}>{fechado ? 'Fechado' : 'Aberto'}</span>
+                      {vazio && <span style={pill(T.texto2, T.faixa)}>Sem dados</span>}
                     </span>
-                    <button type="button" className="btn btn-ghost" disabled={ocupado} onClick={() => (fechado ? reabrir(m) : fechar(m))}>
-                      {fechado ? 'Reabrir mês' : 'Fechar mês'}
+                    <button type="button" className="btn btn-ghost" disabled={ocupado} onClick={() => (fechado ? reabrir(m) : vazio ? excluir(m) : fechar(m))}>
+                      {fechado ? 'Reabrir mês' : vazio ? 'Excluir mês' : 'Fechar mês'}
                     </button>
                   </div>
                 );

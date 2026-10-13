@@ -25,6 +25,15 @@ const inteiro = (v) => {
   return n;
 };
 
+// Quantidade por mês do previsto: aceita número quebrado (2,5), até 2 casas, >= 0.
+// null = vazio; { erro: true } = não é número >= 0.
+const decimalNaoNegativo = (v) => {
+  if (vazio(v)) return null;
+  const n = typeof v === 'number' ? v : Number(String(v).trim().replace(/\./g, '').replace(',', '.'));
+  if (!Number.isFinite(n) || n < 0) return { erro: true };
+  return Math.round(n * 100) / 100;
+};
+
 // Número de série do Excel, texto dd/mm/aaaa (ou dd/mm/aa), aaaa-mm-dd ou Date -> 'YYYY-MM-DD'.
 export const paraIso = (v) => {
   if (vazio(v)) return null;
@@ -202,7 +211,7 @@ export function lerPlanilhaPrevisto(rows, funcoes, padrao = {}) {
     const f = funcaoPorNome.get(norm);
     if (!f) { naoEncontradas.push({ nome, linha: i + 1 }); continue; }
     if (vistas.has(f.id)) { avisos.push(`Linha ${i + 1}: "${nome}" aparece mais de uma vez; usei a primeira.`); continue; }
-    const qtd = inteiro(get(linha, 'qtdMes'));
+    const qtd = decimalNaoNegativo(get(linha, 'qtdMes'));
     if (qtd == null || qtd.erro) { invalidas.push({ nome, linha: i + 1, motivo: `quantidade por mês inválida ("${get(linha, 'qtdMes') ?? ''}")` }); continue; }
     const ini = vazio(get(linha, 'inicio')) ? padrao.inicio ?? null : paraIso(get(linha, 'inicio'));
     const fim = vazio(get(linha, 'termino')) ? padrao.termino ?? null : paraIso(get(linha, 'termino'));

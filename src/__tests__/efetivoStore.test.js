@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mesesEntre, previstoNoMes, orcado, ativos, trabCanteiro, efetivoDoMes, status, mesesRestantes, mediaRestante } from '../modules/maoDeObra/efetivo/regras';
-import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis, mesFechado, mesesFechaveis } from '../modules/maoDeObra/efetivo/efetivoStore';
+import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis, mesFechado, mesesFechaveis, mesSemDados, lerQtd } from '../modules/maoDeObra/efetivo/efetivoStore';
 
 const item = (funcaoId, campos) => ({ apropriacaoId: 'x', funcaoId, totalEfetivo: null, trabAdm: null, inssSeguro: null, ferias: null, emprestManut: null, destino: null, recebidoOutraObra: null, origem: null, ...campos });
 const apr = (mes, quinzena, status, itens) => ({ id: `${mes}-${quinzena}`, obraId: 'O1', ano: 2026, mes, quinzena, dataReferencia: '', status, lancadaEm: null, lancadaPor: null, itens });
@@ -237,5 +237,44 @@ describe('meses fechados', () => {
   it('mês fechado continua na lista de períodos da Apropriação', () => {
     const s = { ...comApropriacao, mesesFechados: [{ ano: 2026, mes: 9 }] };
     expect(mesesApropriaveis(s, todos, OUT).map((m) => m.label)).toEqual(['Set/26', 'Out/26', 'Nov/26']);
+  });
+});
+
+describe('excluir mês sem dados', () => {
+  const m = (mes) => mesDeAbs(2026 * 12 + mes - 1);
+
+  it('mês só com rascunho vazio pode ser excluído', () => {
+    const s = estado([apr(9, 1, 'RASCUNHO', []), apr(9, 2, 'RASCUNHO', [])]);
+    expect(mesSemDados(s, m(9))).toBe(true);
+  });
+
+  it('qualquer linha preenchida ou quinzena lançada impede a exclusão', () => {
+    expect(mesSemDados(estado([apr(9, 1, 'RASCUNHO', [item('1', { totalEfetivo: 2 })])]), m(9))).toBe(false);
+    expect(mesSemDados(estado([apr(9, 1, 'RASCUNHO', [item('1', { destino: 'CRI' })])]), m(9))).toBe(false);
+    expect(mesSemDados(estado([apr(9, 1, 'LANCADA', [])]), m(9))).toBe(false);
+    expect(mesSemDados(estado([apr(9, 1, 'RASCUNHO', []), apr(9, 2, 'RASCUNHO', [item('1', { ferias: 1 })])]), m(9))).toBe(false);
+  });
+
+  it('mês fechado ou sem apropriação nenhuma não entra', () => {
+    const fechado = { ...estado([apr(9, 1, 'RASCUNHO', [])]), mesesFechados: [{ ano: 2026, mes: 9 }] };
+    expect(mesSemDados(fechado, m(9))).toBe(false);
+    expect(mesSemDados(estado([]), m(9))).toBe(false);
+  });
+});
+
+describe('lerQtd (quantidade do previsto, pode ser quebrada)', () => {
+  it('aceita vírgula e ponto, com até 2 casas', () => {
+    expect(lerQtd('2,5')).toBe(2.5);
+    expect(lerQtd('2.5')).toBe(2.5);
+    expect(lerQtd('2.')).toBe(2);
+    expect(lerQtd('0,333')).toBe(0.33);
+    expect(lerQtd('20')).toBe(20);
+  });
+
+  it('vazio, negativo e texto viram 0', () => {
+    expect(lerQtd('')).toBe(0);
+    expect(lerQtd(null)).toBe(0);
+    expect(lerQtd('-3')).toBe(0);
+    expect(lerQtd('abc')).toBe(0);
   });
 });

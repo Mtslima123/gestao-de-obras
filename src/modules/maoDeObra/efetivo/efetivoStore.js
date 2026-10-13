@@ -107,5 +107,19 @@ export const mesFechado = (s, m) => (s.mesesFechados ?? []).some((f) => f.ano ==
 export const mesesFechaveis = (s) =>
   [...new Set(s.apropriacoes.map((a) => a.ano * 12 + a.mes - 1))].sort((a, b) => a - b).map(mesDeAbs);
 
+// Mês sem nenhum dado: toda apropriação dele é rascunho e sem linhas, e o mês não está fechado.
+// É o único que o admin pode excluir (o banco confere de novo em mo_mes_excluir).
+export const mesSemDados = (s, m) => {
+  const as = s.apropriacoes.filter((a) => a.ano === m.ano && a.mes === m.mes);
+  return as.length > 0 && !mesFechado(s, m) && as.every((a) => a.status !== 'LANCADA' && a.itens.length === 0);
+};
+
+// Quantidade por mês do previsto, digitada com vírgula ou ponto: número >= 0 com até 2 casas
+// (pode ser quebrada, ex.: 2,5 pessoas). Vazio ou inválido vira 0.
+export const lerQtd = (v) => {
+  const n = Number(String(v ?? '').trim().replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+};
+
 export const funcoesAtivas = (s) =>s.funcoes.filter((f) => f.ativo);
 export const funcoesDoGrupo = (s, g) => funcoesAtivas(s).filter((f) => f.grupoId === g);

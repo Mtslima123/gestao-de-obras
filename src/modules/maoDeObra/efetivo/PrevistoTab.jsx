@@ -2,7 +2,7 @@ import React from 'react';
 import { Icon } from '../../../components/Icons';
 import { corMediaRestante, corSaldo, mediaRestante, mesAbs, mesesEntre, mesesRestantes, orcado } from './regras';
 import { T, card, h2, sub, btn, btnPrim, btnSec, th, td, inp, pill, corUi } from './tokens';
-import { GRUPOS, consumidoAte, fimDoMesIso, funcoesDoGrupo, mesDeAbs, prevDe } from './efetivoStore';
+import { GRUPOS, consumidoAte, fimDoMesIso, funcoesDoGrupo, lerQtd, mesDeAbs, prevDe } from './efetivoStore';
 import { efetivoService } from './efetivo.service';
 import { ehConflito } from './efetivoErro';
 import { GruposModal } from './GruposModal';
@@ -187,7 +187,7 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap', padding: '14px 20px', background: T.faixa, borderBottom: `1px solid ${T.borda}` }}>
             <Campo label="Nome da função" flex><input autoFocus value={nova.nome} onChange={(e) => setNova({ ...nova, nome: e.target.value })} placeholder="Ex.: Armador" style={{ ...inp(false, '100%'), textAlign: 'left', padding: '7px 10px' }} /></Campo>
             <Campo label="Grupo"><select value={nova.g} onChange={(e) => setNova({ ...nova, g: e.target.value })} style={{ ...inp(false, 'auto'), padding: '7px 8px' }}>{GRUPOS.map((g) => <option key={g.id} value={g.id}>{g.nome}</option>)}</select></Campo>
-            <Campo label="Qtd/mês"><input type="number" min={0} value={nova.q} onChange={(e) => setNova({ ...nova, q: Math.max(0, parseInt(e.target.value, 10) || 0) })} style={{ ...inp(false, 70), padding: '7px 8px' }} /></Campo>
+            <Campo label="Qtd/mês"><CampoQtd decimal value={nova.q} onChange={(e) => setNova({ ...nova, q: lerQtd(e.target.value) })} style={{ ...inp(false, 70), padding: '7px 8px' }} /></Campo>
             <Campo label="Início"><input type="date" value={nova.ini} onChange={(e) => setNova({ ...nova, ini: e.target.value })} style={{ ...inp(false, 'auto'), padding: '6px 8px' }} /></Campo>
             <Campo label="Término"><input type="date" value={nova.fim} onChange={(e) => setNova({ ...nova, fim: e.target.value })} style={{ ...inp(false, 'auto'), padding: '6px 8px' }} /></Campo>
             <button type="button" style={btn} onClick={() => setNova(null)}>Cancelar</button>
@@ -224,7 +224,7 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
                     onFocus={() => setLinhaFoco(f.id)}
                     onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setLinhaFoco(null); }}>
                     <td style={{ ...td, textAlign: 'left', paddingLeft: 32, boxShadow: foco ? `inset 3px 0 0 ${T.azul}` : undefined, fontWeight: foco ? 600 : undefined }}>{f.nome}</td>
-                    <td style={td}><CampoQtd min={0} value={q} disabled={locked} onChange={(e) => setPrev(f.id, { qtdMes: Math.max(0, parseInt(e.target.value, 10) || 0) })} style={{ ...inp(locked, 56), fontWeight: 600 }} /></td>
+                    <td style={td}><CampoQtd decimal value={q} disabled={locked} aria-label={`Quantidade por mês de ${f.nome}`} onChange={(e) => setPrev(f.id, { qtdMes: lerQtd(e.target.value) })} style={{ ...inp(locked, 56), fontWeight: 600 }} /></td>
                     <td style={{ ...td, textAlign: 'left' }}><CampoData value={p?.inicio ?? s.obra.inicio} disabled={locked} aria-label={`Início de ${f.nome}`} onConfirmar={(v) => setPrev(f.id, { inicio: v })} style={inp(locked, 'auto')} /></td>
                     <td style={{ ...td, textAlign: 'left' }}><CampoData value={p?.termino ?? fimDoMesIso(mesDeAbs(OF))} disabled={locked} aria-label={`Término de ${f.nome}`} onConfirmar={(v) => setPrev(f.id, { termino: v })} style={inp(locked, 'auto')} /></td>
                     <td style={{ ...td, fontWeight: 600, color: T.texto2 }}>{meses}</td>

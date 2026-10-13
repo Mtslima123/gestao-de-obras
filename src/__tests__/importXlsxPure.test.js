@@ -138,6 +138,11 @@ describe('lerPlanilhaPrevisto', () => {
     expect(r.invalidas.map((i) => i.motivo)).toEqual(['término antes do início', 'quantidade por mês inválida ("x")']);
   });
 
+  it('quantidade do previsto pode ser quebrada (2,5), com vírgula ou número', () => {
+    const r = lerPlanilhaPrevisto([CABP, ['Carpinteiro', '2,5', '01/05/2026', '31/12/2026'], ['Almoxarife', 1.25, '01/05/2026', '31/12/2026']], funcoes, padrao);
+    expect(r.itens.map((i) => i.qtdMes)).toEqual([2.5, 1.25]);
+  });
+
   it('só FUNÇÃO e QTD: usa as datas da obra e avisa', () => {
     const r = lerPlanilhaPrevisto([['Função', 'Quantidade'], ['Carpinteiro', 3]], funcoes, padrao);
     expect(r.itens[0]).toMatchObject({ inicio: '2026-09-16', termino: '2027-10-31' });

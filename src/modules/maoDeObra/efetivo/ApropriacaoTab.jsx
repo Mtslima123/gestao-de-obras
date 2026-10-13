@@ -12,7 +12,11 @@ import { ImportarPlanilhaModal } from './ImportarPlanilhaModal';
 import { CampoQtd } from './CampoQtd';
 
 const NUM = ['trabAdm', 'inssSeguro', 'ferias', 'emprestManut', 'recebidoOutraObra'];
-const sg = (v) => (v > 0 ? '+' + v : v < 0 ? '−' + -v : '0');
+// O previsto pode ser quebrado (2,5): soma e diferença são arredondadas a 2 casas para não
+// aparecer 0,30000000000000004, e o decimal sai com vírgula.
+const r2 = (v) => Math.round(v * 100) / 100;
+const n2 = (v) => String(r2(v)).replace('.', ',');
+const sg = (v) => { const x = r2(v); return x > 0 ? '+' + n2(x) : x < 0 ? '−' + n2(-x) : '0'; };
 const chaveQ = (ano, mes, q) => `${ano}-${mes}-${q}`;
 
 const Box = ({ label, valor }) => (
@@ -29,7 +33,7 @@ const BarrasGrupo = ({ grupos, preenchido }) => (
       const cor = preenchido ? corUi(STATUS_UI[status(g.prev, g.val)].cor) : T.texto2;
       return (
         <div key={g.nome} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}><span>{g.nome}</span><b style={{ color: cor }}>{preenchido ? g.val : '—'} / {g.prev}</b></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}><span>{g.nome}</span><b style={{ color: cor }}>{preenchido ? g.val : '—'} / {n2(g.prev)}</b></div>
           <div style={{ position: 'relative', height: 6, background: T.linha, borderRadius: 3 }}>
             <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 3, background: cor, width: `${(g.val / mx) * 100}%` }} />
             <div style={{ position: 'absolute', top: -3, bottom: -3, width: 2, background: T.texto, left: `${(g.prev / mx) * 100}%` }} />
@@ -245,7 +249,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
       const tot = totalEfetivoTela(it);
       const can = it && temValor(it) ? trabCanteiro(it) : null;
       for (const o of [G, TOT]) {
-        o.prev += pv;
+        o.prev = r2(o.prev + pv);
         NUM.forEach((k) => { o[k] += it?.[k] ?? 0; });
         if (can != null) o.can += can;
         if (tot != null) o.totalEfetivo += tot;
@@ -257,7 +261,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
   });
 
   const st = TOT.any ? status(TOT.prev, TOT.at) : 'pend';
-  const d = TOT.at - TOT.prev;
+  const d = r2(TOT.at - TOT.prev);
   const acum = funcoesAtivas(s).reduce((a, f) => a + (saldoAcumulado(s, f.id, mesSel) ?? 0), 0);
   const estadoQ = (n) => { const a = apropDe(s, mesSel, n); return a?.status === 'LANCADA' ? 'Lançada' : a?.itens.some(temValor) ? 'Rascunho' : 'Pendente'; };
 
@@ -362,10 +366,10 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
                       <span style={{ display: 'inline-block', transform: recolhidos[key] ? 'rotate(-90deg)' : 'none', transition: 'transform .15s', marginRight: 8 }}>▾</span>{nome}
                       <span style={{ fontWeight: 500, color: T.texto2, fontSize: 12, marginLeft: 8 }}>{rows.length}</span>
                     </td>
-                    <td style={{ ...td, fontWeight: 600 }}>{G.prev}</td>
+                    <td style={{ ...td, fontWeight: 600 }}>{n2(G.prev)}</td>
                     {somas(G)}
                     <td style={{ ...td, fontWeight: 700, color: T.azul, background: T.azulClaro }}>{G.any ? G.at : '—'}</td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: G.any ? corUi(corSaldo(G.prev - G.at)) : T.texto2 }}>{G.any ? sg(G.prev - G.at) : '—'}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: G.any ? corUi(corSaldo(r2(G.prev - G.at))) : T.texto2 }}>{G.any ? sg(G.prev - G.at) : '—'}</td>
                     <td style={{ ...td, textAlign: 'left', fontWeight: 600, color: okUi(gst).cor, paddingRight: 20 }}>{G.any ? `${usoPct(G.at, G.prev) ?? '—'}%` : '—'}</td>
                   </tr>
                   {!recolhidos[key] && rows.map(({ f, it, pv, at, can, tot }) => {
@@ -380,13 +384,13 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
                             {agrupar === 'grupo' && f.classificacao && <span style={pill(T.azul, T.azulClaro)}>{f.classificacao}</span>}
                           </span>
                         </td>
-                        <td style={{ ...td, color: T.texto2 }}>{pv}</td>
+                        <td style={{ ...td, color: T.texto2 }}>{n2(pv)}</td>
                         <td style={{ ...td, fontWeight: 600, background: foco ? 'transparent' : T.colSaldo }}>{tot ?? '—'}</td>
                         {numInput(f, it, 'trabAdm', 'Trabalhando na ADM')}{numInput(f, it, 'canteiro', 'Trabalhando no canteiro', can)}
                         {numInput(f, it, 'inssSeguro', 'INSS/Seguro')}{numInput(f, it, 'ferias', 'Férias')}{numInput(f, it, 'emprestManut', 'Emprestado/Manutenção')}
                         {txtInput(f, it, 'destino', 'Destino')}{numInput(f, it, 'recebidoOutraObra', 'Recebido outra obra')}{txtInput(f, it, 'origem', 'Origem')}
                         <td style={{ ...td, fontWeight: 700, color: T.azul, background: foco ? 'transparent' : T.destaque }}>{at ?? '—'}</td>
-                        <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: at == null ? T.texto2 : corUi(corSaldo(pv - at)) }}>{at == null ? '—' : sg(pv - at)}</td>
+                        <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: at == null ? T.texto2 : corUi(corSaldo(r2(pv - at))) }}>{at == null ? '—' : sg(pv - at)}</td>
                         <td style={{ ...td, textAlign: 'left', paddingRight: 20 }}><span style={pill(ui.cor, ui.fundo)}><span style={{ width: 6, height: 6, borderRadius: '50%', background: ui.cor }} />{ui.rotulo}</span></td>
                       </tr>
                     );
@@ -396,7 +400,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
             })}
             <tfoot>
               <tr style={{ borderTop: `2px solid ${T.bordaInput}`, fontWeight: 700 }}>
-                <td style={{ padding: '12px 20px' }}>Total</td><td style={{ ...td, fontWeight: 700 }}>{TOT.prev}</td>
+                <td style={{ padding: '12px 20px' }}>Total</td><td style={{ ...td, fontWeight: 700 }}>{n2(TOT.prev)}</td>
                 {somas(TOT, 700)}
                 <td style={{ ...td, color: T.azul, background: T.azulClaro, fontWeight: 700 }}>{TOT.any ? TOT.at : '—'}</td>
                 <td style={{ ...td, textAlign: 'right', color: TOT.any ? corUi(corSaldo(-d)) : T.texto2 }}>{TOT.any ? sg(-d) : '—'}</td>
@@ -415,11 +419,11 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
         <section style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <h2 style={h2}>Resumo · {q}ª apropriação</h2>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Box label="Previsto (mês)" valor={TOT.prev} />
+            <Box label="Previsto (mês)" valor={n2(TOT.prev)} />
             <Box label="Apropriado" valor={TOT.any ? TOT.at : '—'} />
             <div style={{ gridColumn: '1 / -1', borderRadius: 10, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: !TOT.any ? T.faixa : -d > 0 ? T.azulClaro : -d < 0 ? T.vermelhoBg : T.faixa }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: T.texto2 }}><span>Saldo da quinzena</span>
-                <span>{!TOT.any ? 'aguardando apropriação' : d < 0 ? `${-d} ${-d === 1 ? 'vaga prevista não utilizada' : 'vagas previstas não utilizadas'}` : d > 0 ? `${d} acima do previsto` : 'previsto totalmente utilizado'}</span></div>
+                <span>{!TOT.any ? 'aguardando apropriação' : d < 0 ? `${n2(-d)} ${-d === 1 ? 'vaga prevista não utilizada' : 'vagas previstas não utilizadas'}` : d > 0 ? `${n2(d)} acima do previsto` : 'previsto totalmente utilizado'}</span></div>
               <span style={{ fontSize: 26, fontWeight: 600, color: TOT.any ? corUi(corSaldo(-d)) : T.texto2 }}>{TOT.any ? sg(-d) : '—'}</span>
             </div>
             <div style={{ gridColumn: '1 / -1', border: `1px solid ${T.borda}`, borderRadius: 10, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -429,12 +433,12 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
           </div>
           <div style={{ borderRadius: 10, padding: '12px 14px', background: okUi(st).fundo, color: okUi(st).cor, fontSize: 13.5, fontWeight: 500 }}>
             {!TOT.any ? 'Apropriação ainda não preenchida. Digite as quantidades por função.'
-              : d <= 0 ? `Dentro do previsto: uso de ${usoPct(TOT.at, TOT.prev)}%${d < 0 ? `, ${-d} ${-d === 1 ? 'vaga' : 'vagas'} de saldo` : ''}.`
-                : `Efetivo acima do previsto: ${d} ${d === 1 ? 'pessoa' : 'pessoas'} a mais (${usoPct(TOT.at, TOT.prev)}%).`}
+              : d <= 0 ? `Dentro do previsto: uso de ${usoPct(TOT.at, TOT.prev)}%${d < 0 ? `, ${n2(-d)} ${-d === 1 ? 'vaga' : 'vagas'} de saldo` : ''}.`
+                : `Efetivo acima do previsto: ${n2(d)} ${d === 1 ? 'pessoa' : 'pessoas'} a mais (${usoPct(TOT.at, TOT.prev)}%).`}
           </div>
           <BarrasGrupo grupos={GRUPOS.map((g) => {
             const fs = funcoesAtivas(s).filter((f) => f.grupoId === g.id);
-            return { nome: g.nome, prev: fs.reduce((a, f) => a + previstoMes(s, f.id, mesSel), 0), val: fs.reduce((a, f) => a + (ativos(itemDe(ap, f.id) ?? {}) ?? 0), 0) };
+            return { nome: g.nome, prev: r2(fs.reduce((a, f) => a + previstoMes(s, f.id, mesSel), 0)), val: fs.reduce((a, f) => a + (ativos(itemDe(ap, f.id) ?? {}) ?? 0), 0) };
           })} preenchido={TOT.any} />
         </section>
 

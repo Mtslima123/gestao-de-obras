@@ -64,6 +64,9 @@ export const efetivoService = {
 
   // Fechar trava a edição de um mês que já tem apropriação (só admin; PT409 se o mês não tem
   // apropriação). Reabrir o mês devolve a edição.
+  // Exclui o mês da lista: só vale se nenhuma quinzena tem dado preenchido (PT409 se tiver).
+  excluirMes: (obraId, ano, mes) =>
+    chamar('excluirMes', 'mo_mes_excluir', { p_obra: obraId, p_ano: ano, p_mes: mes }, { obraId, ano, mes }),
   fecharMes: (obraId, ano, mes) =>
     chamar('fecharMes', 'mo_mes_fechar', { p_obra: obraId, p_ano: ano, p_mes: mes }, { obraId, ano, mes }),
   reabrirMes: (obraId, ano, mes) =>
