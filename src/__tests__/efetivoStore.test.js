@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mesesEntre, previstoNoMes, orcado, ativos, trabCanteiro, efetivoDoMes, status, mesesRestantes, mediaRestante } from '../modules/maoDeObra/efetivo/regras';
-import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis, mesFechado, mesesFechaveis, mesSemDados, lerQtd, funcoesComApropriacao, porOrdemDoCadastro } from '../modules/maoDeObra/efetivo/efetivoStore';
+import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis, mesFechado, mesesFechaveis, mesSemDados, lerQtd, funcoesComApropriacao, porOrdemDoCadastro, mesesComApropriacao } from '../modules/maoDeObra/efetivo/efetivoStore';
 
 const item = (funcaoId, campos) => ({ apropriacaoId: 'x', funcaoId, totalEfetivo: null, trabAdm: null, inssSeguro: null, ferias: null, emprestManut: null, destino: null, recebidoOutraObra: null, origem: null, ...campos });
 const apr = (mes, quinzena, status, itens) => ({ id: `${mes}-${quinzena}`, obraId: 'O1', ano: 2026, mes, quinzena, dataReferencia: '', status, lancadaEm: null, lancadaPor: null, itens });
@@ -316,5 +316,31 @@ describe('porOrdemDoCadastro', () => {
   it('ordena por ordem e desempata pelo id numérico (10 depois de 9)', () => {
     const lista = [{ id: '10', ordem: 1 }, { id: '9', ordem: 1 }, { id: '3', ordem: 0 }, { id: '4' }];
     expect(lista.sort(porOrdemDoCadastro).map((f) => f.id)).toEqual(['3', '4', '9', '10']);
+  });
+});
+
+describe('mesesComApropriacao (períodos da Análise)', () => {
+  const meses = mesesDaObra(estado([]).obra); // Set/26 a Dez/26
+  const labels = (apropriacoes) => mesesComApropriacao(estado(apropriacoes), meses).map((m) => m.label);
+
+  it('só entram os meses com quinzena lançada, na ordem da obra', () => {
+    expect(labels([apr(10, 1, 'LANCADA', []), apr(9, 2, 'LANCADA', [])])).toEqual(['Set/26', 'Out/26']);
+  });
+
+  it('basta uma das duas quinzenas lançada', () => {
+    expect(labels([apr(10, 1, 'LANCADA', []), apr(10, 2, 'RASCUNHO', [])])).toEqual(['Out/26']);
+  });
+
+  it('mês só com rascunho não entra (a Análise não conta rascunho)', () => {
+    expect(labels([apr(9, 1, 'RASCUNHO', [item('1', { trabAdm: 3 })]), apr(9, 2, 'RASCUNHO', [])])).toEqual([]);
+  });
+
+  it('obra sem apropriação: lista vazia', () => {
+    expect(labels([])).toEqual([]);
+  });
+
+  it('apropriação fora dos meses da obra é ignorada', () => {
+    const fora = { ...apr(3, 1, 'LANCADA', []), ano: 2025 };
+    expect(labels([fora, apr(11, 1, 'LANCADA', [])])).toEqual(['Nov/26']);
   });
 });

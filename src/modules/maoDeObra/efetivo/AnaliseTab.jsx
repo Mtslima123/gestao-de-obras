@@ -2,7 +2,7 @@ import React from 'react';
 import { Icon } from '../../../components/Icons';
 import { STATUS_UI, corSaldo, status, usoPct } from './regras';
 import { T, card, h2, sub, th, td, pill, corUi } from './tokens';
-import { GRUPOS } from './efetivoStore';
+import { GRUPOS, mesesComApropriacao } from './efetivoStore';
 import { TODOS, evolucao, funcoesDaOpcao, kpisAnalise, linhasAnalise, opcoesClassificacao, serieProjecao } from './analisePure';
 
 const fmt = (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
@@ -25,6 +25,8 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses }) {
   const { nA } = kpisAnalise(s, mesSel, linhas);
 
   const evo = React.useMemo(() => evolucao(s, meses, mesAtualAbs()), [s, meses]);
+  // Só os meses com apropriação lançada estão no seletor de período; a barra de outro mês não troca o período.
+  const lancados = React.useMemo(() => new Set(mesesComApropriacao(s, meses).map((m) => m.abs)), [s, meses]);
   const mxE = Math.max(1, ...evo.map((x) => Math.max(x.p, x.e))) * 1.08;
 
   return (
@@ -41,7 +43,7 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses }) {
           : <>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 170, borderBottom: `1px solid ${T.bordaInput}` }}>
               {evo.map((x) => (
-                <div key={x.m.abs} onClick={() => setMesSel(x.m)} title={`${x.m.label}: previsto ${x.p}, efetivo ${x.e}`} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, cursor: 'pointer', borderRadius: 6, background: x.m.abs === mesSel.abs ? T.destaque : 'transparent' }}>
+                <div key={x.m.abs} onClick={() => lancados.has(x.m.abs) && setMesSel(x.m)} title={`${x.m.label}: previsto ${x.p}, efetivo ${x.e}`} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, cursor: lancados.has(x.m.abs) ? 'pointer' : 'default', borderRadius: 6, background: x.m.abs === mesSel.abs ? T.destaque : 'transparent' }}>
                   <span style={{ fontSize: 11, fontWeight: 600 }}>{x.e}</span>
                   <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, width: '100%', justifyContent: 'center', height: '80%' }}>
                     <div style={{ width: '38%', maxWidth: 16, borderRadius: '3px 3px 0 0', background: T.previsto, height: `${(x.p / mxE) * 100}%` }} />

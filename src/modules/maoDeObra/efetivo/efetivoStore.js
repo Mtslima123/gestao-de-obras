@@ -100,6 +100,12 @@ export const habilitadosRemoviveis = (s, meses) =>
   meses.filter((m) => (s.mesesHabilitados ?? []).some((h) => h.ano === m.ano && h.mes === m.mes)
     && !s.apropriacoes.some((a) => a.ano === m.ano && a.mes === m.mes));
 
+// Meses da obra com apropriação feita, para o seletor de período da Análise. "Feita" = ao menos
+// uma quinzena LANCADA: a Análise só conta quinzena lançada (rascunho não tem efetivo ali), então
+// um mês só com rascunho abriria vazio. `meses` é a lista da obra, e a ordem dela é mantida.
+export const mesesComApropriacao = (s, meses) =>
+  meses.filter((m) => s.apropriacoes.some((a) => a.ano === m.ano && a.mes === m.mes && a.status === 'LANCADA'));
+
 // Mês fechado pelo admin: só consulta, mesmo com apropriação lançada. A trava de verdade é do
 // gatilho do banco (mo_apropriacao e mo_apropriacao_item).
 export const mesFechado = (s, m) => (s.mesesFechados ?? []).some((f) => f.ano === m.ano && f.mes === m.mes);
