@@ -68,3 +68,30 @@ export function patchCompensa(patch, totalEtapas) {
   if (!patch || patch.inalterado) return false;
   return patch.upserts.length <= Math.max(1, Math.floor(totalEtapas * 0.5));
 }
+
+/**
+ * Dois `updated_at` são a mesma versão? Compara o instante, não o texto: a mesma hora chega
+ * como "…04.477Z" (gravada pelo navegador) ou "…04.477+00:00" / "…04.477123+00:00" (lida do
+ * banco). Vazio ou inválido nunca é igual a nada.
+ */
+export function mesmaVersao(a, b) {
+  const ta = a ? Date.parse(a) : NaN;
+  const tb = b ? Date.parse(b) : NaN;
+  return Number.isFinite(ta) && ta === tb;
+}
+
+/**
+ * Ao voltar para a tela (outra aba, outra janela ou o cache da sessão), o cronograma do banco
+ * ainda é o que está na tela? Outra aba salvando pesos no Orçamento × Cronograma muda a versão,
+ * e a próxima gravação da Lista seria recusada pela trava: a exclusão sumia da tela e voltava ao
+ * recarregar.
+ *   'nada'      → banco igual, ou já em conflito (o aviso está na tela), ou versão ilegível
+ *   'aguardar'  → mudou, mas há gravação desta tela pendente ou em andamento: ela mesma esbarra
+ *                 na trava se for o caso (e o banco pode ter mudado justamente por ela)
+ *   'recarregar'→ mudou e não há nada desta tela a perder: relê do banco
+ */
+export function decidirSincronia({ bancoUpdatedAt, referencia, pendente = false, emConflito = false }) {
+  if (emConflito || !bancoUpdatedAt) return 'nada';
+  if (mesmaVersao(bancoUpdatedAt, referencia)) return 'nada';
+  return pendente ? 'aguardar' : 'recarregar';
+}

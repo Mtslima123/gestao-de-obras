@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { snapshotEtapas, diffEtapas, patchCompensa } from '../modules/cronograma/etapasPatch';
+import { snapshotEtapas, diffEtapas, patchCompensa, mesmaVersao, decidirSincronia } from '../modules/cronograma/etapasPatch';
 
 const e = (id, extra = {}) => ({ id, etapa: 'Tarefa ' + id, parentId: null, fator_peso: 1, ...extra });
 const base = () => [e('A'), e('B'), e('C')];
@@ -135,5 +135,45 @@ describe('patchCompensa', () => {
     const s = snapshotEtapas(grande, outros);
     const agora = grande.map(x => ({ ...x, etapa: 'todas mudaram' }));
     expect(patchCompensa(diffEtapas(s, agora, outros), 100)).toBe(false);
+  });
+});
+
+describe('mesmaVersao', () => {
+  it('compara o instante, não o texto (formato do navegador x formato do banco)', () => {
+    expect(mesmaVersao('2026-10-15T13:52:04.477Z', '2026-10-15T13:52:04.477+00:00')).toBe(true);
+    expect(mesmaVersao('2026-10-15T17:49:47.713476+00:00', '2026-10-15T17:49:47.713+00:00')).toBe(true);
+    expect(mesmaVersao('2026-10-15T17:49:47.713+00:00', '2026-10-15T17:50:44.993+00:00')).toBe(false);
+  });
+
+  it('vazio ou inválido nunca é igual', () => {
+    expect(mesmaVersao(null, null)).toBe(false);
+    expect(mesmaVersao(undefined, '2026-10-15T13:52:04.477Z')).toBe(false);
+    expect(mesmaVersao('lixo', 'lixo')).toBe(false);
+  });
+});
+
+describe('decidirSincronia — voltar para a tela com o banco possivelmente mudado', () => {
+  const v1 = '2026-10-15T17:49:47.713476+00:00';
+  const v2 = '2026-10-15T17:51:30.796+00:00';
+
+  it('banco igual ao da tela: nada', () => {
+    expect(decidirSincronia({ bancoUpdatedAt: v1, referencia: '2026-10-15T17:49:47.713Z' })).toBe('nada');
+  });
+
+  it('outra aba gravou e esta tela não tem nada pendente: recarregar (o caso dos pesos em outra aba)', () => {
+    expect(decidirSincronia({ bancoUpdatedAt: v2, referencia: v1 })).toBe('recarregar');
+  });
+
+  it('sem referência (cache invalidado) e nada pendente: recarregar', () => {
+    expect(decidirSincronia({ bancoUpdatedAt: v2, referencia: null })).toBe('recarregar');
+  });
+
+  it('mudou mas há gravação desta tela pendente ou em andamento: aguardar (a própria gravação esbarra na trava)', () => {
+    expect(decidirSincronia({ bancoUpdatedAt: v2, referencia: v1, pendente: true })).toBe('aguardar');
+  });
+
+  it('já em conflito, ou versão do banco ilegível: nada', () => {
+    expect(decidirSincronia({ bancoUpdatedAt: v2, referencia: v1, emConflito: true })).toBe('nada');
+    expect(decidirSincronia({ bancoUpdatedAt: null, referencia: v1 })).toBe('nada');
   });
 });

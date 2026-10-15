@@ -11,7 +11,7 @@ import { offlineCache } from '../../services/offlineCache';
 import { reduzirReprogramacoes } from '../../utils/offlinePure';
 import { SCurveChart } from './SCurveChart';
 import { SCurveChart2 } from './SCurveChart2';
-import { useToast } from '../../components/Modals';
+import { Modal, useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
 import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
 import { podeVerAba, moduloSomenteLeitura, abaSomenteLeitura, isAdmin } from '../../utils/permissions';
@@ -32,7 +32,7 @@ import {
 } from './cronogramaModais';
 import { GM_TOTAL, gmConflicts, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
-import { snapshotEtapas, diffEtapas, patchCompensa } from './etapasPatch';
+import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './etapasPatch';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
@@ -2202,7 +2202,18 @@ function salvarReprogramacoesLocal(obraId, reps) {
 // gravariam R$ antigos (valorVinculadoFixo, previsto congelado, snapshot do fechamento).
 const _cronDoAparelho = {};
 
-async function salvarCronograma(obraId, etapas, customCols, baselines, reprogramacoes, feriados) {
+// Gravações em andamento por obra (todas passam por salvarCronograma): a conferência de versão
+// ao voltar para a tela espera elas terminarem, senão veria o banco já mudado pela própria
+// gravação, antes da resposta atualizar a referência, e recarregaria à toa.
+const _gravacoesEmAndamento = {};
+
+async function salvarCronograma(obraId, ...resto) {
+  _gravacoesEmAndamento[obraId] = (_gravacoesEmAndamento[obraId] ?? 0) + 1;
+  try { return await gravarCronograma(obraId, ...resto); }
+  finally { _gravacoesEmAndamento[obraId] -= 1; }
+}
+
+async function gravarCronograma(obraId, etapas, customCols, baselines, reprogramacoes, feriados) {
   if (_cronDoAparelho[obraId]) return { error: null, somenteLeitura: true };
   const nowISO = new Date().toISOString();
   const payload = { etapas, custom_cols: customCols, baselines, reprogramacoes, updated_at: nowISO };
@@ -2249,11 +2260,20 @@ async function salvarCronograma(obraId, etapas, customCols, baselines, reprogram
     }
   }
 
-  // Sem baseline conhecida (1ª sessão sem ter carregado do banco): upsert simples (comportamento anterior).
+  // Sem referência da versão na tela: só pode CRIAR o cronograma (obra que ainda não tem). Antes
+  // era um upsert sem trava, que sobrescrevia o banco inteiro com o que estivesse na tela: uma
+  // gravação agendada que disparasse durante o "Recarregar" (a referência é apagada ali) ou uma
+  // tela montada com dados velhos devolvia tarefas já excluídas em outra aba.
   if (expected === undefined || expected === null) {
-    const { error } = await supabase.from('cronogramas').upsert(
-      { obra_id: obraId, ...payload }, { onConflict: 'obra_id' });
-    if (error) { logger.error('falha ao salvar cronograma', { module: 'cronograma', action: 'upsert', obraId, err: error }); return { error }; }
+    const { data: existente, error: erroExiste } = await supabase.from('cronogramas')
+      .select('updated_at').eq('obra_id', obraId).maybeSingle();
+    if (erroExiste) { logger.error('falha ao salvar cronograma', { module: 'cronograma', action: 'conferir-existe', obraId, err: erroExiste }); return { error: erroExiste }; }
+    if (existente) {
+      logger.warn('save sem referencia de versao com cronograma ja gravado — tratado como conflito', { module: 'cronograma', action: 'conflito', obraId });
+      return { error: null, conflict: true };
+    }
+    const { error } = await supabase.from('cronogramas').insert({ obra_id: obraId, ...payload });
+    if (error) { logger.error('falha ao inserir cronograma', { module: 'cronograma', action: 'insert', obraId, err: error }); return { error }; }
     _cronSavedAt[obraId] = nowISO;
     _cronSavedSnap[obraId] = snapshotEtapas(etapas, outros);
     invalidateOcCache(obraId);
@@ -2347,7 +2367,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   }, [view, obraSel]);
   // Módulo inteiro OU só a aba ativa marcada como "Visualizar" no admin — recalcula a
   // cada troca de aba (view), então uma aba liberada pra editar volta a funcionar ao navegar pra ela.
-  const readOnly = moduloSomenteLeitura(userProfile, 'cronograma') || abaSomenteLeitura(userProfile, 'cronograma', view);
+  // `readOnly` (abaixo, junto do estado de conflito) soma a isto o conflito de versão.
+  const somenteLeituraPerfil = moduloSomenteLeitura(userProfile, 'cronograma') || abaSomenteLeitura(userProfile, 'cronograma', view);
 
   const abasCronograma = [
     { id: 'gantt', label: 'Gantt' },
@@ -2517,10 +2538,19 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   const [dadosDoAparelho, setDadosDoAparelho] = React.useState(null);
   // Bloqueio otimista: conflito quando outra sessão salvou o mesmo cronograma
   const [conflito,     setConflito]     = React.useState(false);
+  // Em conflito a tela fica só para consulta até recarregar: a gravação já foi recusada e cada
+  // edição seguinte também seria (eram descartadas em silêncio, e uma exclusão sumia da tela e
+  // voltava no próximo carregamento).
+  const readOnly = somenteLeituraPerfil || conflito;
+  const conflitoRef = React.useRef(false);
+  conflitoRef.current = conflito;
+  // Aviso central do conflito (a faixa no topo passava despercebida com a lista rolada).
+  // Fechar o aviso não tira o conflito: a faixa e o modo consulta continuam até recarregar.
+  const [avisoConflito, setAvisoConflito] = React.useState(false);
   const [reloadKey,    setReloadKey]    = React.useState(0);
-  // Sinaliza que o próximo carregamento veio de um "Atualizar dados" explícito (não de
-  // trocar de obra) — só nesse caso mostra um toast confirmando que releu do banco.
-  const reloadToastRef = React.useRef(false);
+  // Texto do toast do próximo carregamento: só quando ele veio de um "Recarregar" explícito ou
+  // da atualização automática ao voltar para a tela (não ao trocar de obra). null = sem toast.
+  const reloadToastRef = React.useRef(null);
   // Painel lateral de detalhes da tarefa selecionada
   const [detailId,     setDetailId]    = React.useState(null);
   const [detailTab,    setDetailTab]   = React.useState('detalhes');
@@ -2559,6 +2589,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // React renderizar o estado novo.
   const erroRedeRef = React.useRef(false);
   const cargaRef = React.useRef(null); // carregar() em andamento
+  // Obra restaurada do cache da sessão que ainda precisa conferir a versão do banco.
+  const conferirAposCacheRef = React.useRef(null);
   const definirErroRede = (e) => { erroRedeRef.current = !!e; setCronogramaErro(e); };
   // Uma parte (etapas ou vínculos) chegou do banco: sai do modo aparelho se a outra também.
   const parteDoBanco = (obraId, parte) => {
@@ -2736,6 +2768,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         // O cache da sessão só guarda o que veio do banco (ver efeito espelho abaixo).
         delete _cronDoAparelho[obraSel];
         setDadosDoAparelho(null);
+        // O cache não expira sozinho: confere a versão do banco logo depois de montar (outra aba
+        // ou outra pessoa pode ter gravado desde que esta tela saiu).
+        conferirAposCacheRef.current = obraSel;
         setLoadedObraId(obraSel);
         return;
       }
@@ -2857,8 +2892,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       setSelMonKey(carregarMesRef(obraSel) || mesAtualKey());
       setLoadedObraId(obraSel); // marca carga concluída — isLoading vira false
       if (reloadToastRef.current) {
-        reloadToastRef.current = false;
-        toast('Dados atualizados', { tone: 'success', icon: 'check' });
+        toast(reloadToastRef.current, { tone: 'success', icon: 'check' });
+        reloadToastRef.current = null;
       }
     }
     setConflito(false);   // recarregou do banco: baseline atualizada, conflito resolvido
@@ -2915,7 +2950,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     }
     if (res?.conflict) {
       setConflito(true);
-      toast('Este cronograma foi alterado por outra pessoa. Recarregue para ver a versão atual antes de continuar.', { tone: 'warning', icon: 'alert-triangle' });
+      setAvisoConflito(true);
       return true;
     }
     if (res?.error) {
@@ -2926,13 +2961,81 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   };
 
   // Descarta o estado local e recarrega do banco (resolve o conflito reconciliando pela versão do servidor).
-  const recarregarCronograma = () => {
+  // Cancela a gravação agendada ANTES de apagar a referência da versão: se ela disparasse no meio
+  // do recarregamento, gravaria sem trava o que estava na tela por cima do banco.
+  const recarregarCronograma = (aviso = 'Dados atualizados') => {
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    savePendenteRef.current = null;
     delete _cronCache[obraSel];
     delete _cronSavedAt[obraSel];
+    delete _cronSavedSnap[obraSel];
     setConflito(false);
-    reloadToastRef.current = true;
+    setAvisoConflito(false);
+    reloadToastRef.current = aviso;
     setReloadKey(k => k + 1);
   };
+
+  // Gravações desta obra pendentes (agendadas), em andamento ou que falharam e esperam a rede:
+  // enquanto houver alguma, a conferência de versão ao voltar para a tela não recarrega por
+  // cima delas.
+  const temGravacaoPendente = () =>
+    !!saveTimerRef.current || (_gravacoesEmAndamento[obraSel] ?? 0) > 0 || savePendenteRef.current === obraSel;
+  // Agenda a gravação (debounce de 800 ms, a última vence). Ao disparar, solta o timer: só
+  // então a gravação deixa de contar como "agendada" (passa a "em andamento").
+  const agendarGravacao = (gravar) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const timer = setTimeout(() => {
+      if (saveTimerRef.current === timer) saveTimerRef.current = null;
+      gravar();
+    }, 800);
+    saveTimerRef.current = timer;
+  };
+
+  const obraSelRef = React.useRef(obraSel);
+  obraSelRef.current = obraSel;
+
+  // Voltar para a tela (outra aba, outra janela, ou o cache da sessão): se o banco mudou e não há
+  // nada desta tela por gravar, relê. É o caso de salvar pesos no Orçamento × Cronograma em outra
+  // aba: sem isto, a próxima gravação da Lista (ex.: excluir uma tarefa) era recusada pela trava,
+  // a tarefa sumia da tela e voltava no próximo carregamento.
+  const conferindoVersaoRef = React.useRef(false);
+  const conferirVersaoRef = React.useRef(null);
+  conferirVersaoRef.current = async () => {
+    const obra = obraSel;
+    if (!obra || loadedObraId !== obra || cronogramaErro || dadosDoAparelho || cargaRef.current) return;
+    if (conferindoVersaoRef.current || conflitoRef.current) return;
+    conferindoVersaoRef.current = true;
+    try {
+      const { data, error } = await supabase.from('cronogramas').select('updated_at').eq('obra_id', obra).maybeSingle();
+      if (error || !data) return; // sem rede ou obra sem cronograma: nada a conferir
+      const decisao = decidirSincronia({
+        bancoUpdatedAt: data.updated_at,
+        referencia: _cronSavedAt[obra] ?? null,
+        pendente: temGravacaoPendente(),
+        emConflito: conflitoRef.current,
+      });
+      if (decisao === 'recarregar' && obraSelRef.current === obra) {
+        logger.info('cronograma alterado fora desta tela — recarregando', { module: 'cronograma', action: 'sincronia', obraId: obra });
+        recarregarCronograma('Cronograma atualizado com alterações feitas em outra tela');
+      }
+    } finally {
+      conferindoVersaoRef.current = false;
+    }
+  };
+  React.useEffect(() => {
+    if (!loadedObraId || conferirAposCacheRef.current !== loadedObraId) return;
+    conferirAposCacheRef.current = null;
+    conferirVersaoRef.current?.();
+  }, [loadedObraId]);
+  React.useEffect(() => {
+    const aoVoltar = () => { if (document.visibilityState === 'visible') conferirVersaoRef.current?.(); };
+    document.addEventListener('visibilitychange', aoVoltar);
+    window.addEventListener('focus', aoVoltar);
+    return () => {
+      document.removeEventListener('visibilitychange', aoVoltar);
+      window.removeEventListener('focus', aoVoltar);
+    };
+  }, []);
   // Ao reconectar: só recarrega do banco quando a tela está em "Sem conexão". Com o
   // cronograma aberto, recarregar descartaria o que foi editado sem internet; nesse caso
   // reenvia o estado atual (o bloqueio otimista ainda barra se outra pessoa gravou antes).
@@ -3120,6 +3223,12 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       toast('Sem internet: o cronograma está só para consulta. Conecte-se para alterar.', { tone: 'warning', icon: 'alert-triangle' });
       return;
     }
+    // Mesmo motivo em conflito de versão: a gravação seria recusada e a alteração sumiria ao
+    // recarregar. Vale também para quem chama commit sem olhar readOnly (modais, Medição).
+    if (conflitoRef.current) {
+      setAvisoConflito(true);
+      return;
+    }
     // Tarefa que chega a 100% de avanço trava o valor vinculado no que ele vale agora
     // (deixa de entrar no rateio proporcional do grupo — ver `distributeToLeaves` em
     // ganttUtils.js); se reabrir (avanço < 100), destrava e volta ao rateio normal.
@@ -3191,9 +3300,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     }
     setEtapas(clean);
     D.cronograma[obraSel] = clean;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     // O toast reflete o RESULTADO real da persistência (após o await), não a intenção.
-    saveTimerRef.current = setTimeout(async () => {
+    agendarGravacao(async () => {
       const res = await salvarCronograma(obraSel, clean, colsSnap, baselines, reprogramacoes, opts.feriados);
       if (handleSaveResult(res)) return;   // conflito ou erro: sempre avisa (mesmo em save silencioso)
       if (opts.silent) return;
@@ -3203,7 +3311,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       } else {
         toast('Cronograma atualizado', { tone: 'success', icon: 'check' });
       }
-    }, 800);
+    });
   };
 
   // Leva o % medido da Medição Mensal até o avanço oficial das tarefas — mesmo caminho de
@@ -3255,10 +3363,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     D.cronograma[obraSel] = snap;
     D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
+    agendarGravacao(async () => {
       handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
-    }, 800);
+    });
     toast('Ação desfeita', { tone: 'neutral', icon: 'check' });
   };
 
@@ -3282,10 +3389,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     D.cronograma[obraSel] = snap;
     D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
+    agendarGravacao(async () => {
       handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
-    }, 800);
+    });
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
   };
 
@@ -3329,9 +3435,27 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       {conflito && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
           <Icon name="alert-triangle" size={16} style={{ color: '#b45309', flexShrink: 0 }} />
-          <span style={{ flex: 1 }}>Este cronograma foi alterado por outra pessoa. Recarregue para ver a versão atual (suas edições não salvas serão descartadas).</span>
-          <button onClick={recarregarCronograma} style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>Recarregar</button>
+          <span style={{ flex: 1 }}>Este cronograma foi alterado em outra tela ou por outra pessoa. Só consulta até recarregar: a última alteração feita aqui não foi gravada.</span>
+          <button onClick={() => recarregarCronograma()} style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>Recarregar</button>
         </div>
+      )}
+      {conflito && avisoConflito && (
+        <Modal title="Alteração não gravada" size="sm" onClose={() => setAvisoConflito(false)}
+          footer={(
+            <>
+              <button className="btn btn-ghost" onClick={() => setAvisoConflito(false)}>Agora não</button>
+              <button className="btn btn-primary" onClick={() => recarregarCronograma()}>Recarregar</button>
+            </>
+          )}>
+          <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+            <p style={{ margin: '0 0 10px' }}>
+              Este cronograma foi alterado em <strong>outra aba</strong> (por exemplo, pesos salvos no Orçamento × Cronograma) ou por outra pessoa depois que esta tela foi aberta.
+            </p>
+            <p style={{ margin: 0 }}>
+              Por isso a <strong>última alteração feita aqui não foi gravada</strong> (uma tarefa excluída voltaria ao recarregar). Recarregue para ver a versão atual e refaça a alteração.
+            </p>
+          </div>
+        </Modal>
       )}
       {!hideChrome && (
       <div className="page-header">
@@ -3364,7 +3488,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         ? <div className="text-muted" style={{ padding: 64, textAlign: 'center' }}>Carregando…</div>
         : cronogramaErro
         ? <OfflineFallback
-            onRetry={recarregarCronograma}
+            onRetry={() => recarregarCronograma()}
             mensagem={hideChrome
               ? 'Os dados desta obra não estão guardados neste aparelho. Com internet, abra esta obra pela Medição para poder consultar sem conexão.'
               : undefined}
@@ -3772,7 +3896,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   hideChrome={hideChrome}
                   pavimentosOrdem={pavimentosObra}
                   dadosDoAparelho={dadosDoAparelho}
-                  onTentarConexao={recarregarCronograma}
+                  onTentarConexao={() => recarregarCronograma()}
                 />
               )}
 

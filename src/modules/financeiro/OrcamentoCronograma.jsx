@@ -9,6 +9,7 @@ import { parseBRL, computeRowNumberMap } from '../cronograma/scheduleEngine';
 import { buildChildrenMap, flattenTree, noTravado, redistribuirPorValor } from './distribuirPesos';
 import { filtrarComSubarvore, folhasDaSubarvore, ancestraisDe } from './itensHierarquia';
 import { invalidateCronCache, _ocCache, _obrasComCronCache } from '../cronograma/cronogramaCache';
+import { mesmaVersao } from '../cronograma/etapasPatch';
 import { isAdmin } from '../../utils/permissions';
 import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
@@ -920,12 +921,47 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
       setVinculos(c.vinculos); setItens(c.itens); setEtapas(c.etapas); etapasUpdatedAtRef.current = c.updatedAt ?? null;
       supabase.from('cronogramas').select('updated_at').eq('obra_id', obraSel).single().then(({ data }) => {
         if (cancelado) return;
-        if ((data?.updated_at ?? null) !== c.updatedAt) carregarFresco();
+        if (!mesmaVersao(data?.updated_at, c.updatedAt)) carregarFresco();
       });
       return () => { cancelado = true; };
     }
     carregarFresco();
     return () => { cancelado = true; };
+  }, [obraSel]);
+
+  // Voltar para a aba: a Lista pode ter gravado o cronograma em outra aba (ex.: excluído uma
+  // tarefa). Sem reler, esta tela seguia oferecendo a tarefa excluída e salvando pesos sobre a
+  // versão velha (a trava recusava e pedia para recarregar). Só as etapas mudam por lá; vínculos
+  // e itens continuam os desta tela. Não relê no meio de uma gravação de pesos.
+  const salvandoPesoRef = React.useRef(false);
+  salvandoPesoRef.current = salvandoPeso;
+  React.useEffect(() => {
+    if (!obraSel) return undefined;
+    let vivo = true;
+    let conferindo = false;
+    const aoVoltar = async () => {
+      if (document.visibilityState !== 'visible' || conferindo || salvandoPesoRef.current) return;
+      conferindo = true;
+      try {
+        const { data, error } = await supabase.from('cronogramas').select('updated_at').eq('obra_id', obraSel).maybeSingle();
+        if (!vivo || error || !data || mesmaVersao(data.updated_at, etapasUpdatedAtRef.current)) return;
+        const { data: cron, error: erroCron } = await supabase.from('cronogramas').select('etapas, updated_at').eq('obra_id', obraSel).single();
+        if (!vivo || erroCron || !cron || salvandoPesoRef.current) return;
+        const et = migrateEtapas(cron.etapas || []);
+        setEtapas(et);
+        etapasUpdatedAtRef.current = cron.updated_at ?? null;
+        if (_ocCache[obraSel]) { _ocCache[obraSel].etapas = et; _ocCache[obraSel].updatedAt = cron.updated_at ?? null; }
+      } finally {
+        conferindo = false;
+      }
+    };
+    document.addEventListener('visibilitychange', aoVoltar);
+    window.addEventListener('focus', aoVoltar);
+    return () => {
+      vivo = false;
+      document.removeEventListener('visibilitychange', aoVoltar);
+      window.removeEventListener('focus', aoVoltar);
+    };
   }, [obraSel]);
 
   const linkedEtapaIds = React.useMemo(
