@@ -89,3 +89,32 @@ describe('exportApropriacao: colunas e nomes', () => {
     expect(nomeArquivo({ obraCodigo: '', ano: 2026, mes: 3, quinzena: 2 }, 'xlsx')).toBe('apropriacao-efetivo-obra-2026-03-2a.xlsx');
   });
 });
+
+describe('exportApropriacao: zero some do arquivo', () => {
+  it('grupo e total sem nenhum dado saem todos em branco (nada de linha de zeros)', () => {
+    const vazio = soma({ prev: 0 });
+    const { linhas, total } = montarLinhas({ grupos: [{ nome: 'Liderança de campo', rows: [], G: vazio }], total: vazio });
+    for (const l of [linhas[0], total]) {
+      expect(l).toMatchObject({ prev: null, totalEfetivo: null, trabAdm: null, canteiro: null, inssSeguro: null, ferias: null, emprestManut: null, recebido: null, ativos: null, saldo: null, status: '' });
+    }
+  });
+
+  it('previsto 0 na linha da função fica em branco, mas o status continua dizendo o que é', () => {
+    const f = { f: funcao('9', 'Vigia'), it: undefined, pv: 0, at: null, can: null, tot: null };
+    const l = montarLinhas({ grupos: [{ nome: 'Apoio', rows: [f], G: soma() }], total: soma() }).linhas[1];
+    expect(l.prev).toBeNull();
+    expect(l.status).toBe('Pendente');
+  });
+
+  it('zero digitado nas colunas de quantidade também sai em branco; Ativos e Saldo mostram o 0', () => {
+    const f = { f: funcao('8', 'Pintor'), it: item('8', { trabAdm: 0, inssSeguro: 0 }), pv: 3, at: 0, can: 0, tot: 0 };
+    const l = montarLinhas({ grupos: [{ nome: 'Oficial', rows: [f], G: soma({ prev: 3, at: 0, any: true }) }], total: soma({ prev: 3, at: 0, any: true }) }).linhas[1];
+    expect(l).toMatchObject({ prev: 3, totalEfetivo: null, trabAdm: null, canteiro: null, inssSeguro: null, ativos: 0, saldo: 3 });
+  });
+
+  it('grupo com dado: só as somas que deram zero somem; as com valor e o Ativos ficam', () => {
+    const g = soma({ prev: 4, totalEfetivo: 6, trabAdm: 0, can: 6, ferias: 0, at: 6, any: true });
+    const { linhas } = montarLinhas({ grupos: [{ nome: 'Oficial', rows: [], G: g }], total: g });
+    expect(linhas[0]).toMatchObject({ prev: 4, totalEfetivo: 6, trabAdm: null, canteiro: 6, ferias: null, ativos: 6, saldo: -2 });
+  });
+});

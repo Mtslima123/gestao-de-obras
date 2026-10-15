@@ -29,6 +29,11 @@ export const COLUNAS = [
   { id: 'status',       rotulo: 'Status',              tipo: 'texto', alinha: 'left',   larguraPdf: 28, larguraXls: 20 },
 ];
 
+// Zero sai em branco no arquivo: só aparece número onde há dado. Vale para o previsto e para as
+// colunas de quantidade (somas e linhas de função). Ativos e Saldo não passam por aqui: quando há
+// apropriação, o 0 deles é informação (ninguém trabalhando / sem diferença).
+const vazioSeZero = (v) => (v ? v : null);
+
 // Linha de um grupo ou do total: `o` é a soma que a tela monta (prev, totalEfetivo, trabAdm,
 // can, inssSeguro, ferias, emprestManut, recebidoOutraObra, at, any). Sem nenhum valor
 // apropriado, saldo e status ficam em branco, como o "—" da tela.
@@ -37,9 +42,9 @@ const linhaDeSoma = (tipo, nome, o) => {
   const pct = o.any ? usoPct(o.at, o.prev) : null;
   return {
     tipo, nome,
-    prev: r2(o.prev), totalEfetivo: o.totalEfetivo, trabAdm: o.trabAdm, canteiro: o.can,
-    inssSeguro: o.inssSeguro, ferias: o.ferias, emprestManut: o.emprestManut,
-    destino: '', recebido: o.recebidoOutraObra, origem: '',
+    prev: vazioSeZero(r2(o.prev)), totalEfetivo: vazioSeZero(o.totalEfetivo), trabAdm: vazioSeZero(o.trabAdm), canteiro: vazioSeZero(o.can),
+    inssSeguro: vazioSeZero(o.inssSeguro), ferias: vazioSeZero(o.ferias), emprestManut: vazioSeZero(o.emprestManut),
+    destino: '', recebido: vazioSeZero(o.recebidoOutraObra), origem: '',
     ativos: o.any ? o.at : null, saldo,
     status: o.any ? `${pct ?? '-'}%` : '',
     corSaldo: o.any ? corSaldo(saldo) : null,
@@ -53,9 +58,9 @@ const linhaDeFuncao = ({ f, it, pv, at, can, tot }) => {
   const saldo = at == null ? null : r2(pv - at);
   return {
     tipo: 'funcao', nome: f.nome,
-    prev: r2(pv), totalEfetivo: tot, trabAdm: it?.trabAdm ?? null, canteiro: can,
-    inssSeguro: it?.inssSeguro ?? null, ferias: it?.ferias ?? null, emprestManut: it?.emprestManut ?? null,
-    destino: it?.destino ?? '', recebido: it?.recebidoOutraObra ?? null, origem: it?.origem ?? '',
+    prev: vazioSeZero(r2(pv)), totalEfetivo: vazioSeZero(tot), trabAdm: vazioSeZero(it?.trabAdm), canteiro: vazioSeZero(can),
+    inssSeguro: vazioSeZero(it?.inssSeguro), ferias: vazioSeZero(it?.ferias), emprestManut: vazioSeZero(it?.emprestManut),
+    destino: it?.destino ?? '', recebido: vazioSeZero(it?.recebidoOutraObra), origem: it?.origem ?? '',
     ativos: at, saldo,
     status: ui.rotulo,
     corSaldo: saldo == null ? null : corSaldo(saldo),
@@ -131,6 +136,8 @@ export const exportarPDF = async (d) => {
     margin: { top: 28, right: 10, bottom: 12, left: 10 },
     didParseCell: (data) => {
       if (data.section === 'head') return;
+      // O autotable não aplica o alinhamento da coluna no rodapé (o Total ficava à esquerda).
+      data.cell.styles.halign = COLUNAS[data.column.index].alinha;
       const l = data.section === 'foot' ? total : linhas[data.row.index];
       if (!l) return;
       if (l.tipo === 'grupo') {
