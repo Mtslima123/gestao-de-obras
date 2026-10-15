@@ -5,8 +5,119 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, mesAtualOuUltimo, mesesComReprogramacao } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
+import { itemValor } from "../financeiro/vinculoService";
+import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
+
+// ─── ExcluirTarefasModal ──────────────────────────────────────────────────────
+// Confirmação de exclusão da Lista e do Gantt. Se as tarefas que saem (com as subtarefas) têm
+// itens do orçamento vinculados, pergunta o que fazer com eles: sem isso os vínculos ficavam
+// apontando para uma tarefa que não existe ("Tarefa removida" no Orçamento × Cronograma), o item
+// seguia ocupado e o valor saía do cronograma. Quem aplica a escolha é o commit do Cronograma,
+// só depois que a exclusão for gravada (ver acoesVinculoPendentesRef em Cronograma.jsx).
+export const ExcluirTarefasModal = ({ etapas, ids, vinculos = [], isAdmin = false, onCancel, onConfirm }) => {
+  const novas = React.useMemo(() => etapasSemExcluidas(etapas, ids), [etapas, ids]);
+  const excluidos = React.useMemo(() => idsExcluidos(etapas, novas), [etapas, novas]);
+  const afetados = React.useMemo(() => vinculosAfetados(vinculos, excluidos), [vinculos, excluidos]);
+  const [acao, setAcao] = React.useState(null);
+  const [destino, setDestino] = React.useState(() => destinoSugerido(etapas, ids, novas) || '');
+  const [busca, setBusca] = React.useState('');
+  const opcoes = React.useMemo(
+    () => (afetados.length ? opcoesDeDestino(novas, busca, destino) : []),
+    [afetados.length, novas, busca, destino]
+  );
+
+  const extraCount = Math.max(0, excluidos.size - ids.length);
+  const et = ids.length === 1 ? etapas.find(e => e.id === ids[0]) : null;
+  const n = afetados.length;
+  const total = afetados.reduce((s, v) => s + itemValor(v.orcamento_itens), 0);
+  const ok = podeConfirmar({ afetados: n, acao, destino, novas, isAdmin });
+
+  const confirmar = () => {
+    if (!ok) return;
+    const acaoVinculos = n && acao !== 'manter'
+      ? {
+          acao,
+          vinculoIds: afetados.map(v => v.id),
+          destino: acao === 'mover' ? destino : null,
+          destinoNome: acao === 'mover' ? (novas.find(e => e.id === destino)?.etapa || '') : null,
+        }
+      : null;
+    onConfirm(novas, acaoVinculos);
+  };
+
+  const opcao = (valor, rotulo, detalhe, desabilitada = false) => (
+    <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: desabilitada ? 'default' : 'pointer', opacity: desabilitada ? 0.55 : 1, fontSize: 13 }}>
+      <input type="radio" name="acao-vinculos" checked={acao === valor} disabled={desabilitada}
+        onChange={() => setAcao(valor)} style={{ marginTop: 3, accentColor: 'var(--brand)' }} />
+      <span>
+        <span style={{ fontWeight: 600 }}>{rotulo}</span>
+        {detalhe && <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>{detalhe}</span>}
+      </span>
+    </label>
+  );
+
+  return (
+    <Modal
+      title="Excluir tarefa"
+      size={n ? 'compact' : 'sm'}
+      onClose={onCancel}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
+          <button className="btn" style={{ background: 'var(--danger)', color: 'white', opacity: ok ? 1 : 0.5 }} disabled={!ok} onClick={confirmar}>
+            Excluir
+          </button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 14, marginBottom: 4 }}>
+        {ids.length === 1
+          ? <>Tem certeza que deseja excluir <strong>{et ? et.etapa : ids[0]}</strong>?</>
+          : <>Tem certeza que deseja excluir as <strong>{ids.length} tarefas selecionadas</strong>?</>}
+      </p>
+      {extraCount > 0 && (
+        <p style={{ fontSize: 13, color: 'var(--danger)', marginTop: 8 }}>
+          {ids.length === 1
+            ? `Esta tarefa possui ${extraCount} subtarefa${extraCount > 1 ? 's' : ''} que também ${extraCount > 1 ? 'serão removidas' : 'será removida'}.`
+            : `Isso inclui mais ${extraCount} subtarefa${extraCount > 1 ? 's' : ''} removida${extraCount > 1 ? 's' : ''} em cascata.`}
+        </p>
+      )}
+      {n > 0 && (
+        <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 8, border: '1px solid var(--warning)', background: 'var(--warning-bg)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontSize: 13 }}>
+            <strong>{n} {n === 1 ? 'item do orçamento está vinculado' : 'itens do orçamento estão vinculados'}</strong>
+            {' '}{excluidos.size === 1 ? 'a esta tarefa' : 'às tarefas excluídas'} ({fmtBRL(total)}). O que fazer com {n === 1 ? 'ele' : 'eles'}?
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--text-muted)' }}>
+              {afetados.slice(0, 4).map(v => (
+                <li key={v.id}>{v.orcamento_itens ? `${v.orcamento_itens.codigo || ''} ${v.orcamento_itens.nome || ''}`.trim() : `Item ${v.orcamento_item_id}`}</li>
+              ))}
+              {n > 4 && <li>e mais {n - 4}</li>}
+            </ul>
+          </div>
+          {opcao('mover', 'Mover para outra tarefa', 'O valor dos itens passa a contar na tarefa escolhida.')}
+          {acao === 'mover' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 24 }}>
+              <input className="input" placeholder="Buscar tarefa por nome ou WBS..." value={busca} onChange={e => setBusca(e.target.value)}
+                aria-label="Buscar tarefa de destino" />
+              <select className="input" value={destino} onChange={e => setDestino(e.target.value)} aria-label="Tarefa de destino">
+                <option value="">Escolha a tarefa...</option>
+                {opcoes.map(o => (
+                  <option key={o.id} value={o.id}>{`${o.wbs} ${'  '.repeat(o.nivel)}${o.nome}${o.grupo ? ' (grupo)' : ''}`}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {opcao('remover', 'Remover os vínculos', isAdmin
+            ? 'Os itens ficam livres para vincular de novo no Orçamento × Cronograma.'
+            : 'Só administrador pode remover vínculos.', !isAdmin)}
+          {opcao('manter', 'Manter os vínculos sem tarefa', 'Como era antes: aparecem como "Tarefa removida" no Orçamento × Cronograma até alguém ajustar.')}
+        </div>
+      )}
+    </Modal>
+  );
+};
 
 // ─── AddColModal ──────────────────────────────────────────────────────────────
 export const AddColModal = ({ onClose, onAdd }) => {

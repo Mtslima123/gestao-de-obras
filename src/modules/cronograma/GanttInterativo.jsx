@@ -11,7 +11,8 @@ import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
          nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap, filtrarComAncestrais } from './scheduleEngine';
-import { PavimentosModal } from './cronogramaModais';
+import { PavimentosModal, ExcluirTarefasModal } from './cronogramaModais';
+import { etapasSemExcluidas, idsExcluidos, vinculosAfetados } from './exclusaoTarefasPure';
 import { TaskFormPanel } from './TaskFormPanel';
 import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
@@ -76,6 +77,8 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   filtroResp = '', filtroPreset = '', filtroPresetRange = { de: '', ate: '' }, filtroTaskIds = [],
   filtroTexto = '', filtroVinculo = '', vinculadoIds, valorVinculadoMap = {}, hasVinculos = false,
+  // Vínculos com o orçamento: a exclusão pergunta o que fazer com os itens da tarefa que sai.
+  vinculos = [],
   // custoOrcadoMap/groupVals calculados 1x em CronogramaFull (nunca desmonta ao trocar de
   // aba) e repassados por prop — evita recalcular sobre todas as etapas a cada remontagem.
   custoOrcadoMap = {}, groupVals = {} }) => {
@@ -738,25 +741,30 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
     setSel(new Set([novo.id]));
   };
 
+  // Folha sem item do orçamento vinculado sai direto (como antes); grupo com subtarefas, ou tarefa
+  // com itens vinculados, pede confirmação: o modal pergunta o que fazer com os itens.
   const handleDelete = () => {
     const alvo = primaryId();
     if (!alvo || !isAdmin) return;
-    if (etapas.some(x => x.parentId === alvo)) { setDeleteConfirm(alvo); return; }
     const novas = deleteTask(alvo, etapas);
+    const temVinculos = vinculosAfetados(vinculos, idsExcluidos(etapas, novas)).length > 0;
+    if (temVinculos || etapas.some(x => x.parentId === alvo)) { setDeleteConfirm(alvo); return; }
     const count = etapas.length - novas.length;
     onCommit(novas, { silent: true });
     setSel(new Set());
     toast(`${count} tarefa${count > 1 ? 's removidas' : ' removida'}`, { tone: 'neutral', icon: 'check' });
   };
-  const confirmDelete = () => {
+  // `novas` e a escolha sobre os itens vinculados vêm do ExcluirTarefasModal; o commit só mexe
+  // nos vínculos depois que a exclusão for gravada.
+  const confirmDelete = (novas, acaoVinculos) => {
     if (!deleteConfirm) return;
-    const novas = deleteTask(deleteConfirm, etapas);
     const count = etapas.length - novas.length;
-    onCommit(novas, { silent: true });
+    onCommit(novas, { silent: true, ...(acaoVinculos ? { vinculos: acaoVinculos } : {}) });
     setSel(new Set());
     setDeleteConfirm(null);
     toast(`${count} tarefa${count > 1 ? 's removidas' : ' removida'}`, { tone: 'neutral', icon: 'check' });
   };
+  const idsConfirmar = React.useMemo(() => (deleteConfirm ? [deleteConfirm] : []), [deleteConfirm]);
 
   // Timeline dinâmica: cresce para cobrir todas as tarefas + 3 meses de folga
   const dynTotal = React.useMemo(() => {
@@ -1984,35 +1992,11 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
         />
       )}
 
-      {/* Confirmação de exclusão (grupo com subtarefas) */}
-      {deleteConfirm && (() => {
-        const et = etapas.find(e => e.id === deleteConfirm);
-        const childCount = deleteTask(deleteConfirm, etapas).length < etapas.length
-          ? etapas.length - deleteTask(deleteConfirm, etapas).length - 1
-          : 0;
-        return (
-          <Modal
-            title="Excluir tarefa"
-            size="sm"
-            onClose={() => setDeleteConfirm(null)}
-            footer={
-              <>
-                <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)}>Cancelar</button>
-                <button className="btn" style={{ background: 'var(--danger)', color: 'white' }} onClick={confirmDelete}>Excluir</button>
-              </>
-            }
-          >
-            <p style={{ fontSize: 14, marginBottom: 4 }}>
-              Tem certeza que deseja excluir <strong>{et ? et.etapa : deleteConfirm}</strong>?
-            </p>
-            {childCount > 0 && (
-              <p style={{ fontSize: 13, color: 'var(--danger)', marginTop: 8 }}>
-                Esta tarefa possui {childCount} subtarefa{childCount > 1 ? 's' : ''} que também serão removida{childCount > 1 ? 's' : ''}.
-              </p>
-            )}
-          </Modal>
-        );
-      })()}
+      {/* Confirmação de exclusão (grupo com subtarefas ou tarefa com itens vinculados) */}
+      {deleteConfirm && (
+        <ExcluirTarefasModal etapas={etapas} ids={idsConfirmar} vinculos={vinculos} isAdmin={isAdmin}
+          onCancel={() => setDeleteConfirm(null)} onConfirm={confirmDelete} />
+      )}
 
       {showTaskForm && selected.size > 0 && (() => {
         const idx = visible.findIndex(e => e.id === primaryId());

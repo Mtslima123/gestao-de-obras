@@ -19,12 +19,12 @@ import { offsetToDate, offsetToISO, isoToBR, projectStartOffset, workEnd, taskEn
 import {
   fmtBRL, indentTasks, outdentTasks,
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
-  createGroup, deleteTask, autoScheduleFromDeps, formatDepList, parseDep,
+  createGroup, autoScheduleFromDeps, formatDepList, parseDep,
   moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento,
   reprogramarRestante, computeSuccessors, computeRowNumberMap, filtrarComAncestrais,
 } from './scheduleEngine';
 import { computeAutofillSeries } from './autofillSeries';
-import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal } from './cronogramaModais';
+import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal, ExcluirTarefasModal } from './cronogramaModais';
 import { TaskFormPanel } from './TaskFormPanel';
 import { OrtografiaModal } from './OrtografiaModal';
 import { substituirTokens } from './spellcheckPure';
@@ -2875,11 +2875,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Atalho Ctrl+Shift+←/→ (recuar/avançar) é tratado dentro do handleListKeyDown,
   // antes da navegação por seta — senão a seta move a célula e "rouba" o atalho.
 
-  const confirmDelete = () => {
+  // `novas` e a escolha sobre os itens do orçamento vinculados vêm do ExcluirTarefasModal; o
+  // commit só mexe nos vínculos depois que a exclusão for gravada.
+  const confirmDelete = (novas, acaoVinculos) => {
     if (!deleteConfirm?.length) return;
-    const novas = deleteConfirm.reduce((acc, id) => deleteTask(id, acc), etapas);
     const count = etapas.length - novas.length;
-    onCommit(novas, { silent: true });
+    onCommit(novas, { silent: true, ...(acaoVinculos ? { vinculos: acaoVinculos } : {}) });
     setSelectedId(null);
     setSelectedCell(null);
     setDeleteConfirm(null);
@@ -4803,41 +4804,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         />
       )}
 
-      {/* Modal de confirmação de exclusão */}
-      {deleteConfirm?.length > 0 && (() => {
-        const novas = deleteConfirm.reduce((acc, id) => deleteTask(id, acc), etapas);
-        const totalRemovido = etapas.length - novas.length;
-        const extraCount = Math.max(0, totalRemovido - deleteConfirm.length);
-        const et = deleteConfirm.length === 1 ? etapas.find(e => e.id === deleteConfirm[0]) : null;
-        return (
-          <Modal
-            title="Excluir tarefa"
-            size="sm"
-            onClose={() => setDeleteConfirm(null)}
-            footer={
-              <>
-                <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)}>Cancelar</button>
-                <button className="btn" style={{ background: 'var(--danger)', color: 'white' }} onClick={confirmDelete}>
-                  Excluir
-                </button>
-              </>
-            }
-          >
-            <p style={{ fontSize: 14, marginBottom: 4 }}>
-              {deleteConfirm.length === 1
-                ? <>Tem certeza que deseja excluir <strong>{et ? et.etapa : deleteConfirm[0]}</strong>?</>
-                : <>Tem certeza que deseja excluir as <strong>{deleteConfirm.length} tarefas selecionadas</strong>?</>}
-            </p>
-            {extraCount > 0 && (
-              <p style={{ fontSize: 13, color: 'var(--danger)', marginTop: 8 }}>
-                {deleteConfirm.length === 1
-                  ? `Esta tarefa possui ${extraCount} subtarefa${extraCount > 1 ? 's' : ''} que também ${extraCount > 1 ? 'serão removidas' : 'será removida'}.`
-                  : `Isso inclui mais ${extraCount} subtarefa${extraCount > 1 ? 's' : ''} removida${extraCount > 1 ? 's' : ''} em cascata.`}
-              </p>
-            )}
-          </Modal>
-        );
-      })()}
+      {/* Modal de confirmação de exclusão (pergunta o que fazer com os itens vinculados) */}
+      {deleteConfirm?.length > 0 && (
+        <ExcluirTarefasModal etapas={etapas} ids={deleteConfirm} vinculos={vinculos} isAdmin={isAdmin}
+          onCancel={() => setDeleteConfirm(null)} onConfirm={confirmDelete} />
+      )}
 
       {/* Modal de inserção de pavimentos */}
       {showPavimentos && (

@@ -33,6 +33,7 @@ import {
 import { GM_TOTAL, gmConflicts, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './etapasPatch';
+import { vinculosParaAjustar } from './exclusaoTarefasPure';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
@@ -2960,12 +2961,58 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     return false;
   };
 
+  // Escolhas da exclusão sobre itens do orçamento vinculados (mover ou remover os vínculos),
+  // aplicadas só depois que a exclusão for gravada: se a gravação fosse recusada (conflito), a
+  // tarefa continuaria no banco e os vínculos dela não podiam ter mudado.
+  const acoesVinculoPendentesRef = React.useRef([]);
+  const vinculosRef = React.useRef(vinculos);
+  vinculosRef.current = vinculos;
+
+  const ajustarVinculosDeExcluidas = async (a, gravadas) => {
+    const { ids, destinoSumiu } = vinculosParaAjustar(a, vinculosRef.current, gravadas);
+    if (!ids.length) return;
+    const qtd = (n) => `${n} ${n === 1 ? 'item do orçamento' : 'itens do orçamento'}`;
+    if (destinoSumiu) {
+      toast(`A tarefa "${a.destinoNome}" não existe mais: ${qtd(ids.length)} ficaram sem tarefa. Ajuste no Orçamento × Cronograma.`, { tone: 'warning', icon: 'alert-triangle', duration: 7000 });
+      return;
+    }
+    const mover = a.acao === 'mover';
+    const r = mover ? await vinculoService.moverParaEtapa(ids, a.destino) : await vinculoService.excluirVarios(ids);
+    // A regra do banco pode recusar sem erro (0 linhas): por isso o serviço devolve as linhas mexidas.
+    const feitos = new Set((r.data || []).map(x => x.id));
+    if (r.error || feitos.size < ids.length) {
+      logger.error('falha ao ajustar vinculos de tarefa excluida', { module: 'cronograma', action: mover ? 'moverVinculos' : 'removerVinculos', obraId: a.obra, err: r.error, pedidos: ids.length, feitos: feitos.size });
+      toast(`A tarefa foi excluída, mas ${feitos.size ? 'parte dos' : 'os'} itens vinculados não ${mover ? 'foram movidos' : 'foram removidos'}. Ajuste no Orçamento × Cronograma.`, { tone: 'danger', icon: 'alert-triangle', duration: 7000 });
+    }
+    if (!feitos.size) return;
+    if (a.obra === obraSelRef.current) {
+      setVinculos(prev => (mover
+        ? prev.map(v => (feitos.has(v.id) ? { ...v, etapa_id: a.destino } : v))
+        : prev.filter(v => !feitos.has(v.id))));
+    }
+    invalidateOcCache(a.obra);
+    if (feitos.size === ids.length) {
+      toast(mover ? `${qtd(feitos.size)} ${feitos.size === 1 ? 'movido' : 'movidos'} para "${a.destinoNome}"` : `${qtd(feitos.size)} ${feitos.size === 1 ? 'desvinculado' : 'desvinculados'}`, { tone: 'success', icon: 'check' });
+    }
+  };
+  // Chamado por toda gravação agendada (commit, desfazer, refazer) com o que foi gravado.
+  const processarAcoesVinculo = async (gravadas, gravou) => {
+    const acoes = acoesVinculoPendentesRef.current.splice(0);
+    if (!acoes.length) return;
+    if (!gravou) {
+      toast('A exclusão não foi gravada, então os itens do orçamento vinculados não foram alterados.', { tone: 'warning', icon: 'alert-triangle', duration: 6000 });
+      return;
+    }
+    for (const a of acoes) await ajustarVinculosDeExcluidas(a, gravadas);
+  };
+
   // Descarta o estado local e recarrega do banco (resolve o conflito reconciliando pela versão do servidor).
   // Cancela a gravação agendada ANTES de apagar a referência da versão: se ela disparasse no meio
   // do recarregamento, gravaria sem trava o que estava na tela por cima do banco.
   const recarregarCronograma = (aviso = 'Dados atualizados') => {
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
     savePendenteRef.current = null;
+    acoesVinculoPendentesRef.current = []; // a exclusão não será gravada: vínculos ficam como estão
     delete _cronCache[obraSel];
     delete _cronSavedAt[obraSel];
     delete _cronSavedSnap[obraSel];
@@ -3229,6 +3276,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       setAvisoConflito(true);
       return;
     }
+    // Exclusão com itens do orçamento vinculados (ExcluirTarefasModal): mover ou remover os
+    // vínculos fica para DEPOIS da gravação da exclusão (ver processarAcoesVinculo).
+    if (opts.vinculos) acoesVinculoPendentesRef.current.push({ ...opts.vinculos, obra: obraSel });
     // Tarefa que chega a 100% de avanço trava o valor vinculado no que ele vale agora
     // (deixa de entrar no rateio proporcional do grupo — ver `distributeToLeaves` em
     // ganttUtils.js); se reabrir (avanço < 100), destrava e volta ao rateio normal.
@@ -3303,7 +3353,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     // O toast reflete o RESULTADO real da persistência (após o await), não a intenção.
     agendarGravacao(async () => {
       const res = await salvarCronograma(obraSel, clean, colsSnap, baselines, reprogramacoes, opts.feriados);
-      if (handleSaveResult(res)) return;   // conflito ou erro: sempre avisa (mesmo em save silencioso)
+      const falhou = handleSaveResult(res);
+      await processarAcoesVinculo(clean, !falhou);
+      if (falhou) return;   // conflito ou erro: sempre avisa (mesmo em save silencioso)
       if (opts.silent) return;
       const cfls = gmConflicts(clean);
       if (cfls.length > 0) {
@@ -3364,7 +3416,10 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
     agendarGravacao(async () => {
-      handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
+      const falhou = handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
+      // Desfazer a exclusão antes de ela ser gravada: a tarefa volta em `snap` e os vínculos dela
+      // não são mexidos (processarAcoesVinculo só ajusta os de tarefa ausente do que foi gravado).
+      await processarAcoesVinculo(snap, !falhou);
     });
     toast('Ação desfeita', { tone: 'neutral', icon: 'check' });
   };
@@ -3390,7 +3445,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     D.cronogramaCustomCols = colsSnap;
     focarTarefa(diffTaskId(prev, snap));
     agendarGravacao(async () => {
-      handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
+      const falhou = handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
+      await processarAcoesVinculo(snap, !falhou);
     });
     toast('Ação refeita', { tone: 'neutral', icon: 'check' });
   };
@@ -3608,7 +3664,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                         </div>
                       </div>
                       <div className="card-body" style={{ padding: 0, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} rowNumberMap={rowNumberMap} onCommit={commit} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} isAdmin={currentUser.isAdmin} customCols={customCols}
+                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} vinculos={vinculos} rowNumberMap={rowNumberMap} onCommit={commit} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} isAdmin={currentUser.isAdmin} customCols={customCols}
                           baselines={baselines} reprogramacoes={reprogramacoes}
                           blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
                           onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}

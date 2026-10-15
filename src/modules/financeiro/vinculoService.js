@@ -49,20 +49,25 @@ export const vinculoService = {
 
   // Remove vários de uma vez (botão "excluir todos" do modal de edição). Um round-trip
   // em vez de N — mesmo formato do moverParaEtapa abaixo.
+  // Devolve as linhas apagadas (`data`): a regra do banco só deixa administrador apagar e recusa
+  // os demais sem erro (0 linhas), então quem chama confere quantas saíram.
   excluirVarios: (ids) =>
     supabase
       .from('orcamento_cronograma_vinculos')
       .delete()
-      .in('id', ids),
+      .in('id', ids)
+      .select('id'),
 
   // Move vínculos existentes (por id) para outra tarefa do cronograma — usado quando o
   // usuário escolheu a tarefa errada e quer reatribuir os itens já associados sem precisar
   // excluir e recriar cada um.
+  // Devolve as linhas alteradas (`data`), para quem chama conferir que todas mudaram.
   moverParaEtapa: (ids, etapaId) =>
     supabase
       .from('orcamento_cronograma_vinculos')
       .update({ etapa_id: etapaId })
-      .in('id', ids),
+      .in('id', ids)
+      .select('id'),
 
   // Existe algum vínculo orçamento×cronograma pra QUALQUER item deste orçamento?
   // Usado para bloquear a exclusão de um orçamento vinculado — apagar a linha
