@@ -119,11 +119,12 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
             <Icon name="calendar" size={15} stroke={2.2} />Gerenciar meses
           </button>
         )}
-        {/* maxWidth + rolagem: com 4 abas a barra passa da largura do celular e cortava a última. */}
-        <div role="tablist" style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--surface)', border: `1px solid ${T.borda}`, borderRadius: 10, maxWidth: '100%', overflowX: 'auto' }}>
+        {/* Mesmo seletor de abas do Cronograma (.segmented), para as duas telas terem o mesmo
+            tamanho. maxWidth + rolagem: no celular a barra passava da largura e cortava a última. */}
+        <div role="tablist" className="segmented" style={{ maxWidth: '100%', overflowX: 'auto' }}>
           {abasLiberadas.map((a) => (
             <button key={a.id} type="button" role="tab" aria-selected={abaAtual === a.id} onClick={() => setAba(a.id)}
-              style={{ font: 'inherit', fontSize: 14, fontWeight: 600, border: 0, borderRadius: 7, padding: '8px 18px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap', background: abaAtual === a.id ? T.azul : 'transparent', color: abaAtual === a.id ? '#fff' : T.texto2 }}>
+              className={abaAtual === a.id ? 'active' : ''}>
               {a.label}
             </button>
           ))}
