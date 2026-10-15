@@ -28,6 +28,7 @@ export const MODULOS = [
       { id: 'previsto',    label: 'Previsto' },
       { id: 'apropriacao', label: 'Apropriação' },
       { id: 'analise',     label: 'Análise' },
+      { id: 'painel',      label: 'Painel' },
   ] },
 ];
 

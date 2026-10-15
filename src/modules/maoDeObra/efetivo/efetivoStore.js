@@ -31,6 +31,13 @@ export const mesesDaObra = (o) => {
   return Array.from({ length: Math.max(0, b - a + 1) }, (_, k) => mesDeAbs(a + k));
 };
 
+// "SIGLA · Nome" da obra (só o nome quando a sigla falta ou repete o código). Usado no seletor de
+// obra e no painel de apropriações.
+export const rotuloObra = (o) => {
+  const sigla = o.sigla && o.sigla !== o.id ? o.sigla : '';
+  return sigla && o.nome ? `${sigla} · ${o.nome}` : (sigla || o.nome || o.id);
+};
+
 export const ultimoDia = (ano, mes) => new Date(ano, mes, 0).getDate();
 export const fimDoMesIso = (m) => `${m.ano}-${String(m.mes).padStart(2, '0')}-${ultimoDia(m.ano, m.mes)}`;
 

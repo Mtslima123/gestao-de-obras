@@ -5,19 +5,16 @@ import { MODULO_ABAS } from '../../../config/modulos';
 import { Icon } from '../../../components/Icons';
 import { T, card, btn } from './tokens';
 import { efetivoService } from './efetivo.service';
-import { mesFechado, mesesApropriaveis, mesesComApropriacao, mesesDaObra } from './efetivoStore';
+import { mesFechado, mesesApropriaveis, mesesComApropriacao, mesesDaObra, rotuloObra } from './efetivoStore';
 import { PrevistoTab } from './PrevistoTab';
 import { ApropriacaoTab } from './ApropriacaoTab';
 import { AnaliseTab } from './AnaliseTab';
+import { PainelTab } from './PainelTab';
 import { MesesApropriacaoModal } from './MesesApropriacaoModal';
 import { CampoData } from './CampoData';
 
 const MOD = 'mao-de-obra';
 const mesAtualAbs = () => { const d = new Date(); return d.getFullYear() * 12 + d.getMonth(); };
-const rotuloObra = (o) => {
-  const sigla = o.sigla && o.sigla !== o.id ? o.sigla : '';
-  return sigla && o.nome ? `${sigla} · ${o.nome}` : (sigla || o.nome || o.id);
-};
 
 const selStyle = { font: 'inherit', fontSize: 13, fontWeight: 600, color: T.texto, padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8, background: 'var(--surface)', minWidth: 130 };
 
@@ -87,6 +84,9 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
   const ehAdmin = isAdmin(userProfile);
   const naApropriacao = abaAtual === 'apropriacao';
   const naAnalise = abaAtual === 'analise';
+  // O Painel olha todas as obras de uma vez e tem o próprio seletor de mês: o cabeçalho não mostra
+  // a obra nem o período, e a falha ao carregar a obra aberta não o atrapalha.
+  const noPainel = abaAtual === 'painel';
   const listaPeriodo = !s ? meses
     : naApropriacao ? mesesApropriaveis(s, meses, mesAtualAbs())
     : naAnalise ? mesesComApropriacao(s, meses)
@@ -96,29 +96,34 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
   const cabecalho = (
     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
       <div>
-        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: T.texto }}>Efetivo da obra {s?.obra.codigo ?? ''}</h1>
+        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: T.texto }}>{noPainel ? 'Painel de apropriações' : `Efetivo da obra ${s?.obra.codigo ?? ''}`}</h1>
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: T.texto2 }}>Obra
-          <select value={obraValida ?? ''} onChange={(e) => onTrocarObra?.(e.target.value)} style={{ ...selStyle, minWidth: 190 }}>
-            {obras.map((o) => <option key={o.id} value={o.id}>{rotuloObra(o)}</option>)}
-          </select>
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: T.texto2 }}>Período
-          <select value={mesListado?.abs ?? ''} disabled={!listaPeriodo.length} onChange={(e) => setMesAbsSel(+e.target.value)} style={selStyle}>
-            {s && !listaPeriodo.length && <option value="">{naAnalise ? 'Sem apropriação lançada' : 'Sem períodos'}</option>}
-            {listaPeriodo.map((m) => <option key={m.abs} value={m.abs}>{m.label.replace('/', '/20')}</option>)}
-          </select>
-        </label>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', maxWidth: '100%', minWidth: 0 }}>
+        {!noPainel && (
+          <>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: T.texto2 }}>Obra
+              <select value={obraValida ?? ''} onChange={(e) => onTrocarObra?.(e.target.value)} style={{ ...selStyle, minWidth: 190 }}>
+                {obras.map((o) => <option key={o.id} value={o.id}>{rotuloObra(o)}</option>)}
+              </select>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: T.texto2 }}>Período
+              <select value={mesListado?.abs ?? ''} disabled={!listaPeriodo.length} onChange={(e) => setMesAbsSel(+e.target.value)} style={selStyle}>
+                {s && !listaPeriodo.length && <option value="">{naAnalise ? 'Sem apropriação lançada' : 'Sem períodos'}</option>}
+                {listaPeriodo.map((m) => <option key={m.abs} value={m.abs}>{m.label.replace('/', '/20')}</option>)}
+              </select>
+            </label>
+          </>
+        )}
         {ehAdmin && naApropriacao && s && meses.length > 0 && (
           <button type="button" style={{ ...btn, padding: '8px 12px' }} onClick={() => setModalMeses(true)}>
             <Icon name="calendar" size={15} stroke={2.2} />Gerenciar meses
           </button>
         )}
-        <div role="tablist" style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--surface)', border: `1px solid ${T.borda}`, borderRadius: 10 }}>
+        {/* maxWidth + rolagem: com 4 abas a barra passa da largura do celular e cortava a última. */}
+        <div role="tablist" style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--surface)', border: `1px solid ${T.borda}`, borderRadius: 10, maxWidth: '100%', overflowX: 'auto' }}>
           {abasLiberadas.map((a) => (
             <button key={a.id} type="button" role="tab" aria-selected={abaAtual === a.id} onClick={() => setAba(a.id)}
-              style={{ font: 'inherit', fontSize: 14, fontWeight: 600, border: 0, borderRadius: 7, padding: '8px 18px', cursor: 'pointer', background: abaAtual === a.id ? T.azul : 'transparent', color: abaAtual === a.id ? '#fff' : T.texto2 }}>
+              style={{ font: 'inherit', fontSize: 14, fontWeight: 600, border: 0, borderRadius: 7, padding: '8px 18px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap', background: abaAtual === a.id ? T.azul : 'transparent', color: abaAtual === a.id ? '#fff' : T.texto2 }}>
               {a.label}
             </button>
           ))}
@@ -128,7 +133,9 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
   );
 
   let corpo;
-  if (falha) {
+  if (noPainel) {
+    corpo = <PainelTab obras={obras} mesAtualAbs={mesAtualAbs()} />;
+  } else if (falha) {
     corpo = (
       <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
         <span style={{ color: T.vermelho, fontSize: 14 }}>{falha}</span>

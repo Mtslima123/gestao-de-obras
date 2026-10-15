@@ -9,13 +9,16 @@ import { mensagemErroEfetivo } from './efetivoErro';
 // erro, `error.mensagem` já é o texto em português para o toast e `error.code` mantém o
 // código do banco (PT409 = tela desatualizada, ver efetivoErro.ehConflito).
 
+// Erro do banco -> { data: null, error } com a mensagem em português (e o código preservado).
+const falhou = (acao, origem, error, ctx) => {
+  logger.error(`falha em ${origem}`, { module: 'maoDeObra', action: acao, ...ctx, err: error });
+  const mensagem = mensagemErroEfetivo(error);
+  return { data: null, error: Object.assign(new Error(mensagem), { code: error.code, mensagem }) };
+};
+
 const chamar = async (acao, fn, args, ctx = {}) => {
   const { data, error } = await supabase.rpc(fn, args);
-  if (error) {
-    logger.error(`falha em ${fn}`, { module: 'maoDeObra', action: acao, ...ctx, err: error });
-    return { data: null, error: Object.assign(new Error(mensagemErroEfetivo(error)), { code: error.code, mensagem: mensagemErroEfetivo(error) }) };
-  }
-  return { data, error: null };
+  return error ? falhou(acao, fn, error, ctx) : { data, error: null };
 };
 
 const itemPrevisto = (p) => ({ funcaoId: p.funcaoId, qtdMes: p.qtdMes, inicio: p.inicio, termino: p.termino });
@@ -29,6 +32,22 @@ const itemApropriacao = (i) => ({
 export const efetivoService = {
   // EfetivoState completo da obra (obra, funcoes, classificacoes, previsto, apropriacoes).
   carregar: (obraId) => chamar('carregar', 'mo_efetivo_estado', { p_obra: obraId }, { obraId }),
+
+  // Painel de apropriações: leitura direta (sem RPC), de todas as obras de uma vez. Quem decide o
+  // que cada pessoa enxerga é a regra do banco (can_access_obra): admin lê todas as obras e os
+  // demais só as liberadas para eles. Uma quinzena que ninguém salvou ainda não tem linha.
+  listarApropriacoesDoMes: async (ano, mes) => {
+    const { data, error } = await supabase.from('mo_apropriacao')
+      .select('obra_id, ano, mes, quinzena, status, lancada_em, lancada_por')
+      .eq('ano', ano).eq('mes', mes);
+    return error ? falhou('listarApropriacoesDoMes', 'mo_apropriacao', error, { ano, mes }) : { data: data ?? [], error: null };
+  },
+  // Início e término das obras no Efetivo (valem mais que o cadastro da obra); só para o painel
+  // saber quando o mês está fora do período.
+  listarConfigsObras: async () => {
+    const { data, error } = await supabase.from('mo_obra_config').select('obra_id, inicio_obra, termino_obra');
+    return error ? falhou('listarConfigsObras', 'mo_obra_config', error, {}) : { data: data ?? [], error: null };
+  },
 
   // Cadastros globais (só admin; o banco recusa os demais com PT403).
   criarFuncao: (nome, grupoId) => chamar('criarFuncao', 'mo_funcao_criar', { p_nome: nome, p_grupo: grupoId }),
