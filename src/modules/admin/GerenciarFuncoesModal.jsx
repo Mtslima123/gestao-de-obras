@@ -24,6 +24,15 @@ const GerenciarFuncoesModal = ({ funcoes, setFuncoes, onAlterado, onClose }) => 
   // Uma gravação por vez, travada já no toque: `busy` só vale no render seguinte e o Enter
   // dos campos não passa pelo botão desabilitado (mesma razão do modal de pavimentos).
   const travaRef = React.useRef(false);
+  // A lista tem altura máxima e rola por dentro; a função criada ou renomeada é levada para a
+  // vista, porque a ordem alfabética pode jogá-la para fora da parte visível.
+  const listaRef = React.useRef(null);
+  const [destaqueId, setDestaqueId] = React.useState(null);
+  React.useEffect(() => {
+    if (destaqueId == null) return;
+    listaRef.current?.querySelector(`[data-funcao-id="${destaqueId}"]`)?.scrollIntoView({ block: 'nearest' });
+    setDestaqueId(null);
+  }, [destaqueId, funcoes]);
 
   const carregarUsos = React.useCallback(async () => {
     const { data, error } = await usuariosService.funcaoDosUsuarios();
@@ -78,6 +87,7 @@ const GerenciarFuncoesModal = ({ funcoes, setFuncoes, onAlterado, onClose }) => 
       const res = await usuariosService.criarFuncao(n);
       if (!gravou(res, 'Erro ao cadastrar função.', SEM_PERMISSAO)) return;
       setFuncoes(prev => ordenarFuncoes([...prev, res.data[0]]));
+      setDestaqueId(res.data[0].id);
       setNome(''); setErro('');
     });
   };
@@ -98,6 +108,7 @@ const GerenciarFuncoesModal = ({ funcoes, setFuncoes, onAlterado, onClose }) => 
       const res = await usuariosService.renomearFuncao(f.id, n, f.nome);
       if (!gravou(res, 'Erro ao renomear função.', SEM_PERMISSAO_OU_JA_EXCLUIDA)) return;
       setFuncoes(prev => ordenarFuncoes(prev.map(x => (x.id === f.id ? res.data[0] : x))));
+      setDestaqueId(f.id);
       toast('Função renomeada', { tone: 'success', icon: 'check' });
       cancelarEdicao();
     });
@@ -140,13 +151,15 @@ const GerenciarFuncoesModal = ({ funcoes, setFuncoes, onAlterado, onClose }) => 
         {funcoes.length === 0
           ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhuma função cadastrada.</div>
           : (
+            // Cerca de 7 linhas à vista; passando disso a lista ganha barra de rolagem própria.
             // Mesmas classes do modal de pavimentos: botões de ícone com o estado desabilitado visível.
+            <div ref={listaRef} style={{ maxHeight: 290, overflowY: 'auto' }}>
             <table className="tbl pav-lista">
               <tbody>
                 {funcoes.map(f => (
                   editando?.id === f.id
                     ? (
-                      <tr key={f.id}>
+                      <tr key={f.id} data-funcao-id={f.id}>
                         <td colSpan={2}>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <input className="input" style={{ flex: 1 }} value={rascunho} maxLength={60} autoFocus
@@ -168,7 +181,7 @@ const GerenciarFuncoesModal = ({ funcoes, setFuncoes, onAlterado, onClose }) => 
                       </tr>
                     )
                     : (
-                      <tr key={f.id}>
+                      <tr key={f.id} data-funcao-id={f.id}>
                         <td style={{ padding: '6px 8px', wordBreak: 'break-word' }}>
                           {f.nome}
                           {textoUsos(f) && <span style={{ marginLeft: 8, fontSize: 11.5, color: 'var(--text-muted)' }}>{textoUsos(f)}</span>}
@@ -206,6 +219,7 @@ const GerenciarFuncoesModal = ({ funcoes, setFuncoes, onAlterado, onClose }) => 
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
           Vale para todos os usuários. Renomear atualiza quem já tem a função; excluir deixa esses usuários sem função.
