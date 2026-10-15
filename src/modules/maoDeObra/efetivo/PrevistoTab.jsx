@@ -13,6 +13,8 @@ import { lerPlanilha } from './importXlsx';
 import { lerPlanilhaPrevisto } from './importXlsxPure';
 import { ImportarPlanilhaModal } from './ImportarPlanilhaModal';
 import { logger } from '../../../services/logger';
+import { useCardCongelado } from '../../../utils/useCardCongelado';
+import { useIsMobile } from '../../../utils/useIsMobile';
 
 const fmt = (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 const fmtSaldo = (v) => (v < -0.05 ? '−' + fmt(-v) : fmt(v));
@@ -31,6 +33,10 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
   const [ocupado, setOcupado] = React.useState(false);
   const [linhaFoco, setLinhaFoco] = React.useState(null); // função cuja linha tem um campo em edição
   const [confirmaRemover, setConfirmaRemover] = React.useState(null); // função a tirar da lista desta obra
+  // Mesmo congelamento da Apropriação: ao rolar, o cartão prende sob a topbar e a tabela rola por
+  // dentro, com o cabeçalho preso. No celular fica como antes (tudo rola junto).
+  const mobile = useIsMobile();
+  const { sentinelRef, congelado, topoFixo, alturaCard } = useCardCongelado({ ativo: !mobile });
 
   // Lista de funções DESTA obra (o cadastro é global): quem edita o previsto tira as que a obra
   // não usa e devolve as removidas. Só com o previsto destrancado, como o resto da edição.
@@ -203,6 +209,11 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
 
   const etiqueta = somenteLeitura && locked ? 'Previsto salvo e trancado (somente consulta)' : locked ? 'Previsto salvo e trancado' : 'Em edição';
 
+  // Cabeçalho preso no corpo que rola. O fundo é de cada célula (o `thead` sozinho não basta com
+  // sticky); a borda vai como `boxShadow` porque com `border-collapse` a borda da célula sticky não
+  // acompanha a rolagem. Saldo e Média restante sobrescrevem o fundo com a cor da coluna.
+  const thS = { ...th, position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)', boxShadow: '0 1px 0 0 var(--border)' };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
@@ -212,8 +223,16 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
         {kpi('Duração', `${mesesEntre(s.obra.inicio, s.obra.termino)} meses`, `${mesDeAbs(mesAbs(s.obra.inicio)).label} a ${mesDeAbs(OF).label}`)}
       </div>
 
-      <section style={card}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '18px 20px', borderBottom: `1px solid ${T.borda}` }}>
+      {/* Sentinela + espaçador + cartão dentro de UM div: um filho a mais aqui faria o gap de 20
+          contar duas vezes (ver useCardCongelado). */}
+      <div>
+      <div ref={sentinelRef} aria-hidden="true" style={{ height: 0 }} />
+      {congelado && <div aria-hidden="true" style={{ height: alturaCard }} />}
+      <section style={{
+        ...card, minWidth: 0, display: 'flex', flexDirection: 'column', height: alturaCard, overflow: 'hidden',
+        ...(congelado ? { position: 'fixed', top: topoFixo, left: congelado.left, width: congelado.width, zIndex: 5 } : null),
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '18px 20px', borderBottom: `1px solid ${T.borda}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <h2 style={h2}>Previsto do orçamento</h2>
             <span style={sub}>Lançado uma vez: quantidade por mês, início e término de cada função. Os meses são calculados.</span>
@@ -256,7 +275,7 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
         </div>
 
         {nova && (
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap', padding: '14px 20px', background: T.faixa, borderBottom: `1px solid ${T.borda}` }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap', padding: '14px 20px', background: T.faixa, borderBottom: `1px solid ${T.borda}`, flexShrink: 0 }}>
             <Campo label="Nome da função" flex><input autoFocus value={nova.nome} onChange={(e) => setNova({ ...nova, nome: e.target.value })} placeholder="Ex.: Armador" style={{ ...inp(false, '100%'), textAlign: 'left', padding: '7px 10px' }} /></Campo>
             <Campo label="Grupo"><select value={nova.g} onChange={(e) => setNova({ ...nova, g: e.target.value })} style={{ ...inp(false, 'auto'), padding: '7px 8px' }}>{GRUPOS.map((g) => <option key={g.id} value={g.id}>{g.nome}</option>)}</select></Campo>
             <Campo label="Qtd/mês"><CampoQtd decimal value={nova.q} onChange={(e) => setNova({ ...nova, q: lerQtd(e.target.value) })} style={{ ...inp(false, 70), padding: '7px 8px' }} /></Campo>
@@ -267,18 +286,22 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
           </div>
         )}
 
-        <div style={{ overflowX: 'auto' }}>
+        {/* Um único contêiner rola nos dois eixos (o cabeçalho sticky só prende nele). flex:1 +
+            minHeight:0 dá a rolagem por dentro do cartão; sem o minHeight o item flex não encolhe
+            e a rolagem vaza para a página. scrollPaddingTop: o Tab entre campos não deixa a linha
+            escondida sob o cabeçalho. */}
+        <div style={{ overflow: 'auto', flex: 1, minHeight: 0, scrollPaddingTop: 56 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 960 }}>
             <thead>
               <tr>
-                <th style={{ ...th, textAlign: 'left', paddingLeft: 20 }}>Função</th>
-                <th style={th}>Qtd/mês</th><th style={{ ...th, textAlign: 'left' }}>Início</th><th style={{ ...th, textAlign: 'left' }}>Término</th><th style={th}>Meses</th>
-                <th style={{ ...th, textAlign: 'right' }}>Orçado</th><th style={{ ...th, textAlign: 'right' }}>Consumido</th>
-                <th style={{ ...th, textAlign: 'right', background: T.grupo }}>Saldo</th>
-                <th style={{ ...th, textAlign: 'right', background: T.colMedia, paddingRight: 20 }} title="Saldo ÷ meses restantes até o término da obra">
+                <th style={{ ...thS, textAlign: 'left', paddingLeft: 20 }}>Função</th>
+                <th style={thS}>Qtd/mês</th><th style={{ ...thS, textAlign: 'left' }}>Início</th><th style={{ ...thS, textAlign: 'left' }}>Término</th><th style={thS}>Meses</th>
+                <th style={{ ...thS, textAlign: 'right' }}>Orçado</th><th style={{ ...thS, textAlign: 'right' }}>Consumido</th>
+                <th style={{ ...thS, textAlign: 'right', background: T.grupo }}>Saldo</th>
+                <th style={{ ...thS, textAlign: 'right', background: T.colMedia, paddingRight: 20 }} title="Saldo ÷ meses restantes até o término da obra">
                   Média restante<div style={{ fontSize: 11, fontWeight: 500, textTransform: 'none' }}>{rest} {rest === 1 ? 'mês restante' : 'meses restantes'}</div>
                 </th>
-                {podeRemover && <th style={{ ...th, width: 44 }} aria-label="Remover da obra" />}
+                {podeRemover && <th style={{ ...thS, width: 44 }} aria-label="Remover da obra" />}
               </tr>
             </thead>
             {grupos.map(({ g, rows, gt, gc, gm }) => rows.length > 0 && (
@@ -325,7 +348,7 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
           </table>
         </div>
         {podeRemover && removidas.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px', borderTop: `1px solid ${T.borda}`, background: T.faixa, fontSize: 12.5, color: T.texto2, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px', borderTop: `1px solid ${T.borda}`, background: T.faixa, fontSize: 12.5, color: T.texto2, flexWrap: 'wrap', flexShrink: 0 }}>
             <span>Funções removidas desta obra:</span>
             {removidas.map((f) => (
               <button key={f.id} type="button" disabled={ocupado} onClick={() => restaurar(f)} title="Trazer de volta para a lista desta obra"
@@ -335,12 +358,13 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
             ))}
           </div>
         )}
-        <div style={{ display: 'flex', gap: 16, padding: '12px 20px', borderTop: `1px solid ${T.borda}`, fontSize: 12, color: T.texto2, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 16, padding: '12px 20px', borderTop: `1px solid ${T.borda}`, fontSize: 12, color: T.texto2, flexWrap: 'wrap', flexShrink: 0 }}>
           <span>Orçado, consumido e saldo em pessoa-mês · saldo = orçado − consumido · média restante = saldo ÷ meses do mês selecionado até o término da obra</span>
           <span><b style={{ color: T.azul }}>●</b> Média acima da qtd/mês</span>
           <span><b style={{ color: T.vermelho }}>●</b> Abaixo: precisa reduzir</span>
         </div>
       </section>
+      </div>
 
       {previa && (
         <ImportarPlanilhaModal
