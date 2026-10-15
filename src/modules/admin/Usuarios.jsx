@@ -6,6 +6,8 @@ import { usuariosService } from './usuarios.service';
 import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
 import { MODULOS as TODOS_MODULOS, MODULOS_IDS as TODOS_MODULOS_IDS, MODULO_ABAS } from '../../config/modulos';
+import { GerenciarFuncoesModal } from './GerenciarFuncoesModal';
+import { nomeDaFuncao, ordenarFuncoes } from './funcoesPure';
 
 const MOCK_USUARIOS = [
   { id: 'USR-001', nome: 'Administrador Sistema', email: 'admin@empresa.com.br', telefone: '', perfil: 'admin', obrasIds: [], status: 'ativo', dataCadastro: '10/01/2024', ultimoAcesso: '24/05/2024 09:15' },
@@ -18,7 +20,11 @@ const MOCK_USUARIOS = [
 // TODOS_MODULOS, TODOS_MODULOS_IDS e MODULO_ABAS vêm da fonte única em
 // config/modulos.js — assim menu e cadastro nunca ficam dessincronizados.
 
-const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', obrasIds: [], modulosIds: TODOS_MODULOS_IDS, abasIds: [], modulosReadonlyIds: [], abasReadonlyIds: [] };
+// Novo usuário começa SEM nada marcado (obras e módulos): quem cadastra libera o que for preciso.
+// Cuidado: lista de módulos vazia significa "todos" no banco e em permissions.js (convenção antiga),
+// por isso o salvar de usuário comum exige ao menos um módulo marcado (ver handleSalvar).
+// funcaoId é texto ('' = sem função) porque vem de um <select>; é só rótulo, não mexe em permissão.
+const FORM_VAZIO = { nome: '', email: '', telefone: '', status: 'ativo', perfil: 'usuario', funcaoId: '', obrasIds: [], modulosIds: [], abasIds: [], modulosReadonlyIds: [], abasReadonlyIds: [] };
 const PER_PAGE = 10;
 
 const BadgePerfil = ({ perfil }) => (
@@ -71,11 +77,36 @@ const UsuariosScreen = ({ obras = [] }) => {
   const [salvando, setSalvando] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(null);
   const [conviteEnviado, setConviteEnviado] = React.useState(null);
+  // Catálogo de funções. `funcoesOk` fica falso quando a leitura falha (migration ainda não aplicada
+  // no banco): aí a coluna, o filtro e o campo somem e nada de funcao_id vai nas requisições,
+  // em vez de quebrar a tela inteira de usuários.
+  const [funcoes, setFuncoes] = React.useState([]);
+  const [funcoesOk, setFuncoesOk] = React.useState(false);
+  const [filterFuncao, setFilterFuncao] = React.useState(''); // '' = todas, 'sem' = sem função, ou o id
+  const [gerenciandoFuncoes, setGerenciandoFuncoes] = React.useState(false);
   const formRef = React.useRef(null);
+
+  const carregarFuncoes = React.useCallback(async () => {
+    const { data, error } = await usuariosService.listarFuncoes();
+    if (error) {
+      logger.warn('funções de usuário indisponíveis (migration aplicada?)', { module: 'admin', action: 'listarFuncoes', err: error });
+      setFuncoesOk(false);
+      setFuncoes([]);
+      return;
+    }
+    setFuncoes(ordenarFuncoes(data || []));
+    setFuncoesOk(true);
+  }, []);
+  React.useEffect(() => { carregarFuncoes(); }, [carregarFuncoes]);
+
+  // Função excluída que estava no filtro: volta para "todas" (senão a lista ficaria vazia sem explicação).
+  React.useEffect(() => {
+    if (funcoesOk && filterFuncao && filterFuncao !== 'sem' && !funcoes.some(f => String(f.id) === filterFuncao)) setFilterFuncao('');
+  }, [funcoes, funcoesOk, filterFuncao]);
 
   const carregarUsuarios = React.useCallback(async () => {
     setLoading(true);
-    const { data, error, count } = await usuariosService.listar({ page: pagina, perPage: PER_PAGE, busca: search, status: filterStatus });
+    const { data, error, count } = await usuariosService.listar({ page: pagina, perPage: PER_PAGE, busca: search, status: filterStatus, funcaoId: funcoesOk ? filterFuncao : '' });
     if (error) {
       logger.error('erro ao carregar usuarios', { module: 'admin', action: 'listarUsuarios', err: error });
       setErroCarregar(friendlyError(error));
@@ -87,7 +118,7 @@ const UsuariosScreen = ({ obras = [] }) => {
       setTotal(count ?? 0);
     }
     setLoading(false);
-  }, [pagina, search, filterStatus]);
+  }, [pagina, search, filterStatus, filterFuncao, funcoesOk]);
 
   // Debounce (busca no servidor por tecla) + refetch em mudança de página/filtro
   React.useEffect(() => {
@@ -100,7 +131,7 @@ const UsuariosScreen = ({ obras = [] }) => {
   const paginaAtual = pagina;
   const paginados = usuarios;
 
-  React.useEffect(() => { setPagina(1); }, [search, filterStatus]);
+  React.useEffect(() => { setPagina(1); }, [search, filterStatus, filterFuncao]);
 
   const obrasFiltradas = React.useMemo(() =>
     obraSearch ? listaObras.filter(o => o.nome.toLowerCase().includes(obraSearch.toLowerCase())) : listaObras,
@@ -113,7 +144,7 @@ const UsuariosScreen = ({ obras = [] }) => {
     if (usuario === 'novo') {
       setForm({ ...FORM_VAZIO });
     } else {
-      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])], modulosReadonlyIds: [...(usuario.modulosReadonlyIds || [])], abasReadonlyIds: [...(usuario.abasReadonlyIds || [])] });
+      setForm({ nome: usuario.nome, email: usuario.email, telefone: usuario.telefone || '', status: usuario.status, perfil: usuario.perfil, funcaoId: usuario.funcao_id != null ? String(usuario.funcao_id) : '', obrasIds: [...(usuario.obrasIds || [])], modulosIds: [...(usuario.modulosIds || TODOS_MODULOS_IDS)], abasIds: [...(usuario.abasIds || [])], modulosReadonlyIds: [...(usuario.modulosReadonlyIds || [])], abasReadonlyIds: [...(usuario.abasReadonlyIds || [])] });
     }
     setEditando(usuario);
     setObraSearch('');
@@ -136,6 +167,13 @@ const UsuariosScreen = ({ obras = [] }) => {
       toast('O e-mail deve ser do domínio corporativo (@soter.com.br).', { tone: 'error', icon: 'alert' });
       return;
     }
+    // Lista vazia vira "todos os módulos" (permissions.js moduloLiberado e o cadastro de usuários
+    // antigos): salvar um usuário comum sem módulo marcado daria acesso a tudo, o oposto do que o
+    // formulário mostra. Admin não depende da lista.
+    if (form.perfil !== 'admin' && form.modulosIds.length === 0) {
+      toast('Marque ao menos um módulo para o usuário.', { tone: 'error', icon: 'alert' });
+      return;
+    }
     setSalvando(true);
     const payload = {
       nome: form.nome.trim(),
@@ -147,6 +185,8 @@ const UsuariosScreen = ({ obras = [] }) => {
       abas_ids: form.abasIds,
       modulos_readonly_ids: form.modulosReadonlyIds,
       abas_readonly_ids: form.abasReadonlyIds,
+      // Só com o catálogo disponível: sem a coluna no banco, mandar a chave faria o salvar falhar.
+      ...(funcoesOk ? { funcao_id: form.funcaoId === '' ? null : Number(form.funcaoId) } : {}),
     };
     try {
       if (editando === 'novo') {
@@ -262,6 +302,9 @@ const UsuariosScreen = ({ obras = [] }) => {
     }));
   };
 
+  // A coluna "Função" entra logo depois de "Perfil" e só quando o catálogo está disponível.
+  const colunas = ['Nome', 'E-mail', 'Perfil', ...(funcoesOk ? ['Função'] : []), 'Obras Liberadas', 'Status', 'Data de Cadastro', 'Último Acesso', 'Última Atualização', 'Ações'];
+
   const obrasLabel = (u) => {
     if (u.perfil === 'admin') return 'Todas as obras';
     // Conta só vínculos que ainda apontam pra uma obra existente — user_obras
@@ -324,25 +367,42 @@ const UsuariosScreen = ({ obras = [] }) => {
             <option value="ativo">Ativo</option>
             <option value="inativo">Inativo</option>
           </select>
+          {funcoesOk && (
+            <>
+              <select className="input" style={{ width: 200 }} value={filterFuncao} onChange={e => setFilterFuncao(e.target.value)} aria-label="Filtrar por função">
+                <option value="">Todas as funções</option>
+                <option value="sem">Sem função</option>
+                {funcoes.map(f => <option key={f.id} value={String(f.id)}>{f.nome}</option>)}
+              </select>
+              <button className="btn btn-ghost" onClick={() => setGerenciandoFuncoes(true)}>
+                <Icon name="cog" size={14} /> Gerenciar funções
+              </button>
+            </>
+          )}
         </div>
 
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--border)' }}>
-                {['Nome', 'E-mail', 'Perfil', 'Obras Liberadas', 'Status', 'Data de Cadastro', 'Último Acesso', 'Última Atualização', 'Ações'].map(h => (
+                {colunas.map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: 12.5 }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {paginados.length === 0 ? (
-                <tr><td colSpan={9} style={{ padding: '48px 12px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum usuário encontrado.</td></tr>
+                <tr><td colSpan={colunas.length} style={{ padding: '48px 12px', textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum usuário encontrado.</td></tr>
               ) : paginados.map((u, i) => (
                 <tr key={u.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.012)' }}>
                   <td style={{ padding: '11px 12px', fontWeight: 500 }}>{u.nome}</td>
                   <td style={{ padding: '11px 12px', color: 'var(--text-muted)' }}>{u.email}</td>
                   <td style={{ padding: '11px 12px' }}><BadgePerfil perfil={u.perfil} /></td>
+                  {funcoesOk && (
+                    <td style={{ padding: '11px 12px', whiteSpace: 'nowrap', color: nomeDaFuncao(funcoes, u.funcao_id) ? 'var(--text)' : 'var(--text-muted)' }}>
+                      {nomeDaFuncao(funcoes, u.funcao_id) || '—'}
+                    </td>
+                  )}
                   <td style={{ padding: '11px 12px', color: 'var(--text-muted)' }}>{obrasLabel(u)}</td>
                   <td style={{ padding: '11px 12px' }}><BadgeStatus status={u.status} /></td>
                   <td style={{ padding: '11px 12px', color: 'var(--text-muted)' }}>{u.dataCadastro}</td>
@@ -411,13 +471,31 @@ const UsuariosScreen = ({ obras = [] }) => {
                 <input className="input" style={{ width: '100%' }} type="email" placeholder="email@empresa.com.br" value={form.email}
                   onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
               </div>
-              <div>
+              <div style={{ marginBottom: funcoesOk ? 12 : 0 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 5 }}>Status <span style={{ color: '#b91c1c' }}>*</span></label>
                 <select className="input" style={{ width: '100%' }} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                   <option value="ativo">Ativo</option>
                   <option value="inativo">Inativo</option>
                 </select>
               </div>
+              {funcoesOk && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+                    <label htmlFor="usuario-funcao" style={{ fontSize: 13, fontWeight: 500 }}>Função</label>
+                    <button type="button" style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, cursor: 'pointer', padding: 0, fontWeight: 500 }}
+                      onClick={() => setGerenciandoFuncoes(true)}>
+                      Gerenciar funções
+                    </button>
+                  </div>
+                  <select id="usuario-funcao" className="input" style={{ width: '100%' }} value={form.funcaoId} onChange={e => setForm(f => ({ ...f, funcaoId: e.target.value }))}>
+                    <option value="">Sem função</option>
+                    {funcoes.map(f => <option key={f.id} value={String(f.id)}>{f.nome}</option>)}
+                  </select>
+                  <div style={{ marginTop: 5, fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Só identifica o usuário na lista. Não muda o que ele acessa.
+                  </div>
+                </div>
+              )}
               {editando === 'novo' && (
                 <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
                   O acesso é feito pela conta Microsoft da organização. Ao autorizar o e-mail,
@@ -610,6 +688,7 @@ const UsuariosScreen = ({ obras = [] }) => {
             {form.perfil !== 'admin' && (
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
                 {form.modulosIds.length} de {TODOS_MODULOS.length} módulo{form.modulosIds.length !== 1 ? 's' : ''} liberado{form.modulosIds.length !== 1 ? 's' : ''}
+                {form.modulosIds.length === 0 && <span style={{ color: 'var(--danger)', marginLeft: 8 }}>Marque ao menos um módulo para poder salvar.</span>}
               </div>
             )}
             </div>
@@ -704,6 +783,12 @@ const UsuariosScreen = ({ obras = [] }) => {
             </button>
           </div>
         </div>
+      )}
+
+      {gerenciandoFuncoes && (
+        <GerenciarFuncoesModal funcoes={funcoes} setFuncoes={setFuncoes}
+          onAlterado={() => { carregarFuncoes(); carregarUsuarios(); }}
+          onClose={() => setGerenciandoFuncoes(false)} />
       )}
 
       {/* Modal de confirmação de exclusão */}
