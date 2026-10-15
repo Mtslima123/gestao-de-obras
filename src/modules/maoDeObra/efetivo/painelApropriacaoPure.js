@@ -36,15 +36,19 @@ export const estadoQuinzena = (linha, fora) => {
   return fora ? 'fora' : 'pendente';
 };
 
-// Uma linha por obra, já ordenada. `linhas`: [{ obra_id, ano, mes, quinzena, status, lancada_em,
-// lancada_por }]; `configs`: [{ obra_id, inicio_obra, termino_obra }]; `mes`: { ano, mes, abs }.
-// Linha de outro mês é ignorada (uma resposta atrasada não suja o mês escolhido).
+// Obra concluída não entra no painel (nem nas linhas, nem nos totais, nem na lista de meses): não
+// há mais apropriação a acompanhar nela.
+export const obrasDoPainel = (obras = []) => obras.filter((o) => o.status !== 'concluida');
+
+// Uma linha por obra em andamento, já ordenada. `linhas`: [{ obra_id, ano, mes, quinzena, status,
+// lancada_em, lancada_por }]; `configs`: [{ obra_id, inicio_obra, termino_obra }]; `mes`: { ano,
+// mes, abs }. Linha de outro mês é ignorada (uma resposta atrasada não suja o mês escolhido).
 export const montarPainel = ({ obras = [], linhas = [], configs = [], mes }) => {
   const config = new Map(configs.map((c) => [c.obra_id, c]));
   const doMes = new Map();
   for (const l of linhas) if (l.ano === mes.ano && l.mes === mes.mes) doMes.set(`${l.obra_id}|${l.quinzena}`, l);
 
-  const rows = obras.map((o) => {
+  const rows = obrasDoPainel(obras).map((o) => {
     const l1 = doMes.get(`${o.id}|1`), l2 = doMes.get(`${o.id}|2`);
     // Mês fora do período só vale para obra sem nenhuma quinzena salva nele: dado salvo sempre aparece.
     const fora = !l1 && !l2 && mesForaDoPeriodo(periodoDaObra(o, config.get(o.id)), mes);
@@ -54,7 +58,7 @@ export const montarPainel = ({ obras = [], linhas = [], configs = [], mes }) => 
     };
     const q1 = q(l1), q2 = q(l2);
     const situacao = fora ? 'fora' : (q1.estado === 'lancada' && q2.estado === 'lancada' ? 'completa' : 'pendente');
-    return { obraId: o.id, rotulo: rotuloObra(o), concluida: o.status === 'concluida', q1, q2, situacao };
+    return { obraId: o.id, rotulo: rotuloObra(o), q1, q2, situacao };
   });
 
   return rows.sort((a, b) => ORDEM_SITUACAO[a.situacao] - ORDEM_SITUACAO[b.situacao] || a.rotulo.localeCompare(b.rotulo, 'pt-BR'));
@@ -68,12 +72,11 @@ export const resumoPainel = (rows) => ({
   fora: rows.filter((r) => r.situacao === 'fora').length,
 });
 
-// situacao: 'todas' | 'pendentes' | 'completas'. Obra concluída fica de fora, a não ser que se peça.
-export const filtrarPainel = (rows, { situacao = 'todas', busca = '', mostrarConcluidas = false } = {}) => {
+// situacao: 'todas' | 'pendentes' | 'completas'.
+export const filtrarPainel = (rows, { situacao = 'todas', busca = '' } = {}) => {
   const termo = chave(busca);
   return rows.filter((r) =>
-    (mostrarConcluidas || !r.concluida)
-    && (!termo || chave(r.rotulo).includes(termo))
+    (!termo || chave(r.rotulo).includes(termo))
     && (situacao === 'todas' || (situacao === 'pendentes' ? r.situacao === 'pendente' : r.situacao === 'completa')));
 };
 
@@ -82,7 +85,7 @@ export const filtrarPainel = (rows, { situacao = 'todas', busca = '', mostrarCon
 export const mesesDoPainel = ({ obras = [], configs = [], mesAtualAbs }) => {
   const config = new Map(configs.map((c) => [c.obra_id, c]));
   let menor = mesAtualAbs;
-  for (const o of obras) {
+  for (const o of obrasDoPainel(obras)) {
     const { inicio } = periodoDaObra(o, config.get(o.id));
     const a = inicio ? mesAbs(inicio) : NaN;
     if (Number.isFinite(a)) menor = Math.min(menor, a);

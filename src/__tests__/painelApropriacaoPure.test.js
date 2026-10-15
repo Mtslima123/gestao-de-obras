@@ -128,10 +128,18 @@ describe('montarPainel', () => {
     expect(rows.map((r) => r.obraId)).toEqual(['C', 'B', 'A', 'D']);
   });
 
-  it('marca a obra concluída e usa o rótulo "SIGLA · Nome"', () => {
-    const [r] = montarPainel({ obras: [obra('A', { sigla: 'AAZ', nome: 'Edifício Aurora', status: 'concluida' })], mes: OUT26 });
-    expect(r.concluida).toBe(true);
+  it('usa o rótulo "SIGLA · Nome"', () => {
+    const [r] = montarPainel({ obras: [obra('A', { sigla: 'AAZ', nome: 'Edifício Aurora' })], mes: OUT26 });
     expect(r.rotulo).toBe('AAZ · Edifício Aurora');
+  });
+
+  it('obra concluída nunca entra no painel, nem com apropriação lançada', () => {
+    const rows = montarPainel({
+      obras: [obra('A'), obra('D', { status: 'concluida' })],
+      linhas: [linha('D', 1, 'LANCADA'), linha('D', 2, 'LANCADA')],
+      mes: OUT26,
+    });
+    expect(rows.map((r) => r.obraId)).toEqual(['A']);
   });
 
   it('entradas vazias não quebram', () => {
@@ -159,20 +167,15 @@ describe('resumoPainel e filtrarPainel', () => {
     mes: OUT26,
   });
 
-  it('conta completas, pendentes e fora', () => {
-    expect(resumoPainel(rows)).toEqual({ total: 5, completas: 2, pendentes: 2, fora: 1 });
+  it('conta completas, pendentes e fora, sem a obra concluída', () => {
+    expect(resumoPainel(rows)).toEqual({ total: 4, completas: 1, pendentes: 2, fora: 1 });
     expect(resumoPainel([])).toEqual({ total: 0, completas: 0, pendentes: 0, fora: 0 });
   });
 
-  it('esconde as concluídas por padrão e mostra quando pedido', () => {
-    expect(filtrarPainel(rows).map((r) => r.obraId)).not.toContain('D');
-    expect(filtrarPainel(rows, { mostrarConcluidas: true }).map((r) => r.obraId)).toContain('D');
-  });
-
   it('filtra por situação', () => {
+    expect(filtrarPainel(rows).map((r) => r.obraId)).not.toContain('D');
     expect(filtrarPainel(rows, { situacao: 'pendentes' }).map((r) => r.obraId).sort()).toEqual(['B', 'C']);
     expect(filtrarPainel(rows, { situacao: 'completas' }).map((r) => r.obraId)).toEqual(['A']);
-    expect(filtrarPainel(rows, { situacao: 'completas', mostrarConcluidas: true }).map((r) => r.obraId).sort()).toEqual(['A', 'D']);
   });
 
   it('busca pelo nome sem diferenciar acento nem caixa', () => {
@@ -212,5 +215,10 @@ describe('mesesDoPainel', () => {
 
   it('ignora início inválido', () => {
     expect(labels(mesesDoPainel({ obras: [obra('A', { inicio: 'lixo' })], mesAtualAbs: atual }))).toEqual(['Out/26']);
+  });
+
+  it('obra concluída não puxa a lista de meses para trás', () => {
+    const ms = mesesDoPainel({ obras: [obra('A', { inicio: '2026-09-01' }), obra('D', { inicio: '2025-01-01', status: 'concluida' })], mesAtualAbs: atual });
+    expect(labels(ms)).toEqual(['Out/26', 'Set/26']);
   });
 });

@@ -40,7 +40,6 @@ export function PainelTab({ obras, mesAtualAbs }) {
   const [falha, setFalha] = React.useState(null);
   const [situacao, setSituacao] = React.useState('todas');
   const [busca, setBusca] = React.useState('');
-  const [mostrarConcluidas, setMostrarConcluidas] = React.useState(false);
   const pedido = React.useRef(0);
 
   const mesSel = React.useMemo(() => mesDeAbs(mesAbsSel), [mesAbsSel]);
@@ -66,10 +65,10 @@ export function PainelTab({ obras, mesAtualAbs }) {
   }, [obras, configs, mesAtualAbs, mesAbsSel, mesSel]);
 
   const todas = React.useMemo(() => (linhas ? montarPainel({ obras, linhas, configs, mes: mesSel }) : []), [obras, linhas, configs, mesSel]);
-  // Os números dos filtros respeitam a busca e as concluídas, mas não a situação escolhida (senão
-  // "Completas (0)" apareceria ao clicar em "Pendentes").
-  const resumo = React.useMemo(() => resumoPainel(filtrarPainel(todas, { busca, mostrarConcluidas })), [todas, busca, mostrarConcluidas]);
-  const visiveis = React.useMemo(() => filtrarPainel(todas, { situacao, busca, mostrarConcluidas }), [todas, situacao, busca, mostrarConcluidas]);
+  // Os números dos filtros respeitam a busca, mas não a situação escolhida (senão "Completas (0)"
+  // apareceria ao clicar em "Pendentes"). Obra concluída nunca entra (ver obrasDoPainel).
+  const resumo = React.useMemo(() => resumoPainel(filtrarPainel(todas, { busca })), [todas, busca]);
+  const visiveis = React.useMemo(() => filtrarPainel(todas, { situacao, busca }), [todas, situacao, busca]);
 
   const doPeriodo = resumo.total - resumo.fora;
   const fim = ultimoDia(mesSel.ano, mesSel.mes);
@@ -122,10 +121,6 @@ export function PainelTab({ obras, mesAtualAbs }) {
           {chip('pendentes', 'Pendentes', resumo.pendentes)}
           {chip('completas', 'Completas', resumo.completas)}
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: T.texto2, cursor: 'pointer', userSelect: 'none' }}>
-          <input type="checkbox" checked={mostrarConcluidas} onChange={(e) => setMostrarConcluidas(e.target.checked)} style={{ accentColor: 'var(--brand)', cursor: 'pointer' }} />
-          Mostrar obras concluídas
-        </label>
       </div>
 
       {!linhas ? (
@@ -143,14 +138,11 @@ export function PainelTab({ obras, mesAtualAbs }) {
             <tbody>
               {visiveis.length === 0 ? (
                 <tr><td colSpan={3} style={{ ...td, padding: '40px 10px', color: T.texto2 }}>
-                  {todas.length === 0 ? 'Nenhuma obra liberada.' : 'Nenhuma obra encontrada com esses filtros.'}
+                  {todas.length === 0 ? 'Nenhuma obra em andamento.' : 'Nenhuma obra encontrada com esses filtros.'}
                 </td></tr>
               ) : visiveis.map((r) => (
                 <tr key={r.obraId} style={{ opacity: r.situacao === 'fora' ? 0.6 : 1 }}>
-                  <td style={{ ...td, textAlign: 'left', padding: '10px', fontWeight: 600 }}>
-                    {r.rotulo}
-                    {r.concluida && <span style={{ ...pill(T.texto2, T.faixa), marginLeft: 8, fontSize: 11, padding: '2px 8px' }}>Concluída</span>}
-                  </td>
+                  <td style={{ ...td, textAlign: 'left', padding: '10px', fontWeight: 600 }}>{r.rotulo}</td>
                   <td style={{ ...td, padding: '10px' }}><Celula q={r.q1} /></td>
                   <td style={{ ...td, padding: '10px' }}><Celula q={r.q2} /></td>
                 </tr>
