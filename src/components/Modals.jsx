@@ -25,6 +25,21 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   // `resizable`. Só sobrepõe o estilo: `pos` e `customSize` ficam intactos, então
   // restaurar devolve o modal exatamente onde e do tamanho que estava.
   const [maximizado, setMaximizado] = React.useState(false);
+  // Em tela cheia o modal começa DEPOIS da barra lateral: ela é fixa à esquerda e fica na frente
+  // do modal (z-index 200 contra 100), então com `left: 8` o começo do conteúdo (título,
+  // primeira coluna, botão Cancelar) sumia atrás dela. A faixa que o app reserva para a barra é o
+  // padding-left do `.app` (80px, ou 276px com o menu fixado); fixar/soltar o menu anima esse
+  // padding, então mede de novo quando a transição termina.
+  const [recuoEsq, setRecuoEsq] = React.useState(8);
+  React.useEffect(() => {
+    if (!maximizado) return undefined;
+    const app = document.querySelector('.app');
+    const medir = () => setRecuoEsq((app ? parseFloat(getComputedStyle(app).paddingLeft) || 0 : 0) + 8);
+    medir();
+    window.addEventListener('resize', medir);
+    app?.addEventListener('transitionend', medir);
+    return () => { window.removeEventListener('resize', medir); app?.removeEventListener('transitionend', medir); };
+  }, [maximizado]);
   // Mover e redimensionar por ponteiro (mouse, dedo ou caneta): só com mousedown/mousemove,
   // no celular e no tablet nada acontecia (o toque gera evento de mouse só no toque rápido,
   // nunca no arrasto). touch-action:none no cabeçalho e na alça impede o navegador de
@@ -147,8 +162,8 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     // 100dvh pelo mesmo motivo do .modal no celular: 100vh conta a barra do navegador
     // escondida e o rodapé ficaria abaixo da tela.
     ...(maximizado ? {
-      position: 'fixed', left: 8, top: 8, margin: 0,
-      width: 'calc(100vw - 16px)', height: 'calc(100dvh - 16px)', maxWidth: 'none', maxHeight: 'none',
+      position: 'fixed', left: recuoEsq, top: 8, margin: 0,
+      width: `calc(100vw - ${recuoEsq + 8}px)`, height: 'calc(100dvh - 16px)', maxWidth: 'none', maxHeight: 'none',
     } : {}),
   };
   const headerStyle = draggable && !maximizado ? { cursor: 'grab', userSelect: 'none', touchAction: 'none' } : {};
