@@ -11,6 +11,8 @@ import { avisosDeContexto, lerPlanilhaEfetivo } from './importXlsxPure';
 import { ImportarPlanilhaModal } from './ImportarPlanilhaModal';
 import { CampoQtd } from './CampoQtd';
 import { logger } from '../../../services/logger';
+import { useCardCongelado } from '../../../utils/useCardCongelado';
+import { useIsMobile } from '../../../utils/useIsMobile';
 
 const NUM = ['trabAdm', 'inssSeguro', 'ferias', 'emprestManut', 'recebidoOutraObra'];
 // O previsto pode ser quebrado (2,5): soma e diferença são arredondadas a 2 casas para não
@@ -38,6 +40,11 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
   const [confirmaCopia, setConfirmaCopia] = React.useState(false);
   const [confirmaLimpar, setConfirmaLimpar] = React.useState(false);
   const [exportando, setExportando] = React.useState(false);
+  // A tabela é longa: no computador o cartão trava sob a barra superior e só o corpo da tabela
+  // rola (cabeçalho e Total ficam à vista). No celular a página rola normal: a barra de
+  // botões quebra em várias linhas e sobraria pouco espaço para as linhas da tabela.
+  const mobile = useIsMobile();
+  const { sentinelRef, congelado, topoFixo, alturaCard } = useCardCongelado({ ativo: !mobile });
   const [linhaFoco, setLinhaFoco] = React.useState(null); // função cuja linha tem um campo em edição
 
   // Gravação do rascunho: fila (nunca duas ao mesmo tempo, na ordem em que foram pedidas) e,
@@ -240,6 +247,22 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
   const d = r2(TOT.at - TOT.prev);
   const estadoQ = (n) => { const a = apropDe(s, mesSel, n); return a?.status === 'LANCADA' ? 'Lançada' : a?.itens.some(temValor) ? 'Rascunho' : 'Pendente'; };
 
+  // Baixar modelo: a planilha padrão do Importar (mesmo formato que o leitor entende), com as
+  // funções da obra por grupo e o que a quinzena aberta já tem digitado.
+  const baixarModelo = async () => {
+    if (ocupado) return;
+    setOcupado(true);
+    try {
+      const { baixarModeloEfetivo } = await import('./modeloXlsx');
+      await baixarModeloEfetivo({ funcoes: s.funcoes, apropriacao: ap, obraNome, obraCodigo: s.obra.codigo, ano: mesSel.ano, mes: mesSel.mes, quinzena: q });
+    } catch (e) {
+      logger.error('erro ao baixar o modelo da apropriação', { module: 'maoDeObra', action: 'baixarModeloEfetivo', obraId: s.obra.id, err: e });
+      erro('Erro ao gerar o modelo da apropriação.');
+    } finally {
+      setOcupado(false);
+    }
+  };
+
   // Exportar a quinzena aberta, do jeito que está na tela (agrupamento e busca). Só leitura:
   // por isso os botões aparecem também com a quinzena lançada, o mês fechado ou em somente
   // consulta. O módulo de exportação (e o jspdf/xlsx dentro dele) só é baixado no clique.
@@ -276,17 +299,55 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
         style={{ ...inp(!editavel, 96), textAlign: 'left', fontSize: 12.5 }} />
     </td>
   );
-  const somas = (o, bold = 600) => (<>
-    {['totalEfetivo', 'trabAdm', 'can', 'inssSeguro', 'ferias', 'emprestManut'].map((k) => <td key={k} style={{ ...td, fontWeight: bold }}>{o[k]}</td>)}
-    <td style={td} /><td style={{ ...td, fontWeight: bold }}>{o.recebidoOutraObra}</td><td style={td} />
+  // `extra` entra em todas as células: o Total usa para ficar preso no rodapé da tabela.
+  const somas = (o, bold = 600, extra) => (<>
+    {['totalEfetivo', 'trabAdm', 'can', 'inssSeguro', 'ferias', 'emprestManut'].map((k) => <td key={k} style={{ ...td, fontWeight: bold, ...extra }}>{o[k]}</td>)}
+    <td style={{ ...td, ...extra }} /><td style={{ ...td, fontWeight: bold, ...extra }}>{o.recebidoOutraObra}</td><td style={{ ...td, ...extra }} />
   </>);
+
+  // Cabeçalho e Total presos no corpo que rola. O fundo é de cada célula (o `thead` sozinho não
+  // basta com sticky). O Total prende com `boxShadow` no lugar de borda: com `border-collapse`
+  // a borda de célula sticky não acompanha a rolagem.
+  const thS = { ...th, position: 'sticky', top: 0, zIndex: 3, background: T.faixa, boxShadow: '0 1px 0 0 var(--border)' };
+  const tdTotal = { position: 'sticky', bottom: 0, zIndex: 3, background: 'var(--surface)', boxShadow: '0 -2px 0 0 var(--border-strong)' };
 
   const okUi = (stt) => { const u = STATUS_UI[stt]; return { cor: corUi(u.cor), fundo: corUi(u.fundo), rotulo: u.rotulo }; };
 
   return (
-    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-      <section style={{ ...card, flex: '1 1 100%', minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '18px 20px', borderBottom: `1px solid ${T.borda}` }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Situação das duas quinzenas do mês. Fica ACIMA do cartão que trava: se viesse depois dele,
+          ficaria escondido atrás do cartão fixo. */}
+      <section style={{ ...card, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <h2 style={h2}>Apropriações de {mesSel.label.replace('/', '/20')}</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 12 }}>
+          {[1, 2].map((n) => {
+            const a = apropDe(s, mesSel, n), e = estadoQ(n);
+            const ui = e === 'Lançada' ? okUi('ok') : e === 'Rascunho' ? { cor: T.laranja, fundo: T.laranjaBg } : okUi('pend');
+            return (
+              <div key={n} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', border: `1px solid ${T.linha}`, borderRadius: 10, fontSize: 13.5 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <b style={{ fontWeight: 600 }}>{n}ª Apropriação ({range(n)})</b>
+                  <span style={{ color: T.texto2, fontSize: 12 }}>
+                    {a?.lancadaEm ? `Lançada em ${new Date(a.lancadaEm).toLocaleDateString('pt-BR')}${a.lancadaPor ? ` por ${a.lancadaPor}` : ''}` : `Data de referência ${n === 1 ? '01' : '16'}/${String(mesSel.mes).padStart(2, '0')}/${mesSel.ano}`}
+                  </span>
+                </div>
+                <span style={pill(ui.cor, ui.fundo)}>{e}</span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Sentinela + espaçador + cartão dentro de UM div: um filho a mais aqui faria o gap de 20
+          contar duas vezes (ver useCardCongelado). */}
+      <div>
+      <div ref={sentinelRef} aria-hidden="true" style={{ height: 0 }} />
+      {congelado && <div aria-hidden="true" style={{ height: alturaCard }} />}
+      <section style={{
+        ...card, minWidth: 0, display: 'flex', flexDirection: 'column', height: alturaCard, overflow: 'hidden',
+        ...(congelado ? { position: 'fixed', top: topoFixo, left: congelado.left, width: congelado.width, zIndex: 5 } : null),
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '18px 20px', borderBottom: `1px solid ${T.borda}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', border: `1px solid ${T.bordaInput}`, borderRadius: 9, overflow: 'hidden' }}>
             {[1, 2].map((n) => (
               <button key={n} type="button" onClick={() => setQ(n)} style={{ font: 'inherit', fontSize: 13, fontWeight: 600, border: 0, borderLeft: n === 2 ? `1px solid ${T.bordaInput}` : 0, padding: '9px 16px', cursor: 'pointer', background: q === n ? T.azul : 'var(--surface)', color: q === n ? '#fff' : T.texto, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
@@ -309,6 +370,10 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
                 <button type="button" style={{ ...btn, opacity: ocupado || !ap?.itens.length ? 0.5 : 1 }} disabled={ocupado || !ap?.itens.length} onClick={() => setConfirmaLimpar(true)}>
                   <Icon name="trash" size={15} stroke={2.2} />Limpar
                 </button>
+                <button type="button" style={{ ...btn, opacity: ocupado ? 0.6 : 1 }} disabled={ocupado} onClick={baixarModelo}
+                  title="Baixa a planilha padrão no formato do Importar, com as funções da obra">
+                  <Icon name="file" size={15} stroke={2.2} />Baixar modelo
+                </button>
                 <label style={{ ...btn, opacity: ocupado ? 0.6 : 1, pointerEvents: ocupado ? 'none' : 'auto' }}>
                   <Icon name="download" size={15} stroke={2.2} />Importar efetivo (.xlsx)
                   <input type="file" accept=".xlsx,.xls" hidden onChange={escolherArquivo} />
@@ -328,14 +393,14 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
         </div>
 
         {aguardaPrimeira && !locked && !mesFechado && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 20px', fontSize: 13, fontWeight: 500, color: T.laranja, background: T.laranjaBg, borderBottom: `1px solid ${T.borda}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 20px', fontSize: 13, fontWeight: 500, color: T.laranja, background: T.laranjaBg, borderBottom: `1px solid ${T.borda}`, flexShrink: 0 }}>
             <Icon name="lock" size={14} stroke={2.2} />
             <span>A 2ª apropriação só pode ser preenchida depois que a 1ª for lançada e fechada.</span>
             <button type="button" onClick={() => setQ(1)} style={{ font: 'inherit', fontSize: 13, fontWeight: 600, border: 0, background: 'none', color: T.azul, cursor: 'pointer', padding: 0 }}>Ir para a 1ª apropriação</button>
           </div>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', flexWrap: 'wrap', fontSize: 13, color: T.texto2, background: T.faixa, borderBottom: `1px solid ${T.borda}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', flexWrap: 'wrap', fontSize: 13, color: T.texto2, background: T.faixa, borderBottom: `1px solid ${T.borda}`, flexShrink: 0 }}>
           <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar função…" style={{ font: 'inherit', fontSize: 13, padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8, width: 220, background: 'var(--surface)', color: T.texto }} />
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>Agrupar por
             <span style={{ display: 'flex', border: `1px solid ${T.bordaInput}`, borderRadius: 8, overflow: 'hidden' }}>
@@ -349,15 +414,19 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
           </button>
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        {/* Um único contêiner rola nos dois eixos (o cabeçalho sticky só prende nele). flex:1 +
+            minHeight:0 dá a rolagem por dentro do cartão; sem o minHeight o item flex não encolhe
+            e a rolagem vaza para a página. scrollPadding: o Tab entre campos não deixa a linha
+            escondida sob o cabeçalho nem sob o Total. */}
+        <div style={{ overflow: 'auto', flex: 1, minHeight: 0, scrollPaddingTop: 56, scrollPaddingBottom: 48 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 1320 }}>
             <thead style={{ background: T.faixa }}>
               <tr>
-                <th style={{ ...th, textAlign: 'left', paddingLeft: 20 }}>Função</th>
-                <th style={th}>Previsto<br />(mês)</th><th style={{ ...th, background: T.grupo }}>Total<br />efetivo</th><th style={th}>Trab. na<br />ADM</th>
-                <th style={th}>Trab. no<br />canteiro</th><th style={th}>INSS/<br />Seguro</th><th style={th}>Férias</th><th style={th}>Emprest./<br />Manut.</th>
-                <th style={{ ...th, textAlign: 'left' }}>Destino</th><th style={th}>Recebido<br />outra obra</th><th style={{ ...th, textAlign: 'left' }}>Origem</th>
-                <th style={{ ...th, background: T.azulClaro, color: T.azul }}>Ativos</th><th style={{ ...th, textAlign: 'right' }}>Saldo</th><th style={{ ...th, textAlign: 'left', paddingRight: 20 }}>Status</th>
+                <th style={{ ...thS, textAlign: 'left', paddingLeft: 20 }}>Função</th>
+                <th style={thS}>Previsto<br />(mês)</th><th style={{ ...thS, background: T.grupo }}>Total<br />efetivo</th><th style={thS}>Trab. na<br />ADM</th>
+                <th style={thS}>Trab. no<br />canteiro</th><th style={thS}>INSS/<br />Seguro</th><th style={thS}>Férias</th><th style={thS}>Emprest./<br />Manut.</th>
+                <th style={{ ...thS, textAlign: 'left' }}>Destino</th><th style={thS}>Recebido<br />outra obra</th><th style={{ ...thS, textAlign: 'left' }}>Origem</th>
+                <th style={{ ...thS, background: T.azulClaro, color: T.azul }}>Ativos</th><th style={{ ...thS, textAlign: 'right' }}>Saldo</th><th style={{ ...thS, textAlign: 'left', paddingRight: 20 }}>Status</th>
               </tr>
             </thead>
             {grupos.map(({ key, nome, rows, G }) => {
@@ -402,41 +471,21 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
               );
             })}
             <tfoot>
-              <tr style={{ borderTop: `2px solid ${T.bordaInput}`, fontWeight: 700 }}>
-                <td style={{ padding: '12px 20px' }}>Total</td><td style={{ ...td, fontWeight: 700 }}>{n2(TOT.prev)}</td>
-                {somas(TOT, 700)}
-                <td style={{ ...td, color: T.azul, background: T.azulClaro, fontWeight: 700 }}>{TOT.any ? TOT.at : '—'}</td>
-                <td style={{ ...td, textAlign: 'right', color: TOT.any ? corUi(corSaldo(-d)) : T.texto2 }}>{TOT.any ? sg(-d) : '—'}</td>
-                <td style={{ ...td, textAlign: 'left', color: okUi(st).cor, paddingRight: 20 }}>{TOT.any ? `${usoPct(TOT.at, TOT.prev) ?? '—'}%` : '—'}</td>
+              <tr style={{ fontWeight: 700 }}>
+                <td style={{ ...tdTotal, padding: '12px 20px' }}>Total</td><td style={{ ...td, ...tdTotal, fontWeight: 700 }}>{n2(TOT.prev)}</td>
+                {somas(TOT, 700, tdTotal)}
+                <td style={{ ...td, ...tdTotal, color: T.azul, background: T.azulClaro, fontWeight: 700 }}>{TOT.any ? TOT.at : '—'}</td>
+                <td style={{ ...td, ...tdTotal, textAlign: 'right', color: TOT.any ? corUi(corSaldo(-d)) : T.texto2 }}>{TOT.any ? sg(-d) : '—'}</td>
+                <td style={{ ...td, ...tdTotal, textAlign: 'left', color: okUi(st).cor, paddingRight: 20 }}>{TOT.any ? `${usoPct(TOT.at, TOT.prev) ?? '—'}%` : '—'}</td>
               </tr>
             </tfoot>
           </table>
-          <div style={{ padding: '10px 20px', borderTop: `1px solid ${T.borda}`, fontSize: 12, color: T.texto2, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-            <span>Total efetivo = trab. na ADM + trab. no canteiro + emprest./manut. (calculado, não se digita)</span>
-            <span style={{ color: T.azul, fontWeight: 600 }}>Ativos = trab. na ADM + trab. no canteiro + recebido outra obra</span>
-          </div>
+        </div>
+        <div style={{ padding: '10px 20px', borderTop: `1px solid ${T.borda}`, fontSize: 12, color: T.texto2, display: 'flex', gap: 18, flexWrap: 'wrap', flexShrink: 0 }}>
+          <span>Total efetivo = trab. na ADM + trab. no canteiro + emprest./manut. (calculado, não se digita)</span>
+          <span style={{ color: T.azul, fontWeight: 600 }}>Ativos = trab. na ADM + trab. no canteiro + recebido outra obra</span>
         </div>
       </section>
-
-      <div style={{ flex: '1 1 100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(340px,1fr))', gap: 20, alignItems: 'start' }}>
-        <section style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h2 style={h2}>Apropriações de {mesSel.label.replace('/', '/20')}</h2>
-          {[1, 2].map((n) => {
-            const a = apropDe(s, mesSel, n), e = estadoQ(n);
-            const ui = e === 'Lançada' ? okUi('ok') : e === 'Rascunho' ? { cor: T.laranja, fundo: T.laranjaBg } : okUi('pend');
-            return (
-              <div key={n} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: `1px solid ${T.linha}`, fontSize: 13.5 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <b style={{ fontWeight: 600 }}>{n}ª Apropriação ({range(n)})</b>
-                  <span style={{ color: T.texto2, fontSize: 12 }}>
-                    {a?.lancadaEm ? `Lançada em ${new Date(a.lancadaEm).toLocaleDateString('pt-BR')}${a.lancadaPor ? ` por ${a.lancadaPor}` : ''}` : `Data de referência ${n === 1 ? '01' : '16'}/${String(mesSel.mes).padStart(2, '0')}/${mesSel.ano}`}
-                  </span>
-                </div>
-                <span style={pill(ui.cor, ui.fundo)}>{e}</span>
-              </div>
-            );
-          })}
-        </section>
       </div>
 
       {previa && (

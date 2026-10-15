@@ -1,7 +1,9 @@
 import React from 'react';
 import { Icon } from '../../../components/Icons';
+import { Modal } from '../../../components/Modals';
+import { logger } from '../../../services/logger';
 import { STATUS_UI, corSaldo, status, usoPct } from './regras';
-import { T, card, h2, sub, th, td, pill, corUi } from './tokens';
+import { T, card, h2, sub, btn, th, td, pill, corUi } from './tokens';
 import { GRUPOS, mesesComApropriacao } from './efetivoStore';
 import { TODOS, evolucao, funcoesDaOpcao, kpisAnalise, linhasAnalise, opcoesClassificacao, serieProjecao } from './analisePure';
 
@@ -12,12 +14,28 @@ const okUi = (stt) => { const u = STATUS_UI[stt]; return { cor: corUi(u.cor), fu
 
 const Leg = ({ cor, t }) => <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 14, height: 5, borderRadius: 3, background: cor }} />{t}</span>;
 
+// O que o usuário pode incluir no PDF da Análise (ver exportAnalise.js).
+const BLOCOS_PDF = [
+  { id: 'projecao', rotulo: 'Realizado e projeção até o término da obra' },
+  { id: 'evolucao', rotulo: 'Evolução do efetivo' },
+  { id: 'tabela', rotulo: 'Efetivo do mês (tabela)' },
+];
+const ROTULO_ORDEM = { desvio: 'maior desvio (qtd)', pct: 'maior desvio (%)' };
+
 // Aba Análise: só leitura. Efetivo do mês = última apropriação LANCADA (2ª se existir, senão
 // a 1ª), nunca média; rascunho não conta.
-export function AnaliseTab({ s, mesSel, setMesSel, meses }) {
+export function AnaliseTab({ s, mesSel, setMesSel, meses, erro, obraNome }) {
   const [verPor, setVerPor] = React.useState('funcao');
   const [ordem, setOrdem] = React.useState('grupo');
   const [grupoF, setGrupoF] = React.useState(null);
+  // Função/classificação do gráfico de projeção: o estado mora aqui (não no gráfico) para o PDF
+  // exportar a mesma que está na tela.
+  const opcoes = React.useMemo(() => { const o = opcoesClassificacao(s); return o.length ? [TODOS, ...o] : []; }, [s.funcoes]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [sel, setSel] = React.useState('Carpinteiro');
+  const atual = opcoes.includes(sel) ? sel : opcoes[0];
+  const [modalPdf, setModalPdf] = React.useState(false);
+  const [blocos, setBlocos] = React.useState({ projecao: true, evolucao: true, tabela: true });
+  const [exportando, setExportando] = React.useState(false);
 
   const linhas = React.useMemo(() => linhasAnalise(s, mesSel, { verPor, ordem, grupoF }), [s, mesSel, verPor, ordem, grupoF]);
   const mx = Math.max(1, ...linhas.map((l) => Math.max(l.p, l.m ?? 0)));
@@ -29,9 +47,33 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses }) {
   const lancados = React.useMemo(() => new Set(mesesComApropriacao(s, meses).map((m) => m.abs)), [s, meses]);
   const mxE = Math.max(1, ...evo.map((x) => Math.max(x.p, x.e))) * 1.08;
 
+  // PDF: só leitura (por isso aparece em qualquer perfil). O módulo e o jspdf só são baixados no clique.
+  const gerarPdf = async () => {
+    if (exportando) return;
+    setExportando(true);
+    try {
+      const { montarAnalise, exportarAnalisePDF } = await import('./exportAnalise');
+      const dados = montarAnalise({
+        s, mesSel, meses, opcao: atual, linhas, evo, nA, obraNome, obraCodigo: s.obra.codigo,
+        filtros: { verPor, grupoNome: GRUPOS.find((g) => g.id === grupoF)?.nome ?? null, ordemRotulo: ROTULO_ORDEM[ordem] ?? null },
+      });
+      await exportarAnalisePDF(dados, blocos);
+      setModalPdf(false);
+    } catch (e) {
+      logger.error('erro ao exportar a análise em PDF', { module: 'maoDeObra', action: 'exportarAnalisePDF', obraId: s.obra.id, err: e });
+      erro?.('Erro ao exportar para PDF.');
+    } finally {
+      setExportando(false);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <GraficoProjecao s={s} mesSel={mesSel} meses={meses} />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
+        <button type="button" style={btn} onClick={() => setModalPdf(true)}><Icon name="download" size={15} stroke={2.2} />Exportar PDF</button>
+      </div>
+
+      <GraficoProjecao s={s} mesSel={mesSel} meses={meses} opcoes={opcoes} atual={atual} setSel={setSel} />
 
       <section style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
@@ -111,15 +153,30 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses }) {
           <span>Saldo = previsto − utilizado · acumulado em pessoa-mês desde {meses[0]?.label}</span>
         </div>
       </section>
+
+      {modalPdf && (
+        <Modal title="Exportar PDF da Análise" size="compact" onClose={() => { if (!exportando) setModalPdf(false); }}
+          footer={<>
+            <button type="button" className="btn btn-ghost" disabled={exportando} onClick={() => setModalPdf(false)}>Cancelar</button>
+            <button type="button" className="btn btn-primary" disabled={exportando || !BLOCOS_PDF.some((b) => blocos[b.id])} onClick={gerarPdf}>{exportando ? 'Gerando…' : 'Gerar PDF'}</button>
+          </>}>
+          <p style={{ margin: '0 0 10px', lineHeight: 1.5, fontSize: 13.5, color: T.texto2 }}>
+            Escolha o que entra no PDF. O mês, a função do gráfico e os filtros da tabela são os que estão na tela.
+          </p>
+          {BLOCOS_PDF.map((b) => (
+            <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', fontSize: 13.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={blocos[b.id]} disabled={exportando} onChange={() => setBlocos((x) => ({ ...x, [b.id]: !x[b.id] }))} />
+              {b.rotulo}{b.id === 'projecao' && atual ? ` (${atual === TODOS ? 'todas as funções' : atual})` : ''}
+            </label>
+          ))}
+        </Modal>
+      )}
     </div>
   );
 }
 
 /* ---------- Gráfico realizado x projeção ---------- */
-function GraficoProjecao({ s, mesSel, meses }) {
-  const opcoes = React.useMemo(() => { const o = opcoesClassificacao(s); return o.length ? [TODOS, ...o] : []; }, [s.funcoes]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [sel, setSel] = React.useState('Carpinteiro');
-  const atual = opcoes.includes(sel) ? sel : opcoes[0];
+function GraficoProjecao({ s, mesSel, meses, opcoes, atual, setSel }) {
   const fs = funcoesDaOpcao(s, atual);
   const { tot, cons, saldo: saldoV, rest, proj, qtd, pts } = serieProjecao(s, fs, mesSel, meses);
   const mx = Math.max(1, ...pts.map((p) => Math.max(p.v, p.prev))) * 1.12;

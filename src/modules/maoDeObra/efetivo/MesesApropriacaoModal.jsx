@@ -41,22 +41,30 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
   const reabrir = (m) => executar(efetivoService.reabrirMes, m, `${rotulo(m)} reaberto para edição.`);
 
   return (
+    // overlay={false}: sem escurecer a tela (dá para consultar a tabela com o modal aberto); mover e
+    // redimensionar como os outros modais de trabalho. `compact` (440px) em vez de `sm` (300px):
+    // as linhas "Aberto / Fechar mês" não cabiam e a lista ganhava barra horizontal.
     <Modal
       title="Meses da apropriação"
-      size="sm"
+      size="compact"
+      draggable
+      resizable
+      overlay={false}
       onClose={onClose}
       footer={<>
         <button type="button" className="btn btn-ghost" onClick={onClose}>Concluir</button>
         <button type="button" className="btn btn-primary" disabled={ocupado || !alvo} onClick={habilitar}>Habilitar</button>
       </>}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <p style={{ margin: 0, lineHeight: 1.5, fontSize: 13.5, color: T.texto2 }}>
+      {/* height:100% + flex: a lista "Meses com apropriação" cresce ao arrastar o canto do modal
+          (flex-basis de 240px mantém a altura de antes com o modal no tamanho padrão). */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
+        <p style={{ margin: 0, lineHeight: 1.5, fontSize: 13.5, color: T.texto2, flexShrink: 0 }}>
           A lista de períodos da Apropriação mostra o mês atual, os meses que já têm apropriação e os que você habilitar aqui. Mês fechado continua na lista, só para consulta. Mês sem nenhum dado preenchido pode ser excluído.
         </p>
         {opcoes.length
           ? (
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: T.texto2 }}>Mês a habilitar
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: T.texto2, flexShrink: 0 }}>Mês a habilitar
               <select value={alvo ? String(alvo.abs) : ''} onChange={(e) => setEscolhido(e.target.value)} disabled={ocupado} style={campo}>
                 {opcoes.map((m) => <option key={m.abs} value={m.abs}>{rotulo(m)}</option>)}
               </select>
@@ -64,7 +72,7 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
           )
           : <span style={{ fontSize: 13.5 }}>Todos os meses da obra já estão disponíveis para apropriação.</span>}
         {removiveis.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
             <b style={{ fontSize: 13 }}>Habilitados e ainda sem apropriação</b>
             {removiveis.map((m) => (
               <div key={m.abs} style={linhaMes}>
@@ -75,9 +83,9 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
           </div>
         )}
         {fechaveis.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <b style={{ fontSize: 13 }}>Meses com apropriação</b>
-            <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 auto', minHeight: 0 }}>
+            <b style={{ fontSize: 13, flexShrink: 0 }}>Meses com apropriação</b>
+            <div style={{ flex: '1 1 240px', minHeight: 80, overflowY: 'auto' }}>
               {fechaveis.map((m) => {
                 const fechado = mesFechado(s, m);
                 const vazio = mesSemDados(s, m);

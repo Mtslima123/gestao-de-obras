@@ -12,6 +12,7 @@ import { CampoQtd } from './CampoQtd';
 import { lerPlanilha } from './importXlsx';
 import { lerPlanilhaPrevisto } from './importXlsxPure';
 import { ImportarPlanilhaModal } from './ImportarPlanilhaModal';
+import { logger } from '../../../services/logger';
 
 const fmt = (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 const fmtSaldo = (v) => (v < -0.05 ? '−' + fmt(-v) : fmt(v));
@@ -134,6 +135,22 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
     }
   };
 
+  // Baixar modelo: a planilha padrão do Importar (mesmo formato que o leitor entende), com as
+  // funções da obra por grupo e o previsto que já está na tabela. O arquivo só é montado aqui.
+  const baixarModelo = async () => {
+    if (ocupado) return;
+    setOcupado(true);
+    try {
+      const { baixarModeloPrevisto } = await import('./modeloXlsx');
+      await baixarModeloPrevisto({ funcoes: s.funcoes, previsto: s.previsto, obraCodigo: s.obra.codigo });
+    } catch (e) {
+      logger.error('erro ao baixar o modelo do previsto', { module: 'maoDeObra', action: 'baixarModeloPrevisto', obraId: s.obra.id, err: e });
+      erro('Erro ao gerar o modelo do previsto.');
+    } finally {
+      setOcupado(false);
+    }
+  };
+
   // Importar do orçamento (.xlsx): lê, mostra a conferência e só então preenche o rascunho da
   // tabela. Não grava nada: o previsto só vai ao banco em "Salvar previsto".
   const [previa, setPrevia] = React.useState(null);
@@ -219,6 +236,12 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
             <button type="button" style={{ ...btn, color: T.azul }} onClick={() => setModal(true)}><Icon name="filter" size={14} stroke={2.2} />Grupos e classificações</button>
             <button type="button" style={{ ...btn, color: T.azul }} onClick={() => setNova({ nome: '', g: 'OFICIAL', q: 1, ini: mesSel.iso, fim: s.obra.termino })}><Icon name="plus" size={14} stroke={2.2} />Nova função</button>
           </>}
+          {!locked && !somenteLeitura && (
+            <button type="button" style={{ ...btn, color: T.azul, opacity: ocupado ? 0.6 : 1 }} disabled={ocupado} onClick={baixarModelo}
+              title="Baixa a planilha padrão no formato do Importar, com as funções da obra">
+              <Icon name="file" size={15} stroke={2.2} />Baixar modelo
+            </button>
+          )}
           {!locked && !somenteLeitura && (
             <label style={{ ...btn, color: T.azul, opacity: ocupado ? 0.6 : 1, pointerEvents: ocupado ? 'none' : 'auto' }}>
               <Icon name="download" size={15} stroke={2.2} />Importar do orçamento
