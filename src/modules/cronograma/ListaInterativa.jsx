@@ -28,6 +28,7 @@ import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, Vincula
 import { TaskFormPanel } from './TaskFormPanel';
 import { OrtografiaModal } from './OrtografiaModal';
 import { substituirTokens } from './spellcheckPure';
+import { LIMITE_RESULTADOS, ancestraisRecolhidos, buscarNaLista } from './localizarPure';
 import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, VIRT_MIN,
@@ -120,6 +121,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [localizarTermo, setLocalizarTermo] = React.useState('');
   const [substituirTermo, setSubstituirTermo] = React.useState(''); // "Substituir por" do modal Localizar
   const localizarIdxRef = React.useRef(-1);
+  // "Localizar tudo": { itens, truncado, ocultosPorFiltro } | null. Some ao digitar de novo
+  // (a lista antiga já não corresponde ao termo).
+  const [localizarResultados, setLocalizarResultados] = React.useState(null);
+  const [localizarSel, setLocalizarSel] = React.useState(-1); // resultado escolhido na lista
+  // Célula a selecionar assim que o grupo recolhido que a esconde terminar de abrir.
+  const alvoLocalizarRef = React.useRef(null);
   // Trocar de aba do ribbon (Tarefa/Inserir/Exibir/...) limpa o que ficou digitado em
   // Localizar/Substituir — o modal continua aberto entre trocas de aba (não desmonta como
   // ao trocar de VIEW do Cronograma, que reseta tudo sozinho), então sem isto o termo da
@@ -127,6 +134,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   React.useEffect(() => {
     setLocalizarTermo('');
     setSubstituirTermo('');
+    setLocalizarResultados(null);
+    setLocalizarSel(-1);
     localizarIdxRef.current = -1;
   }, [activeTab]);
   const [openModoMenu,   setOpenModoMenu]   = React.useState(null); // id da tarefa com o menu de Modo aberto
@@ -693,8 +702,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     );
   };
 
-  // Aplica filtros sobre as linhas visíveis
-  const filtrada = React.useMemo(() => {
+  // Aplica os filtros ativos a um conjunto de linhas (`fonte`). `filtrada` usa só as visíveis; o
+  // Localizar usa TODAS as tarefas (inclusive as de grupo recolhido) para poder achá-las e abrir o
+  // grupo, com a mesma regra de filtro e a mesma ordem da tela.
+  const filtrarLinhas = React.useCallback((fonte) => {
     const passesGlobal = buildTaskFilterPredicate({ filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas });
     // Com filtro ativo, o grupo-pai de quem passa fica junto (contexto da EAP), mesmo que ele
     // próprio não passe: o início de um grupo é o da primeira filha, então filtrar "início em
@@ -703,13 +714,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const filtrando = !!(filtroResp || filtroPreset || filtroTaskIds.length || filtroTexto || filtroVinculo || Object.keys(columnFilters).length);
     const base = filtrando
       ? filtrarComAncestrais(
-          showSummaryTasks ? visible : visible.filter(e => !e.isGroup),
+          showSummaryTasks ? fonte : fonte.filter(e => !e.isGroup),
           etapas,
           e => passesGlobal(e) && passesColumnFilters(e),
         )
-      : visible.filter(e => (showSummaryTasks || !e.isGroup) && passesGlobal(e) && passesColumnFilters(e));
+      : fonte.filter(e => (showSummaryTasks || !e.isGroup) && passesGlobal(e) && passesColumnFilters(e));
     return applySiblingSort(base, sortSpec);
-  }, [visible, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filtrada = React.useMemo(() => filtrarLinhas(visible), [filtrarLinhas, visible]);
 
   // Número de linha (posição em `filtrada`, a mesma lista que numera a calha) de cada
   // tarefa — é o que aparece na coluna "ID" e no que se digita/mostra em Predecessora e
@@ -2346,20 +2358,79 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     scrollRowIntoView(alvo.id);
   };
 
-  // Navega para a próxima tarefa que casa com o termo (nome, WBS ou ID), em ciclo.
-  const norm2 = (s) => String(s ?? '').toLowerCase();
+  // ── Localizar (Ctrl+L) ───────────────────────────────────────────────────────
+  // Procura em TODAS as colunas visíveis, pelo texto que aparece na célula (colFilterValue), sem
+  // diferenciar acento nem caixa (localizarPure.js). Inclui as tarefas de grupos recolhidos: ao ir
+  // até uma delas, o grupo abre. Só ficam de fora as escondidas por filtro ativo.
+  const rotuloColuna = (colId) => LISTA_COL_DEFS[colId]?.label ?? customCols.find(c => c.id === colId)?.label ?? colId;
+  const buscarOcorrencias = ({ contarOcultos = false } = {}) => buscarNaLista({
+    todas: etapas,
+    candidatas: filtrarLinhas(etapas),
+    visiveis: new Set(filtrada.map(e => e.id)),
+    colunas: visibleColIds().map(id => ({ id, label: rotuloColuna(id) })),
+    termo: localizarTermo,
+    // O ID é a posição na grade (rowNumberMap); tarefa em grupo recolhido não tem número, então
+    // não casa por ele (colFilterValue cairia no id interno TSK-xxx, que o usuário nunca vê).
+    textoDaCelula: (e, colId) => (colId === 'id' ? String(rowNumberMap[e.id] ?? '') : colFilterValue(e, colId).label),
+    contarOcultos,
+  });
+  const selecionarCelula = (taskId, colId) => {
+    const cell = { taskId, colId };
+    setSelectedCell(cell); setSelAnchor(cell); setSelectedId(taskId);
+    scrollRowIntoView(taskId);
+    // A linha pode ainda não estar renderizada (janela virtual): a coluna rola dois quadros depois.
+    requestAnimationFrame(() => requestAnimationFrame(() => scrollColIntoView(taskId, colId)));
+  };
+  const irParaOcorrencia = (r) => {
+    const abrir = new Set(ancestraisRecolhidos(etapas, r.taskId));
+    if (!abrir.size) { selecionarCelula(r.taskId, r.colId); return; }
+    // Abre os grupos (silencioso e fora do histórico, como o botão de recolher/expandir da linha) e
+    // deixa a seleção para o efeito abaixo: só dá para rolar quando a linha entrar em `filtrada`.
+    alvoLocalizarRef.current = { taskId: r.taskId, colId: r.colId };
+    onCommit(etapas.map(e => (abrir.has(e.id) ? { ...e, collapsed: false } : e)), { silent: true, skipHistory: true });
+    setNivelEstruturaValue('');
+  };
+  React.useEffect(() => {
+    const alvo = alvoLocalizarRef.current;
+    if (!alvo || !filtrada.some(e => e.id === alvo.taskId)) return;
+    alvoLocalizarRef.current = null;
+    selecionarCelula(alvo.taskId, alvo.colId);
+  }, [filtrada]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Resultado escolhido na lista de "Localizar tudo" acompanha a rolagem da própria lista (setas).
+  React.useEffect(() => {
+    if (localizarSel >= 0) document.querySelector(`[data-resultado="${localizarSel}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [localizarSel]);
+  const etapaPorId = React.useMemo(() => (localizarResultados ? new Map(etapas.map(e => [e.id, e])) : null), [localizarResultados, etapas]);
+
+  // Vai para a próxima ocorrência, em ciclo.
   const localizarProximo = () => {
-    const q = localizarTermo.trim().toLowerCase();
-    if (!q) return;
-    const matches = filtrada.filter(e =>
-      norm2(e.etapa).includes(q) || norm2(wbsMap[e.id]).includes(q) || String(rowNumberMap[e.id] ?? '').includes(q)
-    );
-    if (!matches.length) { toast('Nenhuma tarefa encontrada', { tone: 'neutral', icon: 'search' }); return; }
-    localizarIdxRef.current = (localizarIdxRef.current + 1) % matches.length;
-    const alvo = matches[localizarIdxRef.current];
-    const cell = { taskId: alvo.id, colId: 'etapa' };
-    setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
-    scrollRowIntoView(alvo.id);
+    if (!localizarTermo.trim()) return;
+    const { itens } = buscarOcorrencias();
+    if (!itens.length) { toast('Nenhum resultado encontrado', { tone: 'neutral', icon: 'search' }); return; }
+    localizarIdxRef.current = (localizarIdxRef.current + 1) % itens.length;
+    if (localizarResultados) setLocalizarSel(localizarIdxRef.current);
+    irParaOcorrencia(itens[localizarIdxRef.current]);
+  };
+  // "Localizar tudo": lista todas as ocorrências (como o Excel); clicar numa leva até a célula.
+  const localizarTudo = () => {
+    if (!localizarTermo.trim()) return;
+    setLocalizarResultados(buscarOcorrencias({ contarOcultos: true }));
+    setLocalizarSel(-1);
+    localizarIdxRef.current = -1;
+  };
+  const abrirResultado = (i) => {
+    const r = localizarResultados?.itens[i];
+    if (!r) return;
+    setLocalizarSel(i);
+    localizarIdxRef.current = i; // "Localizar próxima" continua a partir daqui
+    irParaOcorrencia(r);
+  };
+  const teclasDaListaDeResultados = (e) => {
+    const n = localizarResultados?.itens.length ?? 0;
+    if (!n) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); abrirResultado(Math.min(n - 1, localizarSel + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); abrirResultado(Math.max(0, localizarSel - 1)); }
+    else if (e.key === 'Enter' && localizarSel >= 0) { e.preventDefault(); abrirResultado(localizarSel); }
   };
 
   // ── Substituir (Localizar e substituir, estilo Excel) ────────────────────────
@@ -4803,10 +4874,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         />
       )}
 
-      {/* Localizar e substituir (Ctrl+L) — estilo Excel. Localizar navega por nome, WBS ou
-          ID; Substituir age só no nome (WBS/ID são campos derivados, não texto livre). */}
+      {/* Localizar e substituir (Ctrl+L) — estilo Excel. Localizar procura em todas as colunas
+          visíveis (próxima ou tudo); Substituir age só no nome da tarefa (os outros campos são
+          derivados ou têm formato próprio, não são texto livre). Redimensionável porque a lista
+          de "Localizar tudo" precisa de espaço. */}
       {showLocalizar && (
-        <Modal title="Localizar e substituir" subtitle="Buscar tarefa por nome, WBS ou ID" size="sm" draggable overlay={false}
+        <Modal title="Localizar e substituir" subtitle="Buscar nas colunas visíveis da Lista" size="lg" draggable resizable overlay={false}
           onClose={() => setShowLocalizar(false)}
           footer={
             <>
@@ -4819,30 +4892,79 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   <button className="btn btn-ghost" onClick={substituirAtual} disabled={!localizarTermo.trim()}>Substituir</button>
                 </>
               )}
+              <button className="btn btn-ghost" onClick={localizarTudo} disabled={!localizarTermo.trim()}>Localizar tudo</button>
               <button className="btn btn-primary" onClick={localizarProximo} disabled={!localizarTermo.trim()}>Localizar próxima</button>
             </>
           }>
-          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Localizar</label>
-          <input autoFocus className="input" placeholder="Digite e pressione Enter…"
-            value={localizarTermo}
-            onChange={e => { setLocalizarTermo(e.target.value); localizarIdxRef.current = -1; }}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); localizarProximo(); } }}
-            style={{ width: '100%' }} />
-          {!readOnly && (
-            <>
-              <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', margin: '10px 0 4px' }}>Substituir por</label>
-              <input className="input" placeholder="Novo texto (nome da tarefa)…"
-                value={substituirTermo}
-                onChange={e => setSubstituirTermo(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); substituirAtual(); } }}
+          {/* height:100% + flex: a lista de resultados cresce ao arrastar o canto do modal (o
+              flex-basis mantém a altura padrão enquanto o modal não foi redimensionado). */}
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ flexShrink: 0 }}>
+              <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Localizar</label>
+              <input autoFocus className="input" placeholder="Digite e pressione Enter…"
+                value={localizarTermo}
+                onChange={e => { setLocalizarTermo(e.target.value); localizarIdxRef.current = -1; setLocalizarResultados(null); setLocalizarSel(-1); }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); localizarProximo(); } }}
                 style={{ width: '100%' }} />
-            </>
-          )}
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-            Enter ou "Localizar próxima" percorre os resultados; a tarefa encontrada é selecionada e rolada até a vista.
-            {!readOnly && (selectedRowIds().size
-              ? ' "Substituir" troca a ocorrência atual no nome; "Substituir todos" troca só nas tarefas selecionadas na grade (1 passo de desfazer).'
-              : ' "Substituir" troca a ocorrência atual no nome; "Substituir todos" troca em todas as tarefas visíveis de uma vez (1 passo de desfazer). Selecione células/linhas antes de abrir pra restringir a troca a elas.')}
+              {!readOnly && (
+                <>
+                  <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', margin: '10px 0 4px' }}>Substituir por</label>
+                  <input className="input" placeholder="Novo texto (nome da tarefa)…"
+                    value={substituirTermo}
+                    onChange={e => setSubstituirTermo(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); substituirAtual(); } }}
+                    style={{ width: '100%' }} />
+                </>
+              )}
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                Procura em todas as colunas visíveis, sem diferenciar acento nem maiúscula. Enter ou "Localizar próxima" percorre os resultados; "Localizar tudo" lista todos, e clicar num resultado leva até a célula (se estiver num grupo recolhido, o grupo abre).
+                {!readOnly && (selectedRowIds().size
+                  ? ' "Substituir" troca a ocorrência atual no nome; "Substituir todos" troca só nas tarefas selecionadas na grade (1 passo de desfazer).'
+                  : ' "Substituir" troca a ocorrência atual no nome; "Substituir todos" troca em todas as tarefas visíveis de uma vez (1 passo de desfazer). Selecione células/linhas antes de abrir pra restringir a troca a elas.')}
+              </div>
+            </div>
+            {localizarResultados && (() => {
+              const { itens, truncado, ocultosPorFiltro } = localizarResultados;
+              const nRecolhidos = itens.filter(r => r.recolhido).length;
+              return (
+                <>
+                  <div role="listbox" tabIndex={0} aria-label="Resultados da busca" onKeyDown={teclasDaListaDeResultados}
+                    style={{ flex: '1 1 260px', minHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, marginTop: 12, outline: 'none' }}>
+                    {itens.length === 0 ? (
+                      <div style={{ padding: '18px 16px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>Nenhum resultado para esse termo.</div>
+                    ) : (
+                      <table className="tbl" style={{ width: '100%' }}>
+                        <thead><tr><th style={{ width: 90 }}>WBS</th><th>Tarefa</th><th style={{ width: 150 }}>Coluna</th><th>Valor</th></tr></thead>
+                        <tbody>
+                          {itens.map((r, i) => {
+                            const e = etapaPorId.get(r.taskId);
+                            return (
+                              <tr key={`${r.taskId}|${r.colId}`} data-resultado={i} role="option" aria-selected={i === localizarSel}
+                                onClick={() => abrirResultado(i)}
+                                style={{ cursor: 'pointer', background: i === localizarSel ? 'var(--brand-100)' : undefined }}>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{wbsMap[r.taskId] || ''}</td>
+                                <td>
+                                  {e?.etapa || r.taskId}
+                                  {r.recolhido && <span title="Está num grupo recolhido: o grupo abre ao clicar" style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)' }}>em grupo recolhido</span>}
+                                </td>
+                                <td style={{ color: 'var(--text-muted)' }}>{r.colLabel}</td>
+                                <td>{r.texto}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                  <div style={{ flexShrink: 0, paddingTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                    {itens.length}{truncado ? '+' : ''} resultado{itens.length === 1 ? '' : 's'}
+                    {truncado && ` · mostrando os primeiros ${LIMITE_RESULTADOS}, refine o termo`}
+                    {nRecolhidos > 0 && ` · ${nRecolhidos} em grupo recolhido`}
+                    {ocultosPorFiltro > 0 && ` · ${ocultosPorFiltro} tarefa${ocultosPorFiltro === 1 ? '' : 's'} escondida${ocultosPorFiltro === 1 ? '' : 's'} por filtro não entra${ocultosPorFiltro === 1 ? '' : 'm'}`}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </Modal>
       )}
