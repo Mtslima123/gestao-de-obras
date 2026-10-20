@@ -33,10 +33,11 @@ import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, VIRT_MIN,
   ColumnHeaderFilterMenu, resolveColType, teclaNativaNoCampo, FILTER_BLANK_KEY, passaFiltroColuna,
-  buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter, gmConflicts,
+  buildTaskFilterPredicate, FILTRO_PRESETS, TaskMultiSelectFilter, ConflitosPopover,
   XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
 } from './cronogramaShared';
+import { classificarConflitos } from './conflitosOkPure';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
@@ -53,7 +54,7 @@ const FILL_EXCLUDED_COLS = new Set(['dep', 'succ']);
 // partir dos filhos) — preenchimento pula essas linhas nesses campos.
 const GROUP_BLOCKED_FIELDS = new Set(['inicio', 'fim', 'avanco', 'custo', 'custoRealizado', 'duracaoDias']);
 
-export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, rowHeights: rowHeightsProp = EMPTY_ROW_HEIGHTS, onRowHeightsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, isAdmin = false,
+export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, rowHeights: rowHeightsProp = EMPTY_ROW_HEIGHTS, onRowHeightsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, onConflitoOk, onConflitoOkDesfazer, isAdmin = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo, onDataInicioProjeto,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
@@ -95,16 +96,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   React.useEffect(() => {
     try { localStorage.setItem('ls_crono_ribbon_tab', activeTab); } catch { /* ignore */ }
   }, [activeTab]);
-  // Popover do badge "conflitos" da faixa — mesmo indicador já mostrado no Gantt
-  // (GanttInterativo.jsx), pra não precisar trocar de aba pra ver os pares em violação.
-  const [showConflitos, setShowConflitos] = React.useState(false);
-  const conflitosMenuRef = React.useRef(null);
-  React.useEffect(() => {
-    if (!showConflitos) return;
-    const onDoc = ev => { if (conflitosMenuRef.current && !conflitosMenuRef.current.contains(ev.target)) setShowConflitos(false); };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [showConflitos]);
   const [multiSel,       setMultiSel]       = React.useState([]);   // seleção ordenada para Ctrl+F2
   const [multiSelCols,   setMultiSelCols]   = React.useState([]);   // colunas selecionadas via Ctrl+clique no cabeçalho
   // Células SOLTAS marcadas com Ctrl+clique (podem ser de linhas/colunas diferentes, sem
@@ -740,7 +731,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   // Conflitos de precedência (mesmo indicador do Gantt) — mantém a lista bruta pra
   // alimentar o popover que detalha cada par pred/suces em violação.
-  const conflitosList = React.useMemo(() => gmConflicts(etapas), [etapas]);
+  const { ativos: conflitosAtivos, confirmados: conflitosConfirmados } = React.useMemo(() => classificarConflitos(etapas), [etapas]);
 
   // Virtualização (windowing) da Lista — ativa só acima de VIRT_MIN. Abaixo, renderiza
   // todas as linhas (comportamento atual). Altura variável (rowH + overrides por linha)
@@ -2350,7 +2341,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Abre (seleciona/rola até) a sucessora de um par em conflito, a partir do popover
   // de conflitos da faixa — mesma ação do badge equivalente no Gantt.
   const focarTarefaConflito = (taskId) => {
-    setShowConflitos(false);
     const alvo = filtrada.find(e => e.id === taskId);
     if (!alvo) return; // fora do filtro/grupo recolhido atual — mesma limitação de Localizar
     const cell = { taskId: alvo.id, colId: 'etapa' };
@@ -3209,48 +3199,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               {selectedId && !multiSel.length && (
                 <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{selectedId} selecionado</span>
               )}
-              {conflitosList.length > 0 && (() => {
-                const TIPO_LABEL = { TI: 'término → início', TT: 'término → término', II: 'início → início', IT: 'início → término' };
-                return (
-                  <div ref={conflitosMenuRef} style={{ position: 'relative', marginLeft: 6 }}>
-                    <button type="button" onClick={() => setShowConflitos(v => !v)}
-                      title="Ver os pares de tarefas em conflito de precedência"
-                      style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', border: 'none', borderRadius: 20, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      <Icon name="alert-triangle" size={11} /> {conflitosList.length} conflito{conflitosList.length !== 1 ? 's' : ''}
-                    </button>
-                    {showConflitos && (
-                      <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 360, maxHeight: 320, overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-lg)', zIndex: 50, padding: 4 }}>
-                        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-faint)', padding: '6px 10px 4px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                          Conflitos de precedência — clique pra abrir a tarefa
-                        </div>
-                        {conflitosList.map((c, i) => {
-                          const pred = etapas.find(x => x.id === c.pred);
-                          const succ = etapas.find(x => x.id === c.succ);
-                          return (
-                            <button key={i} type="button"
-                              onClick={() => focarTarefaConflito(c.succ)}
-                              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px', borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer' }}
-                              onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--surface-muted)'; }}
-                              onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', flexShrink: 0 }}>{numeroDaLinha(c.pred)}</span>
-                                <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pred?.etapa ?? '(tarefa removida)'}</span>
-                              </div>
-                              <div style={{ fontSize: 10.5, color: 'var(--text-faint)', margin: '2px 0 2px 2px' }}>
-                                ↳ {TIPO_LABEL[c.tipo] || c.tipo}{c.lag ? `, lag ${c.lag > 0 ? '+' : ''}${c.lag}d` : ''}
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#b45309', flexShrink: 0 }}>{numeroDaLinha(c.succ)}</span>
-                                <span style={{ fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{succ?.etapa ?? '(tarefa removida)'}</span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+              <ConflitosPopover ativos={conflitosAtivos} confirmados={conflitosConfirmados} etapas={etapas}
+                numeroDaLinha={numeroDaLinha} onAbrir={focarTarefaConflito}
+                onOk={onConflitoOk} onDesfazer={onConflitoOkDesfazer} podeEditar={!readOnly && !!onConflitoOk} />
               <span style={{ fontSize: 11.5, color: 'var(--text-faint)', marginLeft: 8 }}>{visible.length} de {etapas.length} tarefas</span>
               <button
                 onClick={() => setRibbonCollapsed(v => !v)}

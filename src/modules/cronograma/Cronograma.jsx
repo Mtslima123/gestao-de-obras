@@ -30,7 +30,8 @@ import {
   CriarLinhaModal, GerenciarLinhasModal, FeriadosModal,
   CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal, DataInicioProjetoModal,
 } from './cronogramaModais';
-import { GM_TOTAL, gmConflicts, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
+import { GM_TOTAL, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
+import { classificarConflitos, confirmarConflitos, desfazerConfirmacao, podarConfirmacoes } from './conflitosOkPure';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './etapasPatch';
 import { vinculosParaAjustar } from './exclusaoTarefasPure';
@@ -3301,6 +3302,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     // Tarefa que perdeu a última predecessora volta ao início do projeto (ver voltarAoInicioDoProjeto).
     // `etapas` ainda é o estado anterior a este commit.
     ajustadas = voltarAoInicioDoProjeto(etapas, ajustadas);
+    // OK de conflito cujo conflito deixou de existir sai daqui: se ele voltar, o aviso volta junto.
+    ajustadas = podarConfirmacoes(ajustadas);
     const clean = ajustadas.map(e => ({ ...e }));
     // Qualquer commit que traga `feriados` (config de calendário/pavimentos salvos) também
     // sincroniza o estado local — sem isso, quem chamou onCommit(novas, {feriados}) fora do
@@ -3360,13 +3363,30 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       await processarAcoesVinculo(clean, !falhou);
       if (falhou) return;   // conflito ou erro: sempre avisa (mesmo em save silencioso)
       if (opts.silent) return;
-      const cfls = gmConflicts(clean);
+      if (opts.mensagem) { toast(opts.mensagem, { tone: 'success', icon: 'check' }); return; }
+      // Só os conflitos SEM OK entram no aviso (ver conflitosOkPure.js).
+      const cfls = classificarConflitos(clean).ativos;
       if (cfls.length > 0) {
         toast(`Salvo com ${cfls.length} conflito(s) de precedência`, { tone: 'warning', icon: 'alert-triangle' });
       } else {
         toast('Cronograma atualizado', { tone: 'success', icon: 'check' });
       }
     });
+  };
+
+  // OK nos conflitos de precedência (ver conflitosOkPure.js): fica gravado nas etapas, então vale
+  // para todos da obra, e passa pelo mesmo commit das demais edições (Ctrl+Z desfaz). Não mexe em datas.
+  const darOkConflitos = (pares) => {
+    if (readOnly || !pares.length) return;
+    const novas = confirmarConflitos(etapas, pares, { por: currentUser.nome, em: new Date().toISOString() });
+    if (novas === etapas) return;
+    commit(novas, { mensagem: pares.length > 1 ? `${pares.length} conflitos marcados como OK` : 'Conflito marcado como OK' });
+  };
+  const desfazerOkConflito = (par) => {
+    if (readOnly) return;
+    const novas = desfazerConfirmacao(etapas, par);
+    if (novas === etapas) return;
+    commit(novas, { mensagem: 'OK removido: o conflito volta a avisar' });
   };
 
   // Leva o % medido da Medição Mensal até o avanço oficial das tarefas — mesmo caminho de
@@ -3667,7 +3687,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                         </div>
                       </div>
                       <div className="card-body" style={{ padding: 0, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} vinculos={vinculos} rowNumberMap={rowNumberMap} onCommit={commit} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} isAdmin={currentUser.isAdmin} customCols={customCols}
+                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} vinculos={vinculos} rowNumberMap={rowNumberMap} onCommit={commit} onConflitoOk={darOkConflitos} onConflitoOkDesfazer={desfazerOkConflito} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} isAdmin={currentUser.isAdmin} customCols={customCols}
                           baselines={baselines} reprogramacoes={reprogramacoes}
                           blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
                           onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}
@@ -3893,6 +3913,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                 <ListaInterativa
                   etapas={etapas}
                   onCommit={commit}
+                  onConflitoOk={darOkConflitos}
+                  onConflitoOkDesfazer={desfazerOkConflito}
                   customCols={customCols}
                   onCustomColsChange={handleCustomColsChange}
                   hiddenCols={hiddenCols}

@@ -19,10 +19,11 @@ import { friendlyError } from '../../utils/friendlyError';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          GM_ROW_ANO, GM_ROW_TRI, GM_ROW_MES, GM_ROW_FINE, ZOOM_PX_DIA,
-         GM_MN, gmCalcToday, gmMonthLabel, gmConflicts, VIRT_MIN,
+         GM_MN, gmCalcToday, gmMonthLabel, ConflitosPopover, VIRT_MIN,
          buildTaskFilterPredicate,
          XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE,
          aplicarEstiloLinha } from './cronogramaShared';
+import { classificarConflitos } from './conflitosOkPure';
 
 // Dropdown de linha de base com lista rolável (altura máxima + barra de rolagem),
 // para não crescer demais quando há muitas reprogramações salvas.
@@ -71,7 +72,7 @@ function BaselineSelect({ value, baselines, reprogramacoes, onChange }) {
   );
 }
 
-export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, redo, canUndo = true, canRedo = true, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, isAdmin = false, customCols = [],
+export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, redo, canUndo = true, canRedo = true, baselineEtapas, obraId, feriadosCfg = { dias: [], sabadoUtil: false }, onTaskSelect, readOnly = false, onConflitoOk, onConflitoOkDesfazer, isAdmin = false, customCols = [],
   baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo, onDataInicioProjeto,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
@@ -113,15 +114,6 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   const [nivelEstruturaValue, setNivelEstruturaValue] = React.useState('');
   const [nivelEstruturaLabel, setNivelEstruturaLabel] = React.useState(null);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // id do alvo de exclusão
-  // Popover do badge "Conflito" da faixa — lista os pares pred/suces em violação de precedência.
-  const [showConflitos, setShowConflitos] = React.useState(false);
-  const conflitosMenuRef = React.useRef(null);
-  React.useEffect(() => {
-    if (!showConflitos) return;
-    const onDoc = ev => { if (conflitosMenuRef.current && !conflitosMenuRef.current.contains(ev.target)) setShowConflitos(false); };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [showConflitos]);
   // Ref para uso em event handlers — sincronizado no render
   const zoomDayWRef = React.useRef(GM_DAY_W);
 
@@ -161,7 +153,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
 
   // Conflitos derivados da prop (atualiza após cada commit) — mantém a lista bruta (não só os
   // ids) pra alimentar o popover que detalha cada par pred/suces em violação.
-  const conflitosList = React.useMemo(() => gmConflicts(etapas), [etapas]);
+  const { ativos: conflitosList, confirmados: conflitosConfirmados } = React.useMemo(() => classificarConflitos(etapas), [etapas]);
   const conflictIds = React.useMemo(() => new Set(conflitosList.flatMap(c => [c.pred, c.succ])), [conflitosList]);
 
   // Mapa de etapas da linha de base por ID
@@ -918,48 +910,9 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
               {selected.size} selecionada{selected.size > 1 ? 's' : ''}
             </span>
           )}
-          {conflitosList.length > 0 && (() => {
-            const TIPO_LABEL = { TI: 'término → início', TT: 'término → término', II: 'início → início', IT: 'início → término' };
-            return (
-              <div ref={conflitosMenuRef} style={{ position: 'relative', marginLeft: 6 }}>
-                <button type="button" onClick={() => setShowConflitos(v => !v)}
-                  title="Ver os pares de tarefas em conflito de precedência"
-                  style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', border: 'none', borderRadius: 20, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <Icon name="alert-triangle" size={11} /> {conflitosList.length} conflito{conflitosList.length !== 1 ? 's' : ''}
-                </button>
-                {showConflitos && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 360, maxHeight: 320, overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-lg)', zIndex: 50, padding: 4 }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-faint)', padding: '6px 10px 4px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                      Conflitos de precedência — clique pra abrir a tarefa
-                    </div>
-                    {conflitosList.map((c, i) => {
-                      const pred = etapas.find(x => x.id === c.pred);
-                      const succ = etapas.find(x => x.id === c.succ);
-                      return (
-                        <button key={i} type="button"
-                          onClick={() => { setShowConflitos(false); setSel(new Set([c.succ])); onTaskSelect?.(c.succ); }}
-                          style={{ display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px', borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer' }}
-                          onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--surface-muted)'; }}
-                          onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', flexShrink: 0 }}>{numeroDaLinha(c.pred)}</span>
-                            <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pred?.etapa ?? '(tarefa removida)'}</span>
-                          </div>
-                          <div style={{ fontSize: 10.5, color: 'var(--text-faint)', margin: '2px 0 2px 2px' }}>
-                            ↳ {TIPO_LABEL[c.tipo] || c.tipo}{c.lag ? `, lag ${c.lag > 0 ? '+' : ''}${c.lag}d` : ''}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#b45309', flexShrink: 0 }}>{numeroDaLinha(c.succ)}</span>
-                            <span style={{ fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{succ?.etapa ?? '(tarefa removida)'}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+          <ConflitosPopover ativos={conflitosList} confirmados={conflitosConfirmados} etapas={etapas}
+            numeroDaLinha={numeroDaLinha} onAbrir={id => { setSel(new Set([id])); onTaskSelect?.(id); }}
+            onOk={onConflitoOk} onDesfazer={onConflitoOkDesfazer} podeEditar={!readOnly && !!onConflitoOk} />
           <button onClick={() => setRibbonCollapsed(v => !v)} title={ribbonCollapsed ? 'Mostrar menu' : 'Ocultar menu'}
             style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: ribbonCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .12s' }}><polyline points="6 9 12 15 18 9"/></svg>

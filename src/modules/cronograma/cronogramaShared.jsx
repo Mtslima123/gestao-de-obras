@@ -120,6 +120,118 @@ export const gmConflicts = (etapas, overrides) => {
   return out;
 };
 
+// ─── ConflitosPopover ─────────────────────────────────────────────────────────
+// Badge "N conflitos" da faixa (Lista e Gantt) + popover com os pares em violação de precedência.
+// Cada conflito ativo tem "OK" (e há "OK em todos"): o OK é compartilhado pela obra (ver
+// conflitosOkPure.js) e tira o aviso do badge, dos destaques do Gantt e do toast de salvar. Os
+// conflitos com OK ficam numa seção própria, onde o OK pode ser desfeito. Sem nenhum ativo sobra só
+// um chip cinza "N com OK", porque é por ele que se chega ao "Desfazer".
+const TIPO_LABEL_CONFLITO = { TI: 'término → início', TT: 'término → término', II: 'início → início', IT: 'início → término' };
+const fmtDataOk = (iso) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR');
+};
+const BTN_OK = { flexShrink: 0, alignSelf: 'center', margin: '0 4px', padding: '3px 9px', fontSize: 11, fontWeight: 700, color: '#92400e', background: '#fde68a', border: 'none', borderRadius: 6, cursor: 'pointer' };
+const BTN_OK_TODOS = { fontSize: 10.5, fontWeight: 700, color: '#92400e', background: '#fde68a', border: 'none', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', textTransform: 'none', letterSpacing: 0 };
+const CABECALHO_SECAO = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--text-faint)', padding: '6px 10px 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
+
+export const ConflitosPopover = ({ ativos, confirmados, etapas, numeroDaLinha, onAbrir, onOk, onDesfazer, podeEditar }) => {
+  const [aberto, setAberto] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (!aberto) return;
+    const onDoc = ev => { if (ref.current && !ref.current.contains(ev.target)) setAberto(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [aberto]);
+  const vazio = ativos.length === 0 && confirmados.length === 0;
+  // Sem nada pra mostrar o popover some; se um conflito voltar depois, ele não reabre sozinho.
+  React.useEffect(() => { if (vazio) setAberto(false); }, [vazio]);
+  if (vazio) return null;
+
+  const semAtivos = ativos.length === 0;
+  const nome = (id) => etapas.find(x => x.id === id)?.etapa ?? '(tarefa removida)';
+  const chave = (c) => `${c.succ}|${c.pred}|${c.tipo}|${c.lag || 0}`;
+  return (
+    <div ref={ref} style={{ position: 'relative', marginLeft: 6 }}>
+      <button type="button" onClick={() => setAberto(v => !v)}
+        title={semAtivos ? 'Conflitos de precedência marcados como OK' : 'Ver os pares de tarefas em conflito de precedência'}
+        style={semAtivos
+          ? { fontSize: 11.5, color: 'var(--text-muted)', fontWeight: 600, padding: '3px 10px', background: 'var(--surface-muted)', border: 'none', borderRadius: 20, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }
+          : { fontSize: 11.5, color: '#d97706', fontWeight: 600, padding: '3px 10px', background: '#fef3c7', border: 'none', borderRadius: 20, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Icon name={semAtivos ? 'check' : 'alert-triangle'} size={11} />
+        {semAtivos ? ` ${confirmados.length} com OK` : ` ${ativos.length} conflito${ativos.length !== 1 ? 's' : ''}`}
+      </button>
+      {aberto && (
+        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 360, maxHeight: 360, overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-lg)', zIndex: 50, padding: 4 }}>
+          {ativos.length > 0 && (
+            <>
+              <div style={CABECALHO_SECAO}>
+                <span>Conflitos de precedência</span>
+                {podeEditar && ativos.length > 1 && (
+                  <button type="button" onClick={() => onOk(ativos)} style={BTN_OK_TODOS}
+                    title="Marcar todos os conflitos abaixo como OK (vale para quem usa esta obra)">OK em todos</button>
+                )}
+              </div>
+              {ativos.map(c => (
+                <div key={chave(c)} style={{ display: 'flex', alignItems: 'stretch' }}>
+                  <button type="button" title="Abrir a tarefa" onClick={() => { setAberto(false); onAbrir(c.succ); }}
+                    style={{ flex: 1, minWidth: 0, textAlign: 'left', padding: '7px 10px', borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer' }}
+                    onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--surface-muted)'; }}
+                    onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', flexShrink: 0 }}>{numeroDaLinha(c.pred)}</span>
+                      <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nome(c.pred)}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--text-faint)', margin: '2px 0 2px 2px' }}>
+                      ↳ {TIPO_LABEL_CONFLITO[c.tipo] || c.tipo}{c.lag ? `, lag ${c.lag > 0 ? '+' : ''}${c.lag}d` : ''}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#b45309', flexShrink: 0 }}>{numeroDaLinha(c.succ)}</span>
+                      <span style={{ fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nome(c.succ)}</span>
+                    </div>
+                  </button>
+                  {podeEditar && (
+                    <button type="button" onClick={() => onOk([c])} style={BTN_OK}
+                      title="Marcar este conflito como OK: o aviso some para quem usa esta obra">OK</button>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
+          {confirmados.length > 0 && (
+            <>
+              <div style={CABECALHO_SECAO}><span>{confirmados.length} com OK</span></div>
+              {confirmados.map(c => {
+                const quando = fmtDataOk(c.em);
+                return (
+                  <div key={chave(c)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)' }}>{numeroDaLinha(c.pred)}</span> {nome(c.pred)}
+                        {' → '}
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)' }}>{numeroDaLinha(c.succ)}</span> {nome(c.succ)}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+                        OK por {c.por || 'alguém'}{quando ? ` em ${quando}` : ''}
+                      </div>
+                    </div>
+                    {podeEditar && (
+                      <button type="button" onClick={() => onDesfazer(c)}
+                        title="Desfazer o OK: o conflito volta a avisar"
+                        style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface-muted)', border: 'none', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>Desfazer</button>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── EditableCell ─────────────────────────────────────────────────────────────
 // Fora de edição a célula mostra UMA linha só, estilo MS Project: a altura configurada da
 // linha é autoritativa, então o texto que não cabe ganha reticências em vez de quebrar em
