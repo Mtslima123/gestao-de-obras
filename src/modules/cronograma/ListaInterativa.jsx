@@ -52,6 +52,9 @@ const EMPTY_ROW_HEIGHTS = {};
 const FILL_EXCLUDED_COLS = new Set(['dep', 'succ']);
 // Campos que a própria grade já trava para tarefa-resumo (rollup automático a
 // partir dos filhos) — preenchimento pula essas linhas nesses campos.
+// Percentual com duas casas e virgula (pt-BR), como os valores em R$ dos totais.
+const fmtPct2 = (v) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+
 const GROUP_BLOCKED_FIELDS = new Set(['inicio', 'fim', 'avanco', 'custo', 'custoRealizado', 'duracaoDias']);
 
 export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, rowHeights: rowHeightsProp = EMPTY_ROW_HEIGHTS, onRowHeightsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, onConflitoOk, onConflitoOkDesfazer, isAdmin = false,
@@ -3857,8 +3860,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 // -1 só aqui na exibição: projFim continua exclusivo pro cálculo de projDur acima.
                 fim:    <td key="fim" className="mono text-sm">{leaves.length ? fmtDt(projFim - 1) : ''}</td>,
                 duracao: <td key="duracao" className="mono num" style={{ textAlign: 'center' }}><span className="mono" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{projDur}d</span></td>,
-                avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 50 }}><div className="progress groupbar"><span style={{ width: projAvanco + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{projAvanco.toFixed(2)}%</span></div></td>,
-                peso:   <td key="peso" className="num mono" style={num}>100%</td>,
+                avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 50 }}><div className="progress groupbar"><span style={{ width: projAvanco + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 56, textAlign: 'right' }}>{fmtPct2(projAvanco)}</span></div></td>,
+                peso:   <td key="peso" className="num mono" style={num}>{fmtPct2(100)}</td>,
                 valorVinculado: <td key="valorVinculado" className="num mono" style={num}>{totalValorVinculado ? fmtBRL(totalValorVinculado) : '—'}</td>,
                 custo:  <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
                 custoReal: <td key="custoReal" className="num mono" style={num}>{fmtBRL(totalReal)}</td>,
@@ -4647,9 +4650,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               const leaves = etapas.filter(x => !x.isGroup);
               const w = (x) => custoOrcadoMap[x.id] || 0;
               const tp = leaves.reduce((s, x) => s + w(x), 0);
+              // Sem arredondar: o total mostra duas casas decimais (fmtPct2).
               const totalPct = !tp
-                ? (leaves.length ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length) : 0)
-                : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp);
+                ? (leaves.length ? leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length : 0)
+                : leaves.reduce((s, x) => s + (x.avanco || 0) * w(x), 0) / tp;
               const footSaldo = totalCustoEf - totalReal; // usa o mesmo custo efetivo do total (consistente com vínculos)
               // Um tom mais forte que --surface-muted (quase branco), pra a barra de total se
               // destacar de verdade das linhas normais em vez de se confundir com o fundo.
@@ -4660,8 +4664,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 wbs: <td key="wbs" style={stick('wbs')} />,
                 id: <td key="id" style={stick('id')} />,
                 etapa: <td key="etapa" style={stick('etapa', { fontWeight: 700, fontSize: 12.5, color: 'var(--text)', boxShadow: '1px 0 0 var(--border)' })}>Total do cronograma</td>,
-                avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 40 }}><div className="progress"><span style={{ width: totalPct + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 34, textAlign: 'right' }}>{totalPct}%</span></div></td>,
-                peso: <td key="peso" className="num mono" style={num}>100%</td>,
+                avanco: <td key="avanco"><div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ flex: 1, minWidth: 40 }}><div className="progress"><span style={{ width: totalPct + '%' }} /></div></div><span className="num" style={{ fontWeight: 700, fontSize: 12.5, minWidth: 56, textAlign: 'right' }}>{fmtPct2(totalPct)}</span></div></td>,
+                peso: <td key="peso" className="num mono" style={num}>{fmtPct2(100)}</td>,
                 custo: <td key="custo" className="num mono" style={num}>{fmtBRL(totalCustoEf)}</td>,
                 custoReal: <td key="custoReal" className="num mono" style={num}>{fmtBRL(totalReal)}</td>,
                 custoOrcado: <td key="custoOrcado" className="num mono" style={num}>{fmtBRL(totalCustoOrcado)}</td>,
