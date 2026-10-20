@@ -168,6 +168,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [selAnchor,      setSelAnchor]      = React.useState(null); // { taskId, colId } — âncora do intervalo
   const [marquee,        setMarquee]        = React.useState(null); // retângulo "marching ants" da cópia
   const [painterOn,      setPainterOn]      = React.useState(false); // pincel de formatação ativo
+  // Último comando de formatação da faixa (descritor, não função: o F4 roda com o estado ATUAL da
+  // tela; uma closure guardada aqui carregaria etapas/seleção de um render antigo).
+  const ultimoFmtRef = React.useRef(null);
   const painterRef = React.useRef(null); // fmt capturado pelo pincel
   // true só durante um arraste que COMEÇOU numa célula da grade com o pincel ligado (ver
   // onMouseDown abaixo) — nunca em qualquer outro mouseup (ex.: soltar o clique no próprio
@@ -1586,6 +1589,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
   const applyFmt = (patch) => {
     if (readOnly) return;
+    ultimoFmtRef.current = { tipo: 'fmt', patch };
     if (multiSelCols.length || selectedCell) { applyFmtToCells(fmtCellList(), patch); return; }
     if (selectedId)   { handleCellFormat(selectedId, '__row', patch); }
   };
@@ -1593,6 +1597,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // toda) e "arma" o tamanho para valer no próximo texto novo (linhas em branco).
   const applyFontSize = (fs) => {
     if (!readOnly) {
+      ultimoFmtRef.current = { tipo: 'tamanho', valor: fs };
       if (multiSelCols.length || selectedCell) applyFmtToCells(fmtCellList(), { fontSize: fs });
       else if (selectedId) applyFmtToCells(visibleColIds().map(colId => ({ taskId: selectedId, colId })), { fontSize: fs });
     }
@@ -1602,6 +1607,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // ff = string da família, ou false para voltar ao padrão.
   const applyFontFamily = (ff) => {
     if (!readOnly) {
+      ultimoFmtRef.current = { tipo: 'familia', valor: ff };
       const patch = { fontFamily: ff || false };
       if (multiSelCols.length || selectedCell) applyFmtToCells(fmtCellList(), patch);
       else if (selectedId) applyFmtToCells(visibleColIds().map(colId => ({ taskId: selectedId, colId })), patch);
@@ -1610,6 +1616,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
   const clearFmt = () => {
     if (readOnly) return;
+    ultimoFmtRef.current = { tipo: 'limpar' };
     if (multiSelCols.length || selectedCell) {
       const byTask = {};
       fmtCellList().forEach(({ taskId, colId }) => { (byTask[taskId] = byTask[taskId] || []).push(colId); });
@@ -1789,6 +1796,20 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       setSelAnchor(selAnchor || selectedCell);   // a ancora fica onde estava
       setSelectedCell({ taskId: rows[alvo], colId: selectedCell.colId });
       scrollRowIntoView(rows[alvo]);
+      return;
+    }
+    // F4 (estilo Excel): repete o último comando de formatação (negrito, cor, tamanho, limpar...)
+    // na seleção atual. Guarda o EFEITO aplicado (bold: true), não o botão, então repetir não
+    // alterna: Negrito numa célula e F4 em outra deixa as duas em negrito.
+    if (ev.key === 'F4' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
+      ev.preventDefault();
+      if (readOnly) return;
+      const u = ultimoFmtRef.current;
+      if (!u) return;
+      if (u.tipo === 'fmt') applyFmt(u.patch);
+      else if (u.tipo === 'tamanho') applyFontSize(u.valor);
+      else if (u.tipo === 'familia') applyFontFamily(u.valor);
+      else if (u.tipo === 'limpar') clearFmt();
       return;
     }
     // Ctrl+B / Ctrl+I / Ctrl+U : negrito / italico / sublinhado na selecao (estilo editor).
