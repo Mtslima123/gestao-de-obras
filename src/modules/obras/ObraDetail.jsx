@@ -2148,14 +2148,17 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
 };
 
 // ----- Main ObraDetail -----
-const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma, initialTab, hideChrome = false }) => {
+const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma, initialTab, initialCronoView, onTabChange, onCronoViewChange, hideChrome = false }) => {
   // Sempre abre em "Cronograma" ao entrar numa obra — antes ficava salvo em
   // sessionStorage sem distinguir qual obra, então abrir a obra B na aba "Fotos"
   // reaproveitava a aba que tinha ficado selecionada na obra A. `initialTab` é a
   // única exceção de propósito: só o Mobile Gate passa isso, pra abrir direto em
   // Fotos — sem a prop, o comportamento acima continua intacto (default 'cronograma').
   const [tab, setTab] = React.useState(initialTab || 'cronograma');
-  const [cronoView, setCronoView] = React.useState('gantt');
+  const [cronoView, setCronoView] = React.useState(initialCronoView || 'gantt');
+  // Avisa o App da aba/visão atual: ele guarda na sessão para o reload (Atualizar versão) voltar aqui.
+  React.useEffect(() => { onTabChange?.(tab); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { onCronoViewChange?.(cronoView); }, [cronoView]); // eslint-disable-line react-hooks/exhaustive-deps
   const [cronoCollapsed, setCronoCollapsed] = React.useState(() => new Set()); // grupos recolhidos na mini-Lista
   const [showEdit,   setShowEdit]   = React.useState(false);
   const [deleteStep, setDeleteStep] = React.useState(0);

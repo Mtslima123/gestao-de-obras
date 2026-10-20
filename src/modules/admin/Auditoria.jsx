@@ -114,7 +114,11 @@ export const AuditoriaScreen = ({ obras = [], user }) => {
   const [filtros,     setFiltros]     = React.useState(FILTROS_VAZIOS);
   const [aplicados,   setAplicados]   = React.useState(FILTROS_VAZIOS);
   const [pagina,      setPagina]      = React.useState(1);
-  const [aba,         setAba]         = React.useState('timeline');
+  // Aba na sessão (só as conhecidas): o "Atualizar" da versão nova recarrega a página.
+  const [aba,         setAba]         = React.useState(() => {
+    try { const s = sessionStorage.getItem('nav_auditoria_aba'); return ['timeline', 'criticos', 'registro', 'relatorios'].includes(s) ? s : 'timeline'; } catch { return 'timeline'; }
+  });
+  React.useEffect(() => { try { sessionStorage.setItem('nav_auditoria_aba', aba); } catch { /* ignore */ } }, [aba]);
   const [evento,      setEvento]      = React.useState(null);
   const [regBusca,    setRegBusca]    = React.useState({ tipo: '', id: '' });
   const [regLogs,     setRegLogs]     = React.useState([]);

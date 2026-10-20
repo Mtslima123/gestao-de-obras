@@ -27,7 +27,9 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
   const erro = React.useCallback((m) => toastApp(m, { tone: 'danger', icon: 'alert', duration: 5000 }), [toastApp]);
 
   const abasLiberadas = React.useMemo(() => filtrarAbas(userProfile, MOD, MODULO_ABAS[MOD] || []), [userProfile]);
-  const [aba, setAba] = React.useState(null);
+  // A aba fica na sessão: o "Atualizar" da versão nova recarrega a página e a pessoa volta na mesma aba.
+  const [aba, setAba] = React.useState(() => { try { return sessionStorage.getItem('nav_mo_aba'); } catch { return null; } });
+  React.useEffect(() => { if (aba) { try { sessionStorage.setItem('nav_mo_aba', aba); } catch { /* ignore */ } } }, [aba]);
   const abaAtual = abasLiberadas.find((a) => a.id === aba) ? aba : abasLiberadas[0]?.id;
 
   const [s, setState] = React.useState(null);

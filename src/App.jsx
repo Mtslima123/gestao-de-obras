@@ -227,6 +227,10 @@ const AppInner = () => {
   // Deep links "de uma vez só" para dentro dos módulos — ver handleOpenCronograma/handleOpenObra abaixo.
   const [cronogramaInitialTab, setCronogramaInitialTab] = React.useState(null);
   const [selectedObraInitialTab, setSelectedObraInitialTab] = React.useState('cronograma');
+  // Visão do card de cronograma dentro da obra (Gantt/Lista). Junto com a aba acima é guardada em
+  // sessionStorage, para o "Atualizar" do aviso de versão nova (que recarrega a página) voltar para
+  // onde a pessoa estava: antes a obra reabria sempre em Cronograma/Gantt, mesmo com Fotos aberta.
+  const [selectedObraInitialCronoView, setSelectedObraInitialCronoView] = React.useState('gantt');
   // "Modo foco" do Mobile Gate: tela cheia sem Sidebar/Topbar/cabeçalho próprio do
   // módulo, só o conteúdo pedido (Medição ou Fotos) + um botão de sair. Diferente de
   // "Acessar sistema completo" (que usa mobileGateBypassed e mostra o shell inteiro).
@@ -569,8 +573,12 @@ const AppInner = () => {
     if (sessionStorage.getItem('nav_view') === 'obra-detail') {
       try {
         const obra = JSON.parse(sessionStorage.getItem('nav_obra') || 'null');
-        if (obra) { setSelectedObra(obra); setView('obra-detail'); }
-        else setView('obras');
+        if (obra) {
+          setSelectedObra(obra);
+          setSelectedObraInitialTab(sessionStorage.getItem('nav_obra_tab') || 'cronograma');
+          setSelectedObraInitialCronoView(sessionStorage.getItem('nav_obra_crono_view') || 'gantt');
+          setView('obra-detail');
+        } else setView('obras');
       } catch { setView('obras'); }
     }
   }, []);
@@ -685,8 +693,12 @@ const AppInner = () => {
   const handleOpenObra = (obra, tab = 'cronograma') => {
     sessionStorage.setItem('nav_view', 'obra-detail');
     try { sessionStorage.setItem('nav_obra', JSON.stringify(obra)); } catch {}
+    // Entrar numa obra começa sempre limpo (Cronograma/Gantt, ou a aba pedida pelo atalho); só o
+    // reload mantém a aba e a visão guardadas.
+    try { sessionStorage.setItem('nav_obra_tab', tab); sessionStorage.removeItem('nav_obra_crono_view'); } catch {}
     setSelectedObra(obra);
     setSelectedObraInitialTab(tab);
+    setSelectedObraInitialCronoView('gantt');
     setView('obra-detail');
   };
 
@@ -925,6 +937,9 @@ const AppInner = () => {
               onObraDelete={handleObraDelete}
               onOpenCronograma={handleOpenCronograma}
               initialTab={selectedObraInitialTab}
+              initialCronoView={selectedObraInitialCronoView}
+              onTabChange={(t) => { try { sessionStorage.setItem('nav_obra_tab', t); } catch { /* ignore */ } }}
+              onCronoViewChange={(v) => { try { sessionStorage.setItem('nav_obra_crono_view', v); } catch { /* ignore */ } }}
             />
           )}
           {view === 'orcamentos' && (
