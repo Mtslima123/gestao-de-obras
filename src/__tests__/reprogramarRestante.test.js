@@ -4,7 +4,7 @@
 // Funções puras, rodam em node.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setWorkCal, dateToOffset, offsetToISO, taskEnd } from '../modules/cronograma/cronogramaDateUtils';
-import { reprogramarRestante, commitFieldChange } from '../modules/cronograma/scheduleEngine';
+import { reprogramarRestante, commitFieldChange, computeMonthlyDist } from '../modules/cronograma/scheduleEngine';
 import { computeValorVinculadoMap } from '../modules/cronograma/ganttUtils';
 
 beforeEach(() => {
@@ -69,6 +69,37 @@ describe('reprogramarRestante', () => {
     const restante = out.find(e => e.parentId === 'T1' && e.avanco === 0);
     expect(restante.restricaoData).toBe('2026-10-01');
     expect(restante.inicio).toBe(dateToOffset('2026-10-01'));
+  });
+
+  it('o executado não passa para o mês seguinte: o valor dele cai inteiro no mês medido (caso ÍON, Teto Cob)', () => {
+    // Caso real: início sábado 26/09/2026 (sábado não é útil), 10 dias úteis, 35% executado,
+    // Valor Real 222.018,56. A duração proporcional (35% de 10 = 4 dias úteis) terminava em
+    // 01/10: 1/6 do valor do executado caía em outubro e a Medição de setembro mostrava
+    // R$ 64.755,00 em vez de R$ 77.706,50. Agora o executado vai só até 30/09 (3 dias úteis).
+    const t = baseTarefa({ inicio: dateToOffset('2026-09-26'), dur: 10, avanco: 35, custo: 0, custoRealizado: 222018.56 });
+    const out = reprogramarRestante('T1', [t]);
+    const fechado  = out.find(e => e.parentId === 'T1' && e.avanco === 100);
+    const restante = out.find(e => e.parentId === 'T1' && e.avanco === 0);
+
+    expect(fechado.dur).toBe(3);
+    expect(taskEnd(fechado)).toBe(dateToOffset('2026-10-01')); // último dia trabalhado 30/09
+    expect(restante.inicio).toBe(dateToOffset('2026-10-01'));  // sem sobrepor o executado
+    expect(restante.dur).toBe(7);                              // a duração total continua 10
+
+    // Valores em centavos: 35% exatos, e a soma das partes continua igual à original.
+    expect(fechado.custoRealizado).toBe(77706.5);
+    expect(restante.custoRealizado).toBe(144312.06);
+    expect(fechado.custoRealizado + restante.custoRealizado).toBeCloseTo(222018.56, 2);
+
+    // Mesma distribuição mensal que a Medição usa: todo o valor do executado fica em setembro.
+    const dist = computeMonthlyDist(out, { [fechado.id]: fechado.custoRealizado });
+    expect(dist[fechado.id]).toEqual({ '2026-09': 77706.5 });
+  });
+
+  it('com dias úteis de sobra no mês, a duração do executado continua proporcional ao %', () => {
+    // 01/03/2024, 20 dias, 50%: 10 dias úteis cabem em março, nada muda.
+    const out = reprogramarRestante('T1', [baseTarefa()]);
+    expect(out.find(e => e.parentId === 'T1' && e.avanco === 100).dur).toBe(10);
   });
 
   it('as duas folhas novas herdam as predecessoras da tarefa original', () => {

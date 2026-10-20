@@ -487,15 +487,6 @@ export function reprogramarRestante(etapaId, etapas) {
   const restanteId   = nextEtapaId(base2);
   const restanteDisp = nextDisplayId(base2);
 
-  const dur            = target.dur || 1;
-  const custo          = target.custo || 0;
-  const custoRealizado = target.custoRealizado || 0;
-  const fechadoDur    = Math.max(1, Math.round(dur * perc / 100));
-  const restanteDur   = Math.max(1, dur - fechadoDur);
-  const fechadoCusto  = Math.round(custo * perc / 100);
-  const restanteCusto = Math.max(0, custo - fechadoCusto);
-  const fechadoCustoRealizado  = Math.round(custoRealizado * perc / 100);
-  const restanteCustoRealizado = Math.max(0, custoRealizado - fechadoCustoRealizado);
   // O mês do "restante" vem do início ORIGINAL da tarefa, não de quanto foi executado —
   // calcular a partir do fim do pedaço executado (offset exclusivo) fazia o mês mudar
   // dependendo do %, e travava especificamente quando o último dia trabalhado caía no
@@ -503,6 +494,24 @@ export function reprogramarRestante(etapaId, etapas) {
   // cima, pulando pra 2 meses à frente do que devia).
   const proxMes    = nextMonthStartOffset(target.inicio);
   const proxMesISO = offsetToISO(proxMes);
+
+  const dur            = target.dur || 1;
+  const custo          = target.custo || 0;
+  const custoRealizado = target.custoRealizado || 0;
+  // O executado é o que foi feito no mês em que a tarefa começou: não pode passar para o mês
+  // seguinte. A duração proporcional ao % passava (ex.: 35% de 10 dias = 4 dias úteis a partir de
+  // um sábado 26/09 terminava em 01/10): parte do valor do executado caía em outubro, a Medição de
+  // setembro mostrava menos que os 35% medidos, e ele se sobrepunha ao "restante", que começa no
+  // dia 1º. Limita aos dias úteis até o fim do mês; o que sobra fica com o restante.
+  const fechadoDur    = Math.max(1, Math.min(Math.round(dur * perc / 100), workDur(target.inicio, proxMes)));
+  const restanteDur   = Math.max(1, dur - fechadoDur);
+  // Valores em centavos (antes arredondava para o real inteiro: 35% de 222.018,56 virava 77.706,00
+  // em vez de 77.706,50). O restante é a diferença, então a soma continua igual ao original.
+  const centavos = (v) => Math.round(v * 100) / 100;
+  const fechadoCusto  = centavos(custo * perc / 100);
+  const restanteCusto = Math.max(0, centavos(custo - fechadoCusto));
+  const fechadoCustoRealizado  = centavos(custoRealizado * perc / 100);
+  const restanteCustoRealizado = Math.max(0, centavos(custoRealizado - fechadoCustoRealizado));
   const cloneDep   = () => (target.dep || []).map(d => ({ ...d }));
 
   const fechado = {
