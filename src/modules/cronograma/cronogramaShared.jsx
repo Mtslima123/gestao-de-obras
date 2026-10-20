@@ -7,6 +7,7 @@ import React from "react";
 import { Icon } from "../../components/Icons";
 import { isoToBR, isoToBRWeekday, taskEnd, offsetToISO } from "./cronogramaDateUtils";
 import { effStatus, collectDescendantIds, computeSuccessors } from "./scheduleEngine";
+import { OPERADORES_FILTRO, TITULO_FILTRO_CONDICAO, tipoTemCondicoes, condicoesValidas } from "./filtroCondicaoPure";
 
 // ─── Constantes de timeline / layout ─────────────────────────────────────────
 export const GM_START_YEAR  = 2024;
@@ -585,8 +586,64 @@ const TriCheckbox = ({ checked, indeterminate, onChange }) => {
   return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} style={{ cursor: 'pointer' }} />;
 };
 
-export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilter, onClearFilter, sortDir, onSort, getDomainEntries }) => {
+// Diálogo do filtro por condição (estilo Excel "Filtro Personalizado"): até duas condições, ligadas
+// por E / OU. Vive dentro do popover do cabeçalho; ver filtroCondicaoPure.js para as regras.
+const CondicoesDialog = ({ label, type, linhas, setLinhas, juncao, setJuncao, erro, onOk, onCancel }) => {
+  const operadores = OPERADORES_FILTRO[type] || [];
+  const campo = { height: 26, fontSize: 12, width: '100%', boxSizing: 'border-box' };
+  const mudar = (i, patch) => setLinhas(ls => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const tecla = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); onOk(); } };
+  const inputProps = (valor, onChange, placeholder) => ({
+    value: valor ?? '', onChange: (ev) => onChange(ev.target.value), onKeyDown: tecla, placeholder,
+    type: type === 'date' ? 'date' : 'text', inputMode: type === 'number' ? 'decimal' : undefined,
+    className: 'input', style: campo,
+  });
+  const linha = (c, i) => (
+    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <select value={c.op} onChange={(ev) => mudar(i, { op: ev.target.value })} className="input" style={campo}>
+        {i > 0 && <option value="">(nenhuma)</option>}
+        {operadores.map(o => <option key={o.id} value={o.id}>{o.rotulo}</option>)}
+      </select>
+      {c.op && (c.op === 'entre' ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input {...inputProps(c.valor, (v) => mudar(i, { valor: v }), 'De')} autoFocus={i === 0} />
+          <span style={{ fontSize: 11 }}>e</span>
+          <input {...inputProps(c.valor2, (v) => mudar(i, { valor2: v }), 'Até')} />
+        </div>
+      ) : (
+        <input {...inputProps(c.valor, (v) => mudar(i, { valor: v }), type === 'text' ? 'Texto' : type === 'date' ? '' : 'Valor')} autoFocus={i === 0} />
+      ))}
+    </div>
+  );
+  const radio = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 700 }}>Mostrar linhas onde {label}:</div>
+      {linha(linhas[0], 0)}
+      <div style={{ display: 'flex', gap: 14, justifyContent: 'center' }}>
+        <label style={radio}><input type="radio" name="juncao-filtro" checked={juncao === 'E'} onChange={() => setJuncao('E')} /> E</label>
+        <label style={radio}><input type="radio" name="juncao-filtro" checked={juncao === 'OU'} onChange={() => setJuncao('OU')} /> OU</label>
+      </div>
+      {linha(linhas[1], 1)}
+      {erro && <div style={{ fontSize: 11, color: 'var(--danger)' }}>{erro}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+        <button onClick={onCancel} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>Cancelar</button>
+        <button onClick={onOk} className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>OK</button>
+      </div>
+    </div>
+  );
+};
+
+export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilter, onApplyCondicoes, onClearFilter, sortDir, onSort, getDomainEntries }) => {
   const [open, setOpen] = React.useState(false);
+  // Filtro por condição (Igual a, Maior que, Contém, Entre...): submenu "Filtros de Número/Texto/Data"
+  // e o diálogo que ele abre dentro do mesmo popover. Só número, texto e data (ver tipoTemCondicoes).
+  const [vista, setVista] = React.useState('lista');        // 'lista' | 'condicoes'
+  const [subAberto, setSubAberto] = React.useState(false);
+  const [condDraft, setCondDraft] = React.useState([]);     // 2 linhas { op, valor, valor2 }
+  const [juncao, setJuncao] = React.useState('E');
+  const [condErro, setCondErro] = React.useState('');
+  const temCondicoes = tipoTemCondicoes(type) && !!onApplyCondicoes;
   const [draftChecked, setDraftChecked] = React.useState(null); // Set<string> | null (null = ainda não montado)
   const [flatKeys, setFlatKeys] = React.useState([]);           // colunas não-data: chaves ordenadas
   const [dateTree, setDateTree] = React.useState(null);         // colunas data: { years: Map, hasBlank }
@@ -609,6 +666,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
 
   React.useEffect(() => {
     if (!open) return;
+    setVista('lista'); setSubAberto(false); setCondErro('');
     const entries = getDomainEntries();
     const excluded = new Set(activeFilter?.excluded || []);
     const included = Array.isArray(activeFilter?.included) ? new Set(activeFilter.included) : null;
@@ -716,6 +774,25 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
     onApplyFilter(allKeys.filter(k => !draftChecked.has(k)), incluidos());
     setOpen(false);
   };
+  // Abre o diálogo de condições. Com filtro por condição já ativo, reabre com o que está nele
+  // (se o operador escolhido no submenu for o da 1ª condição, ou "Filtro Personalizado...").
+  const abrirCondicoes = (opInicial) => {
+    const ativas = activeFilter?.condicoes || [];
+    const base = ativas.length && (!opInicial || ativas[0]?.op === opInicial)
+      ? ativas.map(c => ({ ...c }))
+      : [{ op: opInicial || OPERADORES_FILTRO[type][0].id, valor: '', valor2: '' }];
+    while (base.length < 2) base.push({ op: '', valor: '', valor2: '' });
+    setCondDraft(base.slice(0, 2));
+    setJuncao(activeFilter?.juncao === 'OU' ? 'OU' : 'E');
+    setCondErro('');
+    setVista('condicoes');
+  };
+  const aplicarCondicoes = () => {
+    const validas = condicoesValidas(condDraft, type);
+    if (!validas.length) { setCondErro(type === 'date' ? 'Informe a data.' : type === 'text' ? 'Informe o texto.' : 'Informe um número.'); return; }
+    onApplyCondicoes(validas, juncao);
+    setOpen(false);
+  };
 
   const sortWords = SORT_LABELS[type] || SORT_LABELS.default;
   const optRow = { display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', fontSize: 11, fontWeight: 400, textTransform: 'none', cursor: 'pointer', borderRadius: 4 };
@@ -727,7 +804,12 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
         ▾
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: 260, cursor: 'default' }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: vista === 'condicoes' ? 290 : 260, cursor: 'default' }}>
+          {vista === 'condicoes' ? (
+            <CondicoesDialog label={label} type={type} linhas={condDraft} setLinhas={setCondDraft}
+              juncao={juncao} setJuncao={setJuncao} erro={condErro}
+              onOk={aplicarCondicoes} onCancel={() => setOpen(false)} />
+          ) : (<>
           <div onClick={() => { onSort('asc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[0]}</div>
           <div onClick={() => { onSort('desc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[1]}</div>
           <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
@@ -737,6 +819,24 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
             Limpar Filtro de {label}
           </div>
           <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
+          {temCondicoes && (
+            <>
+              <div onClick={() => setSubAberto(v => !v)} className="col-filter-opt"
+                style={{ ...optRow, justifyContent: 'space-between', fontWeight: activeFilter?.condicoes ? 700 : 400 }}>
+                <span>{TITULO_FILTRO_CONDICAO[type]}</span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{subAberto ? '▼' : '▶'}</span>
+              </div>
+              {subAberto && (
+                <div style={{ marginLeft: 8, paddingLeft: 4, borderLeft: '2px solid var(--border)' }}>
+                  {OPERADORES_FILTRO[type].map(o => (
+                    <div key={o.id} onClick={() => abrirCondicoes(o.id)} style={optRow} className="col-filter-opt">{o.rotulo}...</div>
+                  ))}
+                  <div onClick={() => abrirCondicoes(null)} style={optRow} className="col-filter-opt">Filtro Personalizado...</div>
+                </div>
+              )}
+              <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
+            </>
+          )}
           {/* Busca só faz sentido pra lista simples (data continua pelo ano/mês/dia, que já
               navega por clique) — filtra o que aparece embaixo, sem mexer no que já tá marcado. */}
           {type !== 'date' && (
@@ -813,6 +913,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
             <button onClick={() => setOpen(false)} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>Cancelar</button>
             <button onClick={applyOk} className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>OK</button>
           </div>
+          </>)}
         </div>
       )}
     </div>

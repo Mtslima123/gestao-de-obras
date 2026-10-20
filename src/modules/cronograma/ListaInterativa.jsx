@@ -39,6 +39,7 @@ import {
 } from './cronogramaShared';
 import { classificarConflitos } from './conflitosOkPure';
 import { celulasAlvoFormatacao, alternarCelulaMarcada } from './alvoFormatacaoPure';
+import { passaCondicoes } from './filtroCondicaoPure';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
@@ -451,9 +452,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   }, [colFilterValue, customCols]);
 
   // `included` (o que está marcado) tem prioridade sobre `excluded` — ver passaFiltroColuna.
-  const passaFiltro = React.useCallback((colId, f, e) =>
-    passaFiltroColuna(f, filterKeyOf(colId, e), resolveColType(colId, customCols) === 'date'),
-  [filterKeyOf, customCols]);
+  // Filtro por condição (Maior que, Contém...) olha o valor bruto e o texto exibido da célula.
+  const passaFiltro = React.useCallback((colId, f, e) => {
+    const tipo = resolveColType(colId, customCols);
+    if (f?.condicoes) {
+      const { raw, label } = colFilterValue(e, colId);
+      return passaCondicoes(f, { tipo, raw, label });
+    }
+    return passaFiltroColuna(f, filterKeyOf(colId, e), tipo === 'date');
+  }, [filterKeyOf, colFilterValue, customCols]);
   const passesColumnFilters = React.useCallback((e) =>
     Object.entries(columnFilters).every(([colId, f]) => passaFiltro(colId, f, e)),
   [columnFilters, passaFiltro]);
@@ -693,6 +700,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               if (!excluded.length) { const n = { ...prev }; delete n[colId]; return n; }
               return { ...prev, [colId]: { excluded, included } };
             })}
+            onApplyCondicoes={(condicoes, juncao) => setColumnFilters(prev => ({ ...prev, [colId]: { condicoes, juncao } }))}
             onClearFilter={() => setColumnFilters(prev => { const n = { ...prev }; delete n[colId]; return n; })}
             getDomainEntries={() => buildDomainEntries(colId)}
           />
@@ -3861,6 +3869,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         if (!excluded.length) { const n = { ...prev }; delete n[col.id]; return n; }
                         return { ...prev, [col.id]: { excluded, included } };
                       })}
+                      onApplyCondicoes={(condicoes, juncao) => setColumnFilters(prev => ({ ...prev, [col.id]: { condicoes, juncao } }))}
                       onClearFilter={() => setColumnFilters(prev => { const n = { ...prev }; delete n[col.id]; return n; })}
                       getDomainEntries={() => buildDomainEntries(col.id)}
                     />
