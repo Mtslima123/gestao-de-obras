@@ -3907,7 +3907,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               const cellSelHere = selectedCell?.taskId === e.id;
               // Não aplica o realce de linha quando a linha faz parte de um intervalo de
               // células selecionadas (senão a âncora fica com tom diferente do restante).
-              const isSelected  = selectedId === e.id && !cellSelHere && !rangeRowIds.has(e.id);
+              // Com células soltas marcadas (Ctrl+clique) o realce de linha também sai: a linha do
+              // primeiro clique comum (selectedId) ficava toda contornada e as outras só na célula.
+              const isSelected  = selectedId === e.id && !cellSelHere && !rangeRowIds.has(e.id) && multiSelCells.length < 2;
               const indent      = (e.nivel || 0) * 20;
               const hasChildren = parentIdSet.has(e.id);
               const gv          = e.isGroup ? groupVals[e.id] : null;
