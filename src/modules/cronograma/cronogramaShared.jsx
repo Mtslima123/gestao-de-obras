@@ -7,7 +7,7 @@ import React from "react";
 import { Icon } from "../../components/Icons";
 import { isoToBR, isoToBRWeekday, taskEnd, offsetToISO } from "./cronogramaDateUtils";
 import { effStatus, collectDescendantIds, computeSuccessors } from "./scheduleEngine";
-import { OPERADORES_FILTRO, TITULO_FILTRO_CONDICAO, tipoTemCondicoes, condicoesValidas } from "./filtroCondicaoPure";
+import { OPERADORES_FILTRO, TITULO_FILTRO_CONDICAO, tipoTemCondicoes, condicoesValidas, COR_SEM } from "./filtroCondicaoPure";
 
 // ─── Constantes de timeline / layout ─────────────────────────────────────────
 export const GM_START_YEAR  = 2024;
@@ -634,7 +634,7 @@ const CondicoesDialog = ({ label, type, linhas, setLinhas, juncao, setJuncao, er
   );
 };
 
-export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilter, onApplyCondicoes, onClearFilter, sortDir, onSort, getDomainEntries }) => {
+export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilter, onApplyCondicoes, getDomainCores, onApplyCor, onClearFilter, sortDir, onSort, getDomainEntries }) => {
   const [open, setOpen] = React.useState(false);
   // Filtro por condição (Igual a, Maior que, Contém, Entre...): submenu "Filtros de Número/Texto/Data"
   // e o diálogo que ele abre dentro do mesmo popover. Só número, texto e data (ver tipoTemCondicoes).
@@ -644,6 +644,12 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
   const [juncao, setJuncao] = React.useState('E');
   const [condErro, setCondErro] = React.useState('');
   const temCondicoes = tipoTemCondicoes(type) && !!onApplyCondicoes;
+  // Filtrar por cor (preenchimento ou fonte), como no Excel: o submenu lista as cores usadas na coluna.
+  const temCor = !!getDomainCores && !!onApplyCor;
+  const [corAberto, setCorAberto] = React.useState(false);
+  const [cores, setCores] = React.useState(null);           // { bg, color, semBg, semColor }
+  const popRef = React.useRef(null);
+  const listaRef = React.useRef(null);
   const [draftChecked, setDraftChecked] = React.useState(null); // Set<string> | null (null = ainda não montado)
   const [flatKeys, setFlatKeys] = React.useState([]);           // colunas não-data: chaves ordenadas
   const [dateTree, setDateTree] = React.useState(null);         // colunas data: { years: Map, hasBlank }
@@ -666,7 +672,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
 
   React.useEffect(() => {
     if (!open) return;
-    setVista('lista'); setSubAberto(false); setCondErro('');
+    setVista('lista'); setSubAberto(false); setCondErro(''); setCorAberto(false); setCores(null);
     const entries = getDomainEntries();
     const excluded = new Set(activeFilter?.excluded || []);
     const included = Array.isArray(activeFilter?.included) ? new Set(activeFilter.included) : null;
@@ -710,6 +716,29 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
       setDraftChecked(new Set(keys.filter(marcado)));
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // O popover é absoluto dentro da área rolável da Lista: perto do rodapé ela cortava o fim do menu (os
+  // botões OK e Cancelar sumiam). Mede o espaço que sobra abaixo: primeiro encolhe a lista de valores e,
+  // se ainda não couber (submenus abertos), deixa o próprio menu rolável. Roda de novo quando a lista de
+  // valores chega (flatKeys/dateTree) e quando um submenu abre ou fecha.
+  React.useLayoutEffect(() => {
+    const pop = popRef.current, lista = listaRef.current;
+    if (!open || !pop) return;
+    pop.style.maxHeight = ''; pop.style.overflowY = '';
+    if (lista) lista.style.maxHeight = '220px';
+    let limite = window.innerHeight;
+    for (let p = pop.parentElement; p; p = p.parentElement) {
+      const o = getComputedStyle(p).overflowY;
+      if (o === 'auto' || o === 'scroll' || o === 'hidden') { limite = Math.min(limite, p.getBoundingClientRect().bottom); break; }
+    }
+    const livre = limite - 8 - pop.getBoundingClientRect().top;
+    if (pop.getBoundingClientRect().height <= livre) return;
+    if (lista) {
+      const excesso = pop.getBoundingClientRect().bottom - (limite - 8);
+      lista.style.maxHeight = Math.max(90, 220 - excesso) + 'px';
+    }
+    if (pop.getBoundingClientRect().height > livre) { pop.style.maxHeight = Math.max(160, livre) + 'px'; pop.style.overflowY = 'auto'; }
+  }, [open, vista, subAberto, corAberto, cores, flatKeys, dateTree]);
 
   const allKeys = type === 'date'
     ? (() => {
@@ -804,7 +833,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
         ▾
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: vista === 'condicoes' ? 290 : 260, cursor: 'default' }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: vista === 'condicoes' ? 290 : 260, cursor: 'default' }} ref={popRef}>
           {vista === 'condicoes' ? (
             <CondicoesDialog label={label} type={type} linhas={condDraft} setLinhas={setCondDraft}
               juncao={juncao} setJuncao={setJuncao} erro={condErro}
@@ -837,6 +866,47 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
               <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
             </>
           )}
+          {temCor && (
+            <>
+              <div onClick={() => { if (!corAberto) setCores(getDomainCores()); setCorAberto(v => !v); }} className="col-filter-opt"
+                style={{ ...optRow, justifyContent: 'space-between', fontWeight: activeFilter?.cor ? 700 : 400 }}>
+                <span>Filtrar por Cor</span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{corAberto ? '▼' : '▶'}</span>
+              </div>
+              {corAberto && cores && (
+                <div style={{ marginLeft: 8, paddingLeft: 4, borderLeft: '2px solid var(--border)' }}>
+                  {[['bg', 'Cor de Preenchimento', 'Sem preenchimento'], ['color', 'Cor da Fonte', 'Cor automática']].map(([tipo, titulo, rotuloSem]) => {
+                    const lista = cores[tipo];
+                    const temSem = tipo === 'bg' ? cores.semBg : cores.semColor;
+                    if (!lista.length) return null;   // nenhuma célula com esse tipo de cor: a seção nem aparece
+                    const ativa = activeFilter?.cor?.tipo === tipo ? String(activeFilter.cor.valor).toLowerCase() : null;
+                    return (
+                      <div key={tipo}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-muted)', padding: '4px 6px 2px' }}>{titulo}</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '2px 6px 4px' }}>
+                          {lista.map(c => (
+                            <button key={c} type="button" title={c} onClick={() => { onApplyCor(tipo, c); setOpen(false); }}
+                              style={{ width: 22, height: 22, padding: 0, borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 800, lineHeight: 1,
+                                border: ativa === c.toLowerCase() ? '2px solid var(--brand)' : '1px solid var(--border)',
+                                ...(tipo === 'bg' ? { background: c } : { background: 'var(--surface)', color: c }) }}>
+                              {tipo === 'color' ? 'A' : ''}
+                            </button>
+                          ))}
+                        </div>
+                        {temSem && (
+                          <div onClick={() => { onApplyCor(tipo, COR_SEM); setOpen(false); }} style={optRow} className="col-filter-opt">{rotuloSem}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {!cores.bg.length && !cores.color.length && (
+                    <div style={{ padding: '6px', fontSize: 11, color: 'var(--text-faint)' }}>Nenhuma cor aplicada nesta coluna</div>
+                  )}
+                </div>
+              )}
+              <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
+            </>
+          )}
           {/* Busca só faz sentido pra lista simples (data continua pelo ano/mês/dia, que já
               navega por clique) — filtra o que aparece embaixo, sem mexer no que já tá marcado. */}
           {type !== 'date' && (
@@ -846,7 +916,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
               className="input" style={{ height: 26, fontSize: 12, marginBottom: 6, width: '100%', boxSizing: 'border-box' }}
             />
           )}
-          <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
+          <div ref={listaRef} style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
             <label style={{ ...optRow, fontWeight: 600 }}>
               <TriCheckbox {...stateOf(type === 'date' ? allKeys : flatKeysVisiveis)} onChange={toggleAll} />
               (Selecionar Todos)

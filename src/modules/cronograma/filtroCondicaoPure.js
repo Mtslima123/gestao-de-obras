@@ -1,3 +1,5 @@
+// Filtros do menu do cabeçalho da Lista: por CONDIÇÃO (abaixo) e por COR (no fim do arquivo).
+//
 // Filtros por condição no menu do cabeçalho da Lista (estilo Excel: "Filtros de Número/Texto/Data"):
 // igual a, diferente de, maior que, contém, entre... com até duas condições ligadas por E / OU.
 // Convive com o filtro de lista marcada (checklist): uma coluna tem um OU outro, e aplicar um
@@ -108,4 +110,42 @@ export function passaCondicoes(filtro, { tipo, raw, label }) {
   if (!conds.length) return true;
   const res = conds.map(c => avaliar(c, tipo, raw, label));
   return filtro.juncao === 'OU' ? res.some(Boolean) : res.every(Boolean);
+}
+
+// ── Filtrar por cor (como no Excel: cor de preenchimento ou cor da fonte) ───────────────────────────
+// Guardado em columnFilters[colId] = { cor: { tipo: 'bg' | 'color', valor } }, `valor` = a cor em hex
+// ou COR_SEM ("Sem preenchimento" / "Cor automática"). Uma coluna tem um filtro só: lista marcada,
+// condição ou cor, e aplicar um troca o outro.
+export const COR_SEM = '__sem';
+
+// Formatação efetiva de uma célula: a da LINHA (fmt.__row) sobreposta pela da própria coluna. É a mesma
+// regra que a Lista usa para pintar a célula (effFmt em ListaInterativa.jsx).
+export const fmtEfetivoDaCelula = (etapa, colId) => ({ ...(etapa?.fmt?.__row || {}), ...(etapa?.fmt?.[colId] || {}) });
+
+const mesmaCor = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+
+/** A linha passa no filtro por cor da coluna? Sem filtro por cor, passa. */
+export function passaCor(filtro, etapa, colId) {
+  const c = filtro?.cor;
+  if (!c) return true;
+  const f = fmtEfetivoDaCelula(etapa, colId);
+  const atual = c.tipo === 'color' ? f.color : f.bg;
+  return c.valor === COR_SEM ? !atual : mesmaCor(atual, c.valor);
+}
+
+/**
+ * Cores usadas na coluna entre as linhas dadas, na ordem em que aparecem na grade. `semBg`/`semColor`
+ * dizem se há linhas sem a cor (para oferecer "Sem preenchimento" / "Cor automática").
+ */
+export function coresDaColuna(etapas, colId) {
+  const bg = new Map();
+  const color = new Map();
+  let semBg = false;
+  let semColor = false;
+  etapas.forEach(e => {
+    const f = fmtEfetivoDaCelula(e, colId);
+    if (f.bg) { const k = String(f.bg).toLowerCase(); if (!bg.has(k)) bg.set(k, f.bg); } else semBg = true;
+    if (f.color) { const k = String(f.color).toLowerCase(); if (!color.has(k)) color.set(k, f.color); } else semColor = true;
+  });
+  return { bg: [...bg.values()], color: [...color.values()], semBg, semColor };
 }

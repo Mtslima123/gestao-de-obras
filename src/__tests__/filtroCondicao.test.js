@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseNumeroBR, passaCondicoes, condicoesValidas, alvoDaCondicao, tipoTemCondicoes, OPERADORES_FILTRO,
+  COR_SEM, passaCor, coresDaColuna, fmtEfetivoDaCelula,
 } from '../modules/cronograma/filtroCondicaoPure';
 
 const num = (raw, label) => ({ tipo: 'number', raw, label: label ?? String(raw) });
@@ -106,5 +107,56 @@ describe('condições incompletas e tipos', () => {
     expect(['number', 'text', 'date'].every(tipoTemCondicoes)).toBe(true);
     expect(['boolean', 'enum', 'outro'].some(tipoTemCondicoes)).toBe(false);
     expect(OPERADORES_FILTRO.date.find(o => o.id === 'maior').rotulo).toBe('Depois de');
+  });
+});
+
+describe('filtrar por cor', () => {
+  const e = (fmt) => ({ id: 'X', fmt });
+  const amarelo = '#FFFF00';
+  const filtroBg = (valor) => ({ cor: { tipo: 'bg', valor } });
+
+  it('formatação efetiva: a da célula vale mais que a da linha', () => {
+    expect(fmtEfetivoDaCelula(e({ __row: { bg: '#111111', bold: true }, etapa: { bg: '#222222' } }), 'etapa'))
+      .toEqual({ bg: '#222222', bold: true });
+    expect(fmtEfetivoDaCelula(e({ __row: { bg: '#111111' } }), 'inicio')).toEqual({ bg: '#111111' });
+    expect(fmtEfetivoDaCelula({ id: 'Y' }, 'etapa')).toEqual({});
+  });
+
+  it('cor de preenchimento: só passa quem tem aquela cor na coluna (sem diferenciar maiúsculas)', () => {
+    expect(passaCor(filtroBg(amarelo), e({ etapa: { bg: '#ffff00' } }), 'etapa')).toBe(true);
+    expect(passaCor(filtroBg(amarelo), e({ etapa: { bg: '#FF0000' } }), 'etapa')).toBe(false);
+    expect(passaCor(filtroBg(amarelo), e({ inicio: { bg: amarelo } }), 'etapa')).toBe(false);   // outra coluna
+    expect(passaCor(filtroBg(amarelo), e(undefined), 'etapa')).toBe(false);
+  });
+
+  it('cor da fonte é independente do preenchimento', () => {
+    const f = { cor: { tipo: 'color', valor: '#C00000' } };
+    expect(passaCor(f, e({ etapa: { color: '#c00000', bg: amarelo } }), 'etapa')).toBe(true);
+    expect(passaCor(f, e({ etapa: { bg: '#C00000' } }), 'etapa')).toBe(false);
+  });
+
+  it('sem preenchimento / cor automática', () => {
+    expect(passaCor(filtroBg(COR_SEM), e({ etapa: { bold: true } }), 'etapa')).toBe(true);
+    expect(passaCor(filtroBg(COR_SEM), e({ etapa: { bg: amarelo } }), 'etapa')).toBe(false);
+    expect(passaCor({ cor: { tipo: 'color', valor: COR_SEM } }, e({ etapa: { color: '#C00000' } }), 'etapa')).toBe(false);
+  });
+
+  it('a cor da linha inteira conta para as células sem cor própria', () => {
+    expect(passaCor(filtroBg(amarelo), e({ __row: { bg: amarelo } }), 'dur')).toBe(true);
+  });
+
+  it('sem filtro por cor, tudo passa', () => {
+    expect(passaCor({ excluded: [] }, e(undefined), 'etapa')).toBe(true);
+    expect(passaCor(undefined, e(undefined), 'etapa')).toBe(true);
+  });
+
+  it('coresDaColuna: cores distintas na ordem da grade e se há linhas sem cor', () => {
+    const linhas = [
+      e({ etapa: { bg: amarelo, color: '#C00000' } }), e({ etapa: { bg: '#00B050' } }),
+      e({ etapa: { bg: '#ffff00' } }), e(undefined),
+    ];
+    expect(coresDaColuna(linhas, 'etapa')).toEqual({ bg: [amarelo, '#00B050'], color: ['#C00000'], semBg: true, semColor: true });
+    expect(coresDaColuna([e({ etapa: { bg: amarelo, color: '#000000' } })], 'etapa')).toEqual({ bg: [amarelo], color: ['#000000'], semBg: false, semColor: false });
+    expect(coresDaColuna([], 'etapa')).toEqual({ bg: [], color: [], semBg: false, semColor: false });
   });
 });

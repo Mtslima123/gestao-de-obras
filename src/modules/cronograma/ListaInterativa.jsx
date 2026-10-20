@@ -39,7 +39,7 @@ import {
 } from './cronogramaShared';
 import { classificarConflitos } from './conflitosOkPure';
 import { celulasAlvoFormatacao, alternarCelulaMarcada } from './alvoFormatacaoPure';
-import { passaCondicoes } from './filtroCondicaoPure';
+import { passaCondicoes, passaCor, coresDaColuna } from './filtroCondicaoPure';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
@@ -455,6 +455,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Filtro por condição (Maior que, Contém...) olha o valor bruto e o texto exibido da célula.
   const passaFiltro = React.useCallback((colId, f, e) => {
     const tipo = resolveColType(colId, customCols);
+    if (f?.cor) return passaCor(f, e, colId);
     if (f?.condicoes) {
       const { raw, label } = colFilterValue(e, colId);
       return passaCondicoes(f, { tipo, raw, label });
@@ -509,7 +510,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   // Valores distintos elegíveis para o menu de uma coluna, considerando os OUTROS filtros já
   // ativos (cross-filter, estilo Excel) — assim a lista não mostra opção que já daria zero linhas.
-  const buildDomainEntries = React.useCallback((colId) => {
+  const linhasDoDominio = React.useCallback((colId) => {
     const rest = Object.fromEntries(Object.entries(columnFilters).filter(([cid]) => cid !== colId));
     const passesGlobal = buildTaskFilterPredicate({ filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas });
     const rows = visible.filter(e =>
@@ -520,8 +521,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // Mesma ordem da grade (applySiblingSort — hierarquia da EAP, ou o sortSpec ativo): o
     // menu do cabeçalho lista os valores "como está na Lista", não em ordem alfabética à
     // parte (ColumnHeaderFilterMenu só ordena números; texto preserva a ordem de chegada).
-    return applySiblingSort(rows, sortSpec).map(e => colFilterValue(e, colId));
-  }, [columnFilters, visible, showSummaryTasks, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, passaFiltro, colFilterValue, sortSpec]);
+    return applySiblingSort(rows, sortSpec);
+  }, [columnFilters, visible, showSummaryTasks, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, passaFiltro, sortSpec]);
+  const buildDomainEntries = React.useCallback((colId) => linhasDoDominio(colId).map(e => colFilterValue(e, colId)), [linhasDoDominio, colFilterValue]);
+  // Cores usadas na coluna (menu "Filtrar por Cor"), entre as linhas que os OUTROS filtros deixam passar.
+  const buildDomainCores = React.useCallback((colId) => coresDaColuna(linhasDoDominio(colId), colId), [linhasDoDominio]);
 
   const dragColRef = React.useRef(null);
   const [dragOverCol, setDragOverCol] = React.useState(null); // { id, side: 'before' | 'after' }
@@ -701,6 +705,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               return { ...prev, [colId]: { excluded, included } };
             })}
             onApplyCondicoes={(condicoes, juncao) => setColumnFilters(prev => ({ ...prev, [colId]: { condicoes, juncao } }))}
+            getDomainCores={() => buildDomainCores(colId)}
+            onApplyCor={(tipo, valor) => setColumnFilters(prev => ({ ...prev, [colId]: { cor: { tipo, valor } } }))}
             onClearFilter={() => setColumnFilters(prev => { const n = { ...prev }; delete n[colId]; return n; })}
             getDomainEntries={() => buildDomainEntries(colId)}
           />
@@ -3870,6 +3876,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         return { ...prev, [col.id]: { excluded, included } };
                       })}
                       onApplyCondicoes={(condicoes, juncao) => setColumnFilters(prev => ({ ...prev, [col.id]: { condicoes, juncao } }))}
+                      getDomainCores={() => buildDomainCores(col.id)}
+                      onApplyCor={(tipo, valor) => setColumnFilters(prev => ({ ...prev, [col.id]: { cor: { tipo, valor } } }))}
                       onClearFilter={() => setColumnFilters(prev => { const n = { ...prev }; delete n[col.id]; return n; })}
                       getDomainEntries={() => buildDomainEntries(col.id)}
                     />
