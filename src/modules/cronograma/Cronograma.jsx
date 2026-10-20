@@ -32,6 +32,7 @@ import {
 } from './cronogramaModais';
 import { GM_TOTAL, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
 import { classificarConflitos, confirmarConflitos, desfazerConfirmacao, podarConfirmacoes } from './conflitosOkPure';
+import { tarefasAlteradas, selecaoTocaMudanca } from './alvoFormatacaoPure';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './etapasPatch';
 import { vinculosParaAjustar } from './exclusaoTarefasPure';
@@ -2628,7 +2629,12 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // Foco de seleção após undo/redo ou "Editar tarefa" — leva a Lista a selecionar/rolar até a tarefa
   const [histFocus, setHistFocus] = React.useState(null); // { id, nonce }
   const focusNonceRef = React.useRef(0);
-  const focarTarefa = (id) => { if (id) setHistFocus({ id, nonce: ++focusNonceRef.current }); };
+  // `selecao` (opcional): seleção da Lista a restaurar junto (ver focarAposHistorico).
+  const focarTarefa = (id, selecao) => { if (id) setHistFocus({ id, selecao: selecao || null, nonce: ++focusNonceRef.current }); };
+  // Seleção da Lista no instante de cada ação. A Lista publica a atual em selecaoListaRef a cada render;
+  // o commit guarda uma cópia por snapshot do histórico (chave = o array de etapas que a ação gerou).
+  const selecaoListaRef = React.useRef(null);
+  const selecaoPorSnapshotRef = React.useRef(new WeakMap());
   // Primeiro id cujo conteúdo difere entre dois snapshots de etapas
   const diffTaskId = (a, b) => {
     const mb = new Map(b.map(e => [e.id, e]));
@@ -3339,6 +3345,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     if (!opts.skipHistory) {
       const h = histRef.current.slice(0, hidxRef.current + 1);
       h.push(clean);
+      if (selecaoListaRef.current) selecaoPorSnapshotRef.current.set(clean, selecaoListaRef.current);
       const hc = histColsRef.current.slice(0, hidxRef.current + 1);
       hc.push(colsSnap);
       const hf = histFeriadosRef.current.slice(0, hidxRef.current + 1);
@@ -3418,6 +3425,14 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     toast('Data de início do projeto atualizada', { tone: 'success', icon: 'check' });
   };
 
+  // Depois de desfazer/refazer, devolve a seleção às células da ação (a que estava na Lista quando ela
+  // foi feita). Só vale se essa seleção tem a ver com o que mudou; ações que não nascem da seleção da
+  // Lista (Gantt, Medição, modais) caem no foco por tarefa de sempre.
+  const focarAposHistorico = (prev, snap, snapshotDaAcao) => {
+    const selAcao = selecaoPorSnapshotRef.current.get(snapshotDaAcao);
+    focarTarefa(diffTaskId(prev, snap), selecaoTocaMudanca(selAcao, tarefasAlteradas(prev, snap)) ? selAcao : null);
+  };
+
   const undo = () => {
     if (hidxRef.current <= 0) { toast('Nada para desfazer', { tone: 'neutral', icon: 'alert' }); return; }
     const prev = histRef.current[hidxRef.current];
@@ -3437,7 +3452,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     try { localStorage.setItem('ls_crono_rowheights_' + obraSel, JSON.stringify(rowHeightsSnap)); } catch { /* ignore */ }
     D.cronograma[obraSel] = snap;
     D.cronogramaCustomCols = colsSnap;
-    focarTarefa(diffTaskId(prev, snap));
+    focarAposHistorico(prev, snap, prev);   // a ação desfeita é a que gerou `prev`
     agendarGravacao(async () => {
       const falhou = handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
       // Desfazer a exclusão antes de ela ser gravada: a tarefa volta em `snap` e os vínculos dela
@@ -3466,7 +3481,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     try { localStorage.setItem('ls_crono_rowheights_' + obraSel, JSON.stringify(rowHeightsSnap)); } catch { /* ignore */ }
     D.cronograma[obraSel] = snap;
     D.cronogramaCustomCols = colsSnap;
-    focarTarefa(diffTaskId(prev, snap));
+    focarAposHistorico(prev, snap, histRef.current[hidxRef.current]);   // a ação refeita gerou este snapshot
     agendarGravacao(async () => {
       const falhou = handleSaveResult(await salvarCronograma(obraSel, snap, colsSnap, baselines, reprogramacoes, feriadosSnap));
       await processarAcoesVinculo(snap, !falhou);
@@ -3927,6 +3942,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   canUndo={hidxRef.current > 0}
                   canRedo={hidxRef.current < histRef.current.length - 1}
                   focusTaskId={histFocus}
+                  selecaoRef={selecaoListaRef}
                   vinculos={vinculos}
                   orcamentoItensMap={orcamentoItensMap}
                   readOnly={readOnly}

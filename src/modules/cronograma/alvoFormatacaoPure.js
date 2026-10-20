@@ -1,3 +1,6 @@
+// Regras puras da seleção da Lista: alvo da formatação, Ctrl+clique em células soltas e seleção de
+// volta ao desfazer/refazer (mais abaixo).
+//
 // Células que recebem a formatação da faixa (negrito, cor de fundo, fonte, limpar formatação).
 // A Lista tem quatro formas de selecionar e a formatação só enxergava duas (colunas e intervalo):
 // Ctrl+clique em células soltas e Ctrl+clique em números da calha moviam a célula ativa para a
@@ -46,4 +49,42 @@ export function alternarCelulaMarcada(marcadas, anterior, clicada) {
   const base = marcadas.length ? marcadas : anterior;
   const igual = (c) => c.taskId === clicada.taskId && c.colId === clicada.colId;
   return base.some(igual) ? base.filter(c => !igual(c)) : [...base, { taskId: clicada.taskId, colId: clicada.colId }];
+}
+
+// ── Seleção de volta ao desfazer/refazer ─────────────────────────────────────────────────────────
+// Cada ação gravada no histórico guarda a seleção da Lista do instante em que foi feita. Desfazer ou
+// refazer devolve essa seleção (as mesmas células, soltas ou em intervalo), em vez de só pular para a
+// linha da primeira tarefa alterada. Só vale se a seleção guardada tem a ver com o que mudou; ações
+// que não nascem da seleção (Gantt, Medição, modais) caem no foco por tarefa de sempre.
+
+/** Ids das tarefas cujo conteúdo difere entre dois snapshots (alteradas, incluídas ou removidas). */
+export function tarefasAlteradas(antes, depois) {
+  const mudados = new Set();
+  const porId = new Map(depois.map(e => [e.id, JSON.stringify(e)]));
+  const vistos = new Set();
+  antes.forEach(e => {
+    vistos.add(e.id);
+    if (porId.get(e.id) !== JSON.stringify(e)) mudados.add(e.id);
+  });
+  depois.forEach(e => { if (!vistos.has(e.id)) mudados.add(e.id); });
+  return mudados;
+}
+
+/** Ids de todas as tarefas tocadas por uma seleção guardada da Lista. */
+export function idsDaSelecao(sel) {
+  const ids = new Set();
+  if (!sel) return ids;
+  if (sel.selectedCell) ids.add(sel.selectedCell.taskId);
+  if (sel.selAnchor) ids.add(sel.selAnchor.taskId);
+  if (sel.selectedId != null) ids.add(sel.selectedId);
+  (sel.multiSel || []).forEach(id => ids.add(id));
+  (sel.multiSelCells || []).forEach(c => ids.add(c.taskId));
+  return ids;
+}
+
+/** A seleção guardada pertence a esta mudança? (alguma tarefa dela foi alterada) */
+export function selecaoTocaMudanca(sel, mudados) {
+  if (!sel || !sel.selectedCell || !mudados?.size) return false;
+  for (const id of idsDaSelecao(sel)) if (mudados.has(id)) return true;
+  return false;
 }

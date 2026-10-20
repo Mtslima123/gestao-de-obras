@@ -69,7 +69,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Derivados de etapas/vínculos calculados 1x em CronogramaFull (nunca desmonta ao trocar
   // de aba) e repassados por prop — evita recalcular sobre todas as etapas a cada remontagem.
   valorVinculadoMap = {}, custoOrcadoMap = {}, groupVals = {}, succMap = {}, wbsMap = {},
-  focusTaskId = null }) => {
+  focusTaskId = null, selecaoRef = null }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showTaskForm,   setShowTaskForm]   = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
@@ -1120,12 +1120,34 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (tdRect.left < leftBound) sc.scrollLeft -= (leftBound - tdRect.left);
     else if (tdRect.right > scRect.right) sc.scrollLeft += (tdRect.right - scRect.right);
   };
-  // Foco externo (undo/redo, "Editar tarefa"): seleciona a tarefa e rola até ela
+  // Publica a seleção atual para o Cronograma guardá-la junto de cada ação do histórico (o commit lê
+  // selecaoRef.current); ao desmontar limpa, senão uma ação feita no Gantt herdaria seleção velha.
+  React.useEffect(() => {
+    if (selecaoRef) selecaoRef.current = { selectedCell, selAnchor, selectedId, multiSel, multiSelCells };
+  });
+  React.useEffect(() => () => { if (selecaoRef) selecaoRef.current = null; }, [selecaoRef]);
+  // Foco externo (undo/redo, "Editar tarefa"): seleciona a tarefa e rola até ela. Com `selecao` (undo/redo
+  // de uma ação feita na Lista) devolve a seleção inteira daquela ação: as mesmas células, soltas ou em
+  // intervalo, e rola até a célula ativa.
   React.useEffect(() => {
     if (!focusTaskId?.id) return;
     const alvo = etapas.find(e => e.id === focusTaskId.id);
-    if (!alvo) return;
+    const sel = focusTaskId.selecao;
+    const existe = (id) => etapas.some(e => e.id === id);
+    const selValida = sel?.selectedCell && existe(sel.selectedCell.taskId);
+    if (!alvo && !selValida) return;
     requestAnimationFrame(() => {
+      if (selValida) {
+        setMultiSelCols([]);
+        setSelectedCell(sel.selectedCell);
+        setSelAnchor(sel.selAnchor && existe(sel.selAnchor.taskId) ? sel.selAnchor : sel.selectedCell);
+        setSelectedId(sel.selectedId != null && existe(sel.selectedId) ? sel.selectedId : null);
+        setMultiSel((sel.multiSel || []).filter(existe));
+        setMultiSelCells((sel.multiSelCells || []).filter(c => existe(c.taskId)));
+        scrollRowIntoView(sel.selectedCell.taskId);
+        scrollColIntoView(sel.selectedCell.taskId, sel.selectedCell.colId);
+        return;
+      }
       const cell = { taskId: alvo.id, colId: 'etapa' };
       setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
       scrollRowIntoView(alvo.id);
