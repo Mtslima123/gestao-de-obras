@@ -21,7 +21,7 @@ import {
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
   createGroup, autoScheduleFromDeps, formatDepList, parseDep,
   moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento,
-  reprogramarRestante, computeSuccessors, computeIdMap, filtrarComAncestrais,
+  reprogramarRestante, computeSuccessors, computeIdMap, computeRowNumberMap, filtrarComAncestrais,
 } from './scheduleEngine';
 import { computeAutofillSeries } from './autofillSeries';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal, ExcluirTarefasModal } from './cronogramaModais';
@@ -299,6 +299,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // busca/filtro, os exports e Predecessora/Sucessora (os nomes rowNumberMap* são só apelidos dele).
   const idMapFull = React.useMemo(() => computeIdMap(etapas), [etapas]);
   const rowNumberMapEarly = idMapFull;
+  // Número da LINHA na calha cinza: a posição real da tarefa na lista COMPLETA, igual ao Excel.
+  // Filtro, grupo recolhido e "Tarefas Resumo" desligado escondem linhas mas não renumeram as que
+  // sobram (antes a calha contava só as linhas visíveis e mudava a cada filtro).
+  const linhaMapFull = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
   // Sugestões (datalist) das colunas "Lista com sugestão automática": valores já digitados em
   // qualquer linha da mesma coluna, sem restringir a digitação a essa lista (livre, não fixa).
   const autocompleteOptionsByCol = React.useMemo(() => {
@@ -4494,7 +4498,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       fontSize: 11, fontFamily: 'var(--font-mono, monospace)',
                     }}
                   >
-                    {rowIdx + 1}
+                    {linhaMapFull[e.id] ?? rowIdx + 1}
                     {/* Borda inferior da calha: arraste para redimensionar só esta linha (estilo Excel) */}
                     <div title="Arraste para ajustar a altura da linha"
                       style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 5, cursor: 'row-resize', zIndex: 3 }}

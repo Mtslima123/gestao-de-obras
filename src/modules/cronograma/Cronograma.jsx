@@ -19,7 +19,7 @@ import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, statusAposAvanco, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist, computeAllGroupMonthlyDist,
-  computeGroupValues, computeSuccessors, computeAvancoFisico, computeIdMap,
+  computeGroupValues, computeSuccessors, computeAvancoFisico, computeIdMap, voltarAoInicioDoProjeto,
 } from './scheduleEngine';
 import MedicaoMensal from './MedicaoMensal';
 import {
@@ -3298,6 +3298,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         return e;
       });
     }
+    // Tarefa que perdeu a última predecessora volta ao início do projeto (ver voltarAoInicioDoProjeto).
+    // `etapas` ainda é o estado anterior a este commit.
+    ajustadas = voltarAoInicioDoProjeto(etapas, ajustadas);
     const clean = ajustadas.map(e => ({ ...e }));
     // Qualquer commit que traga `feriados` (config de calendário/pavimentos salvos) também
     // sincroniza o estado local — sem isso, quem chamou onCommit(novas, {feriados}) fora do

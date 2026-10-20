@@ -405,7 +405,10 @@ function schedulePass(etapas) {
     const isAsap = !tipo || tipo === 'asap';
     const deps   = e.dep || [];
 
-    // Sem dependências e sem restrição com data: nada a mover
+    // Sem dependências e sem restrição com data: nada a mover. A tarefa livre fica onde está (as
+    // datas digitadas à mão não podem ser reescritas a cada reagendamento, que também roda ao abrir
+    // o cronograma). Quando ela PERDE a última predecessora, a volta ao início do projeto é feita
+    // no momento da edição, por voltarAoInicioDoProjeto (chamada no commit da tela).
     if (!deps.length && (isAsap || !e.restricaoData)) return;
 
     let minStart = 0;
@@ -472,6 +475,39 @@ export function autoScheduleFromDeps(etapas) {
   out = updateParentBounds(out);
   out = schedulePass(out);
   return updateParentBounds(out);
+}
+
+// Tarefa que PERDEU a última predecessora volta ao início do projeto (estilo MS Project: tarefa sem
+// predecessora começa no início do projeto, como as tarefas novas — ver projectStartOffset). Sem
+// isto ela ficava na data que a ligação lhe tinha dado, porque o agendador não recalcula tarefa
+// livre (ver schedulePass). É uma regra do MOMENTO da edição, não do agendador: 45 folhas da ÍON não
+// têm predecessora e têm datas digitadas à mão, e o agendador roda até ao abrir o cronograma.
+// `antes` é o estado anterior à edição e `depois` o novo. Só mexe na tarefa que:
+//  - é folha, tinha predecessora e agora não tem nenhuma;
+//  - teve só a LIGAÇÃO removida (se a tarefa predecessora foi excluída, a data não muda);
+//  - está em modo automático e abaixo de 100% (manual e concluída têm data fixa);
+//  - não tem restrição de data (SNET/MSO/MFO/FNET o agendador já ancora na data da restrição;
+//    SNLT/FNLT também ficam de fora, para o agendador não as mandar para a data 0);
+//  - começa depois do início do projeto.
+// Devolve o MESMO array quando nada muda; senão as tarefas reagendadas (sucessoras acompanham).
+export function voltarAoInicioDoProjeto(antes, depois) {
+  const antesPorId = new Map((antes || []).map(e => [e.id, e]));
+  const existe = new Set(depois.map(e => e.id));
+  const inicioProjeto = projectStartOffset(depois);
+  let mudou = false;
+  const ajustadas = depois.map(e => {
+    const a = antesPorId.get(e.id);
+    if (!a || e.isGroup || a.isGroup) return e;
+    const depsAntes = a.dep || [];
+    if (!depsAntes.length || (e.dep || []).length) return e;
+    if (!depsAntes.every(d => existe.has(typeof d === 'string' ? d : d.id))) return e;
+    if (e.modo === 'manual' || (e.avanco ?? 0) >= 100) return e;
+    if (e.restricaoTipo && e.restricaoTipo !== 'asap' && e.restricaoData) return e;
+    if (!(e.inicio > inicioProjeto)) return e;
+    mudou = true;
+    return { ...e, inicio: inicioProjeto };
+  });
+  return mudou ? autoScheduleFromDeps(ajustadas) : depois;
 }
 
 // Recalcula inicio/dur dos grupos com base nos filhos diretos (de baixo para cima)
