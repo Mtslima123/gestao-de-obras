@@ -38,6 +38,7 @@ import {
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
 } from './cronogramaShared';
 import { classificarConflitos } from './conflitosOkPure';
+import { celulasAlvoFormatacao, alternarCelulaMarcada } from './alvoFormatacaoPure';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
@@ -1331,13 +1332,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (selectedId)   return { taskId: selectedId, key: '__row' };
     return null;
   };
-  // Todas as células (todas as linhas × todas as colunas marcadas via Ctrl+clique no cabeçalho)
-  const multiColCellList = () => {
-    const rows = filtrada.map(x => x.id);
-    const list = [];
-    rows.forEach(taskId => multiSelCols.forEach(colId => { if (!ROW_DRAG_COLS.has(colId)) list.push({ taskId, colId }); }));
-    return list;
-  };
   // Colunas visíveis na ordem atual (para calcular o retângulo de seleção)
   const visibleColIds = () => [
     ...colOrder.filter(c => !hiddenCols.has(c)),
@@ -1355,6 +1349,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       return;
     }
     setMultiSelCols([colId]); // já conta como selecionada — um Ctrl+clique seguinte soma a partir dela
+    if (multiSelCells.length) setMultiSelCells([]);
     setSelAnchor({ taskId: rows[0], colId });
     setSelectedCell({ taskId: rows[rows.length - 1], colId });
     setSelectedId(null);
@@ -1371,6 +1366,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     setSelectedCell({ taskId: rows[rows.length - 1], colId: cols[cols.length - 1] });
     setSelectedId(rows[0]);
     setMultiSel([]);
+    if (multiSelCells.length) setMultiSelCells([]);
     listaScrollRef.current?.focus?.({ preventScroll: true });
   };
 
@@ -1545,6 +1541,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       : v.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
     return { count, soma: fmt(sum), media: fmt(sum / count) };
   };
+  // Células que recebem a formatação da faixa: colunas marcadas, células soltas (Ctrl+clique),
+  // linhas soltas (Ctrl+clique na calha) ou o intervalo. Ver celulasAlvoFormatacao.
+  const fmtCellList = () => celulasAlvoFormatacao({
+    multiSelCols, multiSelCells, linhasSoltas: multiSel.length ? [...selectedRowIds()] : [],
+    linhas: filtrada.map(x => x.id), colunas: visibleColIds(), intervalo: rangeCellList(), ignorarCols: ROW_DRAG_COLS,
+  });
   const cleanFmtObj = (obj) => { Object.keys(obj).forEach(k => { if (obj[k] === null || obj[k] === undefined || obj[k] === false || obj[k] === '') delete obj[k]; }); return obj; };
   // Aplica um patch de formatação a várias células num ÚNICO commit
   const applyFmtToCells = (cellsList, patch) => {
@@ -1584,16 +1586,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
   const applyFmt = (patch) => {
     if (readOnly) return;
-    if (multiSelCols.length) { applyFmtToCells(multiColCellList(), patch); return; }
-    if (selectedCell) { applyFmtToCells(rangeCellList(), patch); return; }
+    if (multiSelCols.length || selectedCell) { applyFmtToCells(fmtCellList(), patch); return; }
     if (selectedId)   { handleCellFormat(selectedId, '__row', patch); }
   };
   // Tamanho da fonte: aplica SÓ nas células selecionadas (nunca em __row, que vazaria para a linha
   // toda) e "arma" o tamanho para valer no próximo texto novo (linhas em branco).
   const applyFontSize = (fs) => {
     if (!readOnly) {
-      if (multiSelCols.length) applyFmtToCells(multiColCellList(), { fontSize: fs });
-      else if (selectedCell) applyFmtToCells(rangeCellList(), { fontSize: fs });
+      if (multiSelCols.length || selectedCell) applyFmtToCells(fmtCellList(), { fontSize: fs });
       else if (selectedId) applyFmtToCells(visibleColIds().map(colId => ({ taskId: selectedId, colId })), { fontSize: fs });
     }
     setPendingFontSize(fs);
@@ -1603,8 +1603,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const applyFontFamily = (ff) => {
     if (!readOnly) {
       const patch = { fontFamily: ff || false };
-      if (multiSelCols.length) applyFmtToCells(multiColCellList(), patch);
-      else if (selectedCell) applyFmtToCells(rangeCellList(), patch);
+      if (multiSelCols.length || selectedCell) applyFmtToCells(fmtCellList(), patch);
       else if (selectedId) applyFmtToCells(visibleColIds().map(colId => ({ taskId: selectedId, colId })), patch);
     }
     setPendingFontFamily(ff || null);
@@ -1613,7 +1612,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (readOnly) return;
     if (multiSelCols.length || selectedCell) {
       const byTask = {};
-      (multiSelCols.length ? multiColCellList() : rangeCellList()).forEach(({ taskId, colId }) => { (byTask[taskId] = byTask[taskId] || []).push(colId); });
+      fmtCellList().forEach(({ taskId, colId }) => { (byTask[taskId] = byTask[taskId] || []).push(colId); });
       const novas = etapas.map(e => {
         const colIds = byTask[e.id];
         if (!colIds) return e;
@@ -2195,9 +2194,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         isSelectingRef.current = true; // inicia possível arraste de intervalo
         if (ev.ctrlKey || ev.metaKey) {
           ev.preventDefault();
-          setMultiSelCells(cs => cs.some(c => c.taskId === taskId && c.colId === colId)
-            ? cs.filter(c => !(c.taskId === taskId && c.colId === colId))
-            : [...cs, { taskId, colId }]);
+          // A seleção de antes (célula ou intervalo) entra na lista no primeiro Ctrl+clique.
+          const anterior = rangeCellList();
+          if (multiSel.length) setMultiSel([]);
+          setMultiSelCells(cs => alternarCelulaMarcada(cs, anterior, { taskId, colId }));
         } else {
           if (multiSelCells.length) setMultiSelCells([]);
           setSelectedId(taskId);
@@ -4415,6 +4415,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       const cols = visibleColIds();
                       if (!cols.length) return;
                       if (multiSelCols.length) setMultiSelCols([]);
+                      if (multiSelCells.length) setMultiSelCells([]);
                       if (ev.shiftKey && selAnchor) {
                         // Shift+clique na calha: estende da âncora atual até esta linha — mesmo
                         // intervalo de células que o arraste já produz, só que num clique só.
