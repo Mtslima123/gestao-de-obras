@@ -24,10 +24,19 @@ export function migrateEtapas(raw) {
       typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d
     ),
   }));
-  // Atribui displayId permanente às tarefas que ainda não possuem
+  // Atribui displayId permanente às tarefas que ainda não possuem. O displayId é o "ID" mostrado e
+  // digitado em Predecessora/Sucessora (ver computeIdMap): como agora é identidade, um número
+  // repetido (ex.: linhas coladas de outra obra) vira ambiguidade; o segundo a aparecer recebe um
+  // número novo, no fim da sequência.
   const maxDid = arr.reduce((m, e) => Math.max(m, e.displayId || 0), 0);
   let nextDid = maxDid + 1;
-  return arr.map(e => e.displayId ? e : { ...e, displayId: nextDid++ });
+  const usados = new Set();
+  return arr.map(e => {
+    if (e.displayId && !usados.has(e.displayId)) { usados.add(e.displayId); return e; }
+    const novo = nextDid++;
+    usados.add(novo);
+    return { ...e, displayId: novo };
+  });
 }
 
 export const fmtBRL   = (n) => formatBRLUtil(n);
@@ -159,6 +168,18 @@ export function computeSuccessors(etapas) {
 export function computeRowNumberMap(etapas) {
   const map = {};
   etapas.forEach((e, i) => { map[e.id] = i + 1; });
+  return map;
+}
+
+// ID PERMANENTE de cada tarefa (id interno -> displayId): é o número mostrado na coluna "ID" e
+// digitado em Predecessora/Sucessora (Lista, Gantt, Formulário de Tarefa, Medição, Orçamento ×
+// Cronograma). Fixo desde a criação: inserir, mover ou excluir linhas não muda o número de
+// nenhuma outra tarefa, e tarefa nova recebe um número novo no fim da sequência (nextDisplayId).
+// Não depende de filtro nem de grupo recolhido: sempre calculado sobre TODAS as etapas. A calha
+// cinza da grade continua sendo o número da LINHA (posição), que muda quando entram linhas.
+export function computeIdMap(etapas) {
+  const map = {};
+  etapas.forEach(e => { map[e.id] = e.displayId ?? e.id; });
   return map;
 }
 
@@ -470,9 +491,35 @@ export function updateParentBounds(etapas) {
 // Reprograma o restante de uma tarefa parcialmente executada: a fatia já feita
 // (avanco%) vira uma tarefa fechada (100%) onde a tarefa já estava; o que falta
 // vira uma tarefa nova começando no dia 1 do mês seguinte a hoje, com data fixa
-// (mso). A tarefa original vira um grupo — sucessoras que já apontavam pro id
-// dela continuam apontando pro grupo (que passa a cobrir até o fim do
-// restante via updateParentBounds); nenhuma outra tarefa da obra é tocada.
+// (mso). A tarefa original vira um grupo e as sucessoras que apontavam pro id dela passam a
+// apontar pras duas folhas novas (ver religarSucessoras); nenhuma outra tarefa muda de lugar,
+// de número (ID permanente) ou de dependência.
+// Religa as sucessoras da tarefa que acabou de virar grupo: cada dependência que apontava pro
+// id original passa a apontar pras duas folhas novas, mantendo tipo e lag. Sem isso a sucessora
+// ficava presa ao grupo: arrastar o "restante" no Gantt não a movia, as folhas novas ficavam sem
+// Sucessora e o caminho crítico parava no grupo.
+//  - TI e TT: nas DUAS folhas. O fim do restante domina, então as datas não mudam.
+//  - II e IT: só no "executado", que mantém o início original. Nas duas, o início do restante
+//    (1º do mês seguinte) empurraria a sucessora cerca de 1 mês e acusaria conflito falso.
+// Só mexe em quem dependia de `originalId`; as outras predecessoras da sucessora ficam intactas.
+function religarSucessoras(etapas, originalId, fechadoId, restanteId) {
+  const aponta = (d) => (typeof d === 'string' ? d : d.id) === originalId;
+  return etapas.map(e => {
+    if (e.id === originalId || e.id === fechadoId || e.id === restanteId) return e;
+    if (!(e.dep || []).some(aponta)) return e;
+    const dep = [];
+    const tem = (id, tipo) => dep.some(x => x.id === id && (x.tipo || 'TI') === tipo);
+    (e.dep || []).forEach(d => {
+      if (!aponta(d)) { dep.push(d); return; }
+      const base = typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d;
+      const tipo = base.tipo || 'TI';
+      const destinos = (tipo === 'II' || tipo === 'IT') ? [fechadoId] : [fechadoId, restanteId];
+      destinos.forEach(id => { if (!tem(id, tipo)) dep.push({ ...base, id }); });
+    });
+    return { ...e, dep };
+  });
+}
+
 export function reprogramarRestante(etapaId, etapas) {
   const idx = etapas.findIndex(e => e.id === etapaId);
   if (idx < 0) return etapas;
@@ -549,7 +596,10 @@ export function reprogramarRestante(etapaId, etapas) {
   // predecessor real da tarefa original já foi clonado pro "restante" acima (cloneDep()),
   // que continua o trabalho pendente.
   const grupo = { ...target, isGroup: true, collapsed: false, dep: [] };
-  const spliced = [...etapas.slice(0, idx), grupo, fechado, restante, ...etapas.slice(idx + 1)];
+  const spliced = religarSucessoras(
+    [...etapas.slice(0, idx), grupo, fechado, restante, ...etapas.slice(idx + 1)],
+    target.id, fechado.id, restante.id,
+  );
 
   let novas = recomputeHierarchy(spliced);
   novas = updateParentBounds(novas);
@@ -558,49 +608,34 @@ export function reprogramarRestante(etapaId, etapas) {
   return novas;
 }
 
-// Converte dep[] para string exibível usando o número de linha ATUAL da tarefa
-// (posição no array, não um id fixo — ver computeRowNumberMap): "1, 2TT+3d".
-// `rowNumberMap` é opcional; se não vier, calcula na hora (chamadas fora do caminho
+// Converte dep[] para string exibível usando o ID PERMANENTE da tarefa (ver computeIdMap):
+// "1, 2TT+3d". `idMap` é opcional; se não vier, calcula na hora (chamadas fora do caminho
 // quente da grade, ex.: TaskFormPanel, não precisam se preocupar em pré-calcular).
-// `fullMap` (opcional): a numeração completa já pronta — quem chama por linha (Lista) passa
-// a dele, senão o fallback abaixo recalculava computeRowNumberMap(etapas) a CADA linha com
-// predecessora oculta (O(n²) com grupo recolhido/resumo oculto).
-export function formatDepList(dep, etapas, rowNumberMap, fullMap) {
-  const map = rowNumberMap || (etapas ? computeRowNumberMap(etapas) : {});
-  // `rowNumberMap` só numera o que está VISÍVEL na grade agora (respeita grupo recolhido e
-  // filtro de busca/coluna — ver ListaInterativa.jsx): uma predecessora escondida atrás de
-  // um grupo recolhido não tem número aí. Fallback: numeração completa (ignora colapso/
-  // filtro, computada em cima de TODAS as etapas), calculada uma vez só e só se precisar —
-  // mantém a célula sempre com um NÚMERO (nunca o id interno cru nem o nome da tarefa).
-  let mapCompleto = fullMap || null;
-  const numeroCompleto = (id) => {
-    if (!etapas) return undefined;
-    if (!mapCompleto) mapCompleto = computeRowNumberMap(etapas);
-    return mapCompleto[id];
-  };
+export function formatDepList(dep, etapas, idMap) {
+  const map = idMap || (etapas ? computeIdMap(etapas) : {});
   return (dep || []).map(d => {
-    if (typeof d === 'string') return map[d] ?? numeroCompleto(d) ?? d;
-    const disp = map[d.id] ?? numeroCompleto(d.id) ?? d.id;
+    if (typeof d === 'string') return map[d] ?? d;
+    const disp = map[d.id] ?? d.id;
     const t = (d.tipo && d.tipo !== 'TI') ? d.tipo : '';
     const l = d.lag ? ((d.lag > 0 ? '+' : '') + d.lag + 'd') : '';
     return disp + t + l;
   }).join('; ');
 }
 
-// Converte string "1; 2TT+3d" para dep[] resolvendo pelo NÚMERO DE LINHA atual (o
-// mesmo número exibido na coluna ID/Predecessora/Sucessora e na calha da grade) —
-// "3" é literalmente a tarefa na posição 3 do array, `etapas[2]`. Como a numeração é
-// a posição (não um id fixo), mover a tarefa referenciada muda automaticamente o que
-// aparece pra quem aponta pra ela — sem precisar reeditar nada.
+// Converte string "1; 2TT+3d" para dep[] resolvendo pelo ID PERMANENTE (o mesmo número da coluna
+// ID, ver computeIdMap): "3" é a tarefa cujo ID é 3, esteja onde estiver na lista e mesmo
+// escondida por grupo recolhido ou filtro. Passe SEMPRE todas as etapas, não a lista visível.
 // Aceita separador ';' ou ',' e lag no formato "+3d" ou "+3 dias" (colado do Project).
 export function parseDep(raw, etapas) {
+  let porId = null; // índice displayId -> etapa, montado só se houver token válido
   return String(raw).split(/[;,]/).map(s => s.trim()).filter(Boolean).map(token => {
     const norm = token.replace(/\s+/g, '').replace(/dias?$/i, 'd');
     const m = norm.match(/^(\d+)(TI|TT|II|IT)?([+-]\d+d?)?$/i);
     if (!m) return null;
     const tipo = (m[2] || 'TI').toUpperCase();
     const lag  = m[3] ? parseInt(m[3]) : 0;
-    const found = etapas[parseInt(m[1], 10) - 1];
+    if (!porId) porId = new Map(etapas.map(x => [String(x.displayId), x]));
+    const found = porId.get(String(parseInt(m[1], 10)));
     if (!found) return null;
     return { id: found.id, tipo, lag };
   }).filter(Boolean);
@@ -613,10 +648,10 @@ export const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restri
 // Aplica um único campo a uma etapa (conversões de valor). Reutilizado pela Lista
 // (célula editável, colar em bloco) e pelo Formulário de Tarefa do Gantt.
 // NÃO trata 'id' (caso especial de renomeação, tratado no chamador).
-// `resolveList` (opcional): lista usada pra resolver o número digitado em 'dep' —
-// por padrão é a própria `etapas`, mas a Lista passa a lista VISÍVEL (respeitando
-// grupos recolhidos), pra "3" sempre significar "a 3ª linha que aparece na grade"
-// (a mesma numeração da calha), não a 3ª posição na lista inteira.
+// `resolveList` (opcional) é IGNORADO: o ID digitado em 'dep' é permanente (displayId) e sempre se
+// resolve contra TODAS as `etapas`, para uma predecessora escondida por grupo recolhido ou filtro
+// continuar digitável. O parâmetro ficou só para não quebrar quem ainda o passa (a Lista passava a
+// lista visível, e foi assim que a predecessora escondida sumia ao salvar).
 export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   // parseAnyDateToISO aceita tanto ISO (edição/colar interno) quanto DD/MM/AAAA (colar de
   // fora, ex.: Excel) — sem reconhecer o formato, retorna '' e a tarefa não é alterada
@@ -642,7 +677,7 @@ export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   // de propósito) — no-op aqui fecha o caminho de Delete/colar em bloco (ListaInterativa.jsx,
   // applyBlockEdits/pasteExternalText), que sem isso ainda conseguia escrever na célula em
   // branco de Predecessora de um grupo mesmo com duplo-clique/F2 já bloqueados pra ela.
-  if (field === 'dep')         { return e.isGroup ? e : { ...e, dep: parseDep(rawValue, resolveList || etapas).filter(d => d.id !== e.id) }; }
+  if (field === 'dep')         { return e.isGroup ? e : { ...e, dep: parseDep(rawValue, etapas).filter(d => d.id !== e.id) }; }
   if (field === 'restricao') {
     // Campo virtual da coluna simplificada (estilo Project): só uma data, sem tipo à escolha.
     // Preenchida = "não iniciar antes de" (snet); vazia = sem restrição (asap).

@@ -4,7 +4,7 @@
 // Funções puras, rodam em node.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setWorkCal, dateToOffset, offsetToISO, taskEnd } from '../modules/cronograma/cronogramaDateUtils';
-import { reprogramarRestante, commitFieldChange, computeMonthlyDist } from '../modules/cronograma/scheduleEngine';
+import { reprogramarRestante, commitFieldChange, computeMonthlyDist, computeSuccessors } from '../modules/cronograma/scheduleEngine';
 import { computeValorVinculadoMap } from '../modules/cronograma/ganttUtils';
 
 beforeEach(() => {
@@ -197,5 +197,73 @@ describe('reprogramarRestante', () => {
     expect(map2[fechado.id]).toBe(map[fechado.id]);
     expect(map2[restante.id]).toBeCloseTo(500);
     expect(map2['T1']).toBeCloseTo(1000);
+  });
+
+  // ── Sucessoras religadas às duas folhas novas ──────────────────────────────────────────────
+  describe('sucessoras da tarefa dividida', () => {
+    const cenario = (depDaSucessora, extra = {}) => ([
+      baseTarefa({ id: 'P', displayId: 10, etapa: 'Predecessora', dur: 5, avanco: 100 }),
+      baseTarefa({ id: 'T1', displayId: 11, dep: [{ id: 'P', tipo: 'TI', lag: 0 }] }),
+      baseTarefa({ id: 'S', displayId: 12, etapa: 'Sucessora', avanco: 0, dep: depDaSucessora, ...extra }),
+    ]);
+    const folhas = (out) => ({
+      fechado:  out.find(e => e.parentId === 'T1' && e.avanco === 100),
+      restante: out.find(e => e.parentId === 'T1' && e.avanco === 0),
+    });
+
+    it('TI: a sucessora passa a depender das DUAS folhas e deixa de depender do grupo (caso Enfiação Puc)', () => {
+      const out = reprogramarRestante('T1', cenario([{ id: 'T1', tipo: 'TI', lag: 0 }]));
+      const { fechado, restante } = folhas(out);
+      const s = out.find(e => e.id === 'S');
+      expect(s.dep.map(d => d.id).sort()).toEqual([fechado.id, restante.id].sort());
+      expect(s.dep.some(d => d.id === 'T1')).toBe(false);
+      expect(s.dep.every(d => d.tipo === 'TI' && d.lag === 0)).toBe(true);
+    });
+
+    it('as datas da sucessora não mudam (o fim do restante domina)', () => {
+      const antes = reprogramarRestante('T1', cenario([{ id: 'T1', tipo: 'TI', lag: 0 }]));
+      const grupo = antes.find(e => e.id === 'T1');
+      expect(antes.find(e => e.id === 'S').inicio).toBe(taskEnd(grupo));
+    });
+
+    it('TT mantém o tipo e o lag nas duas folhas', () => {
+      const out = reprogramarRestante('T1', cenario([{ id: 'T1', tipo: 'TT', lag: 3 }]));
+      const s = out.find(e => e.id === 'S');
+      expect(s.dep).toHaveLength(2);
+      expect(s.dep.every(d => d.tipo === 'TT' && d.lag === 3)).toBe(true);
+    });
+
+    it('II e IT vão só para o executado (que mantém o início original), senão a sucessora andaria ~1 mês', () => {
+      ['II', 'IT'].forEach((tipo) => {
+        const out = reprogramarRestante('T1', cenario([{ id: 'T1', tipo, lag: 2 }]));
+        const { fechado } = folhas(out);
+        const s = out.find(e => e.id === 'S');
+        expect(s.dep).toEqual([{ id: fechado.id, tipo, lag: 2 }]);
+      });
+    });
+
+    it('as outras predecessoras da sucessora ficam como estavam, e dependência em formato antigo (texto) também é religada', () => {
+      const out = reprogramarRestante('T1', cenario(['P', 'T1']));
+      const { fechado, restante } = folhas(out);
+      const s = out.find(e => e.id === 'S');
+      expect(s.dep.find(d => d === 'P')).toBe('P');
+      expect(s.dep.filter(d => typeof d === 'object').map(d => d.id).sort()).toEqual([fechado.id, restante.id].sort());
+    });
+
+    it('tarefa que não dependia da original não é tocada', () => {
+      const etapas = cenario([{ id: 'P', tipo: 'TI', lag: 0 }]);
+      const depAntes = etapas.find(e => e.id === 'S').dep;
+      const out = reprogramarRestante('T1', etapas);
+      expect(out.find(e => e.id === 'S').dep).toEqual(depAntes);
+    });
+
+    it('a Sucessora aparece nas folhas novas (computeSuccessors) e não no grupo', () => {
+      const out = reprogramarRestante('T1', cenario([{ id: 'T1', tipo: 'TI', lag: 0 }]));
+      const { fechado, restante } = folhas(out);
+      const succ = computeSuccessors(out);
+      expect(succ[fechado.id]).toEqual(['S']);
+      expect(succ[restante.id]).toEqual(['S']);
+      expect(succ['T1']).toEqual([]);
+    });
   });
 });

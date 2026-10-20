@@ -21,7 +21,7 @@ import {
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
   createGroup, autoScheduleFromDeps, formatDepList, parseDep,
   moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento,
-  reprogramarRestante, computeSuccessors, computeRowNumberMap, filtrarComAncestrais,
+  reprogramarRestante, computeSuccessors, computeIdMap, filtrarComAncestrais,
 } from './scheduleEngine';
 import { computeAutofillSeries } from './autofillSeries';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal, ExcluirTarefasModal } from './cronogramaModais';
@@ -294,11 +294,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const visible     = React.useMemo(() => getVisibleEtapas(etapas), [etapas]);
   // Número de linha "cedo" (baseado só em `visible`, sem os filtros de busca/coluna) —
   // usado apenas dentro de colFilterValue/filterKeyOf, que por sua vez alimentam o
-  // cálculo de `filtrada` mais abaixo. O rowNumberMap "de verdade" (que bate com a
-  // calha, incluindo filtro de busca/coluna) só pode ser calculado DEPOIS de `filtrada`
-  // existir — usar esse aqui evitaria uma dependência circular (filtrada precisa de
-  // colFilterValue, que precisaria do rowNumberMap final, que precisa de filtrada).
-  const rowNumberMapEarly = React.useMemo(() => computeRowNumberMap(visible), [visible]);
+  // cálculo de `filtrada` mais abaixo. O "ID" é o displayId PERMANENTE (computeIdMap): não depende
+  // de filtro nem de grupo recolhido, então um único mapa sobre TODAS as etapas serve a grade, a
+  // busca/filtro, os exports e Predecessora/Sucessora (os nomes rowNumberMap* são só apelidos dele).
+  const idMapFull = React.useMemo(() => computeIdMap(etapas), [etapas]);
+  const rowNumberMapEarly = idMapFull;
   // Sugestões (datalist) das colunas "Lista com sugestão automática": valores já digitados em
   // qualquer linha da mesma coluna, sem restringir a digitação a essa lista (livre, não fixa).
   const autocompleteOptionsByCol = React.useMemo(() => {
@@ -422,7 +422,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'custoReal': return { raw: realCst, label: fmtBRL(realCst) };
       case 'custoOrcado': { const v = custoOrcadoMap[e.id] || 0; return { raw: v, label: fmtBRL(v) }; }
       case 'saldo':     { const v = custoEf(e, gv) - realCst; return { raw: v, label: fmtBRL(v) }; }
-      case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMapEarly); return { raw: v, label: v === '—' ? '' : v }; }
+      case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas, idMapFull); return { raw: v, label: v === '—' ? '' : v }; }
       case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => rowNumberMapEarly[id] ?? id).join('; '); return { raw: v, label: v }; }
       case 'resp': { const v = e.isGroup ? '' : (e.responsavel || ''); return { raw: v, label: v }; }
       case 'pavimento': { const v = e.isGroup ? '' : (e.pavimento || ''); return { raw: v, label: v }; }
@@ -723,17 +723,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   }, [filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
   const filtrada = React.useMemo(() => filtrarLinhas(visible), [filtrarLinhas, visible]);
 
-  // Número de linha (posição em `filtrada`, a mesma lista que numera a calha) de cada
-  // tarefa — é o que aparece na coluna "ID" e no que se digita/mostra em Predecessora e
-  // Sucessora. Sempre igual ao que a calha mostra na hora (grupo recolhido/filtro ativo
-  // incluso), em vez da posição na lista inteira — ver computeRowNumberMap.
-  const rowNumberMap = React.useMemo(() => computeRowNumberMap(filtrada), [filtrada]);
-  const idToDisplayId = rowNumberMap;
-  // Tarefa fora da grade agora (resumo oculto, grupo recolhido, filtro) não tem número em
-  // rowNumberMap — cai na numeração completa, igual formatDepList faz pra Predecessora.
-  // Sem isso a Sucessora mostrava o id interno cru (TSK-xxx) em vez de um número.
-  const fullRowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
-  const numeroDaLinha = (id) => idToDisplayId[id] ?? fullRowNumberMap[id] ?? id;
+  // ID permanente (displayId) de cada tarefa — é o que aparece na coluna "ID" e no que se
+  // digita/mostra em Predecessora e Sucessora. Não muda quando entram ou saem linhas, nem com
+  // grupo recolhido ou filtro ativo (a calha cinza continua sendo o número da LINHA).
+  const rowNumberMap = idMapFull;
+  const idToDisplayId = idMapFull;
+  const fullRowNumberMap = idMapFull;
+  const numeroDaLinha = (id) => idMapFull[id] ?? id;
   // Busca por id em O(1) pras colunas Predecessora/Sucessora — etapas.find por vínculo, por
   // linha, no texto e no title, somava milhões de comparações a cada render da Lista.
   const etapaById = React.useMemo(() => new Map(etapas.map(e => [e.id, e])), [etapas]);
@@ -808,7 +804,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // e.isGroup ? '' : ...: mesmo branco que a célula já mostra pra grupo em todo canto da
     // Lista (duplo-clique, F2, colFilterValue) — sem isso, Ctrl+C numa linha de grupo
     // copiava o texto do vínculo antigo mesmo a célula aparecendo vazia na tela.
-    dep:       { kind: 'text',   get: e => e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap), field: 'dep' },
+    dep:       { kind: 'text',   get: e => e.isGroup ? '' : formatDepList(e.dep, etapas, idMapFull), field: 'dep' },
     // Sucessora é derivada (vínculo reverso, gravado no `dep` de OUTRAS tarefas) — colar aqui
     // não usa applyFieldToEtapa como as demais colunas; ver applySuccEdits/applyBlockEdits.
     succ:      { kind: 'text',   get: e => e.isGroup ? '' : formatSucc(e.id),                  field: 'succ' },
@@ -1021,13 +1017,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (ed.field === 'succ') { succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue }); return; }
         if (bloqueiaEdicaoEmMassa(ed.field, e)) return;
         const antes = ne;
-        ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, filtrada);
+        ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, etapas);
         if (RESCHEDULE_FIELDS.includes(ed.field) && etapaMudouParaAgendamento(antes, ne)) reschedule = true;
       });
       return ne;
     });
     let novas = [...editadas, ...novos];
-    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, filtrada); reschedule = true; }
+    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, etapas); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
   // Cola criando tarefas NOVAS a partir do zero (grade sem nenhuma linha ainda, ou nenhuma
@@ -2569,7 +2565,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           if (ed.field === 'succ') succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue });
           else if (!bloqueiaEdicaoEmMassa(ed.field, e)) {
             const antes = ne;
-            ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, filtrada);
+            ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, etapas);
             if (RESCHEDULE_FIELDS.includes(ed.field) && etapaMudouParaAgendamento(antes, ne)) reschedule = true;
           }
         }
@@ -2582,7 +2578,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (fmtChanged) ne = { ...ne, fmt };
       return ne;
     });
-    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, filtrada); reschedule = true; }
+    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, etapas); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
   };
 
@@ -2682,7 +2678,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (!tokens.length) return;
     // Resolve contra `filtrada` (a mesma lista que numera a calha) — "3" tem que
     // significar a 3ª linha que aparece na grade, não a 3ª da lista inteira.
-    const resolvidos = parseDep(rawValue, filtrada).length;
+    const resolvidos = parseDep(rawValue, etapas).length;
     if (resolvidos < tokens.length) {
       const naoResolvidos = tokens.length - resolvidos;
       toast(
@@ -2728,10 +2724,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // e o Ctrl+Z "desfaz" para um estado igual (parece que não faz nada).
     const cur = etapas.find(e => e.id === id);
     if (cur) {
-      const next = applyFieldToEtapa(cur, field, rawValue, etapas, filtrada);
+      const next = applyFieldToEtapa(cur, field, rawValue, etapas, etapas);
       if (JSON.stringify(cur) === JSON.stringify(next)) return;
     }
-    onCommit(commitFieldChange(etapas, id, field, rawValue, filtrada), { silent: true });
+    onCommit(commitFieldChange(etapas, id, field, rawValue), { silent: true });
     // Devolve o foco pra grade depois de salvar (inclui REMOVER, ao esvaziar a célula) — o
     // caminho de colar/Enter/Ctrl+Z/Esc de cada editor próprio (Predecessora, Custo, Custo
     // Real, Fator Peso) já refocava a grade antes de chegar aqui, mas o de "clicar fora"
@@ -2804,7 +2800,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Edita a Sucessora escrevendo o vínculo reverso (predecessora) nas outras tarefas.
   const handleSuccSave = (taskId, raw) => {
     avisarTokensNaoResolvidos(raw);
-    const reprog = autoScheduleFromDeps(applySuccEdits(etapas, [{ taskId, rawValue: raw }], filtrada));
+    const reprog = autoScheduleFromDeps(applySuccEdits(etapas, [{ taskId, rawValue: raw }], etapas));
     if (JSON.stringify(reprog) === JSON.stringify(etapas)) return; // sem mudança real
     onCommit(reprog);
     // Mesmo motivo do campo Predecessora (handleCellSave, acima): sem devolver o foco pra
@@ -2967,7 +2963,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custoOrcado') return custoOrcadoMap[e.id] || 0;
         if (cid === 'saldo')    return cst - realCst;
         if (cid === 'resp')     return e.responsavel || '';
-        if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap);
+        if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas, idMapFull);
         if (cid === 'succ')     return (succMap[e.id] || []).map(numeroDaLinha).join('; ');
         if (cid === 'status')   return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return e.restricaoData ? dateToExcelSerial(offsetToDate(dateToOffset(e.restricaoData))) : '';
@@ -3068,7 +3064,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custoOrcado') return fmtBRL(custoOrcadoMap[e.id] || 0);
         if (cid === 'saldo')     return fmtBRL(cst - realCst);
         if (cid === 'resp')      return e.responsavel || '';
-        if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap);
+        if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas, idMapFull);
         if (cid === 'succ')      return (succMap[e.id] || []).map(numeroDaLinha).join('; ');
         if (cid === 'status')    return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return e.restricaoData ? isoToBR(e.restricaoData) : '';
@@ -4231,7 +4227,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 dep: (
                   <td key="dep" onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? null : editingDep === e.id ? (
-                      <input autoFocus defaultValue={formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap)}
+                      <input autoFocus defaultValue={formatDepList(e.dep, etapas, idMapFull)}
                         style={{ width: '100%', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); }}
                         onKeyDown={ev => {
@@ -4250,7 +4246,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
-                      const txt = formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap);
+                      const txt = formatDepList(e.dep, etapas, idMapFull);
                       return (
                         <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text' }} title={formatDepNames(e.dep) || undefined}>
                           {txt || <span className="text-faint">—</span>}

@@ -232,30 +232,27 @@ describe('commitFieldChange — colar/editar o mesmo valor não reprograma o cro
   });
 });
 
-// Bug relatado: Predecessora/Sucessora mostrava o id interno cru ("TSK-018") em vez de um
-// número — acontece quando o rowNumberMap não numera a predecessora (grupo recolhido ou
-// filtro escondendo a linha na Lista, ver ListaInterativa.jsx). Tentativa 1 (revertida):
-// caiu pro NOME da tarefa — o usuário não quis, queria continuar vendo só numeração.
-// Fix definitivo: cai pra uma numeração completa (ignora colapso/filtro, todas as etapas),
-// nunca pro id cru nem pro nome.
-describe('formatDepList — predecessora fora do rowNumberMap cai pra numeração completa', () => {
+// Bug relatado: Predecessora/Sucessora mostrava o id interno cru ("TSK-018") em vez de um número.
+// O número é o ID PERMANENTE (displayId, ver computeIdMap): não depende de filtro nem de grupo
+// recolhido, então a predecessora escondida na grade continua com o número dela. Nunca o id cru
+// nem o nome da tarefa (o usuário queria continuar vendo só numeração).
+describe('formatDepList — mostra o ID permanente da predecessora', () => {
   const etapas = [
-    { id: 'TSK-001', etapa: 'Estrutura - Tipo 1' },
-    { id: 'TSK-002', etapa: 'Piso - Tipo 1' },
+    { id: 'TSK-001', displayId: 11, etapa: 'Estrutura - Tipo 1' },
+    { id: 'TSK-002', displayId: 12, etapa: 'Piso - Tipo 1' },
   ];
 
-  it('resolve pelo número quando o rowNumberMap conhece o id', () => {
-    const rowNumberMap = { 'TSK-001': 1, 'TSK-002': 2 };
-    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], etapas, rowNumberMap)).toBe('1');
+  it('com o mapa de IDs pronto, usa o número dele', () => {
+    const idMap = { 'TSK-001': 11, 'TSK-002': 12 };
+    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], etapas, idMap)).toBe('11');
   });
 
-  it('cai pra numeração completa (posição em todas as etapas) quando o rowNumberMap não tem a entrada', () => {
-    const rowNumberMapSemTSK001 = { 'TSK-002': 2 }; // TSK-001 "escondida" (grupo recolhido/filtro)
-    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], etapas, rowNumberMapSemTSK001))
-      .toBe('1'); // TSK-001 é a 1ª de `etapas`, mesmo fora do rowNumberMap passado
+  it('sem o mapa, calcula o ID permanente a partir das etapas (não pela posição)', () => {
+    expect(formatDepList([{ id: 'TSK-002', tipo: 'TT', lag: 3 }], etapas)).toBe('12TT+3d');
+    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }, { id: 'TSK-002', tipo: 'TI', lag: 0 }], etapas)).toBe('11; 12');
   });
 
-  it('sem etapas pra calcular a numeração completa, cai pro id cru mesmo (não tem outra opção)', () => {
+  it('sem etapas pra calcular o ID, cai pro id cru mesmo (não tem outra opção)', () => {
     expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], null, {})).toBe('TSK-001');
   });
 });

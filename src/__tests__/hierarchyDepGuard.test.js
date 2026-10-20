@@ -75,9 +75,10 @@ describe('applyFieldToEtapa — Predecessora de um grupo não é editável (no-o
   });
 
   it('numa folha, continua funcionando normalmente (regressão)', () => {
+    // O número digitado é o ID permanente (displayId) da predecessora, não a posição na lista.
     const folha = baseTarefa({ dep: [] });
-    const pred = baseTarefa({ id: 'X' });
-    const out = applyFieldToEtapa(folha, 'dep', '1', [pred, folha]);
+    const pred = baseTarefa({ id: 'X', displayId: 7 });
+    const out = applyFieldToEtapa(folha, 'dep', '7', [pred, folha]);
     expect(out.dep).toEqual([{ id: 'X', tipo: 'TI', lag: 0 }]);
   });
 });

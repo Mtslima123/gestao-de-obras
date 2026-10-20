@@ -19,7 +19,7 @@ import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay
 import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, statusAposAvanco, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist, computeAllGroupMonthlyDist,
-  computeGroupValues, computeSuccessors, computeAvancoFisico, computeRowNumberMap,
+  computeGroupValues, computeSuccessors, computeAvancoFisico, computeIdMap,
 } from './scheduleEngine';
 import MedicaoMensal from './MedicaoMensal';
 import {
@@ -3238,8 +3238,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   const wbsMap     = React.useMemo(() => computeAllWBS(etapas), [etapas]);
   // Número de linha atual de cada tarefa (posição no array) — usado como "ID" em toda
   // a tela (Lista, Gantt, Formulário de Tarefa, Orçamento x Cronograma) e para
-  // exibir/digitar Predecessora e Sucessora. Ver computeRowNumberMap (scheduleEngine.js).
-  const rowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+  // exibir/digitar Predecessora e Sucessora. Ver computeIdMap (scheduleEngine.js).
+  const rowNumberMap = React.useMemo(() => computeIdMap(etapas), [etapas]);
 
   // Ids de tarefa com vínculo direto a algum item de orçamento (para o filtro vinculado/não vinculado).
   const vinculadoIds = React.useMemo(() => new Set(vinculos.map(v => v.etapa_id)), [vinculos]);

@@ -5,7 +5,7 @@ import { supabase } from '../../services/supabase';
 import { vinculoService, itemValor } from './vinculoService';
 import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
-import { parseBRL, computeRowNumberMap } from '../cronograma/scheduleEngine';
+import { parseBRL, computeIdMap } from '../cronograma/scheduleEngine';
 import { buildChildrenMap, flattenTree, noTravado, redistribuirPorValor } from './distribuirPesos';
 import { filtrarComSubarvore, folhasDaSubarvore, ancestraisDe } from './itensHierarquia';
 import { invalidateCronCache, _ocCache, _obrasComCronCache } from '../cronograma/cronogramaCache';
@@ -971,7 +971,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
 
   // Mesmo "ID" (número de linha atual) mostrado na Lista/Gantt do Cronograma — pra não
   // ter duas numerações de tarefa diferentes entre as telas.
-  const rowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+  const rowNumberMap = React.useMemo(() => computeIdMap(etapas), [etapas]);
 
   // Mapa orcamento_item_id -> valor (alimenta a distribuição de pesos por fator_peso)
   const orcamentoItensMap = React.useMemo(

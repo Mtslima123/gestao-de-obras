@@ -10,7 +10,7 @@ import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, tas
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
-         nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap, filtrarComAncestrais } from './scheduleEngine';
+         nextEtapaId, nextDisplayId, emptyCustomCols, computeIdMap, filtrarComAncestrais } from './scheduleEngine';
 import { PavimentosModal, ExcluirTarefasModal } from './cronogramaModais';
 import { etapasSemExcluidas, idsExcluidos, vinculosAfetados } from './exclusaoTarefasPure';
 import { TaskFormPanel } from './TaskFormPanel';
@@ -85,7 +85,8 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   const toast = useToast();
   // Tarefa fora do rowNumberMap (oculta/recolhida) cai na numeração completa — nunca
   // mostra o id interno cru (TSK-xxx), mesma regra de formatDepList.
-  const fullRowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+  // ID permanente (displayId) de todas as tarefas: o mesmo número da Lista e das outras telas.
+  const fullRowNumberMap = React.useMemo(() => computeIdMap(etapas), [etapas]);
   const numeroDaLinha = (id) => rowNumberMap[id] ?? fullRowNumberMap[id] ?? id;
   const [selected,    setSel]      = React.useState(new Set());
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
@@ -426,7 +427,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           av / 100,
           e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura'),
           cst,
-          e.isGroup ? '' : formatDepList(e.dep, etapas, rowNumberMap, fullRowNumberMap),
+          e.isGroup ? '' : formatDepList(e.dep, etapas, fullRowNumberMap),
         ];
       });
       const rows = [

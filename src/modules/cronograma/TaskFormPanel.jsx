@@ -5,7 +5,7 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
 import { offsetToISO, taskEndDisplay, isoToBR } from './cronogramaDateUtils';
-import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors, computeRowNumberMap } from './scheduleEngine';
+import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors, computeIdMap } from './scheduleEngine';
 
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 const PANEL_H = 220; // também serve de altura mínima ao arrastar
@@ -20,9 +20,9 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   const [novoSuccId, setNovoSuccId] = React.useState('');
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
   const succMap = React.useMemo(() => computeSuccessors(etapas), [etapas]);
-  // Sem rowNumberMap (a Lista não passa) ou tarefa fora dele: numeração completa, a mesma
-  // que resolveRef usa pro número digitado — nunca o id interno cru (TSK-xxx).
-  const fullRowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+  // ID permanente (displayId) de todas as tarefas, o mesmo que resolveRef usa pro número
+  // digitado — nunca o id interno cru (TSK-xxx).
+  const fullRowNumberMap = React.useMemo(() => computeIdMap(etapas), [etapas]);
   const numeroDaLinha = (id) => rowNumberMap[id] ?? fullRowNumberMap[id] ?? id;
   // Altura arrastável (borda de cima, estilo Excel) — persiste entre sessões, igual a
   // colWidths na Lista. PANEL_H (valor original fixo) vira o mínimo/altura padrão.
@@ -77,11 +77,9 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   const setDep = (novoDep) => onCommit(autoScheduleFromDeps(etapas.map(e => (e.id === task.id ? { ...e, dep: novoDep } : e))));
   const updatePred = (idx, patch) => setDep(task.dep.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
   const removePred = (idx) => setDep((task.dep || []).filter((_, i) => i !== idx));
-  // Resolve pelo número de linha ATUAL (mesmo mostrado na coluna ID/na calha da Lista/
-  // Gantt), não por um id fixo — mover a tarefa referenciada muda o número mostrado
-  // aqui automaticamente, sem precisar reeditar (ver computeRowNumberMap/parseDep em
+  // Resolve pelo ID PERMANENTE (o número da coluna ID da Lista/Gantt, ver computeIdMap/parseDep em
   // scheduleEngine.js). Mantém a busca por id interno como fallback (colar direto).
-  const resolveRef = (ref) => etapas[parseInt(ref, 10) - 1] || etapas.find(e => e.id === ref);
+  const resolveRef = (ref) => etapas.find(e => String(e.displayId) === String(parseInt(ref, 10))) || etapas.find(e => e.id === ref);
   const addPred = () => {
     const ref = (novoPredId || '').trim();
     if (!ref) return;
