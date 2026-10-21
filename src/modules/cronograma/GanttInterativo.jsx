@@ -10,7 +10,7 @@ import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, tas
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
-         nextEtapaId, nextDisplayId, emptyCustomCols, computeIdMap, filtrarComAncestrais } from './scheduleEngine';
+         nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap, filtrarComAncestrais } from './scheduleEngine';
 import { PavimentosModal, ExcluirTarefasModal } from './cronogramaModais';
 import { etapasSemExcluidas, idsExcluidos, vinculosAfetados } from './exclusaoTarefasPure';
 import { TaskFormPanel } from './TaskFormPanel';
@@ -84,11 +84,10 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   // aba) e repassados por prop — evita recalcular sobre todas as etapas a cada remontagem.
   custoOrcadoMap = {}, groupVals = {} }) => {
   const toast = useToast();
-  // Tarefa fora do rowNumberMap (oculta/recolhida) cai na numeração completa — nunca
-  // mostra o id interno cru (TSK-xxx), mesma regra de formatDepList.
-  // ID permanente (displayId) de todas as tarefas: o mesmo número da Lista e das outras telas.
-  const fullRowNumberMap = React.useMemo(() => computeIdMap(etapas), [etapas]);
-  const numeroDaLinha = (id) => rowNumberMap[id] ?? fullRowNumberMap[id] ?? id;
+  // Número da LINHA (calha da Lista) de todas as tarefas: é o que o popover de conflitos e o texto de
+  // Predecessora (export) mostram. `rowNumberMap` (prop) é o ID permanente, da coluna ID da lateral.
+  const fullRowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+  const numeroDaLinha = (id) => fullRowNumberMap[id] ?? id;
   const [selected,    setSel]      = React.useState(new Set());
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
@@ -1958,7 +1957,6 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           <TaskFormPanel
             task={idx >= 0 ? visible[idx] : null}
             etapas={etapas}
-            rowNumberMap={rowNumberMap}
             onCommit={onCommit}
             readOnly={readOnly}
             canPrev={idx > 0}

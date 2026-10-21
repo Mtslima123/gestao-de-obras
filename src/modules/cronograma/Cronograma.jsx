@@ -3243,9 +3243,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // por prop em vez de recalcular do zero a cada remontagem (custo real com 1000+ etapas).
   const groupVals = React.useMemo(() => computeGroupValues(etapas, custoOrcadoMap), [etapas, custoOrcadoMap]);
   const wbsMap     = React.useMemo(() => computeAllWBS(etapas), [etapas]);
-  // Número de linha atual de cada tarefa (posição no array) — usado como "ID" em toda
-  // a tela (Lista, Gantt, Formulário de Tarefa, Orçamento x Cronograma) e para
-  // exibir/digitar Predecessora e Sucessora. Ver computeIdMap (scheduleEngine.js).
+  // ID permanente de cada tarefa — a coluna "ID" da Lista, do Gantt, da Medição e do Orçamento x
+  // Cronograma. Predecessora e Sucessora usam o número da linha (calha), não este. Ver
+  // computeIdMap (scheduleEngine.js).
   const rowNumberMap = React.useMemo(() => computeIdMap(etapas), [etapas]);
 
   // Ids de tarefa com vínculo direto a algum item de orçamento (para o filtro vinculado/não vinculado).

@@ -160,9 +160,9 @@ export function computeSuccessors(etapas) {
 
 // Número de linha (posição atual, 1-based) de cada tarefa no array `etapas` — que já é
 // mantido na ordem visual real (drag-and-drop, indentar/recuar, recortar/colar linha
-// reordenam o próprio array, não só a exibição). É o número mostrado na coluna "ID" e
-// digitado em Predecessora/Sucessora: ao contrário de um id fixo, acompanha a tarefa
-// automaticamente quando ela muda de posição — estilo MS Project. Passe único, mesmo
+// reordenam o próprio array, não só a exibição). É o número da calha cinza e o que se mostra e
+// digita em Predecessora/Sucessora: acompanha a tarefa quando ela muda de posição, estilo MS
+// Project (o vínculo é guardado pelo id interno; só o TEXTO dessas colunas é renumerado). Passe único, mesmo
 // padrão de rollup de computeSuccessors/computeAllWBS (evita repetir busca linear por
 // tarefa, que já causou problema de performance neste projeto em EAPs grandes).
 export function computeRowNumberMap(etapas) {
@@ -171,12 +171,10 @@ export function computeRowNumberMap(etapas) {
   return map;
 }
 
-// ID PERMANENTE de cada tarefa (id interno -> displayId): é o número mostrado na coluna "ID" e
-// digitado em Predecessora/Sucessora (Lista, Gantt, Formulário de Tarefa, Medição, Orçamento ×
-// Cronograma). Fixo desde a criação: inserir, mover ou excluir linhas não muda o número de
-// nenhuma outra tarefa, e tarefa nova recebe um número novo no fim da sequência (nextDisplayId).
-// Não depende de filtro nem de grupo recolhido: sempre calculado sobre TODAS as etapas. A calha
-// cinza da grade continua sendo o número da LINHA (posição), que muda quando entram linhas.
+// ID PERMANENTE de cada tarefa (id interno -> displayId): é o número da coluna "ID" (Lista, Gantt,
+// Medição, Orçamento × Cronograma). Fixo desde a criação: inserir, mover ou excluir linhas não muda
+// o número de nenhuma outra tarefa, e tarefa nova recebe um número novo no fim da sequência
+// (nextDisplayId). Predecessora e Sucessora NÃO usam este número: seguem a calha (computeRowNumberMap).
 export function computeIdMap(etapas) {
   const map = {};
   etapas.forEach(e => { map[e.id] = e.displayId ?? e.id; });
@@ -644,11 +642,11 @@ export function reprogramarRestante(etapaId, etapas) {
   return novas;
 }
 
-// Converte dep[] para string exibível usando o ID PERMANENTE da tarefa (ver computeIdMap):
-// "1, 2TT+3d". `idMap` é opcional; se não vier, calcula na hora (chamadas fora do caminho
-// quente da grade, ex.: TaskFormPanel, não precisam se preocupar em pré-calcular).
+// Converte dep[] para string exibível usando o NÚMERO DA LINHA (calha) de cada predecessora (ver
+// computeRowNumberMap): "1; 2TT+3d". `idMap` (aqui, o mapa de linhas) é opcional; se não vier,
+// calcula na hora (chamadas fora do caminho quente da grade não precisam pré-calcular).
 export function formatDepList(dep, etapas, idMap) {
-  const map = idMap || (etapas ? computeIdMap(etapas) : {});
+  const map = idMap || (etapas ? computeRowNumberMap(etapas) : {});
   return (dep || []).map(d => {
     if (typeof d === 'string') return map[d] ?? d;
     const disp = map[d.id] ?? d.id;
@@ -658,20 +656,18 @@ export function formatDepList(dep, etapas, idMap) {
   }).join('; ');
 }
 
-// Converte string "1; 2TT+3d" para dep[] resolvendo pelo ID PERMANENTE (o mesmo número da coluna
-// ID, ver computeIdMap): "3" é a tarefa cujo ID é 3, esteja onde estiver na lista e mesmo
-// escondida por grupo recolhido ou filtro. Passe SEMPRE todas as etapas, não a lista visível.
+// Converte string "1; 2TT+3d" para dep[] resolvendo pelo NÚMERO DA LINHA (a calha cinza, ver
+// computeRowNumberMap): "3" é a tarefa que está na 3ª linha da lista COMPLETA, mesmo escondida por
+// grupo recolhido ou filtro. Passe SEMPRE todas as etapas, na ordem, não a lista visível.
 // Aceita separador ';' ou ',' e lag no formato "+3d" ou "+3 dias" (colado do Project).
 export function parseDep(raw, etapas) {
-  let porId = null; // índice displayId -> etapa, montado só se houver token válido
   return String(raw).split(/[;,]/).map(s => s.trim()).filter(Boolean).map(token => {
     const norm = token.replace(/\s+/g, '').replace(/dias?$/i, 'd');
     const m = norm.match(/^(\d+)(TI|TT|II|IT)?([+-]\d+d?)?$/i);
     if (!m) return null;
     const tipo = (m[2] || 'TI').toUpperCase();
     const lag  = m[3] ? parseInt(m[3]) : 0;
-    if (!porId) porId = new Map(etapas.map(x => [String(x.displayId), x]));
-    const found = porId.get(String(parseInt(m[1], 10)));
+    const found = etapas[parseInt(m[1], 10) - 1];
     if (!found) return null;
     return { id: found.id, tipo, lag };
   }).filter(Boolean);
@@ -684,8 +680,8 @@ export const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restri
 // Aplica um único campo a uma etapa (conversões de valor). Reutilizado pela Lista
 // (célula editável, colar em bloco) e pelo Formulário de Tarefa do Gantt.
 // NÃO trata 'id' (caso especial de renomeação, tratado no chamador).
-// `resolveList` (opcional) é IGNORADO: o ID digitado em 'dep' é permanente (displayId) e sempre se
-// resolve contra TODAS as `etapas`, para uma predecessora escondida por grupo recolhido ou filtro
+// `resolveList` (opcional) é IGNORADO: o número digitado em 'dep' é a linha da lista COMPLETA e sempre
+// se resolve contra TODAS as `etapas`, para uma predecessora escondida por grupo recolhido ou filtro
 // continuar digitável. O parâmetro ficou só para não quebrar quem ainda o passa (a Lista passava a
 // lista visível, e foi assim que a predecessora escondida sumia ao salvar).
 export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {

@@ -236,23 +236,23 @@ describe('commitFieldChange — colar/editar o mesmo valor não reprograma o cro
 // O número é o ID PERMANENTE (displayId, ver computeIdMap): não depende de filtro nem de grupo
 // recolhido, então a predecessora escondida na grade continua com o número dela. Nunca o id cru
 // nem o nome da tarefa (o usuário queria continuar vendo só numeração).
-describe('formatDepList — mostra o ID permanente da predecessora', () => {
+describe('formatDepList — mostra o número da linha da predecessora', () => {
   const etapas = [
     { id: 'TSK-001', displayId: 11, etapa: 'Estrutura - Tipo 1' },
     { id: 'TSK-002', displayId: 12, etapa: 'Piso - Tipo 1' },
   ];
 
-  it('com o mapa de IDs pronto, usa o número dele', () => {
-    const idMap = { 'TSK-001': 11, 'TSK-002': 12 };
-    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], etapas, idMap)).toBe('11');
+  it('com o mapa pronto, usa o número dele', () => {
+    const mapa = { 'TSK-001': 11, 'TSK-002': 12 };
+    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], etapas, mapa)).toBe('11');
   });
 
-  it('sem o mapa, calcula o ID permanente a partir das etapas (não pela posição)', () => {
-    expect(formatDepList([{ id: 'TSK-002', tipo: 'TT', lag: 3 }], etapas)).toBe('12TT+3d');
-    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }, { id: 'TSK-002', tipo: 'TI', lag: 0 }], etapas)).toBe('11; 12');
+  it('sem o mapa, calcula a LINHA a partir das etapas (não o displayId 11/12)', () => {
+    expect(formatDepList([{ id: 'TSK-002', tipo: 'TT', lag: 3 }], etapas)).toBe('2TT+3d');
+    expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }, { id: 'TSK-002', tipo: 'TI', lag: 0 }], etapas)).toBe('1; 2');
   });
 
-  it('sem etapas pra calcular o ID, cai pro id cru mesmo (não tem outra opção)', () => {
+  it('sem etapas pra calcular a linha, cai pro id cru mesmo (não tem outra opção)', () => {
     expect(formatDepList([{ id: 'TSK-001', tipo: 'TI', lag: 0 }], null, {})).toBe('TSK-001');
   });
 });

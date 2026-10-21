@@ -5,7 +5,7 @@
 import React from 'react';
 import { Icon } from '../../components/Icons';
 import { offsetToISO, taskEndDisplay, isoToBR } from './cronogramaDateUtils';
-import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors, computeIdMap } from './scheduleEngine';
+import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors, computeRowNumberMap } from './scheduleEngine';
 
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 const PANEL_H = 220; // também serve de altura mínima ao arrastar
@@ -15,15 +15,15 @@ const labelSt = { fontSize: 10.5, fontWeight: 600, color: 'var(--text-faint)', t
 const thSt = { padding: '5px 8px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-faint)', textAlign: 'right', borderBottom: '1px solid var(--border)', background: 'var(--surface-muted)' };
 const tdSt = { padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))' };
 
-export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext, onClose }) => {
+export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext, onClose }) => {
   const [novoPredId, setNovoPredId] = React.useState('');
   const [novoSuccId, setNovoSuccId] = React.useState('');
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
   const succMap = React.useMemo(() => computeSuccessors(etapas), [etapas]);
   // ID permanente (displayId) de todas as tarefas, o mesmo que resolveRef usa pro número
   // digitado — nunca o id interno cru (TSK-xxx).
-  const fullRowNumberMap = React.useMemo(() => computeIdMap(etapas), [etapas]);
-  const numeroDaLinha = (id) => rowNumberMap[id] ?? fullRowNumberMap[id] ?? id;
+  const fullRowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
+  const numeroDaLinha = (id) => fullRowNumberMap[id] ?? id;
   // Altura arrastável (borda de cima, estilo Excel) — persiste entre sessões, igual a
   // colWidths na Lista. PANEL_H (valor original fixo) vira o mínimo/altura padrão.
   const [panelH, setPanelH] = React.useState(() => {
@@ -88,9 +88,9 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   const setDep = (novoDep) => onCommit(autoScheduleFromDeps(etapas.map(e => (e.id === task.id ? { ...e, dep: novoDep } : e))));
   const updatePred = (idx, patch) => setDep(task.dep.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
   const removePred = (idx) => setDep((task.dep || []).filter((_, i) => i !== idx));
-  // Resolve pelo ID PERMANENTE (o número da coluna ID da Lista/Gantt, ver computeIdMap/parseDep em
+  // Resolve pelo número da LINHA (a calha cinza da Lista, ver computeRowNumberMap/parseDep em
   // scheduleEngine.js). Mantém a busca por id interno como fallback (colar direto).
-  const resolveRef = (ref) => etapas.find(e => String(e.displayId) === String(parseInt(ref, 10))) || etapas.find(e => e.id === ref);
+  const resolveRef = (ref) => etapas[parseInt(ref, 10) - 1] || etapas.find(e => e.id === ref);
   const addPred = () => {
     const ref = (novoPredId || '').trim();
     if (!ref) return;

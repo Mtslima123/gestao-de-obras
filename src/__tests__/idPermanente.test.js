@@ -1,10 +1,10 @@
-// ID PERMANENTE das tarefas (displayId): é o número da coluna "ID" e o que se digita em
-// Predecessora/Sucessora. Antes era a posição da linha, então inserir linhas (ex.: as duas folhas
-// do "Reprogramar restante") mudava o número e o texto de todas as tarefas de baixo.
+// ID PERMANENTE das tarefas (displayId): é o número da coluna "ID". Inserir linhas (ex.: as duas
+// folhas do "Reprogramar restante") não muda o ID de ninguém. Predecessora e Sucessora NÃO usam o
+// ID: mostram e aceitam o número da LINHA (calha), ver predecessoraPorLinha.test.js.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setWorkCal, dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 import {
-  applyFieldToEtapa, commitFieldChange, computeIdMap, formatDepList, migrateEtapas, nextDisplayId, parseDep, reprogramarRestante, computeSuccessors,
+  applyFieldToEtapa, commitFieldChange, computeIdMap, computeRowNumberMap, formatDepList, migrateEtapas, nextDisplayId, parseDep, reprogramarRestante, computeSuccessors,
 } from '../modules/cronograma/scheduleEngine';
 
 beforeEach(() => setWorkCal({ dias: [], sabadoUtil: false }));
@@ -38,21 +38,21 @@ describe('computeIdMap', () => {
   });
 });
 
-describe('parseDep — resolve pelo ID permanente', () => {
+describe('parseDep — resolve pelo número da LINHA (calha)', () => {
   const etapas = [t('A', 10), t('B', 20), t('C', 30)];
 
-  it('o número digitado é o ID, não a posição na lista', () => {
-    expect(parseDep('30', etapas)).toEqual([{ id: 'C', tipo: 'TI', lag: 0 }]);
-    expect(parseDep('1', etapas)).toEqual([]); // não existe tarefa com ID 1 (era a "1ª linha")
+  it('o número digitado é a posição na lista, não o ID permanente', () => {
+    expect(parseDep('3', etapas)).toEqual([{ id: 'C', tipo: 'TI', lag: 0 }]);
+    expect(parseDep('30', etapas)).toEqual([]); // 30 é o ID da C, mas não existe a linha 30
   });
 
   it('tipo e lag continuam funcionando, com vários separados por ; ou ,', () => {
-    expect(parseDep('10; 20TT+3d, 30II-1', etapas)).toEqual([
+    expect(parseDep('1; 2TT+3d, 3II-1', etapas)).toEqual([
       { id: 'A', tipo: 'TI', lag: 0 },
       { id: 'B', tipo: 'TT', lag: 3 },
       { id: 'C', tipo: 'II', lag: -1 },
     ]);
-    expect(parseDep('20 +3 dias', etapas)).toEqual([{ id: 'B', tipo: 'TI', lag: 3 }]);
+    expect(parseDep('2 +3 dias', etapas)).toEqual([{ id: 'B', tipo: 'TI', lag: 3 }]);
   });
 
   it('acha a tarefa mesmo que ela esteja numa lista maior (grupo recolhido/filtro não atrapalham)', () => {
@@ -61,17 +61,17 @@ describe('parseDep — resolve pelo ID permanente', () => {
     expect(parseDep('2', todas)).toEqual([{ id: 'A', tipo: 'TI', lag: 0 }]);
   });
 
-  it('texto inválido ou ID inexistente é ignorado', () => {
-    expect(parseDep('abc; 999; TSK-001', etapas)).toEqual([]);
+  it('texto inválido ou linha inexistente (0, além do fim) é ignorado', () => {
+    expect(parseDep('abc; 999; 0; TSK-001', etapas)).toEqual([]);
     expect(parseDep('', etapas)).toEqual([]);
   });
 });
 
-describe('formatDepList — mostra o ID permanente', () => {
+describe('formatDepList — mostra o número da LINHA', () => {
   it('é o inverso do parseDep', () => {
     const etapas = [t('A', 10), t('B', 20), t('C', 30)];
-    const dep = parseDep('10; 20TT+3d; 30IT-2d', etapas);
-    expect(formatDepList(dep, etapas)).toBe('10; 20TT+3d; 30IT-2d');
+    const dep = parseDep('1; 2TT+3d; 3IT-2d', etapas);
+    expect(formatDepList(dep, etapas)).toBe('1; 2TT+3d; 3IT-2d');
   });
 });
 
@@ -93,7 +93,7 @@ describe('migrateEtapas — displayId é identidade', () => {
   });
 });
 
-describe('Reprogramar restante não altera o ID de ninguém (caso Enfiação Puc)', () => {
+describe('Reprogramar restante não altera o ID de ninguém (caso Enfiação Puc); a linha muda', () => {
   const cenario = () => ([
     t('P', 1, { avanco: 100 }),
     t('ORIG', 2, { dur: 10, avanco: 50, dep: [{ id: 'P', tipo: 'TI', lag: 0 }] }),
@@ -101,7 +101,7 @@ describe('Reprogramar restante não altera o ID de ninguém (caso Enfiação Puc
     t('Z', 4),
   ]);
 
-  it('as linhas de baixo mantêm ID e texto de Predecessora; as duas folhas ganham IDs novos no fim', () => {
+  it('as linhas de baixo mantêm o ID; as duas folhas ganham IDs novos no fim', () => {
     const antes = cenario();
     const idsAntes = computeIdMap(antes);
     const out = reprogramarRestante('ORIG', antes);
@@ -119,25 +119,26 @@ describe('Reprogramar restante não altera o ID de ninguém (caso Enfiação Puc
     expect(ids.Z).toBe(4);
   });
 
-  it('a sucessora mostra os IDs das duas folhas na Predecessora, e as folhas mostram a Sucessora', () => {
+  it('a sucessora mostra as LINHAS das duas folhas na Predecessora, e as folhas mostram a linha da Sucessora', () => {
     const out = reprogramarRestante('ORIG', cenario());
-    const ids = computeIdMap(out);
+    const linhas = computeRowNumberMap(out);
     const s = out.find(e => e.id === 'S');
-    expect(formatDepList(s.dep, out, ids)).toBe('5; 6');
+    // P=1, ORIG=2, folha executada=3, folha restante=4, S=5, Z=6
+    expect(formatDepList(s.dep, out, linhas)).toBe('3; 4');
     const folhas = out.filter(e => e.parentId === 'ORIG');
     const succ = computeSuccessors(out);
-    folhas.forEach(f => expect(succ[f.id].map(id => ids[id])).toEqual([3]));
+    folhas.forEach(f => expect(succ[f.id].map(id => linhas[id])).toEqual([5]));
   });
 
-  it('digitar o ID de uma folha nova na Predecessora de outra tarefa resolve para a folha certa', () => {
+  it('digitar o número da linha de uma folha nova na Predecessora de outra tarefa resolve para a folha certa', () => {
     const out = reprogramarRestante('ORIG', cenario());
     const restante = out.find(e => e.parentId === 'ORIG' && e.avanco === 0);
-    const idDoRestante = computeIdMap(out)[restante.id];
-    expect(parseDep(String(idDoRestante), out)).toEqual([{ id: restante.id, tipo: 'TI', lag: 0 }]);
+    const linhaDoRestante = computeRowNumberMap(out)[restante.id];
+    expect(parseDep(String(linhaDoRestante), out)).toEqual([{ id: restante.id, tipo: 'TI', lag: 0 }]);
   });
 });
 
-describe('digitar o ID de uma tarefa ESCONDIDA na grade (grupo recolhido ou filtro)', () => {
+describe('digitar o número da linha de uma tarefa ESCONDIDA na grade (grupo recolhido ou filtro)', () => {
   // Regressão: a Lista passava a lista visível para resolver o número digitado, e uma
   // predecessora escondida (ex.: folha dentro de grupo recolhido) sumia ao salvar.
   const etapas = [

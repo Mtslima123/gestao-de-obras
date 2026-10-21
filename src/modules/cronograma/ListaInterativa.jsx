@@ -294,8 +294,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Número de linha "cedo" (baseado só em `visible`, sem os filtros de busca/coluna) —
   // usado apenas dentro de colFilterValue/filterKeyOf, que por sua vez alimentam o
   // cálculo de `filtrada` mais abaixo. O "ID" é o displayId PERMANENTE (computeIdMap): não depende
-  // de filtro nem de grupo recolhido, então um único mapa sobre TODAS as etapas serve a grade, a
-  // busca/filtro, os exports e Predecessora/Sucessora (os nomes rowNumberMap* são só apelidos dele).
+  // de filtro nem de grupo recolhido, então um único mapa sobre TODAS as etapas serve a coluna ID, a
+  // busca/filtro e os exports (os nomes rowNumberMap* são só apelidos dele). Predecessora e Sucessora
+  // usam o outro mapa, linhaMapFull (calha), logo abaixo.
   const idMapFull = React.useMemo(() => computeIdMap(etapas), [etapas]);
   const rowNumberMapEarly = idMapFull;
   // Número da LINHA na calha cinza: a posição real da tarefa na lista COMPLETA, igual ao Excel.
@@ -425,8 +426,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       case 'custoReal': return { raw: realCst, label: fmtBRL(realCst) };
       case 'custoOrcado': { const v = custoOrcadoMap[e.id] || 0; return { raw: v, label: fmtBRL(v) }; }
       case 'saldo':     { const v = custoEf(e, gv) - realCst; return { raw: v, label: fmtBRL(v) }; }
-      case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas, idMapFull); return { raw: v, label: v === '—' ? '' : v }; }
-      case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => rowNumberMapEarly[id] ?? id).join('; '); return { raw: v, label: v }; }
+      case 'dep':  { const v = e.isGroup ? '' : formatDepList(e.dep, etapas, linhaMapFull); return { raw: v, label: v === '—' ? '' : v }; }
+      case 'succ': { const v = e.isGroup ? '' : (succMap[e.id] || []).map(id => linhaMapFull[id] ?? id).join('; '); return { raw: v, label: v }; }
       case 'resp': { const v = e.isGroup ? '' : (e.responsavel || ''); return { raw: v, label: v }; }
       case 'pavimento': { const v = e.isGroup ? '' : (e.pavimento || ''); return { raw: v, label: v }; }
       case 'participa': { if (e.isGroup && !(e.nivel > 0)) return { raw: null, label: '' }; const v = e.showInDist ? 'Sim' : 'Não'; return { raw: v, label: v }; }
@@ -442,7 +443,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         return { raw, label: String(raw) };
       }
     }
-  }, [groupVals, etapas, wbsMap, hasVinculos, totalValorVinculado, totalCusto, valorVinculadoMap, custoOrcadoMap, totalCustoOrcado, succMap, rowNumberMapEarly, customCols]);
+  }, [groupVals, etapas, wbsMap, hasVinculos, totalValorVinculado, totalCusto, valorVinculadoMap, custoOrcadoMap, totalCustoOrcado, succMap, rowNumberMapEarly, linhaMapFull, customCols]);
 
   const filterKeyOf = React.useCallback((colId, e) => {
     const type = resolveColType(colId, customCols);
@@ -683,6 +684,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           ...(multiSelCols.includes(colId) ? { background: 'color-mix(in srgb, white 22%, var(--brand))' } : {}),
         }}
         draggable={!isFrozen}
+        title={colId === 'dep' || colId === 'succ' ? 'Número da linha (calha cinza), não o ID' : undefined}
         onClick={(ev) => { if (ev.target.closest('[data-colmenu]')) return; selectColumn(colId, ev); }}
         onContextMenu={(ev) => { if (ev.target.closest('[data-colmenu]')) return; ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'col', colId }); }}
         onDragStart={!isFrozen ? (ev) => { if (ev.target.closest('[data-colmenu]')) { ev.preventDefault(); return; } onColDragStart(ev, colId); } : undefined}
@@ -739,13 +741,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   }, [filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, vinculadoIds, etapas, showSummaryTasks, columnFilters, sortSpec, passesColumnFilters]); // eslint-disable-line react-hooks/exhaustive-deps
   const filtrada = React.useMemo(() => filtrarLinhas(visible), [filtrarLinhas, visible]);
 
-  // ID permanente (displayId) de cada tarefa — é o que aparece na coluna "ID" e no que se
-  // digita/mostra em Predecessora e Sucessora. Não muda quando entram ou saem linhas, nem com
-  // grupo recolhido ou filtro ativo (a calha cinza continua sendo o número da LINHA).
+  // ID permanente (displayId) de cada tarefa — é o que aparece na coluna "ID". Não muda quando entram
+  // ou saem linhas, nem com grupo recolhido ou filtro ativo. Predecessora e Sucessora usam o número
+  // da LINHA (calha cinza, linhaMapFull), que muda quando entram linhas; os vínculos são os mesmos.
   const rowNumberMap = idMapFull;
   const idToDisplayId = idMapFull;
   const fullRowNumberMap = idMapFull;
-  const numeroDaLinha = (id) => idMapFull[id] ?? id;
+  // Número da LINHA (calha): é o que Predecessora, Sucessora e o popover de conflitos mostram.
+  const numeroDaLinha = (id) => linhaMapFull[id] ?? id;
   // Busca por id em O(1) pras colunas Predecessora/Sucessora — etapas.find por vínculo, por
   // linha, no texto e no title, somava milhões de comparações a cada render da Lista.
   const etapaById = React.useMemo(() => new Map(etapas.map(e => [e.id, e])), [etapas]);
@@ -820,7 +823,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // e.isGroup ? '' : ...: mesmo branco que a célula já mostra pra grupo em todo canto da
     // Lista (duplo-clique, F2, colFilterValue) — sem isso, Ctrl+C numa linha de grupo
     // copiava o texto do vínculo antigo mesmo a célula aparecendo vazia na tela.
-    dep:       { kind: 'text',   get: e => e.isGroup ? '' : formatDepList(e.dep, etapas, idMapFull), field: 'dep' },
+    dep:       { kind: 'text',   get: e => e.isGroup ? '' : formatDepList(e.dep, etapas, linhaMapFull), field: 'dep' },
     // Sucessora é derivada (vínculo reverso, gravado no `dep` de OUTRAS tarefas) — colar aqui
     // não usa applyFieldToEtapa como as demais colunas; ver applySuccEdits/applyBlockEdits.
     succ:      { kind: 'text',   get: e => e.isGroup ? '' : formatSucc(e.id),                  field: 'succ' },
@@ -2755,15 +2758,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const avisarTokensNaoResolvidos = (rawValue) => {
     const tokens = String(rawValue ?? '').split(/[;,]/).map(s => s.trim()).filter(Boolean);
     if (!tokens.length) return;
-    // Resolve contra `filtrada` (a mesma lista que numera a calha) — "3" tem que
-    // significar a 3ª linha que aparece na grade, não a 3ª da lista inteira.
+    // Resolve contra a lista COMPLETA, a mesma que numera a calha: "3" é a 3ª linha da calha,
+    // com filtro ou grupo recolhido ativo.
     const resolvidos = parseDep(rawValue, etapas).length;
     if (resolvidos < tokens.length) {
       const naoResolvidos = tokens.length - resolvidos;
       toast(
         naoResolvidos === 1
-          ? 'Não encontrei uma tarefa com esse número — confira o ID digitado.'
-          : `Não encontrei ${naoResolvidos} dos números digitados — confira os IDs.`,
+          ? 'Não encontrei uma tarefa nessa linha — confira o número da linha digitado.'
+          : `Não encontrei ${naoResolvidos} dos números digitados — confira os números das linhas.`,
         { tone: 'warning', icon: 'alert-triangle' }
       );
     }
@@ -3042,7 +3045,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custoOrcado') return custoOrcadoMap[e.id] || 0;
         if (cid === 'saldo')    return cst - realCst;
         if (cid === 'resp')     return e.responsavel || '';
-        if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas, idMapFull);
+        if (cid === 'dep')      return e.isGroup ? '' : formatDepList(e.dep, etapas, linhaMapFull);
         if (cid === 'succ')     return (succMap[e.id] || []).map(numeroDaLinha).join('; ');
         if (cid === 'status')   return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return e.restricaoData ? dateToExcelSerial(offsetToDate(dateToOffset(e.restricaoData))) : '';
@@ -3143,7 +3146,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cid === 'custoOrcado') return fmtBRL(custoOrcadoMap[e.id] || 0);
         if (cid === 'saldo')     return fmtBRL(cst - realCst);
         if (cid === 'resp')      return e.responsavel || '';
-        if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas, idMapFull);
+        if (cid === 'dep')       return e.isGroup ? '' : formatDepList(e.dep, etapas, linhaMapFull);
         if (cid === 'succ')      return (succMap[e.id] || []).map(numeroDaLinha).join('; ');
         if (cid === 'status')    return e.isGroup ? '' : (effStatus(e) === 'done' ? 'Concluída' : effStatus(e) === 'late' ? 'Atrasada' : 'Futura');
         if (cid === 'restricao') return e.restricaoData ? isoToBR(e.restricaoData) : '';
@@ -4272,7 +4275,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 dep: (
                   <td key="dep" onClick={ev => ev.stopPropagation()}>
                     {e.isGroup ? null : editingDep === e.id ? (
-                      <input autoFocus defaultValue={formatDepList(e.dep, etapas, idMapFull)}
+                      <input autoFocus defaultValue={formatDepList(e.dep, etapas, linhaMapFull)}
                         style={{ width: '100%', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
                         onBlur={ev => { handleCellSave(e.id, 'dep', ev.target.value); setEditingDep(null); }}
                         onKeyDown={ev => {
@@ -4291,7 +4294,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           if (ev.key === 'Escape') { setEditingDep(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }} />
                     ) : (() => {
-                      const txt = formatDepList(e.dep, etapas, idMapFull);
+                      const txt = formatDepList(e.dep, etapas, linhaMapFull);
                       return (
                         <div onDoubleClick={() => !readOnly && setEditingDep(e.id)} className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: readOnly ? 'default' : 'text' }} title={formatDepNames(e.dep) || undefined}>
                           {txt || <span className="text-faint">—</span>}
@@ -4815,7 +4818,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           <TaskFormPanel
             task={idx >= 0 ? visible[idx] : null}
             etapas={etapas}
-            rowNumberMap={rowNumberMap}
             onCommit={onCommit}
             readOnly={readOnly}
             canPrev={idx > 0}
