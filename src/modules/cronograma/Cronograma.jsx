@@ -33,6 +33,7 @@ import {
 import { GM_TOTAL, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
 import { classificarConflitos, confirmarConflitos, desfazerConfirmacao, podarConfirmacoes } from './conflitosOkPure';
 import { tarefasAlteradas, selecaoTocaMudanca } from './alvoFormatacaoPure';
+import { campoDeTextoFocado } from './campoDeTextoPure';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './etapasPatch';
 import { vinculosParaAjustar } from './exclusaoTarefasPure';
@@ -3513,9 +3514,14 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       // remover a linha ao lado) fazia Desfazer parecer que não funcionava, sem motivo real
       // pra bloquear. INPUT/TEXTAREA continuam bloqueados: ali pode haver texto sendo editado
       // de verdade, e o desfazer nativo do campo precisa ganhar do desfazer global.
-      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redoRef.current(); }
+      // Só campo de TEXTO segura o atalho. Checkbox, botão de opção e afins são <input> também,
+      // mas não têm texto para desfazer: depois de marcar "Detalhes" ou "Tarefas Resumo" na aba
+      // Exibir o foco ficava no checkbox e o Ctrl+Z não fazia nada.
+      if (campoDeTextoFocado(e.target)) return;
+      // toLowerCase: com Caps Lock ligado a tecla chega como 'Z' e o atalho era ignorado.
+      const tecla = String(e.key || '').toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && tecla === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
+      if ((e.ctrlKey || e.metaKey) && (tecla === 'y' || (tecla === 'z' && e.shiftKey))) { e.preventDefault(); redoRef.current(); }
       if (e.altKey && e.shiftKey && e.key === '*') { e.preventDefault(); applyOutlineRef.current(0); }
       if (e.altKey && e.shiftKey && (e.key === '-' || e.key === '_')) { e.preventDefault(); applyOutlineRef.current(1); }
     };
