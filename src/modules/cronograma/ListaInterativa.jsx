@@ -4822,6 +4822,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             canNext={idx >= 0 && idx < visible.length - 1}
             onPrev={() => { if (idx > 0) setSelectedId(visible[idx - 1].id); }}
             onNext={() => { if (idx >= 0 && idx < visible.length - 1) setSelectedId(visible[idx + 1].id); }}
+            onClose={() => setShowTaskForm(false)}
           />
         );
       })()}

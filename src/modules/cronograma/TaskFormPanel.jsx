@@ -15,7 +15,7 @@ const labelSt = { fontSize: 10.5, fontWeight: 600, color: 'var(--text-faint)', t
 const thSt = { padding: '5px 8px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-faint)', textAlign: 'right', borderBottom: '1px solid var(--border)', background: 'var(--surface-muted)' };
 const tdSt = { padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))' };
 
-export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext }) => {
+export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext, onClose }) => {
   const [novoPredId, setNovoPredId] = React.useState('');
   const [novoSuccId, setNovoSuccId] = React.useState('');
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
@@ -55,10 +55,21 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
       style={{ height: 6, marginTop: -3, cursor: 'row-resize', flexShrink: 0, position: 'relative', zIndex: 2 }} />
   );
 
+  // X no canto de cima à direita: fecha o painel, o mesmo efeito de desmarcar "Detalhes" na aba Exibir.
+  const botaoFechar = onClose && (
+    <button type="button" onClick={onClose} title="Fechar detalhes" aria-label="Fechar detalhes"
+      onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--surface-muted)'; }}
+      onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}
+      style={{ position: 'absolute', top: 5, right: 10, zIndex: 3, width: 22, height: 22, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 4, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}>
+      <Icon name="x" size={14} />
+    </button>
+  );
+
   if (!task) {
     return (
-      <div style={{ height: panelH, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0 }}>
+      <div style={{ height: panelH, position: 'relative', display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0 }}>
         {resizeHandle}
+        {botaoFechar}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
           Selecione uma tarefa para ver os detalhes
         </div>
@@ -127,8 +138,9 @@ export const TaskFormPanel = ({ task, etapas, rowNumberMap = {}, onCommit, readO
   const inputSt = { height: 26, fontSize: 12.5, padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 6, background: locked ? 'var(--surface-muted)' : 'var(--surface)', width: '100%', boxSizing: 'border-box' };
 
   return (
-    <div style={{ height: panelH, flexShrink: 0, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border)', background: 'var(--surface)', overflow: 'hidden' }}>
+    <div style={{ height: panelH, flexShrink: 0, position: 'relative', display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border)', background: 'var(--surface)', overflow: 'hidden' }}>
       {resizeHandle}
+      {botaoFechar}
       {/* Sem maxWidth/margin auto (antes travava em 900px, centralizado): as tabelas de
           Predecessoras/Sucessoras ganharam as colunas Início/Término e o nome da tarefa
           passou a quebrar em várias linhas dentro do espaço apertado que sobrava. Usa a

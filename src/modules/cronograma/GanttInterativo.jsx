@@ -1965,6 +1965,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
             canNext={idx >= 0 && idx < visible.length - 1}
             onPrev={() => { if (idx > 0) setSel(new Set([visible[idx - 1].id])); }}
             onNext={() => { if (idx >= 0 && idx < visible.length - 1) setSel(new Set([visible[idx + 1].id])); }}
+            onClose={() => setShowTaskForm(false)}
           />
         );
       })()}
