@@ -106,6 +106,66 @@ describe('voltarAoInicioDoProjeto', () => {
     expect(inicioDe(out, 'B')).toBe(INICIO);
   });
 
+  // Caso da tarefa 1065 (OB-9325): concluída, perdeu a ligação (data congelada em 100%) e só depois
+  // foi reaberta. Sem a regra de reabertura ela ficava sem predecessora na data antiga.
+  describe('tarefa reaberta (de 100% para menos) sem predecessora', () => {
+    // C concluída e livre, empurrada para longe do início do projeto
+    const concluidaLivre = () => {
+      const base = cadeia();
+      const livre = commitFieldChange(base, 'C', 'avanco', '100');
+      const semLigacao = commitFieldChange(livre, 'C', 'dep', '');
+      return voltarAoInicioDoProjeto(livre, semLigacao); // a 100% a data não volta
+    };
+
+    it('concluída perde a ligação: a data fica congelada (comportamento que já existia)', () => {
+      const livre = concluidaLivre();
+      expect(inicioDe(livre, 'C')).toBeGreaterThan(INICIO);
+      expect(livre.find(e => e.id === 'C').dep).toEqual([]);
+    });
+
+    it('reabrir para 0%: a tarefa volta ao início do projeto e a sucessora acompanha', () => {
+      const livre = concluidaLivre();
+      const sAntes = inicioDe(livre, 'S');
+      const reaberta = commitFieldChange(livre, 'C', 'avanco', '0');
+      expect(inicioDe(reaberta, 'C')).toBe(inicioDe(livre, 'C'));          // sozinho o agendador não move
+      const depois = voltarAoInicioDoProjeto(livre, reaberta);
+      expect(inicioDe(depois, 'C')).toBe(INICIO);
+      expect(inicioDe(depois, 'S')).toBeLessThan(sAntes);
+    });
+
+    it('reabrir para 50% também volta (qualquer valor abaixo de 100)', () => {
+      const livre = concluidaLivre();
+      const depois = voltarAoInicioDoProjeto(livre, commitFieldChange(livre, 'C', 'avanco', '50'));
+      expect(inicioDe(depois, 'C')).toBe(INICIO);
+    });
+
+    it('mudar o avanço sem reabrir (40% para 60%) não mexe na data', () => {
+      const livre = concluidaLivre();
+      const aberta = voltarAoInicioDoProjeto(livre, commitFieldChange(livre, 'C', 'avanco', '40'));
+      const antes = aberta.map(e => (e.id === 'C' ? { ...e, inicio: INICIO + 30 } : e)); // data digitada à mão
+      const editada = commitFieldChange(antes, 'C', 'avanco', '60');
+      expect(voltarAoInicioDoProjeto(antes, editada)).toBe(editada);
+    });
+
+    it('reaberta mas COM predecessora: quem manda é o agendador, nada a fazer aqui', () => {
+      const antes = cadeia().map(e => (e.id === 'C' ? { ...e, avanco: 100 } : e));
+      const reaberta = commitFieldChange(antes, 'C', 'avanco', '0');
+      expect(voltarAoInicioDoProjeto(antes, reaberta)).toBe(reaberta);
+    });
+
+    it('reaberta com restrição de data, em modo manual, ou já no início: fica como está', () => {
+      const livre = (extra) => concluidaLivre().map(e => (e.id === 'C' ? { ...e, ...extra } : e));
+      const reabre = (antes) => antes.map(e => (e.id === 'C' ? { ...e, avanco: 0 } : e));
+      const comRestricao = livre({ restricaoTipo: 'snet', restricaoData: '2026-10-05' });
+      expect(voltarAoInicioDoProjeto(comRestricao, reabre(comRestricao))).toEqual(reabre(comRestricao));
+      const manual = livre({ modo: 'manual' });
+      expect(voltarAoInicioDoProjeto(manual, reabre(manual))).toEqual(reabre(manual));
+      const noInicio = livre({ inicio: INICIO });
+      const r = reabre(noInicio);
+      expect(voltarAoInicioDoProjeto(noInicio, r)).toBe(r);
+    });
+  });
+
   it('caso real reduzido (Sprinkler da ÍON): a 319 ligada à 318 volta ao início ao remover a ligação', () => {
     const antes = autoScheduleFromDeps([
       t('P315', 315, { inicio: INICIO }),

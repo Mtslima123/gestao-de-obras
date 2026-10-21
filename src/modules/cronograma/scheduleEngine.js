@@ -480,8 +480,11 @@ export function autoScheduleFromDeps(etapas) {
 // isto ela ficava na data que a ligação lhe tinha dado, porque o agendador não recalcula tarefa
 // livre (ver schedulePass). É uma regra do MOMENTO da edição, não do agendador: 45 folhas da ÍON não
 // têm predecessora e têm datas digitadas à mão, e o agendador roda até ao abrir o cronograma.
+// A mesma regra vale para a tarefa livre que é REABERTA (de 100% para menos): enquanto estava
+// concluída a data ficou congelada (ver o filtro de 100% abaixo), então se a ligação foi removida
+// nesse tempo, a data nunca voltou ao início — e ao reabrir nada mais a reavaliaria.
 // `antes` é o estado anterior à edição e `depois` o novo. Só mexe na tarefa que:
-//  - é folha, tinha predecessora e agora não tem nenhuma;
+//  - é folha, não tem predecessora agora e (tinha predecessora ou acabou de ser reaberta);
 //  - teve só a LIGAÇÃO removida (se a tarefa predecessora foi excluída, a data não muda);
 //  - está em modo automático e abaixo de 100% (manual e concluída têm data fixa);
 //  - não tem restrição de data (SNET/MSO/MFO/FNET o agendador já ancora na data da restrição;
@@ -496,9 +499,11 @@ export function voltarAoInicioDoProjeto(antes, depois) {
   const ajustadas = depois.map(e => {
     const a = antesPorId.get(e.id);
     if (!a || e.isGroup || a.isGroup) return e;
+    if ((e.dep || []).length) return e;
     const depsAntes = a.dep || [];
-    if (!depsAntes.length || (e.dep || []).length) return e;
-    if (!depsAntes.every(d => existe.has(typeof d === 'string' ? d : d.id))) return e;
+    const perdeuLigacao = depsAntes.length > 0 && depsAntes.every(d => existe.has(typeof d === 'string' ? d : d.id));
+    const reaberta = (a.avanco ?? 0) >= 100 && (e.avanco ?? 0) < 100;
+    if (!perdeuLigacao && !reaberta) return e;
     if (e.modo === 'manual' || (e.avanco ?? 0) >= 100) return e;
     if (e.restricaoTipo && e.restricaoTipo !== 'asap' && e.restricaoData) return e;
     if (!(e.inicio > inicioProjeto)) return e;
