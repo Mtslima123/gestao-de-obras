@@ -108,6 +108,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // (importa pro Ctrl+C, que copia na ordem marcada). Independente de multiSel (linha
   // inteira, só pela calha — ver onMouseDown da calha) e do retângulo selectedCell/selAnchor.
   const [multiSelCells,  setMultiSelCells]  = React.useState([]);
+  const [rolarParaCelula, setRolarParaCelula] = React.useState(null); // { taskId, colId, n }: rola até a célula após colar
   const [editingCusto,   setEditingCusto]   = React.useState(null); // 'id_custo' | 'id_real'
   const [editingFatorPeso, setEditingFatorPeso] = React.useState(null); // id da tarefa em edição
   const [editingDep,     setEditingDep]     = React.useState(null); // id da tarefa com predecessora em edição
@@ -896,6 +897,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     rowClipRef.current = null;
     try { navigator.clipboard?.writeText(grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n')); } catch { /* best-effort */ }
   };
+  // Depois de colar, a seleção vira o bloco colado (da primeira à última célula) e a tela rola até a
+  // última, para a pessoa ver onde terminou o que colou. A rolagem fica num efeito (abaixo): as
+  // linhas novas e o novo estado só existem depois do render que o commit da colagem provoca.
+  const selecionarBlocoColado = (primeira, ultima) => {
+    if (!primeira || !ultima) return;
+    setMultiSelCells([]); setMultiSel([]);
+    setSelAnchor(primeira); setSelectedCell(ultima); setSelectedId(primeira.taskId);
+    setRolarParaCelula({ taskId: ultima.taskId, colId: ultima.colId, n: Date.now() });
+  };
   // Cola o bloco a partir da célula selecionada (canto superior esquerdo), estilo Excel.
   // mode: 'all' (padrão, valores+formatação) | 'values' (só valores) | 'format' (só formatação) —
   // usado pelo submenu "Colar" (colar especial) do menu de contexto.
@@ -958,6 +968,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       cutPendingRef.current = null;
     }
     applyBlockEdits(edits);
+    if (!(destinoAmplo && destinoAmplo.length > 1)) {
+      const nColunas = Math.max(...clip.grid.map(gr => gr.length));
+      selecionarBlocoColado(
+        { taskId: rows[r0], colId: cols[c0] },
+        { taskId: rows[Math.min(r0 + clip.grid.length - 1, rows.length - 1)], colId: cols[Math.min(c0 + nColunas - 1, cols.length - 1)] },
+      );
+    }
   };
   // Fábrica de tarefa-folha com valores padrão — usada sempre que colar precisa CRIAR uma
   // tarefa nova (grade vazia, ou colar ultrapassando o fim da lista). `base` é o array de
@@ -1044,6 +1061,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     let novas = [...editadas, ...novos];
     if (succEdits.length) { novas = applySuccEdits(novas, succEdits, etapas); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
+    // A última linha colada pode ser uma tarefa NOVA (passou do fim da lista).
+    const nColunas = Math.max(...grid.map(gr => gr.length));
+    selecionarBlocoColado(
+      { taskId: rows[r0], colId: cols[c0] },
+      {
+        taskId: r0 + grid.length - 1 < rows.length ? rows[r0 + grid.length - 1] : novos[novos.length - 1].id,
+        colId: cols[Math.min(c0 + nColunas - 1, cols.length - 1)],
+      },
+    );
   };
   // Cola criando tarefas NOVAS a partir do zero (grade sem nenhuma linha ainda, ou nenhuma
   // seleção) — uma tarefa por linha colada, mapeando as colunas na mesma ordem/campo que
@@ -1073,6 +1099,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (!novos.length) return;
     onCommit([...etapas, ...novos], { silent: true });
     setSelectedId(novos[0].id);
+    const nColunas = Math.max(...grid.map(row => row.length));
+    selecionarBlocoColado(
+      { taskId: novos[0].id, colId: cols[c0] },
+      { taskId: novos[novos.length - 1].id, colId: cols[Math.min(c0 + nColunas - 1, cols.length - 1)] },
+    );
   };
   // Colar (Ctrl+V), via evento nativo `paste` — cobre tanto colar interno (Ctrl+C dentro
   // do app, preserva formatação) quanto externo (Excel/outro programa, só valores).
@@ -1137,6 +1168,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (tdRect.left < leftBound) sc.scrollLeft -= (leftBound - tdRect.left);
     else if (tdRect.right > scRect.right) sc.scrollLeft += (tdRect.right - scRect.right);
   };
+  // Rola até a última célula colada (ver selecionarBlocoColado). Roda depois do render do commit, com a
+  // lista e as linhas novas já atualizadas; confere de novo se a linha ainda não estava na janela virtual.
+  React.useEffect(() => {
+    if (!rolarParaCelula) return;
+    const { taskId, colId } = rolarParaCelula;
+    const rolar = (restam) => {
+      scrollRowIntoView(taskId);
+      scrollColIntoView(taskId, colId);
+      if (restam <= 0) return;
+      setTimeout(() => {
+        const sc = listaScrollRef.current;
+        if (sc && !sc.querySelector(`tr[data-taskid="${CSS.escape(String(taskId))}"]`)) rolar(restam - 1);
+      }, 150);
+    };
+    requestAnimationFrame(() => rolar(2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rolarParaCelula]);
   // Mudou o filtro (aplicou ou removeu) ou a ordenação: a seleção fica onde estava e a tela rola até ela.
   // Sem isso, tirar o filtro devolvia as linhas escondidas e o scroll ficava no mesmo ponto: a célula
   // selecionada continuava selecionada, mas fora da tela (e fora da janela virtual, nem existia no DOM).
