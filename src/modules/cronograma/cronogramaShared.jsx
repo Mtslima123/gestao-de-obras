@@ -724,13 +724,21 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
   React.useLayoutEffect(() => {
     const pop = popRef.current, lista = listaRef.current;
     if (!open || !pop) return;
-    pop.style.maxHeight = ''; pop.style.overflowY = '';
+    pop.style.maxHeight = ''; pop.style.overflowY = ''; pop.style.left = ''; pop.style.right = '';
     if (lista) lista.style.maxHeight = '220px';
     let limite = window.innerHeight;
+    let limiteDireito = window.innerWidth;
     for (let p = pop.parentElement; p; p = p.parentElement) {
       const o = getComputedStyle(p).overflowY;
-      if (o === 'auto' || o === 'scroll' || o === 'hidden') { limite = Math.min(limite, p.getBoundingClientRect().bottom); break; }
+      if (o === 'auto' || o === 'scroll' || o === 'hidden') {
+        const rc = p.getBoundingClientRect();
+        limite = Math.min(limite, rc.bottom);
+        limiteDireito = Math.min(limiteDireito, rc.right);
+        break;
+      }
     }
+    // Coluna perto da borda direita (ex.: Valor Medido): o menu abria para a direita e era cortado.
+    if (pop.getBoundingClientRect().right > limiteDireito - 4) { pop.style.left = 'auto'; pop.style.right = '0'; }
     const livre = limite - 8 - pop.getBoundingClientRect().top;
     if (pop.getBoundingClientRect().height <= livre) return;
     if (lista) {
@@ -839,9 +847,14 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
               juncao={juncao} setJuncao={setJuncao} erro={condErro}
               onOk={aplicarCondicoes} onCancel={() => setOpen(false)} />
           ) : (<>
-          <div onClick={() => { onSort('asc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[0]}</div>
-          <div onClick={() => { onSort('desc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[1]}</div>
-          <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
+          {/* Tela sem ordenação por coluna (ex.: Medição, árvore fixa) não passa onSort: some o "Classificar". */}
+          {onSort && (
+            <>
+              <div onClick={() => { onSort('asc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[0]}</div>
+              <div onClick={() => { onSort('desc'); setOpen(false); }} style={optRow} className="col-filter-opt">{sortWords[1]}</div>
+              <hr style={{ margin: '6px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
+            </>
+          )}
           <div onClick={() => { if (activeFilter) { onClearFilter(); setOpen(false); } }}
             style={{ ...optRow, opacity: activeFilter ? 1 : 0.45, cursor: activeFilter ? 'pointer' : 'default' }}
             className={activeFilter ? 'col-filter-opt' : undefined}>

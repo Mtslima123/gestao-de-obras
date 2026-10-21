@@ -15,8 +15,9 @@ import { offlineCache } from '../../services/offlineCache';
 import { quandoFoiGuardado } from '../../utils/offlinePure';
 import {
   XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE,
-  XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
+  XLSX_SUBTITLE_STYLE, aplicarEstiloLinha, ColumnHeaderFilterMenu,
 } from './cronogramaShared';
+import { passaFiltrosDeColuna } from './filtroColunasPure';
 import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
@@ -49,6 +50,11 @@ const MEDICAO_EXPORT_LABELS = {
   servico: 'SERVIÇO', descricao: 'DESCRIÇÃO', pavimento: 'PAVIMENTO', inicio: 'INÍCIO',
   termino: 'TÉRMINO', dur: 'DUR.', peso: 'PESO %', executado: '% EXECUTADO',
   medido: '% MEDIDO', valorAMedir: 'VALOR A MEDIR', valorMedido: 'VALOR MEDIDO',
+};
+// Tipo de cada coluna para o menu de filtro do cabeçalho (lista de valores ou condição, como na Lista).
+const MEDICAO_TIPO_COL = {
+  servico: 'text', descricao: 'text', pavimento: 'text', inicio: 'date', termino: 'date',
+  dur: 'number', peso: 'number', executado: 'number', medido: 'number', valorAMedir: 'number', valorMedido: 'number',
 };
 // Formato numérico Excel por coluna — só as que precisam (texto/número cru não entra aqui).
 const MEDICAO_EXCEL_FORMATO = {
@@ -694,6 +700,9 @@ export default function MedicaoMensal({
   const [salvando, setSalvando] = React.useState(false);
   const [busca, setBusca] = React.useState('');
   const [pavimento, setPavimento] = React.useState('Todos');
+  // Filtros de coluna (menu da setinha no cabeçalho), no mesmo formato da Lista: por coluna, lista de valores
+  // marcados ou condição. Valem só para a tela, como busca e pavimento, e somem ao trocar de mês ou obra.
+  const [filtrosColuna, setFiltrosColuna] = React.useState({});
   const [mostrarConfirmFechar, setMostrarConfirmFechar] = React.useState(false);
   const [mostrarConfirmReabrir, setMostrarConfirmReabrir] = React.useState(false);
   const [mostrarConfirmAprovar, setMostrarConfirmAprovar] = React.useState(false);
@@ -1157,22 +1166,49 @@ export default function MedicaoMensal({
     return (p) => mapa.get(chavePavimento(p)) ?? String(p ?? '').trim();
   }, [pavimentos]);
 
-  const filtradas = React.useMemo(() => {
-    const chavePav = chavePavimento(pavimento);
-    return itensTrabalho.filter(i => (
-      (pavimento === 'Todos' || chavePavimento(i.pavimento) === chavePav) &&
-      (busca.trim() === '' ||
-        i.descricao.toLowerCase().includes(busca.trim().toLowerCase()) ||
-        i.wbs.includes(busca.trim()))
-    ));
-  }, [itensTrabalho, pavimento, busca]);
-
   // Denominador = só o previsto do mês. Itens fora do mês somam ao realizado
   // (numerador) mas não ao previsto, então % executado pode passar de 100%.
   const valorTotalBase = React.useMemo(
     () => itensTrabalho.reduce((s, i) => s + (i.foraDoMes ? 0 : i.valor), 0),
     [itensTrabalho]
   );
+
+  // Valor de uma tarefa numa coluna, para os filtros do cabeçalho: `raw` é o valor de comparação
+  // (percentuais em 0 a 100, valores em R$, datas como Date) e `label` o texto que a tabela mostra.
+  const medicaoFiltroVal = (i, colId) => {
+    switch (colId) {
+      case 'servico':   { const v = String(numeroServico(i) ?? ''); return { raw: v, label: v }; }
+      case 'descricao': return { raw: i.descricao, label: i.descricao };
+      case 'pavimento': { const v = nomePavimento(i.pavimento); return { raw: v, label: v }; }
+      case 'inicio':    return { raw: offsetToDate(i.inicioOff), label: i.dataInicio };
+      case 'termino':   return { raw: offsetToDate(i.terminoOff - 1), label: i.dataTermino };
+      case 'dur':       return { raw: i.duracaoDias, label: String(i.duracaoDias) };
+      case 'peso': { const v = (i.foraDoMes || !valorTotalBase) ? 0 : (i.valor / valorTotalBase) * 100; return { raw: v, label: fmtPct100(v) }; }
+      case 'executado': return { raw: i.percExecutado, label: fmtPct100(i.percExecutado) };
+      case 'medido':    return { raw: i.percMedido, label: fmtPct100(i.percMedido) };
+      case 'valorAMedir': return { raw: i.valor, label: formatBRL(i.valor, 2) };
+      case 'valorMedido': { const v = (i.valor * i.percMedido) / 100; return { raw: v, label: formatBRL(v, 2) }; }
+      default: return { raw: '', label: '' };
+    }
+  };
+  const tipoDaColuna = (colId) => MEDICAO_TIPO_COL[colId] || 'text';
+  // Busca e pavimento (os filtros de sempre da tela) juntos num só teste.
+  const passaBuscaEPavimento = (i) => (
+    (pavimento === 'Todos' || chavePavimento(i.pavimento) === chavePavimento(pavimento)) &&
+    (busca.trim() === '' ||
+      i.descricao.toLowerCase().includes(busca.trim().toLowerCase()) ||
+      i.wbs.includes(busca.trim()))
+  );
+  const filtradas = React.useMemo(
+    () => itensTrabalho.filter(i =>
+      passaBuscaEPavimento(i) && passaFiltrosDeColuna(filtrosColuna, (c) => medicaoFiltroVal(i, c), tipoDaColuna)),
+    [itensTrabalho, pavimento, busca, filtrosColuna, valorTotalBase, nomePavimento, rowNumberMap] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  // Valores possíveis de uma coluna para o menu dela: as tarefas que passam em busca, pavimento e nos
+  // filtros das OUTRAS colunas (como no Excel), sem a própria coluna na conta.
+  const entradasDaColuna = (colId) => itensTrabalho
+    .filter(i => passaBuscaEPavimento(i) && passaFiltrosDeColuna(filtrosColuna, (c) => medicaoFiltroVal(i, c), tipoDaColuna, colId))
+    .map(i => medicaoFiltroVal(i, colId));
   // Só roda pra medição fechada/aprovada (documento): compara o snapshot congelado com o
   // que o cronograma diria hoje — sem isso, uma data/duração/vínculo que mudou depois do
   // fechamento fica invisível na tela (ver gerarMedicao, mais acima). rascunho não entra
@@ -1275,6 +1311,7 @@ export default function MedicaoMensal({
   // Trocar de mês descarta o filtro (o pavimento pode nem existir no mês novo) e o estado guardado.
   React.useEffect(() => {
     setPavimento('Todos');
+    setFiltrosColuna({});
     antesDoPavimentoRef.current = null;
   }, [mesRefKey, obraId]);
   // gruposParaNivel recolhe grupos de nivel >= alvo-1, então o alvo útil vai até o
@@ -2008,6 +2045,31 @@ export default function MedicaoMensal({
   const bandTop = Math.max(0, bandH - 1);
   // boxShadow veda a fresta sub-pixel por onde o corpo aparecia ao rolar (truque da Lista).
   const thSticky = { position: 'sticky', top: bandTop, zIndex: 3, boxShadow: '0 1px 0 0 var(--brand)' };
+  // Cabeçalho com a setinha de filtro da Lista: lista de valores ou condição (Maior que, Contém, Entre...).
+  // Sem "Classificar": a árvore da Medição segue a ordem do cronograma.
+  const cabecalhoFiltravel = (colId, rotulo, className) => {
+    const nomeNoMenu = rotulo.charAt(0) + rotulo.slice(1).toLowerCase();
+    return (
+      <th key={colId} className={className} style={{ ...thSticky, minWidth: getColW(colId) }}>
+        <span style={{ display: 'block', paddingRight: 22, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rotulo}</span>
+        <span style={{ position: 'absolute', right: 6, top: 0, bottom: 0, display: 'flex', alignItems: 'center' }}>
+          <ColumnHeaderFilterMenu
+            label={nomeNoMenu}
+            type={tipoDaColuna(colId)}
+            activeFilter={filtrosColuna[colId] || null}
+            onApplyFilter={(excluded, included) => setFiltrosColuna(prev => {
+              if (!excluded.length) { const n = { ...prev }; delete n[colId]; return n; }
+              return { ...prev, [colId]: { excluded, included } };
+            })}
+            onApplyCondicoes={(condicoes, juncao) => setFiltrosColuna(prev => ({ ...prev, [colId]: { condicoes, juncao } }))}
+            onClearFilter={() => setFiltrosColuna(prev => { const n = { ...prev }; delete n[colId]; return n; })}
+            getDomainEntries={() => entradasDaColuna(colId)}
+          />
+        </span>
+        {resizeHandle(colId)}
+      </th>
+    );
+  };
   const footCell = { padding: '0 10px', height: 30 };
   const filtroLabelSt = { fontSize: 10.5, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '.04em' };
 
@@ -2310,17 +2372,17 @@ export default function MedicaoMensal({
                 <th colSpan={2}>FINANCEIRO</th>
               </tr>
               <tr>
-                <th style={{ ...thSticky, minWidth: getColW('servico') }}>SERVIÇO{resizeHandle('servico')}</th>
-                <th style={{ ...thSticky, minWidth: getColW('descricao') }}>DESCRIÇÃO{resizeHandle('descricao')}</th>
-                <th style={{ ...thSticky, minWidth: getColW('pavimento') }}>PAVIMENTO{resizeHandle('pavimento')}</th>
-                <th className="center" style={{ ...thSticky, minWidth: getColW('inicio') }}>INÍCIO{resizeHandle('inicio')}</th>
-                <th className="center" style={{ ...thSticky, minWidth: getColW('termino') }}>TÉRMINO{resizeHandle('termino')}</th>
-                <th className="center" style={{ ...thSticky, minWidth: getColW('dur') }}>DUR.{resizeHandle('dur')}</th>
-                <th className="center" style={{ ...thSticky, minWidth: getColW('peso') }}>PESO %{resizeHandle('peso')}</th>
-                <th className="center" style={{ ...thSticky, minWidth: getColW('executado') }}>% EXECUTADO{resizeHandle('executado')}</th>
-                <th className="center" style={{ ...thSticky, minWidth: getColW('medido') }}>% MEDIDO{resizeHandle('medido')}</th>
-                <th className="right" style={{ ...thSticky, minWidth: getColW('valorAMedir') }}>VALOR A MEDIR{resizeHandle('valorAMedir')}</th>
-                <th className="right" style={{ ...thSticky, minWidth: getColW('valorMedido') }}>VALOR MEDIDO{resizeHandle('valorMedido')}</th>
+                {cabecalhoFiltravel('servico', 'SERVIÇO')}
+                {cabecalhoFiltravel('descricao', 'DESCRIÇÃO')}
+                {cabecalhoFiltravel('pavimento', 'PAVIMENTO')}
+                {cabecalhoFiltravel('inicio', 'INÍCIO', 'center')}
+                {cabecalhoFiltravel('termino', 'TÉRMINO', 'center')}
+                {cabecalhoFiltravel('dur', 'DUR.', 'center')}
+                {cabecalhoFiltravel('peso', 'PESO %', 'center')}
+                {cabecalhoFiltravel('executado', '% EXECUTADO', 'center')}
+                {cabecalhoFiltravel('medido', '% MEDIDO', 'center')}
+                {cabecalhoFiltravel('valorAMedir', 'VALOR A MEDIR', 'right')}
+                {cabecalhoFiltravel('valorMedido', 'VALOR MEDIDO', 'right')}
               </tr>
             </thead>
             <tbody>
