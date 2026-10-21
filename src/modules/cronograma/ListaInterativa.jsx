@@ -1134,6 +1134,31 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (tdRect.left < leftBound) sc.scrollLeft -= (leftBound - tdRect.left);
     else if (tdRect.right > scRect.right) sc.scrollLeft += (tdRect.right - scRect.right);
   };
+  // Mudou o filtro (aplicou ou removeu) ou a ordenação: a seleção fica onde estava e a tela rola até ela.
+  // Sem isso, tirar o filtro devolvia as linhas escondidas e o scroll ficava no mesmo ponto: a célula
+  // selecionada continuava selecionada, mas fora da tela (e fora da janela virtual, nem existia no DOM).
+  // Se o filtro novo esconde a tarefa selecionada, a seleção só espera: volta a aparecer ao limpar o filtro.
+  const assinaturaFiltro = JSON.stringify([columnFilters, filtroResp, filtroPreset, filtroPresetRange, filtroTaskIds, filtroTexto, filtroVinculo, sortSpec]);
+  const assinaturaFiltroRef = React.useRef(assinaturaFiltro);
+  React.useEffect(() => {
+    if (assinaturaFiltroRef.current === assinaturaFiltro) return;   // 1ª montagem: nada mudou
+    assinaturaFiltroRef.current = assinaturaFiltro;
+    const alvo = selectedCell?.taskId ?? selectedId;
+    if (alvo == null || !filtrada.some(e => e.id === alvo)) return;
+    // Com a janela virtual (lista grande) a linha pode não existir no DOM no 1º quadro: rola por índice e
+    // confere de novo logo depois, até 3 vezes, em vez de confiar num único scroll.
+    const rolar = (restam) => {
+      scrollRowIntoView(alvo);
+      if (selectedCell) scrollColIntoView(selectedCell.taskId, selectedCell.colId);
+      if (restam <= 0) return;
+      setTimeout(() => {
+        const sc = listaScrollRef.current;
+        if (sc && !sc.querySelector(`tr[data-taskid="${CSS.escape(String(alvo))}"]`)) rolar(restam - 1);
+      }, 150);
+    };
+    requestAnimationFrame(() => rolar(2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assinaturaFiltro]);
   // Publica a seleção atual para o Cronograma guardá-la junto de cada ação do histórico (o commit lê
   // selecaoRef.current); ao desmontar limpa, senão uma ação feita no Gantt herdaria seleção velha.
   React.useEffect(() => {
