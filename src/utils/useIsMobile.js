@@ -14,24 +14,29 @@ export function ehLayoutMobile({ largura, toque, menorLadoTela, limite = MOBILE_
   return !!toque && Number.isFinite(menorLadoTela) && menorLadoTela > 0 && menorLadoTela <= limite;
 }
 
-// "Versão para computador" do Chrome do celular: o navegador se apresenta como Linux de mesa (sem
-// Android) e abre a página numa janela larga, mas a tela continua pequena e de toque. Tablet e
-// celular normais trazem "Android" no user agent, então não entram aqui.
-export function ehSiteDeComputadorNoToque({ userAgent, largura, toque, menorLadoTela, limite = MOBILE_BREAKPOINT }) {
+// "Versão para computador" do Chrome do celular: a página abre numa janela larga (~980px) e a tela, que
+// continua pequena e de toque, mostra tudo encolhido. Dois sinais, qualquer um basta:
+//  - o navegador se apresenta como Linux de mesa (sem Android); tablet e celular normais trazem
+//    "Android" no user agent;
+//  - a janela é bem mais larga que a tela do aparelho (980px num celular de 412px), mesmo com user
+//    agent de celular. Girar o celular não entra aqui: janela e tela crescem juntas (razão ~1).
+export function ehSiteDeComputadorNoToque({ userAgent, largura, toque, menorLadoTela, larguraTela, limite = MOBILE_BREAKPOINT }) {
+  if (!toque || !(largura > limite) || !Number.isFinite(menorLadoTela) || menorLadoTela <= 0 || menorLadoTela > limite) return false;
   const ua = String(userAgent || '');
-  if (!/Chrome\//.test(ua) || !/Linux/.test(ua) || /Android|iPhone|iPad|CrOS/.test(ua)) return false;
-  return !!toque && largura > limite
-    && Number.isFinite(menorLadoTela) && menorLadoTela > 0 && menorLadoTela <= limite;
+  const uaDeMesa = /Chrome\//.test(ua) && /Linux/.test(ua) && !/Android|iPhone|iPad|CrOS/.test(ua);
+  const janelaLarga = larguraTela > 0 && largura / larguraTela >= 1.5;
+  return uaDeMesa || janelaLarga;
 }
 
 // Leitura do ambiente atual (navegador). Fica à parte para as funções acima não dependerem de window.
 export function lerAmbienteDeTela() {
-  if (typeof window === 'undefined') return { largura: Infinity, toque: false, menorLadoTela: NaN, userAgent: '' };
+  if (typeof window === 'undefined') return { largura: Infinity, toque: false, menorLadoTela: NaN, larguraTela: NaN, userAgent: '' };
   const s = window.screen;
   return {
     largura: window.innerWidth,
     toque: !!window.matchMedia?.('(pointer: coarse)').matches,
     menorLadoTela: s ? Math.min(s.width, s.height) : NaN,
+    larguraTela: s ? s.width : NaN, // na orientação atual: janela/larguraTela mede o quanto a página está encolhida
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
   };
 }

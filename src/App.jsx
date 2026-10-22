@@ -1115,16 +1115,15 @@ const PwaUpdateBanner = () => {
   );
 };
 
-// Chrome do celular em "Versão para computador": a página abre numa janela de ~980px e fica com cara
-// de site. Não dá para corrigir por dentro da página (nesse modo o navegador ignora o viewport),
-// então só avisa como desligar. Ensinar uma vez por sessão basta: "Entendi" guarda a dispensa.
-// Como a janela é larga e vai encolhida na tela, o aviso é ampliado pela mesma proporção para
-// ficar legível.
+// Celular com a página em tamanho de computador (janela de ~980px encolhida na tela): "Versão para
+// computador" do Chrome, que vale por site e sobrevive a atualizar puxando a tela. Não dá para corrigir
+// por dentro da página (nesse modo o navegador ignora o viewport), então só avisa como desligar. Fica
+// no TOPO (embaixo, o gesto do Android e overlays cobrem) e volta depois de recarregar enquanto o
+// problema continuar: "Entendi" só fecha até a próxima carga. Como a janela é larga e vai encolhida na
+// tela, o aviso é ampliado pela mesma proporção para ficar legível.
 const AvisoSiteDeComputador = () => {
   const [ativo, setAtivo] = React.useState(() => ehSiteDeComputadorNoToque(lerAmbienteDeTela()));
-  const [dispensado, setDispensado] = React.useState(() => {
-    try { return sessionStorage.getItem('aviso_site_computador_ok') === '1'; } catch { return false; }
-  });
+  const [dispensado, setDispensado] = React.useState(false);
   React.useEffect(() => {
     const atualizar = () => setAtivo(ehSiteDeComputadorNoToque(lerAmbienteDeTela()));
     window.addEventListener('resize', atualizar);
@@ -1132,20 +1131,16 @@ const AvisoSiteDeComputador = () => {
   }, []);
   if (!ativo || dispensado) return null;
   const amb = lerAmbienteDeTela();
-  const larguraTela = window.screen?.width || amb.menorLadoTela;
+  const larguraTela = amb.larguraTela || amb.menorLadoTela;
   const escala = Math.min(3, Math.max(1, amb.largura / larguraTela));
-  const dispensar = () => {
-    try { sessionStorage.setItem('aviso_site_computador_ok', '1'); } catch { /* ignore */ }
-    setDispensado(true);
-  };
   return (
-    <div style={{ position: 'fixed', left: 0, bottom: 0, zIndex: 1000, width: `${100 / escala}%`, transform: `scale(${escala})`, transformOrigin: 'bottom left' }}>
-      <div className="card" style={{ margin: 8 }}>
+    <div style={{ position: 'fixed', left: 0, top: 0, zIndex: 1001, width: `${100 / escala}%`, transform: `scale(${escala})`, transformOrigin: 'top left' }}>
+      <div className="card" style={{ margin: 8, borderColor: 'var(--warning)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5, padding: 12 }}>
           <span style={{ flex: 1 }}>
-            O navegador está em "Versão para computador" e a tela fica com cara de site. No menu do navegador (três pontos), desmarque "Versão para computador".
+            A tela está em tamanho de computador (tudo pequeno). No Chrome, abra o menu (três pontos) e desmarque "Versão para computador". Se usa o app instalado, faça isso no Chrome e abra o app de novo.
           </span>
-          <button className="btn btn-primary" style={{ padding: '4px 12px', flexShrink: 0 }} onClick={dispensar}>
+          <button className="btn btn-primary" style={{ padding: '4px 12px', flexShrink: 0 }} onClick={() => setDispensado(true)}>
             Entendi
           </button>
         </div>

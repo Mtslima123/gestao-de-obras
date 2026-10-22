@@ -74,6 +74,25 @@ describe('ehSiteDeComputadorNoToque', () => {
     expect(ehSiteDeComputadorNoToque({ ...base, largura: 390, userAgent: UA_SITE_COMPUTADOR })).toBe(false);
   });
 
+  it('user agent de celular, mas janela bem mais larga que a tela (980px num celular de 412px): avisa', () => {
+    // pull-to-refresh deixando tudo pequeno: a página foi aberta na janela larga do "site de computador"
+    expect(ehSiteDeComputadorNoToque({ ...base, userAgent: UA_CELULAR, larguraTela: 412 })).toBe(true);
+    expect(ehSiteDeComputadorNoToque({ ...base, userAgent: '', larguraTela: 412 })).toBe(true);
+  });
+
+  it('celular deitado (janela e tela crescem juntas) não avisa, mesmo com a janela passando de 768px', () => {
+    expect(ehSiteDeComputadorNoToque({ largura: 844, toque: true, menorLadoTela: 390, larguraTela: 844, userAgent: UA_CELULAR })).toBe(false);
+  });
+
+  it('janela só um pouco mais larga que a tela (razão abaixo de 1,5): não avisa', () => {
+    expect(ehSiteDeComputadorNoToque({ largura: 600, toque: true, menorLadoTela: 412, larguraTela: 412, userAgent: UA_CELULAR })).toBe(false);
+  });
+
+  it('janela larga em tela grande ou sem toque (notebook, tablet de 10"): não avisa', () => {
+    expect(ehSiteDeComputadorNoToque({ largura: 2000, toque: false, menorLadoTela: 1080, larguraTela: 1920, userAgent: UA_WINDOWS })).toBe(false);
+    expect(ehSiteDeComputadorNoToque({ largura: 1600, toque: true, menorLadoTela: 800, larguraTela: 800, userAgent: UA_TABLET })).toBe(false);
+  });
+
   it('sem user agent ou sem medida da tela: não avisa', () => {
     expect(ehSiteDeComputadorNoToque({ ...base, userAgent: '' })).toBe(false);
     expect(ehSiteDeComputadorNoToque({ ...base, userAgent: UA_SITE_COMPUTADOR, menorLadoTela: NaN })).toBe(false);
