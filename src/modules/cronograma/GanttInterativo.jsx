@@ -1174,7 +1174,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                 <div style={groupBox}>
                   <div style={{ ...groupContent, justifyContent: 'center' }}>
                     <div style={rowStyle}>
-                      <select value={nivelEstruturaValue} title="Expandir/recolher a estrutura por nível"
+                      <select value={nivelEstruturaValue} title="Expandir/recolher a estrutura por nível (Alt+Shift+* expande tudo, Alt+Shift+- recolhe tudo)"
                         onChange={e => {
                           const v = e.target.value;
                           if (v === '') return;
@@ -1204,7 +1204,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                       <input type="checkbox" checked={showSummaryTasks} onChange={() => onToggleSummaryTasks?.()} style={{ accentColor: 'var(--brand)' }} />
                       Tarefas Resumo
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    <label title="Mostrar/ocultar o painel Detalhes (Ctrl+1)" style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                       <input type="checkbox" checked={showTaskForm} onChange={() => setShowTaskForm(v => !v)} style={{ accentColor: 'var(--brand)' }} />
                       Detalhes
                     </label>

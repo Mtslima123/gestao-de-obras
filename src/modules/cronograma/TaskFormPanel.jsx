@@ -57,7 +57,7 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
 
   // X no canto de cima à direita: fecha o painel, o mesmo efeito de desmarcar "Detalhes" na aba Exibir.
   const botaoFechar = onClose && (
-    <button type="button" onClick={onClose} title="Fechar detalhes" aria-label="Fechar detalhes"
+    <button type="button" onClick={onClose} title="Fechar detalhes (Ctrl+1)" aria-label="Fechar detalhes"
       onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--surface-muted)'; }}
       onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}
       style={{ position: 'absolute', top: 5, right: 10, zIndex: 3, width: 22, height: 22, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 4, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}>

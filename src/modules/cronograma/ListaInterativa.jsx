@@ -3574,8 +3574,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={rowStyle}>
-                          <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'above')} disabled={!selectedId} title="Inserir linha acima da selecionada">↑ Acima</button>
-                          <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'below')} disabled={!selectedId} title="Inserir linha abaixo da selecionada">↓ Abaixo</button>
+                          <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'above')} disabled={!selectedId} title="Inserir linha acima da selecionada (Ctrl++)">↑ Acima</button>
+                          <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'below')} disabled={!selectedId} title="Inserir linha abaixo da selecionada (Insert)">↓ Abaixo</button>
                           <button style={{ ...cmdBtn, opacity: selectedId ? 1 : 0.5 }} onClick={() => insertTask(selectedId, 'below', true)} disabled={!selectedId} title="Inserir um marco (evento de duração zero) abaixo da tarefa selecionada">◆ Marco</button>
                         </div>
                       </div>
@@ -3598,7 +3598,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                         <div style={{ ...rowStyle, justifyContent: 'center' }}>
                           <button style={iconBtn}
                             onClick={() => setShowVincularTarefas(true)}
-                            title="Vincular predecessoras e sucessoras em lote">
+                            title="Vincular predecessoras e sucessoras em lote (Ctrl+2). Com 2 ou mais linhas selecionadas, Ctrl+F2 vincula na ordem do clique.">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.5 7.5 15.5 16.5"/></svg>
                           </button>
                         </div>
@@ -3715,7 +3715,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     <div style={groupBox}>
                       <div style={{ ...groupContent, justifyContent: 'center' }}>
                         <div style={rowStyle}>
-                          <select value={nivelEstruturaValue} title="Expandir/recolher a estrutura por nível"
+                          <select value={nivelEstruturaValue} title="Expandir/recolher a estrutura por nível (Alt+Shift+* expande tudo, Alt+Shift+- recolhe tudo)"
                             onChange={e => {
                               const v = e.target.value;
                               if (v === '') return;
@@ -3745,7 +3745,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           <input type="checkbox" checked={showSummaryTasks} onChange={() => onToggleSummaryTasks?.()} style={{ accentColor: 'var(--brand)' }} />
                           Tarefas Resumo
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        <label title="Mostrar/ocultar o painel Detalhes (Ctrl+1)" style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                           <input type="checkbox" checked={showTaskForm} onChange={() => setShowTaskForm(v => !v)} style={{ accentColor: 'var(--brand)' }} />
                           Detalhes
                         </label>
