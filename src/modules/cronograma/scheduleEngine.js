@@ -1053,6 +1053,27 @@ export function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
   return rest;
 }
 
+// Casa predecessoras e sucessoras 1 para 1 pela ordem do cronograma (VincularTarefasModal): a 1ª
+// predecessora com a 1ª sucessora, e assim por diante. Só quando as quantidades são iguais; senão
+// não há como saber quem fica sem par, e devolve vazio. A ordem é a do array `etapas` (a das listas
+// na tela), não a ordem em que as caixas foram marcadas. A mesma tarefa marcada nos dois lados não
+// vira predecessora de si mesma: essa sucessora fica em `semPar`.
+export function parearUmParaUm(etapas, predIds, succIds) {
+  const pares = {};
+  const semPar = [];
+  if (!predIds.length || predIds.length !== succIds.length) return { pares, semPar };
+  const predSet = new Set(predIds);
+  const succSet = new Set(succIds);
+  const preds = etapas.filter(e => predSet.has(e.id)).map(e => e.id);
+  const succs = etapas.filter(e => succSet.has(e.id)).map(e => e.id);
+  if (preds.length !== succs.length) return { pares, semPar }; // algum id marcado não existe mais
+  succs.forEach((sid, i) => {
+    if (preds[i] === sid) semPar.push(sid);
+    else pares[sid] = preds[i];
+  });
+  return { pares, semPar };
+}
+
 // Retorna o Set de ids de uma tarefa-pai + todos os seus descendentes (grupos e folhas),
 // usado pelo filtro "Tarefa Pai" (Lista/Gantt) para manter a hierarquia EAP visível.
 export function collectDescendantIds(parentId, etapas) {
