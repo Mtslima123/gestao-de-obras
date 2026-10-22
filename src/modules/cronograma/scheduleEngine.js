@@ -1041,7 +1041,15 @@ export function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
   const rest   = etapas.filter(e => !descIds.has(e.id));
   const tgtIdx = rest.findIndex(e => e.id === targetId);
   if (tgtIdx < 0) return etapas;
-  rest.splice(insertAfter ? tgtIdx + 1 : tgtIdx, 0, ...block);
+  let pos = insertAfter ? tgtIdx + 1 : tgtIdx;
+  // "Depois" de um grupo RECOLHIDO é depois do grupo inteiro: as filhas dele continuam logo abaixo
+  // do cabeçalho no array (só estão escondidas), e inserir ali enfiaria o bloco no meio delas.
+  const alvo = rest[tgtIdx];
+  if (insertAfter && alvo.isGroup && alvo.collapsed) {
+    const dentro = new Set([alvo.id]);
+    while (pos < rest.length && dentro.has(rest[pos].parentId)) { dentro.add(rest[pos].id); pos++; }
+  }
+  rest.splice(pos, 0, ...block);
   return rest;
 }
 

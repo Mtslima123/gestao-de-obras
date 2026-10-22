@@ -2235,6 +2235,10 @@ tr:hover .obras-row-actions {
 .drag-over-row > th {
   border-top: 2px solid var(--brand) !important;
 }
+.drag-over-row-after > td,
+.drag-over-row-after > th {
+  border-bottom: 2px solid var(--brand) !important;
+}
 .drag-row-dragging {
   opacity: 0.4;
 }

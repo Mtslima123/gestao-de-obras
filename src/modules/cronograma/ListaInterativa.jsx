@@ -165,6 +165,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const pasteSubmenuRef = React.useRef(null);
   const [pasteSubmenuFlip, setPasteSubmenuFlip] = React.useState(false);
   const [dragOverId,     setDragOverId]     = React.useState(null);
+  const [dragOverPos,    setDragOverPos]    = React.useState('before'); // 'before' | 'after': de que lado da linha sob o cursor a linha arrastada cai
   const [showColPanel,   setShowColPanel]   = React.useState(false);
   const [selectedCell,   setSelectedCell]   = React.useState(null); // { taskId, colId } — foco ativo (planilha)
   const [selAnchor,      setSelAnchor]      = React.useState(null); // { taskId, colId } — âncora do intervalo
@@ -246,6 +247,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
 
   const dragRowRef   = React.useRef(null);
   const hoverRowRef  = React.useRef(null);   // linha sob o cursor (para o arraste manual de linha)
+  const dragPosRef   = React.useRef('before'); // espelho de dragOverPos para o mouseup (o handler guarda a closure do mousedown)
   const rowDragMovedRef = React.useRef(false); // houve movimento de linha (suprime o clique seguinte)
   const rowSelectingRef = React.useRef(false); // arraste de seleção de LINHAS pela calha em andamento
   const rowSelAnchorRef = React.useRef(null);  // id da linha-âncora do arraste pela calha
@@ -4466,7 +4468,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                   className={[
                     (isSelected || isMultiSel) ? 'lista-row-selected' : e.isGroup ? `lista-row-group ${groupLevelClass}` : '',
                     rowIdx % 2 === 1 ? 'lista-row-alt' : '',
-                    dragOverId === e.id ? 'drag-over-row' : '',
+                    dragOverId === e.id ? (dragOverPos === 'after' ? 'drag-over-row-after' : 'drag-over-row') : '',
                   ].filter(Boolean).join(' ')}
                   onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, kind: 'row', taskId: e.id }); }}
                   onClick={(ev) => {
@@ -4505,9 +4507,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     if (dragRowRef.current != null) setDragOverId(e.id);
                   }}
                   onMouseMove={(ev) => {
-                    if (readOnly || dragRowRef.current != null) return;
+                    if (readOnly) return;
                     const tr = ev.currentTarget;
                     const rect = tr.getBoundingClientRect();
+                    if (dragRowRef.current != null) {
+                      // Arrastando: metade de cima da linha = cai ANTES dela, metade de baixo = DEPOIS.
+                      // A linha azul é desenhada no mesmo lado (css), então o que aparece é onde cai.
+                      const pos = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                      if (dragPosRef.current !== pos) { dragPosRef.current = pos; setDragOverPos(pos); }
+                      return;
+                    }
                     // Perto da borda superior/inferior de uma linha selecionada: modo "mover" (estilo Excel)
                     const nearBorder = (ev.clientY - rect.top <= 5) || (rect.bottom - ev.clientY <= 5);
                     const canMove = nearBorder && (selectedId === e.id || multiSel.includes(e.id));
@@ -4528,6 +4537,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                     ev.preventDefault();
                     isSelectingRef.current = false; // cancela seleção de intervalo de células
                     dragRowRef.current = e.id;
+                    dragPosRef.current = 'before'; setDragOverPos('before'); // sem sobra de um arraste anterior
                     rowDragMovedRef.current = false;
                     const onMove = () => {
                       rowDragMovedRef.current = true;
@@ -4541,7 +4551,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       dragRowRef.current = null;
                       setDragOverId(null);
                       if (dragged != null && target != null && dragged !== target) {
-                        onCommit(moveTaskBlock(etapas, dragged, target, true));
+                        const movidas = moveTaskBlock(etapas, dragged, target, dragPosRef.current === 'after');
+                        // Soltar onde já estava (ou sobre o próprio bloco) não vira passo de desfazer.
+                        if (movidas.some((x, i) => x !== etapas[i])) onCommit(movidas);
                       } else {
                         rowDragMovedRef.current = false; // não moveu: deixa o clique agir normalmente
                       }
