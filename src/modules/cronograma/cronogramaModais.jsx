@@ -4,8 +4,8 @@
 import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
-import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearUmParaUm, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
+import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay, projectStartOffset } from "./cronogramaDateUtils";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearUmParaUm, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
 import { itemValor } from "../financeiro/vinculoService";
 import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
@@ -424,6 +424,7 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
     if (!selectedFloors.length || !selectedTasks.length) return;
     let novas = etapas.map(e => ({ ...e }));
     let puladas = 0;
+    const inicioProjeto = projectStartOffset(etapas);
 
     selectedTasks.forEach(taskId => {
       // Converter tarefa em grupo se ainda não for. Só zera a Predecessora/Sucessora própria
@@ -461,7 +462,9 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
       // Cria subtarefas para cada pavimento, todas na MESMA data de início da tarefa-pai e
       // com 1 dia de duração fixo — pavimentos rodam em paralelo (equipes diferentes), sem
       // vínculo de Predecessora entre eles; o usuário ajusta data/duração de cada um depois,
-      // na Lista/Gantt, conforme a necessidade real de cada pavimento.
+      // na Lista/Gantt, conforme a necessidade real de cada pavimento. Sem predecessora nem
+      // restrição a subtarefa iria ao início do projeto (voltarAoInicioDoProjeto), então a data do
+      // pai, quando é depois do início, entra como "não iniciar antes de".
       const toInsert = paraInserir.map((nome, fi) => {
         return {
           id:         nextEtapaId([...novas, ...paraInserir.slice(0, fi).map((_, j) => ({ id: `E${9000 + j}` }))]),
@@ -470,6 +473,7 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
           parentId:   taskId,
           isGroup:    false, collapsed: false,
           inicio:     task.inicio,
+          ...(task.inicio > inicioProjeto ? { restricaoTipo: 'snet', restricaoData: offsetToISO(task.inicio) } : {}),
           dur:        1,
           avanco:     0, status: 'upcoming',
           dep:        [], milestone: false, responsavel: '',
@@ -1086,6 +1090,89 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
   );
 };
 
+// ─── TarefasLivresModal — revisão das tarefas sem predecessora e sem restrição fora do início ───
+// Tarefa livre (sem predecessora e sem restrição) fica no início do projeto, como no Project (ver
+// voltarAoInicioDoProjeto). As que ficaram com data própria antes dessa regra, ou chegaram por colar,
+// não mudam sozinhas: aqui a pessoa escolhe levar ao início do projeto ou manter a data, que vira a
+// restrição "não iniciar antes de". Cada botão é um único commit (um passo de Ctrl+Z).
+export const TarefasLivresModal = ({ etapas, onCommit, onClose }) => {
+  const toast = useToast();
+  const lista = React.useMemo(() => tarefasLivresForaDoInicio(etapas), [etapas]);
+  const inicioProjeto = React.useMemo(() => projectStartOffset(etapas), [etapas]);
+  const [desmarcadas, setDesmarcadas] = React.useState(() => new Set()); // todas começam marcadas
+  const ativas = lista.filter(e => !desmarcadas.has(e.id));
+  const nomeDoPai = (e) => etapas.find(x => x.id === e.parentId)?.etapa || '';
+  const alternar = (id) => setDesmarcadas(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const marcarTodas = (marcar) => setDesmarcadas(marcar ? new Set() : new Set(lista.map(e => e.id)));
+  const nTarefas = (n) => `${n} tarefa${n !== 1 ? 's' : ''}`;
+
+  const aplicar = (acao) => {
+    if (!ativas.length) return;
+    const ids = new Set(ativas.map(e => e.id));
+    const novas = acao === 'inicio'
+      ? autoScheduleFromDeps(etapas.map(e => (ids.has(e.id) ? { ...e, inicio: inicioProjeto } : e)))
+      : etapas.map(e => (ids.has(e.id) ? { ...e, restricaoTipo: 'snet', restricaoData: offsetToISO(e.inicio) } : e));
+    onCommit(novas);
+    toast(acao === 'inicio'
+      ? `${nTarefas(ids.size)} levada${ids.size !== 1 ? 's' : ''} ao início do projeto`
+      : `${nTarefas(ids.size)} com a data mantida (não iniciar antes de)`, { tone: 'success', icon: 'check' });
+    if (ids.size === lista.length) onClose();
+  };
+
+  return (
+    <Modal
+      title="Tarefas sem predecessora fora do início do projeto"
+      subtitle={`Início do projeto: ${isoToBR(offsetToISO(inicioProjeto))}. Estas tarefas não têm predecessora nem restrição, mas começam depois dele.`}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Fechar</button>
+          <div className="spacer"></div>
+          <button className="btn btn-ghost" disabled={!ativas.length} onClick={() => aplicar('manter')}
+            title="Cria a restrição 'não iniciar antes de' na data atual: a tarefa fica onde está">
+            Manter a data ({ativas.length})
+          </button>
+          <button className="btn btn-primary" disabled={!ativas.length} onClick={() => aplicar('inicio')}>
+            Levar ao início do projeto ({ativas.length})
+          </button>
+        </>
+      }
+    >
+      <div style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <thead>
+            <tr>
+              <th style={{ width: 32, padding: '6px 12px', textAlign: 'left' }}>
+                <input type="checkbox" checked={ativas.length === lista.length && lista.length > 0}
+                  onChange={ev => marcarTodas(ev.target.checked)} title="Marcar ou desmarcar todas" />
+              </th>
+              <th style={{ textAlign: 'left', padding: '6px 12px' }}>ID</th>
+              <th style={{ textAlign: 'left', padding: '6px 12px' }}>Tarefa</th>
+              <th style={{ textAlign: 'left', padding: '6px 12px' }}>Início atual</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.map(e => (
+              <tr key={e.id} style={{ borderTop: '1px solid var(--border)' }}>
+                <td style={{ padding: '6px 12px' }}>
+                  <input type="checkbox" checked={!desmarcadas.has(e.id)} onChange={() => alternar(e.id)} />
+                </td>
+                <td style={{ padding: '6px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>{e.displayId ?? e.id}</td>
+                <td style={{ padding: '6px 12px' }}>
+                  {e.etapa}
+                  {nomeDoPai(e) && <div style={{ fontSize: 10.5, color: 'var(--text-faint)', marginTop: 2 }}>{nomeDoPai(e)}</div>}
+                </td>
+                <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{isoToBR(offsetToISO(e.inicio))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
+};
+
 // ─── ImportarEAPModal — importa uma EAP pronta de planilha Excel/CSV ──────────
 export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
   const toast = useToast();
@@ -1186,7 +1273,9 @@ export const ImportarEAPModal = ({ etapas, customCols, onCommit, onClose }) => {
     // Distribui datas em cascata só nas folhas (grupos têm datas calculadas depois)
     const childCount = {};
     items.forEach(it => { if (it.parentId) childCount[it.parentId] = (childCount[it.parentId] || 0) + 1; });
-    const cursor = todayOffset();
+    // Início do projeto (como as tarefas novas); sem tarefas ainda, hoje. A planilha não traz datas e
+    // tarefa sem predecessora nem restrição ficaria no início do projeto de qualquer jeito.
+    const cursor = etapas.length ? projectStartOffset(etapas) : todayOffset();
     const nodes = items.map(it => {
       const isLeaf = !childCount[it.id];
       const dur    = isLeaf ? (it.dur || 1) : 1;

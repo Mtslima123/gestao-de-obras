@@ -52,11 +52,14 @@ describe('voltarAoInicioDoProjeto', () => {
     expect(voltarAoInicioDoProjeto(antes, editada)).toBe(editada);
   });
 
-  it('predecessora EXCLUÍDA (não só a ligação removida): a data não muda', () => {
+  it('predecessora EXCLUÍDA (não só a ligação removida): a sucessora também vai ao início do projeto', () => {
     const antes = cadeia();
     const semB = deleteTask('B', antes);                                // C perde o dep porque B sumiu
     expect(semB.find(e => e.id === 'C').dep).toEqual([]);
-    expect(voltarAoInicioDoProjeto(antes, semB)).toBe(semB);
+    expect(inicioDe(semB, 'C')).toBeGreaterThan(INICIO);                // ainda na data que a ligação deu
+    const depois = voltarAoInicioDoProjeto(antes, semB);
+    expect(inicioDe(depois, 'C')).toBe(INICIO);
+    expect(inicioDe(depois, 'S')).toBeLessThan(inicioDe(antes, 'S'));   // e a sucessora dela acompanha
   });
 
   it('não mexe em grupo, tarefa manual, concluída nem tarefa com restrição de data', () => {

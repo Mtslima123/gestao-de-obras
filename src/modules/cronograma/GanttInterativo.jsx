@@ -10,7 +10,7 @@ import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, tas
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
-         nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap, filtrarComAncestrais } from './scheduleEngine';
+         nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap, filtrarComAncestrais, comInicioFixado } from './scheduleEngine';
 import { PavimentosModal, ExcluirTarefasModal } from './cronogramaModais';
 import { etapasSemExcluidas, idsExcluidos, vinculosAfetados } from './exclusaoTarefasPure';
 import { TaskFormPanel } from './TaskFormPanel';
@@ -303,9 +303,14 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
         return d && o && (d.inicio !== o.inicio || d.dur !== o.dur);
       });
       if (!changed) return;
-      let novas = etapasRef.current.map(et => ({
-        ...et, ...(movedIds.has(et.id) && cur[et.id] ? cur[et.id] : {}),
-      }));
+      // Barra solta numa data: se a tarefa não tem predecessora, a data vira "não iniciar antes de";
+      // sem isso ela voltaria ao início do projeto na próxima edição (ver comInicioFixado).
+      const inicioProjeto = projectStartOffset(etapasRef.current);
+      let novas = etapasRef.current.map(et => {
+        const novo = { ...et, ...(movedIds.has(et.id) && cur[et.id] ? cur[et.id] : {}) };
+        const mudouInicio = movedIds.has(et.id) && cur[et.id] && orig[et.id] && cur[et.id].inicio !== orig[et.id].inicio;
+        return mudouInicio ? comInicioFixado(novo, novo.inicio, inicioProjeto) : novo;
+      });
 
       // Replanejamento automático: arrastar uma barra sempre cascateia para as sucessoras
       // (tarefas em modo manual são puladas dentro de propagateDrag — datas fixas).

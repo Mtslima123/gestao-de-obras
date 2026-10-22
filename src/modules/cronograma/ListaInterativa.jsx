@@ -20,11 +20,11 @@ import {
   fmtBRL, indentTasks, outdentTasks,
   effStatus, getVisibleEtapas, nextEtapaId, nextDisplayId, emptyCustomCols,
   createGroup, autoScheduleFromDeps, formatDepList, parseDep,
-  moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento,
+  moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento, tarefasLivresForaDoInicio,
   reprogramarRestante, computeSuccessors, computeIdMap, computeRowNumberMap, filtrarComAncestrais,
 } from './scheduleEngine';
 import { computeAutofillSeries } from './autofillSeries';
-import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal, ExcluirTarefasModal } from './cronogramaModais';
+import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal, TarefasLivresModal, ExcluirTarefasModal } from './cronogramaModais';
 import { TaskFormPanel } from './TaskFormPanel';
 import { OrtografiaModal } from './OrtografiaModal';
 import { substituirTokens } from './spellcheckPure';
@@ -85,6 +85,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [nivelEstruturaValue, setNivelEstruturaValue] = React.useState('');
   const [nivelEstruturaLabel, setNivelEstruturaLabel] = React.useState(null);
   const [showVincularTarefas, setShowVincularTarefas] = React.useState(false);
+  const [showTarefasLivres, setShowTarefasLivres] = React.useState(false);
+  // Tarefas sem predecessora e sem restrição fora do início do projeto (datas de antes da regra):
+  // a etiqueta da faixa de status abre a revisão (TarefasLivresModal).
+  const tarefasLivresFora = React.useMemo(() => tarefasLivresForaDoInicio(etapas), [etapas]);
   const [showImportEAP, setShowImportEAP] = React.useState(false);
   const [showRowHDialog, setShowRowHDialog] = React.useState(false); // caixa "Altura da linha"
   const [rowHDialogTargets, setRowHDialogTargets] = React.useState([]); // linhas alvo da altura
@@ -3354,6 +3358,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               {selectedId && !multiSel.length && (
                 <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{selectedId} selecionado</span>
               )}
+              {!readOnly && tarefasLivresFora.length > 0 && (
+                <button type="button" onClick={() => setShowTarefasLivres(true)}
+                  title="Tarefas sem predecessora e sem restrição que não estão no início do projeto. Clique para levar ao início ou manter a data."
+                  style={{ fontSize: 11.5, color: 'var(--warning)', fontWeight: 600, padding: '3px 10px', background: 'var(--warning-bg)', border: 'none', borderRadius: 20, cursor: 'pointer', marginRight: 8 }}>
+                  {tarefasLivresFora.length} sem predecessora fora do início
+                </button>
+              )}
               <ConflitosPopover ativos={conflitosAtivos} confirmados={conflitosConfirmados} etapas={etapas}
                 numeroDaLinha={numeroDaLinha} onAbrir={focarTarefaConflito}
                 onOk={onConflitoOk} onDesfazer={onConflitoOkDesfazer} podeEditar={!readOnly && !!onConflitoOk} />
@@ -4955,6 +4966,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           rowNumberMap={rowNumberMap}
           onCommit={onCommit}
           onClose={() => setShowVincularTarefas(false)}
+        />
+      )}
+      {showTarefasLivres && (
+        <TarefasLivresModal
+          etapas={etapas}
+          onCommit={onCommit}
+          onClose={() => setShowTarefasLivres(false)}
         />
       )}
 

@@ -475,42 +475,72 @@ export function autoScheduleFromDeps(etapas) {
   return updateParentBounds(out);
 }
 
-// Tarefa que PERDEU a última predecessora volta ao início do projeto (estilo MS Project: tarefa sem
-// predecessora começa no início do projeto, como as tarefas novas — ver projectStartOffset). Sem
-// isto ela ficava na data que a ligação lhe tinha dado, porque o agendador não recalcula tarefa
-// livre (ver schedulePass). É uma regra do MOMENTO da edição, não do agendador: 45 folhas da ÍON não
-// têm predecessora e têm datas digitadas à mão, e o agendador roda até ao abrir o cronograma.
-// A mesma regra vale para a tarefa livre que é REABERTA (de 100% para menos): enquanto estava
-// concluída a data ficou congelada (ver o filtro de 100% abaixo), então se a ligação foi removida
-// nesse tempo, a data nunca voltou ao início — e ao reabrir nada mais a reavaliaria.
-// `antes` é o estado anterior à edição e `depois` o novo. Só mexe na tarefa que:
-//  - é folha, não tem predecessora agora e (tinha predecessora ou acabou de ser reaberta);
-//  - teve só a LIGAÇÃO removida (se a tarefa predecessora foi excluída, a data não muda);
-//  - está em modo automático e abaixo de 100% (manual e concluída têm data fixa);
-//  - não tem restrição de data (SNET/MSO/MFO/FNET o agendador já ancora na data da restrição;
-//    SNLT/FNLT também ficam de fora, para o agendador não as mandar para a data 0);
-//  - começa depois do início do projeto.
+// Tarefa LIVRE: folha em modo automático, abaixo de 100%, sem predecessora e sem restrição de data.
+// No Project ela começa sempre no início do projeto (como as tarefas novas — ver projectStartOffset).
+// SNET/MSO/MFO/FNET o agendador já ancora na data da restrição; SNLT/FNLT também contam como
+// restrição aqui, para o agendador não as mandar para a data 0. Manual e concluída têm data fixa.
+export function ehTarefaLivre(e) {
+  if (!e || e.isGroup || e.modo === 'manual' || (e.avanco ?? 0) >= 100) return false;
+  if ((e.dep || []).length) return false;
+  return !(e.restricaoTipo && e.restricaoTipo !== 'asap' && e.restricaoData);
+}
+
+// Tarefa que ACABA DE FICAR livre volta ao início do projeto (estilo MS Project: sem predecessora e
+// sem restrição, começa no início do projeto). Sem isto ela ficava na data que a ligação lhe tinha dado,
+// porque o agendador não recalcula tarefa livre (ver schedulePass). É uma regra do MOMENTO da edição,
+// não do agendador: 45 folhas da ÍON não têm predecessora e têm datas digitadas à mão, o agendador roda
+// até ao abrir o cronograma e esse resultado não é gravado (os outros módulos leem o banco cru). As
+// tarefas que já eram livres e fora do início ficam como estão e aparecem em tarefasLivresForaDoInicio,
+// para a pessoa decidir.
+// `antes` é o estado anterior à edição e `depois` o novo. Move a tarefa que, em `depois`, é livre e
+// começa depois do início do projeto, e que em `antes` NÃO era livre (ou não existia). Isso cobre:
+//  - perder a última predecessora, inclusive porque a predecessora foi excluída;
+//  - ser reaberta de 100% (enquanto concluída a data ficou congelada);
+//  - ter a restrição de data apagada, ou voltar de manual para automático;
+//  - nascer com data herdada (copiar e colar linha, Importar EAP).
+// Sem `antes` (primeira gravação) não há o que comparar: devolve `depois`.
 // Devolve o MESMO array quando nada muda; senão as tarefas reagendadas (sucessoras acompanham).
 export function voltarAoInicioDoProjeto(antes, depois) {
-  const antesPorId = new Map((antes || []).map(e => [e.id, e]));
-  const existe = new Set(depois.map(e => e.id));
+  if (!antes || !antes.length) return depois;
+  const antesPorId = new Map(antes.map(e => [e.id, e]));
   const inicioProjeto = projectStartOffset(depois);
   let mudou = false;
   const ajustadas = depois.map(e => {
-    const a = antesPorId.get(e.id);
-    if (!a || e.isGroup || a.isGroup) return e;
-    if ((e.dep || []).length) return e;
-    const depsAntes = a.dep || [];
-    const perdeuLigacao = depsAntes.length > 0 && depsAntes.every(d => existe.has(typeof d === 'string' ? d : d.id));
-    const reaberta = (a.avanco ?? 0) >= 100 && (e.avanco ?? 0) < 100;
-    if (!perdeuLigacao && !reaberta) return e;
-    if (e.modo === 'manual' || (e.avanco ?? 0) >= 100) return e;
-    if (e.restricaoTipo && e.restricaoTipo !== 'asap' && e.restricaoData) return e;
-    if (!(e.inicio > inicioProjeto)) return e;
+    if (!ehTarefaLivre(e) || !(e.inicio > inicioProjeto)) return e;
+    if (ehTarefaLivre(antesPorId.get(e.id))) return e; // já era livre: data digitada à mão de antes da regra
     mudou = true;
     return { ...e, inicio: inicioProjeto };
   });
   return mudou ? autoScheduleFromDeps(ajustadas) : depois;
+}
+
+// Tarefas livres fora do início do projeto: as que ficaram com data própria sem restrição (digitada à
+// mão antes desta regra, colada, importada). A Lista oferece levá-las ao início ou manter a data.
+export function tarefasLivresForaDoInicio(etapas) {
+  const inicioProjeto = projectStartOffset(etapas);
+  return etapas.filter(e => ehTarefaLivre(e) && e.inicio > inicioProjeto);
+}
+
+// Quem pode ter a data de início fixada pelo usuário (digitada, arrastada no Gantt): folha automática,
+// abaixo de 100%, sem predecessora, e sem restrição ou só com "não iniciar antes de".
+function aceitaInicioFixado(e) {
+  if (e.isGroup || e.modo === 'manual' || (e.avanco ?? 0) >= 100) return false;
+  if ((e.dep || []).length) return false;
+  const tipo = e.restricaoTipo;
+  return !tipo || tipo === 'asap' || tipo === 'snet' || !e.restricaoData;
+}
+
+// Data de início digitada ou arrastada pelo usuário numa tarefa sem predecessora: vira a restrição "não
+// iniciar antes de" (SNET) naquela data, como no Project. Sem ela a tarefa livre voltaria ao início do
+// projeto na próxima edição. Com predecessora a data continua sendo calculada pela ligação (só grava
+// `inicio`, como antes); restrição de outro tipo e tarefa manual também ficam como estão. Data no início
+// do projeto (ou antes) é o padrão da tarefa livre: não cria restrição e limpa um SNET que existia.
+export function comInicioFixado(e, inicio, inicioProjeto) {
+  const novo = { ...e, inicio };
+  if (!Number.isFinite(inicioProjeto) || !aceitaInicioFixado(e)) return novo;
+  if (inicio > inicioProjeto) return { ...novo, restricaoTipo: 'snet', restricaoData: offsetToISO(inicio) };
+  if (e.restricaoTipo === 'snet') return { ...novo, restricaoTipo: 'asap', restricaoData: '' };
+  return novo;
 }
 
 // Recalcula inicio/dur dos grupos com base nos filhos diretos (de baixo para cima)
@@ -693,7 +723,8 @@ export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   // parseAnyDateToISO aceita tanto ISO (edição/colar interno) quanto DD/MM/AAAA (colar de
   // fora, ex.: Excel) — sem reconhecer o formato, retorna '' e a tarefa não é alterada
   // (evita corromper a data existente com um colar que não é uma data válida).
-  if (field === 'inicio')      { const iso = parseAnyDateToISO(rawValue); return iso ? { ...e, inicio: Math.round(dateToOffset(iso)) } : e; }
+  // Tarefa sem predecessora: a data digitada vira "não iniciar antes de" (ver comInicioFixado).
+  if (field === 'inicio')      { const iso = parseAnyDateToISO(rawValue); return iso ? comInicioFixado(e, Math.round(dateToOffset(iso)), etapas?.length ? projectStartOffset(etapas) : NaN) : e; }
   // +1: a data digitada é o último dia INCLUSIVO de trabalho, mas workDur espera o
   // offset EXCLUSIVO (dia seguinte) — ver taskEndDisplay em cronogramaDateUtils.js.
   if (field === 'fim') {
