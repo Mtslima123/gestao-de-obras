@@ -1084,24 +1084,29 @@ export function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
   return rest;
 }
 
-// Casa predecessoras e sucessoras 1 para 1 pela ordem do cronograma (VincularTarefasModal): a 1ª
-// predecessora com a 1ª sucessora, e assim por diante. Só quando as quantidades são iguais; senão
-// não há como saber quem fica sem par, e devolve vazio. A ordem é a do array `etapas` (a das listas
-// na tela), não a ordem em que as caixas foram marcadas. A mesma tarefa marcada nos dois lados não
-// vira predecessora de si mesma: essa sucessora fica em `semPar`.
-export function parearUmParaUm(etapas, predIds, succIds) {
+// Liga em sequência (VincularTarefasModal): a partir da PRIMEIRA sucessora que já tem predecessora
+// escolhida (`links`: sucessora -> predecessora), cada sucessora seguinte recebe a predecessora seguinte
+// da lista, até acabar uma das duas. Serve para o caso com deslocamento (a 1ª Alvenaria depende da 2ª
+// Estrutura) e para listas de tamanhos diferentes. A ordem é a do array `etapas` (a das listas na tela),
+// não a ordem em que as caixas foram marcadas. As sucessoras antes da escolhida não mudam.
+// Devolve `pares` (sucessora -> predecessora, só as seguintes à escolhida) e `semPar`: seguintes que
+// ficaram sem predecessora porque as marcadas acabaram, ou porque cairia na própria tarefa (marcada dos
+// dois lados). Sem nenhuma escolha feita, devolve vazio.
+export function parearEmSequencia(etapas, predIds, succIds, links) {
   const pares = {};
   const semPar = [];
-  if (!predIds.length || predIds.length !== succIds.length) return { pares, semPar };
   const predSet = new Set(predIds);
   const succSet = new Set(succIds);
   const preds = etapas.filter(e => predSet.has(e.id)).map(e => e.id);
   const succs = etapas.filter(e => succSet.has(e.id)).map(e => e.id);
-  if (preds.length !== succs.length) return { pares, semPar }; // algum id marcado não existe mais
-  succs.forEach((sid, i) => {
-    if (preds[i] === sid) semPar.push(sid);
-    else pares[sid] = preds[i];
-  });
+  const ancora = succs.findIndex(sid => preds.includes(links?.[sid]));
+  if (ancora < 0) return { pares, semPar };
+  const base = preds.indexOf(links[succs[ancora]]);
+  for (let i = ancora + 1; i < succs.length; i++) {
+    const pid = preds[base + (i - ancora)];
+    if (!pid || pid === succs[i]) semPar.push(succs[i]);
+    else pares[succs[i]] = pid;
+  }
   return { pares, semPar };
 }
 

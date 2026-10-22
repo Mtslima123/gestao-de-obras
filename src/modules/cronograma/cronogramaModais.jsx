@@ -5,7 +5,7 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay, projectStartOffset } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearUmParaUm, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
 import { itemValor } from "../financeiro/vinculoService";
 import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
@@ -738,9 +738,10 @@ const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 // direita); pra cada sucessora marcada, um dropdown escolhe manualmente qual das
 // predecessoras marcadas ela recebe. Sem casamento automático por nome/posição — o
 // mapeamento entre os dois grupos pode ter deslocamento (ex.: Alvenaria Tipo 1 depende
-// de Estrutura Tipo 2), então quem decide cada par é o usuário. Exceção opcional: o botão
-// "Vincular 1 para 1" casa pela ordem quando as duas listas têm a mesma quantidade, mas só
-// PREENCHE os dropdowns; o usuário confere e confirma em "Criar N vínculos".
+// de Estrutura Tipo 2), então quem decide é o usuário. Atalho opcional: depois de escolher a
+// predecessora de UMA sucessora, o botão "Vincular em sequência" liga as seguintes na ordem, a
+// partir dessa escolha, até acabar (cobre o deslocamento). Só PREENCHE os dropdowns; o usuário
+// confere e confirma em "Criar N vínculos".
 export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onClose }) => {
   const toast = useToast();
   const [buscaPred, setBuscaPred] = React.useState('');
@@ -845,19 +846,21 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     }
   };
 
-  // Só dá para casar 1 para 1 quando os dois lados têm a mesma quantidade (e pelo menos uma).
-  const podeUmParaUm = predSelected.length > 0 && predSelected.length === succSelected.length;
-  const dicaUmParaUm = podeUmParaUm
-    ? 'Preenche cada sucessora com a predecessora de mesma posição (na ordem do cronograma). Confira antes de criar.'
-    : `${predSelected.length} predecessora${predSelected.length !== 1 ? 's' : ''} e ${succSelected.length} sucessora${succSelected.length !== 1 ? 's' : ''}: marque a mesma quantidade nos dois lados para vincular 1 para 1`;
-  const vincularUmParaUm = () => {
-    const { pares, semPar } = parearUmParaUm(etapas, predSelected, succSelected);
+  // "Vincular em sequência": parte da primeira sucessora que já tem predecessora escolhida e liga as
+  // seguintes na ordem (ver parearEmSequencia). Só precisa de uma escolha feita.
+  const temEscolha = succRows.some(s => links[s.id] && predSelected.includes(links[s.id]));
+  const dicaEmSequencia = temEscolha
+    ? 'Liga as sucessoras seguintes em sequência, a partir da primeira que você escolheu: cada uma recebe a predecessora seguinte da lista, até acabar. Confira antes de criar.'
+    : 'Escolha a predecessora de uma sucessora na coluna Predecessora; o botão liga as seguintes em sequência a partir dela.';
+  const vincularEmSequencia = () => {
+    const { pares, semPar } = parearEmSequencia(etapas, predSelected, succSelected, links);
     const n = Object.keys(pares).length;
-    if (!n) return;
-    // Substitui o dropdown de TODA sucessora marcada; tipo e folga (linkMeta) ficam como estão.
-    setLinks(l => ({ ...l, ...Object.fromEntries(succSelected.map(id => [id, pares[id] || ''])) }));
-    toast(`${n} par${n !== 1 ? 'es' : ''} montado${n !== 1 ? 's' : ''}. Confira e clique em Criar ${n} vínculo${n !== 1 ? 's' : ''}`, { tone: 'success', icon: 'check' });
-    if (semPar.length) toast(`${semPar.length} sucessora${semPar.length !== 1 ? 's' : ''} sem par (a mesma tarefa está marcada nos dois lados)`, { tone: 'warning', icon: 'alert-triangle' });
+    if (!n && !semPar.length) { toast('Não há sucessora depois da que você escolheu', { tone: 'neutral' }); return; }
+    // Substitui o dropdown das sucessoras seguintes à escolhida (as que ficaram sem predecessora voltam a
+    // "Nenhuma"); as de antes e o tipo/folga (linkMeta) ficam como estão.
+    setLinks(l => ({ ...l, ...Object.fromEntries(semPar.map(id => [id, ''])), ...pares }));
+    if (n) toast(`${n} sucessora${n !== 1 ? 's' : ''} ligada${n !== 1 ? 's' : ''} em sequência. Confira e clique em Criar`, { tone: 'success', icon: 'check' });
+    if (semPar.length) toast(`${semPar.length} sucessora${semPar.length !== 1 ? 's' : ''} sem predecessora: acabaram as marcadas`, { tone: 'warning', icon: 'alert-triangle' });
   };
 
   const handleConfirm = () => {
@@ -1010,9 +1013,9 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
               Vínculos a criar
             </div>
             <div style={{ flex: 1 }} />
-            <button type="button" className="btn btn-ghost" disabled={!podeUmParaUm} title={dicaUmParaUm}
-              onClick={vincularUmParaUm} style={{ padding: '3px 10px', fontSize: 12 }}>
-              Vincular 1 para 1
+            <button type="button" className="btn btn-ghost" disabled={!temEscolha} title={dicaEmSequencia}
+              onClick={vincularEmSequencia} style={{ padding: '3px 10px', fontSize: 12 }}>
+              Vincular em sequência
             </button>
           </div>
           <div style={{ maxHeight: pickersCollapsed ? 460 : 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
