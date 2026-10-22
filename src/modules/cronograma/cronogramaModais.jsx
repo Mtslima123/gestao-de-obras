@@ -747,8 +747,8 @@ const ALT_LISTAS_KEY = 'vincular_alt_listas';
 // predecessoras marcadas ela recebe. Sem casamento automático por nome/posição — o
 // mapeamento entre os dois grupos pode ter deslocamento (ex.: Alvenaria Tipo 1 depende
 // de Estrutura Tipo 2), então quem decide é o usuário. Atalho opcional: depois de escolher a
-// predecessora de UMA sucessora, o botão "Vincular em sequência" liga as seguintes na ordem, a
-// partir dessa escolha, até acabar (cobre o deslocamento). Só PREENCHE os dropdowns; o usuário
+// predecessora de uma ou mais sucessoras, o botão "Vincular em sequência" liga as seguintes na ordem, a
+// partir da ÚLTIMA escolha, até acabar (cobre o deslocamento). Só PREENCHE os dropdowns; o usuário
 // confere e confirma em "Criar N vínculos". Os vínculos que a sucessora já tem aparecem como linhas
 // "vínculo atual" editáveis (trocar predecessora, tipo, folga ou remover) e o botão passa a "Aplicar
 // N alterações"; tudo num único commit (ver aplicarVinculosEmLote).
@@ -950,12 +950,13 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     }
   };
 
-  // "Vincular em sequência": parte da primeira sucessora que já tem predecessora escolhida e liga as
-  // seguintes na ordem (ver parearEmSequencia). Só precisa de uma escolha feita.
+  // "Vincular em sequência": parte da ÚLTIMA sucessora que já tem predecessora escolhida e liga as
+  // seguintes na ordem (ver parearEmSequencia); o que a pessoa escolheu à mão, em qualquer linha, fica
+  // como está. Só precisa de uma escolha feita.
   const temEscolha = succRows.some(s => links[s.id] && predSelected.includes(links[s.id]));
   const dicaEmSequencia = temEscolha
-    ? 'Liga as sucessoras seguintes em sequência, a partir da primeira que você escolheu: cada uma recebe a predecessora seguinte da lista, até acabar. Confira antes de criar.'
-    : 'Escolha a predecessora de uma sucessora na coluna Predecessora; o botão liga as seguintes em sequência a partir dela.';
+    ? 'Liga as sucessoras seguintes em sequência, a partir da última que você escolheu: cada uma recebe a predecessora seguinte da lista, até acabar. As suas escolhas ficam como estão. Confira antes de criar.'
+    : 'Escolha a predecessora de uma sucessora na coluna Predecessora; o botão liga as seguintes em sequência a partir da última escolhida.';
   const vincularEmSequencia = () => {
     const { pares, semPar } = parearEmSequencia(etapas, predSelected, succSelected, links);
     const n = Object.keys(pares).length;

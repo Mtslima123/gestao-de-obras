@@ -1,5 +1,6 @@
-// Botão "Vincular em sequência" do modal Vincular tarefas: a partir da primeira sucessora que já tem
+// Botão "Vincular em sequência" do modal Vincular tarefas: a partir da ÚLTIMA sucessora que já tem
 // predecessora escolhida, cada sucessora seguinte recebe a predecessora seguinte da lista, até acabar.
+// As escolhas manuais (em qualquer linha) ficam como estão.
 import { describe, it, expect } from 'vitest';
 import { parearEmSequencia } from '../modules/cronograma/scheduleEngine';
 
@@ -32,16 +33,38 @@ describe('parearEmSequencia', () => {
     expect(semPar).toEqual([]);
   });
 
-  it('a primeira escolha pode estar no meio: as de antes não mudam, as de depois seguem', () => {
+  it('a única escolha pode estar no meio: as de antes não mudam, as de depois seguem', () => {
     const { pares, semPar } = parearEmSequencia(etapas, preds, ['P1', 'P2', 'P3', 'P4'], { P2: 'T2' });
     expect(pares).toEqual({ P3: 'T3', P4: 'T4' });
     expect(semPar).toEqual([]);
     expect(pares.P1).toBeUndefined();
   });
 
-  it('só vale a PRIMEIRA escolha na ordem do cronograma (as outras escolhas são substituídas)', () => {
-    const { pares } = parearEmSequencia(etapas, preds, ['P1', 'P2', 'P3'], { P1: 'T1', P3: 'T5' });
-    expect(pares).toEqual({ P2: 'T2', P3: 'T3' });
+  it('com várias escolhas manuais vale a ÚLTIMA; as anteriores ficam como estão', () => {
+    const links = { P1: 'T1', P2: 'T3' };
+    const { pares, semPar } = parearEmSequencia(etapas, preds, ['P1', 'P2', 'P3', 'P4'], links);
+    expect(pares).toEqual({ P3: 'T4', P4: 'T5' });
+    expect(semPar).toEqual([]);
+    expect(pares.P1).toBeUndefined();
+    expect(pares.P2).toBeUndefined();
+    expect(links).toEqual({ P1: 'T1', P2: 'T3' });
+  });
+
+  it('caso do print: Térreo e Intermediário escolhidos, 2º Tipo com a 4ª predecessora; as seguintes vão da 5ª em diante', () => {
+    const maisEtapas = [...['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map(t), ...['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map(t)];
+    const { pares, semPar } = parearEmSequencia(
+      maisEtapas,
+      ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'],
+      ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'],
+      { P1: 'T1', P2: 'T2', P3: 'T4' },
+    );
+    expect(pares).toEqual({ P4: 'T5', P5: 'T6', P6: 'T7' });
+    expect(semPar).toEqual([]);
+  });
+
+  it('escolha na última sucessora (a última escolha é a última linha): nada a ligar, e nada é tocado', () => {
+    const r = parearEmSequencia(etapas, preds, ['P1', 'P2', 'P3'], { P1: 'T1', P3: 'T5' });
+    expect(r).toEqual({ pares: {}, semPar: [] });
   });
 
   it('a ordem é a do cronograma, não a em que as caixas foram marcadas', () => {

@@ -1084,11 +1084,13 @@ export function moveTaskBlock(etapas, draggedId, targetId, insertAfter) {
   return rest;
 }
 
-// Liga em sequência (VincularTarefasModal): a partir da PRIMEIRA sucessora que já tem predecessora
+// Liga em sequência (VincularTarefasModal): a partir da ÚLTIMA sucessora que já tem predecessora
 // escolhida (`links`: sucessora -> predecessora), cada sucessora seguinte recebe a predecessora seguinte
-// da lista, até acabar uma das duas. Serve para o caso com deslocamento (a 1ª Alvenaria depende da 2ª
-// Estrutura) e para listas de tamanhos diferentes. A ordem é a do array `etapas` (a das listas na tela),
-// não a ordem em que as caixas foram marcadas. As sucessoras antes da escolhida não mudam.
+// da lista, até acabar uma das duas. Serve para o caso com deslocamento (a 2ª Alvenaria depende da 4ª
+// Estrutura, e as seguintes vêm da 5ª em diante) e para listas de tamanhos diferentes. A ordem é a do
+// array `etapas` (a das listas na tela), não a ordem em que as caixas foram marcadas. Tudo que está na
+// escolhida ou antes dela não muda: as escolhas manuais da pessoa são respeitadas, e depois da última só
+// há linhas em "Nenhuma", então nada escolhido é sobrescrito.
 // Devolve `pares` (sucessora -> predecessora, só as seguintes à escolhida) e `semPar`: seguintes que
 // ficaram sem predecessora porque as marcadas acabaram, ou porque cairia na própria tarefa (marcada dos
 // dois lados). Sem nenhuma escolha feita, devolve vazio.
@@ -1099,7 +1101,11 @@ export function parearEmSequencia(etapas, predIds, succIds, links) {
   const succSet = new Set(succIds);
   const preds = etapas.filter(e => predSet.has(e.id)).map(e => e.id);
   const succs = etapas.filter(e => succSet.has(e.id)).map(e => e.id);
-  const ancora = succs.findIndex(sid => preds.includes(links?.[sid]));
+  // Laço manual: findLastIndex não existe no Chrome 80 (piso do build).
+  let ancora = -1;
+  for (let i = succs.length - 1; i >= 0; i--) {
+    if (preds.includes(links?.[succs[i]])) { ancora = i; break; }
+  }
   if (ancora < 0) return { pares, semPar };
   const base = preds.indexOf(links[succs[ancora]]);
   for (let i = ancora + 1; i < succs.length; i++) {
