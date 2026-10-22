@@ -18,7 +18,7 @@ import { OfflineFallback } from './components/OfflineFallback';
 import { offlineCache } from './services/offlineCache';
 import { offlineQueue } from './services/offlineQueue';
 import { pavimentosFotosService } from './services/pavimentosFotos.service';
-import { useIsMobile, useIsTouchDevice } from './utils/useIsMobile';
+import { useIsMobile, useIsTouchDevice, ehSiteDeComputadorNoToque, lerAmbienteDeTela } from './utils/useIsMobile';
 import { MobileGate } from './modules/mobile/MobileGate';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
 // Renderizadas dentro de <Suspense> no corpo do App.
@@ -1115,10 +1115,50 @@ const PwaUpdateBanner = () => {
   );
 };
 
+// Chrome do celular em "Versão para computador": a página abre numa janela de ~980px e fica com cara
+// de site. Não dá para corrigir por dentro da página (nesse modo o navegador ignora o viewport),
+// então só avisa como desligar. Ensinar uma vez por sessão basta: "Entendi" guarda a dispensa.
+// Como a janela é larga e vai encolhida na tela, o aviso é ampliado pela mesma proporção para
+// ficar legível.
+const AvisoSiteDeComputador = () => {
+  const [ativo, setAtivo] = React.useState(() => ehSiteDeComputadorNoToque(lerAmbienteDeTela()));
+  const [dispensado, setDispensado] = React.useState(() => {
+    try { return sessionStorage.getItem('aviso_site_computador_ok') === '1'; } catch { return false; }
+  });
+  React.useEffect(() => {
+    const atualizar = () => setAtivo(ehSiteDeComputadorNoToque(lerAmbienteDeTela()));
+    window.addEventListener('resize', atualizar);
+    return () => window.removeEventListener('resize', atualizar);
+  }, []);
+  if (!ativo || dispensado) return null;
+  const amb = lerAmbienteDeTela();
+  const larguraTela = window.screen?.width || amb.menorLadoTela;
+  const escala = Math.min(3, Math.max(1, amb.largura / larguraTela));
+  const dispensar = () => {
+    try { sessionStorage.setItem('aviso_site_computador_ok', '1'); } catch { /* ignore */ }
+    setDispensado(true);
+  };
+  return (
+    <div style={{ position: 'fixed', left: 0, bottom: 0, zIndex: 1000, width: `${100 / escala}%`, transform: `scale(${escala})`, transformOrigin: 'bottom left' }}>
+      <div className="card" style={{ margin: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5, padding: 12 }}>
+          <span style={{ flex: 1 }}>
+            O navegador está em "Versão para computador" e a tela fica com cara de site. No menu do navegador (três pontos), desmarque "Versão para computador".
+          </span>
+          <button className="btn btn-primary" style={{ padding: '4px 12px', flexShrink: 0 }} onClick={dispensar}>
+            Entendi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const App = () => (
   <ToastProvider>
     <AppInner />
     <PwaUpdateBanner />
+    <AvisoSiteDeComputador />
   </ToastProvider>
 );
 
