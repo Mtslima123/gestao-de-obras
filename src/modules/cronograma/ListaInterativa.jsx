@@ -1821,6 +1821,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       // Inputs NÃO-controlados (Custo/Fator Peso/Predecessora/Sucessora, defaultValue)
       // já ficam com o valor certo só com o .value = seedChar.
       const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      // Digitar o MESMO valor que a célula já tem (1 numa duração de 1 dia): o navegador só leva o
+      // cursor ao fim quando o valor muda, e o select() do EditableCell deixa o valor antigo todo
+      // selecionado. O caractere ficava selecionado e a tecla seguinte o apagava (1 + 0 virava 0).
+      // Em input number o setSelectionRange abaixo não existe, então passa por vazio antes: o valor
+      // "muda", o cursor vai pro fim e nada fica selecionado.
+      if (nativeSetter && input.value === seedChar) nativeSetter.call(input, '');
       nativeSetter ? nativeSetter.call(input, seedChar) : (input.value = seedChar);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       // type="number" e type="date" não têm seleção de texto: setSelectionRange lança
