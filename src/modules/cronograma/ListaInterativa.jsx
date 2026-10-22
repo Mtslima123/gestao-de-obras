@@ -2649,8 +2649,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
 
   // Atalho Ctrl+F2 — cria vínculos em cadeia entre tarefas de multiSel (na ordem de clique)
+  // Ctrl+1 abre/fecha o painel Detalhes e Ctrl+2 abre/fecha o modal Vincular tarefas. Sem Shift nem Alt
+  // (AltGr+1 digita "¹" no teclado ABNT2) e sem repetir enquanto a tecla fica pressionada.
   React.useEffect(() => {
     const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === '1' || e.key === '2')) {
+        e.preventDefault();
+        if (e.repeat) return;
+        if (e.key === '1') setShowTaskForm(v => !v);
+        else if (!readOnly) setShowVincularTarefas(v => !v);
+        return;
+      }
       if (readOnly) return;
       if (e.ctrlKey && e.key === 'F2') {
         e.preventDefault();

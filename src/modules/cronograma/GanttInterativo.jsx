@@ -90,6 +90,17 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   const numeroDaLinha = (id) => fullRowNumberMap[id] ?? id;
   const [selected,    setSel]      = React.useState(new Set());
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
+  // Ctrl+1 abre/fecha o painel Detalhes (o mesmo atalho da Lista). Sem Shift nem Alt (AltGr+1 digita "¹"
+  // no teclado ABNT2) e sem repetir enquanto a tecla fica pressionada.
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key !== '1') return;
+      e.preventDefault();
+      if (!e.repeat) setShowTaskForm(v => !v);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
   const [editModeRaw, setEdit]     = React.useState(() => { try { const c = JSON.parse(localStorage.getItem(`gantt_cfg_${obraId}`) || '{}'); return c.editMode   ?? true; } catch { return true; } });
   const editMode = readOnly ? false : editModeRaw;
   const [labelWidth,  setLabelW]   = React.useState(() => { try { const s = localStorage.getItem(`gantt_lw_${obraId}`); return s ? Math.max(150, Math.min(500, parseInt(s, 10))) : 220; } catch { return 220; } });
