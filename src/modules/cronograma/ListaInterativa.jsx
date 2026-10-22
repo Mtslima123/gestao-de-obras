@@ -38,7 +38,7 @@ import {
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
 } from './cronogramaShared';
 import { classificarConflitos } from './conflitosOkPure';
-import { celulasAlvoFormatacao, alternarCelulaMarcada } from './alvoFormatacaoPure';
+import { celulasAlvoFormatacao, alternarCelulaMarcada, alternarLinhaMarcada } from './alvoFormatacaoPure';
 import { passaCondicoes, passaCor, coresDaColuna } from './filtroCondicaoPure';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
@@ -1501,6 +1501,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return ids;
   };
 
+  // Ctrl+clique numa linha: marca/desmarca na multiSel, que guarda a ordem do clique (ver
+  // alternarLinhaMarcada). A seleção de antes entra como semente, na ordem da tela, quando a
+  // multiSel ainda está vazia; o `semente` é lido agora porque o updater roda depois do render.
+  const alternarLinhaNaMultiSel = (taskId) => {
+    const sel = selectedRowIds();
+    const semente = filtrada.filter(t => sel.has(t.id)).map(t => t.id);
+    setMultiSel(ms => alternarLinhaMarcada(ms, semente, taskId));
+  };
+
   // "Linha inteira selecionada": multiSel (Ctrl+clique em linhas) ou o intervalo de
   // células cobre da primeira à última coluna visível (mesmo critério de Shift+Espaço
   // e do arraste pela calha — ambos produzem esse formato de seleção de propósito).
@@ -2641,8 +2650,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (readOnly) return;
       if (e.ctrlKey && e.key === 'F2') {
         e.preventDefault();
-        // Ctrl+clique define a ordem da cadeia; senão usa a seleção (calha/célula-range)
-        // na ordem visual (de cima para baixo).
+        // O Ctrl+clique na calha define a ordem da cadeia (a linha clicada antes, sem Ctrl, entra
+        // na frente: ver alternarLinhaMarcada); senão usa a seleção (calha/célula-range) na
+        // ordem visual (de cima para baixo).
         const sel = selectedRowIds();
         const cadeia = multiSel.length >= 2 ? multiSel : filtrada.filter(t => sel.has(t.id)).map(t => t.id);
         if (cadeia.length < 2) { toast('Selecione ao menos 2 tarefas (Ctrl+clique ou pela calha)', { tone: 'warning', icon: 'alert-triangle' }); return; }
@@ -3336,7 +3346,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               ))}
               <div style={{ flex: 1 }} />
               {multiSel.length > 0 && (
-                <span style={{ fontSize: 11.5, color: 'var(--brand)', fontWeight: 600, padding: '3px 10px', background: 'var(--brand-tint)', borderRadius: 20 }}>
+                <span title="Vincula na ordem em que as linhas foram clicadas: a primeira vira predecessora da segunda, a segunda da terceira..."
+                  style={{ fontSize: 11.5, color: 'var(--brand)', fontWeight: 600, padding: '3px 10px', background: 'var(--brand-tint)', borderRadius: 20 }}>
                   {multiSel.length} selecionadas · Ctrl+F2 para vincular
                 </span>
               )}
@@ -4496,7 +4507,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       }
                     } else if (ev.ctrlKey || ev.metaKey) {
                       ev.preventDefault();
-                      setMultiSel(ms => ms.includes(e.id) ? ms.filter(id => id !== e.id) : [...ms, e.id]);
+                      alternarLinhaNaMultiSel(e.id);
                     } else {
                       setSelectedId(id => id === e.id ? null : e.id);
                       setMultiSel([]);
@@ -4586,7 +4597,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       setSelAnchor({ taskId: e.id, colId: cols[0] });
                       setSelectedCell({ taskId: e.id, colId: cols[cols.length - 1] });
                       if (ev.ctrlKey || ev.metaKey) {
-                        setMultiSel(ms => ms.includes(e.id) ? ms.filter(id => id !== e.id) : [...ms, e.id]);
+                        alternarLinhaNaMultiSel(e.id);
                       } else {
                         setSelectedId(e.id);
                         setMultiSel([]);

@@ -51,6 +51,17 @@ export function alternarCelulaMarcada(marcadas, anterior, clicada) {
   return base.some(igual) ? base.filter(c => !igual(c)) : [...base, { taskId: clicada.taskId, colId: clicada.colId }];
 }
 
+// Ctrl+clique na calha de uma linha: alterna ela na lista de linhas marcadas, que guarda a ORDEM DO
+// CLIQUE (o Ctrl+F2 vincula nessa ordem, como no Project: a primeira clicada vira predecessora da
+// seguinte). A linha clicada SEM Ctrl fica fora dessa lista (é só a seleção ativa), então no primeiro
+// Ctrl+clique ela entra na frente: sem isso a lista nascia só com a 2ª linha e o vínculo saía de cima
+// para baixo, ignorando qual foi clicada primeiro. `anterior` é a seleção vigente (ids na ordem da
+// tela, ou na ordem em que foi marcada); só vale enquanto a lista de marcadas está vazia.
+export function alternarLinhaMarcada(marcadas, anterior, clicada) {
+  const base = marcadas.length ? marcadas : anterior;
+  return base.includes(clicada) ? base.filter(id => id !== clicada) : [...base, clicada];
+}
+
 // ── Seleção de volta ao desfazer/refazer ─────────────────────────────────────────────────────────
 // Cada ação gravada no histórico guarda a seleção da Lista do instante em que foi feita. Desfazer ou
 // refazer devolve essa seleção (as mesmas células, soltas ou em intervalo), em vez de só pular para a
