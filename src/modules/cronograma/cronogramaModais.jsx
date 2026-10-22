@@ -733,6 +733,14 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
 // compartilham essa constante hoje.
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 
+// Altura das listas do modal Vincular tarefas (px): padrão, limites do ajuste por arraste e chave onde
+// a escolha fica guardada. A tabela "Vínculos a criar" usa ALT_TOTAL_PAINEIS menos a das listas.
+const ALT_LISTAS_PADRAO = 340;
+const ALT_LISTAS_MIN = 140;
+const ALT_LISTAS_MAX = 480;
+const ALT_TOTAL_PAINEIS = 600;
+const ALT_LISTAS_KEY = 'vincular_alt_listas';
+
 // ─── VincularTarefasModal — cria vínculos de Predecessora/Sucessora em lote ───
 // Duas listas com busca (predecessoras candidatas à esquerda, sucessoras candidatas à
 // direita); pra cada sucessora marcada, um dropdown escolhe manualmente qual das
@@ -762,6 +770,40 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
   // diferença em relação ao vínculo atual: succId -> predecessora atual -> { remover?, predId?, tipo?, lag? }
   // (ver aplicarVinculosEmLote). Fica fora de `links`, que só descreve vínculos NOVOS.
   const [edicoes, setEdicoes] = React.useState({});
+  // Altura das listas de predecessoras/sucessoras; a tabela "Vínculos a criar" fica com o resto (a soma
+  // é fixa), então arrastar a linha entre elas troca espaço de uma pela outra. Lembrada entre aberturas.
+  const [alturaListas, setAlturaListas] = React.useState(() => {
+    try {
+      const v = parseInt(localStorage.getItem(ALT_LISTAS_KEY), 10);
+      if (Number.isFinite(v)) return Math.min(ALT_LISTAS_MAX, Math.max(ALT_LISTAS_MIN, v));
+    } catch { /* sem localStorage: usa o padrão */ }
+    return ALT_LISTAS_PADRAO;
+  });
+  const iniciarAjusteListas = (ev) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    const y0 = ev.clientY, h0 = alturaListas;
+    let atual = h0;
+    const mv = (e) => {
+      atual = Math.min(ALT_LISTAS_MAX, Math.max(ALT_LISTAS_MIN, Math.round(h0 + (e.clientY - y0))));
+      setAlturaListas(atual);
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', mv);
+      document.removeEventListener('mouseup', up);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      try { localStorage.setItem(ALT_LISTAS_KEY, String(atual)); } catch { /* ignore */ }
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', mv);
+    document.addEventListener('mouseup', up);
+  };
+  const restaurarAlturaListas = () => {
+    setAlturaListas(ALT_LISTAS_PADRAO);
+    try { localStorage.removeItem(ALT_LISTAS_KEY); } catch { /* ignore */ }
+  };
   // Grupos recolhidos em cada lista (independentes uma da outra) — reduz a rolagem em
   // EAPs grandes, escondendo as folhas de um grupo que já foi todo marcado/descartado.
   const [predCollapsed, setPredCollapsed] = React.useState(() => new Set());
@@ -956,7 +998,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     (nivel || 0) <= 0 ? 'var(--brand-100)' : nivel === 1 ? 'var(--brand-50)' : 'var(--brand-tint)';
 
   const listaTarefas = (itens, selecionados, toggle, collapsed, setCollapsed) => (
-    <div style={{ maxHeight: 340, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+    <div style={{ maxHeight: alturaListas, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
       {itens.filter(e => !ancestraisDe(e).some(aid => collapsed.has(aid))).map(e => {
         if (ehGrupo(e)) {
           const folhas = folhasDaSubarvore(e, itens);
@@ -1067,6 +1109,16 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
       </div>
       )}
 
+      {/* Linha entre as listas e "Vínculos a criar": arrastar para baixo aumenta as listas, para cima
+          aumenta a tabela de vínculos; duplo clique volta ao tamanho padrão. */}
+      {!pickersCollapsed && (
+        <div role="separator" aria-orientation="horizontal"
+          title="Arraste para aumentar ou diminuir as listas (duplo clique restaura)"
+          onMouseDown={iniciarAjusteListas} onDoubleClick={restaurarAlturaListas}
+          style={{ height: 14, margin: '-8px 0 2px', cursor: 'row-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 64, height: 4, borderRadius: 2, background: 'var(--border-strong, #cbd5e1)' }} />
+        </div>
+      )}
 
       {succRows.length > 0 && (
         <div>
@@ -1080,7 +1132,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
               Vincular em sequência
             </button>
           </div>
-          <div style={{ maxHeight: pickersCollapsed ? 460 : 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ maxHeight: pickersCollapsed ? 460 : ALT_TOTAL_PAINEIS - alturaListas, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
                 <tr>
