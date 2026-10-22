@@ -1110,6 +1110,48 @@ export function parearEmSequencia(etapas, predIds, succIds, links) {
   return { pares, semPar };
 }
 
+// Aplica de uma vez o que o modal Vincular tarefas montou: vínculos NOVOS e alterações nos vínculos que a
+// sucessora já tem. `novos` = pares [sucessoraId, predecessoraId] (tipo e folga em `meta[sucessoraId]`,
+// padrão TI/0). `edicoes` = { [sucessoraId]: { [predecessoraAtualId]: { remover?, predId?, tipo?, lag? } } }
+// com só as diferenças em relação ao vínculo atual: `predId` troca a predecessora, `tipo`/`lag` mudam o
+// vínculo, `remover` o tira. Não duplica a mesma predecessora numa tarefa nem liga a tarefa a ela mesma.
+// Devolve { etapas, criados, alterados, removidos, ignorados } (`ignorados` = par novo que já existia);
+// só as tarefas afetadas ganham um objeto novo, e sem mudança nenhuma devolve o MESMO array.
+export function aplicarVinculosEmLote(etapas, { novos = [], edicoes = {}, meta = {} } = {}) {
+  let criados = 0, alterados = 0, removidos = 0, ignorados = 0;
+  const novosPorSucc = new Map();
+  novos.forEach(([sid, pid]) => {
+    if (!sid || !pid) return;
+    if (!novosPorSucc.has(sid)) novosPorSucc.set(sid, []);
+    novosPorSucc.get(sid).push(pid);
+  });
+  const saida = etapas.map(e => {
+    const ed = edicoes[e.id];
+    const adicionar = novosPorSucc.get(e.id);
+    if (!ed && !adicionar) return e;
+    const atual = (e.dep || []).map(d => (typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d));
+    const dep = [];
+    atual.forEach(d => {
+      const x = ed?.[d.id];
+      if (x?.remover) { removidos++; return; }
+      const novo = { id: x?.predId || d.id, tipo: x?.tipo ?? d.tipo ?? 'TI', lag: x?.lag ?? d.lag ?? 0 };
+      if (novo.id === e.id || dep.some(o => o.id === novo.id)) { removidos++; return; } // autoligação ou duplicata
+      if (novo.id !== d.id || novo.tipo !== (d.tipo ?? 'TI') || novo.lag !== (d.lag ?? 0)) alterados++;
+      dep.push(novo);
+    });
+    (adicionar || []).forEach(pid => {
+      if (pid === e.id) return;
+      if (dep.some(o => o.id === pid)) { ignorados++; return; }
+      const m = meta[e.id];
+      dep.push({ id: pid, tipo: m?.tipo || 'TI', lag: m?.lag ?? 0 });
+      criados++;
+    });
+    return { ...e, dep };
+  });
+  const mudou = criados || alterados || removidos;
+  return { etapas: mudou ? saida : etapas, criados, alterados, removidos, ignorados };
+}
+
 // Retorna o Set de ids de uma tarefa-pai + todos os seus descendentes (grupos e folhas),
 // usado pelo filtro "Tarefa Pai" (Lista/Gantt) para manter a hierarquia EAP visível.
 export function collectDescendantIds(parentId, etapas) {

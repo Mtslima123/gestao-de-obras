@@ -5,7 +5,7 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay, projectStartOffset } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, aplicarVinculosEmLote, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
 import { itemValor } from "../financeiro/vinculoService";
 import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
@@ -741,7 +741,9 @@ const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 // de Estrutura Tipo 2), então quem decide é o usuário. Atalho opcional: depois de escolher a
 // predecessora de UMA sucessora, o botão "Vincular em sequência" liga as seguintes na ordem, a
 // partir dessa escolha, até acabar (cobre o deslocamento). Só PREENCHE os dropdowns; o usuário
-// confere e confirma em "Criar N vínculos".
+// confere e confirma em "Criar N vínculos". Os vínculos que a sucessora já tem aparecem como linhas
+// "vínculo atual" editáveis (trocar predecessora, tipo, folga ou remover) e o botão passa a "Aplicar
+// N alterações"; tudo num único commit (ver aplicarVinculosEmLote).
 export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onClose }) => {
   const toast = useToast();
   const [buscaPred, setBuscaPred] = React.useState('');
@@ -756,6 +758,10 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
   // muda. Sem entrada aqui = padrão TI/0, igual o comportamento de antes desta tela ganhar
   // escolha de tipo.
   const [linkMeta, setLinkMeta] = React.useState({}); // succId -> { tipo, lag }
+  // Alterações nos vínculos que a sucessora JÁ tem (linhas "vínculo atual" da tabela). Só guarda a
+  // diferença em relação ao vínculo atual: succId -> predecessora atual -> { remover?, predId?, tipo?, lag? }
+  // (ver aplicarVinculosEmLote). Fica fora de `links`, que só descreve vínculos NOVOS.
+  const [edicoes, setEdicoes] = React.useState({});
   // Grupos recolhidos em cada lista (independentes uma da outra) — reduz a rolagem em
   // EAPs grandes, escondendo as folhas de um grupo que já foi todo marcado/descartado.
   const [predCollapsed, setPredCollapsed] = React.useState(() => new Set());
@@ -805,6 +811,33 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
   const succFiltradas = React.useMemo(() => filtrarComSubarvore(buscaSucc), [etapas, buscaSucc]);
   const succRows = React.useMemo(() => leafTasks.filter(e => succSelected.includes(e.id)), [leafTasks, succSelected]);
   const qtdLinks = Object.values(links).filter(Boolean).length;
+  const qtdEdicoes = Object.values(edicoes).reduce((n, porDep) => n + Object.values(porDep).filter(x => Object.keys(x).length).length, 0);
+  const qtdAlteracoes = qtdLinks + qtdEdicoes;
+
+  // Muda um campo de um vínculo atual da sucessora. Voltar ao valor de origem desfaz a alteração, para
+  // o rodapé só contar o que de fato difere do que já está gravado.
+  const editarVinculo = (succId, d, patch) => setEdicoes(cur => {
+    const x = { ...(cur[succId]?.[d.id] || {}), ...patch };
+    if (x.predId === d.id) delete x.predId;
+    if (x.tipo !== undefined && x.tipo === (d.tipo || 'TI')) delete x.tipo;
+    if (x.lag !== undefined && x.lag === (d.lag ?? 0)) delete x.lag;
+    if (!x.remover) delete x.remover;
+    const porDep = { ...(cur[succId] || {}) };
+    if (Object.keys(x).length) porDep[d.id] = x; else delete porDep[d.id];
+    const next = { ...cur };
+    if (Object.keys(porDep).length) next[succId] = porDep; else delete next[succId];
+    return next;
+  });
+
+  // <option> de uma predecessora, com início/término junto do nome — <option> nativo só aceita texto
+  // puro (sem segunda linha/coluna própria), então entra tudo na mesma label. predSelected só guarda
+  // folha (o checkbox de grupo marca os descendentes, nunca o próprio grupo), então p.inicio/dur bastam,
+  // sem precisar do envelope de grupo (groupVals).
+  const opcaoPred = (pid) => {
+    const p = etapas.find(e => e.id === pid);
+    const datas = p ? `${isoToBR(offsetToISO(p.inicio))} → ${isoToBR(offsetToISO(taskEndDisplay(p)))}` : '';
+    return <option key={pid} value={pid}>{(p?.etapa ?? pid) + (datas ? ` · ${datas}` : '')}</option>;
+  };
 
   // Folhas (não-grupo) abaixo de `pai`, dentro da lista VISÍVEL (`lista`, não a completa) —
   // clicar no grupo marca só o que está na tela, igual ao "Adicionar vínculo" do Orçamento.
@@ -820,11 +853,35 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     setPredSelected(cur => checked
       ? [...new Set([...cur, ...alvo])]
       : cur.filter(x => !alvo.includes(x)));
-    if (!checked) setLinks(l => {
-      const next = { ...l };
-      for (const k of Object.keys(next)) if (alvo.includes(next[k])) delete next[k];
-      return next;
-    });
+    if (!checked) {
+      setLinks(l => {
+        const next = { ...l };
+        for (const k of Object.keys(next)) if (alvo.includes(next[k])) delete next[k];
+        return next;
+      });
+      // Vínculo atual com ELA (a linha some da tabela, ver o filtro das linhas "vínculo atual"): as
+      // alterações dele são descartadas. Troca de predecessora de um vínculo atual que apontava para
+      // ela: volta à predecessora de origem.
+      setEdicoes(cur => {
+        let mudou = false;
+        const next = {};
+        for (const [sid, porDep] of Object.entries(cur)) {
+          const novoPorDep = {};
+          for (const [did, x] of Object.entries(porDep)) {
+            if (alvo.includes(did)) {
+              mudou = true;
+            } else if (alvo.includes(x.predId)) {
+              mudou = true;
+              const resto = { ...x };
+              delete resto.predId;
+              if (Object.keys(resto).length) novoPorDep[did] = resto;
+            } else novoPorDep[did] = x;
+          }
+          if (Object.keys(novoPorDep).length) next[sid] = novoPorDep;
+        }
+        return mudou ? next : cur;
+      });
+    }
   };
   // Desmarcar uma sucessora remove a linha de vínculo dela (some da seção de baixo).
   const toggleSucc = (ids, checked) => {
@@ -840,6 +897,11 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
       });
       setLinkMeta(m => {
         const next = { ...m };
+        alvo.forEach(id => delete next[id]);
+        return next;
+      });
+      setEdicoes(cur => {
+        const next = { ...cur };
         alvo.forEach(id => delete next[id]);
         return next;
       });
@@ -864,25 +926,18 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
   };
 
   const handleConfirm = () => {
-    const pairs = Object.entries(links).filter(([, predId]) => predId);
-    if (!pairs.length) return;
-    let novas = etapas.map(e => ({ ...e }));
-    let jaExistiam = 0;
-    pairs.forEach(([succId, predId]) => {
-      novas = novas.map(e => {
-        if (e.id !== succId) return e;
-        const dep = e.dep || [];
-        const jaTem = dep.some(d => (typeof d === 'string' ? d : d.id) === predId);
-        if (jaTem) { jaExistiam++; return e; }
-        const meta = linkMeta[succId];
-        return { ...e, dep: [...dep, { id: predId, tipo: meta?.tipo || 'TI', lag: meta?.lag ?? 0 }] };
-      });
-    });
-    onCommit(autoScheduleFromDeps(novas));
-    const criados = pairs.length - jaExistiam;
-    if (criados > 0) toast(`${criados} vínculo${criados !== 1 ? 's' : ''} criado${criados !== 1 ? 's' : ''}`, { tone: 'success', icon: 'check' });
-    if (jaExistiam > 0) {
-      toast(`${jaExistiam} vínculo${jaExistiam !== 1 ? 's' : ''} já exist${jaExistiam !== 1 ? 'iam' : 'ia'} e ${jaExistiam !== 1 ? 'foram ignorados' : 'foi ignorado'}`, { tone: 'neutral' });
+    const novos = Object.entries(links).filter(([, predId]) => predId);
+    if (!novos.length && !qtdEdicoes) return;
+    // Vínculos novos e alterações nos atuais num único commit (um passo de Ctrl+Z).
+    const r = aplicarVinculosEmLote(etapas, { novos, edicoes, meta: linkMeta });
+    if (r.etapas !== etapas) onCommit(autoScheduleFromDeps(r.etapas));
+    const partes = [];
+    if (r.criados) partes.push(`${r.criados} criado${r.criados !== 1 ? 's' : ''}`);
+    if (r.alterados) partes.push(`${r.alterados} alterado${r.alterados !== 1 ? 's' : ''}`);
+    if (r.removidos) partes.push(`${r.removidos} removido${r.removidos !== 1 ? 's' : ''}`);
+    if (partes.length) toast(`Vínculos: ${partes.join(', ')}`, { tone: 'success', icon: 'check' });
+    if (r.ignorados > 0) {
+      toast(`${r.ignorados} vínculo${r.ignorados !== 1 ? 's' : ''} já exist${r.ignorados !== 1 ? 'iam' : 'ia'} e ${r.ignorados !== 1 ? 'foram ignorados' : 'foi ignorado'}`, { tone: 'neutral' });
     }
     // Não fecha o modal: fica fácil encadear outro grupo de vínculos na mesma sessão (ex.:
     // IMPERMEABILIZAÇÃO→REVESTIMENTO e, na sequência, PISO→TETO) sem reabrir o modal a cada
@@ -892,6 +947,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     setSuccSelected([]);
     setLinks({});
     setLinkMeta({});
+    setEdicoes({});
   };
 
   // Mesma escala de cor por nível de aninhamento usada na Lista/Gantt/Curva Física pras
@@ -965,14 +1021,16 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
           <button className="btn btn-ghost" onClick={onClose}>Fechar</button>
           {/* Só desfaz as predecessoras escolhidas (e tipo/folga): as tarefas marcadas nas duas listas
               continuam marcadas, para refazer os vínculos sem marcar tudo de novo. */}
-          <button className="btn btn-ghost" disabled={qtdLinks === 0 && !Object.keys(linkMeta).length}
-            title="Volta todas as predecessoras escolhidas para Nenhuma; as tarefas marcadas continuam marcadas"
-            onClick={() => { setLinks({}); setLinkMeta({}); }}>
+          <button className="btn btn-ghost" disabled={qtdAlteracoes === 0 && !Object.keys(linkMeta).length}
+            title="Volta todas as predecessoras escolhidas para Nenhuma e desfaz as alterações nos vínculos atuais; as tarefas marcadas continuam marcadas"
+            onClick={() => { setLinks({}); setLinkMeta({}); setEdicoes({}); }}>
             Limpar vínculos
           </button>
           <div className="spacer"></div>
-          <button className="btn btn-primary" disabled={qtdLinks === 0} onClick={handleConfirm}>
-            Criar {qtdLinks} vínculo{qtdLinks !== 1 ? 's' : ''}
+          <button className="btn btn-primary" disabled={qtdAlteracoes === 0} onClick={handleConfirm}>
+            {qtdEdicoes > 0
+              ? `Aplicar ${qtdAlteracoes} alteraç${qtdAlteracoes !== 1 ? 'ões' : 'ão'}`
+              : `Criar ${qtdLinks} vínculo${qtdLinks !== 1 ? 's' : ''}`}
           </button>
         </>
       }
@@ -1009,6 +1067,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
       </div>
       )}
 
+
       {succRows.length > 0 && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -1029,25 +1088,21 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                   <th style={{ textAlign: 'left', padding: '6px 12px' }}>Predecessora</th>
                   <th style={{ textAlign: 'left', padding: '6px 12px' }}>Tipo</th>
                   <th style={{ textAlign: 'left', padding: '6px 12px' }}>Lat.</th>
+                  <th style={{ width: 70 }} />
                 </tr>
               </thead>
               <tbody>
                 {succRows.map(s => {
-                  // Histórico de vínculos que a tarefa já tem (fora deste modal) — o usuário
-                  // precisa ver isso antes de decidir se vale adicionar mais uma predecessora.
-                  const existentes = (s.dep || []).map(d => {
-                    const id = typeof d === 'string' ? d : d.id;
-                    return etapas.find(e => e.id === id)?.etapa || id;
-                  }).filter(Boolean);
+                  // Vínculos que a tarefa JÁ tem (fora deste modal): viram linhas editáveis logo abaixo
+                  // dela, para trocar a predecessora, mudar tipo/folga ou remover antes de decidir se
+                  // vale somar mais uma predecessora. Só aparece o vínculo com uma predecessora MARCADA
+                  // à esquerda (a tarefa escolhida); os demais da sucessora ficam fora da tela.
+                  const existentes = (s.dep || []).map(d => (typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d));
                   return (
-                    <tr key={s.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <React.Fragment key={s.id}>
+                    <tr style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: '6px 12px' }}>
                         {s.etapa}
-                        {existentes.length > 0 && (
-                          <div style={{ fontSize: 10.5, color: 'var(--text-faint)', marginTop: 2 }}>
-                            já vinculada a: {existentes.join(', ')}
-                          </div>
-                        )}
                       </td>
                       <td style={{ padding: '6px 12px' }}>
                         <select className="input" value={links[s.id] || ''}
@@ -1056,16 +1111,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                           <option value="">Nenhuma</option>
                           {/* Nunca lista a própria tarefa — evita vincular uma tarefa a ela mesma
                               quando ela também está marcada do lado das predecessoras. */}
-                          {predSelected.filter(pid => pid !== s.id).map(pid => {
-                            const p = etapas.find(e => e.id === pid);
-                            // Início/término junto do nome — <option> nativo só aceita texto puro
-                            // (sem segunda linha/coluna própria), então entra tudo na mesma label.
-                            // predSelected só guarda folha (o checkbox de grupo marca os
-                            // descendentes, nunca o próprio grupo), então p.inicio/dur bastam,
-                            // sem precisar do envelope de grupo (groupVals).
-                            const datas = p ? `${isoToBR(offsetToISO(p.inicio))} → ${isoToBR(offsetToISO(taskEndDisplay(p)))}` : '';
-                            return <option key={pid} value={pid}>{(p?.etapa ?? pid) + (datas ? ` · ${datas}` : '')}</option>;
-                          })}
+                          {predSelected.filter(pid => pid !== s.id).map(opcaoPred)}
                         </select>
                       </td>
                       {/* Tipo/folga só fazem sentido com uma Predecessora escolhida na linha —
@@ -1084,7 +1130,48 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                           onChange={ev => setLinkMeta(m => ({ ...m, [s.id]: { ...m[s.id], lag: parseInt(ev.target.value, 10) || 0 } }))}
                           style={{ width: 52, textAlign: 'right' }} />
                       </td>
+                      <td />
                     </tr>
+                    {existentes.filter(d => predSelected.includes(d.id)).map(d => {
+                      const ed = edicoes[s.id]?.[d.id] || {};
+                      const removido = !!ed.remover;
+                      // Predecessora atual + as marcadas à esquerda, sem a própria tarefa e sem as que a
+                      // sucessora já tem em OUTRO vínculo (a mesma predecessora não entra duas vezes).
+                      const opcoes = [d.id, ...predSelected.filter(pid => pid !== s.id && pid !== d.id && !existentes.some(o => o.id === pid))];
+                      return (
+                        <tr key={s.id + '|' + d.id} style={{ background: 'var(--surface-muted)', opacity: removido ? 0.55 : 1 }}>
+                          <td style={{ padding: '4px 12px 4px 28px', fontSize: 11.5, color: 'var(--text-muted)' }}>↳ vínculo atual</td>
+                          <td style={{ padding: '4px 12px' }}>
+                            <select className="input" value={ed.predId || d.id} disabled={removido}
+                              onChange={ev => editarVinculo(s.id, d, { predId: ev.target.value })}
+                              style={{ width: '100%', textDecoration: removido ? 'line-through' : undefined }}>
+                              {opcoes.map(opcaoPred)}
+                            </select>
+                          </td>
+                          <td style={{ padding: '4px 12px' }}>
+                            <select className="input" value={ed.tipo ?? (d.tipo || 'TI')} disabled={removido}
+                              onChange={ev => editarVinculo(s.id, d, { tipo: ev.target.value })}
+                              style={{ width: 62 }}>
+                              {DEP_TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          </td>
+                          <td style={{ padding: '4px 12px' }}>
+                            <input type="number" className="input" value={ed.lag ?? (d.lag ?? 0)} disabled={removido}
+                              onFocus={ev => ev.target.select()}
+                              onChange={ev => editarVinculo(s.id, d, { lag: parseInt(ev.target.value, 10) || 0 })}
+                              style={{ width: 52, textAlign: 'right' }} />
+                          </td>
+                          <td style={{ padding: '4px 12px' }}>
+                            <button type="button" className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }}
+                              title={removido ? 'Desfazer a remoção deste vínculo' : 'Remover este vínculo'}
+                              onClick={() => editarVinculo(s.id, d, { remover: !removido })}>
+                              {removido ? 'Desfazer' : '×'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
