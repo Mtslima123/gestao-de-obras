@@ -963,9 +963,12 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Fechar</button>
-          <button className="btn btn-ghost" disabled={!predSelected.length && !succSelected.length}
-            onClick={() => { setPredSelected([]); setSuccSelected([]); setLinks({}); }}>
-            Limpar seleção
+          {/* Só desfaz as predecessoras escolhidas (e tipo/folga): as tarefas marcadas nas duas listas
+              continuam marcadas, para refazer os vínculos sem marcar tudo de novo. */}
+          <button className="btn btn-ghost" disabled={qtdLinks === 0 && !Object.keys(linkMeta).length}
+            title="Volta todas as predecessoras escolhidas para Nenhuma; as tarefas marcadas continuam marcadas"
+            onClick={() => { setLinks({}); setLinkMeta({}); }}>
+            Limpar vínculos
           </button>
           <div className="spacer"></div>
           <button className="btn btn-primary" disabled={qtdLinks === 0} onClick={handleConfirm}>
