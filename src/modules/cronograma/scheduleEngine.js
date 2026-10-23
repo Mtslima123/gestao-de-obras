@@ -171,6 +171,139 @@ export function computeRowNumberMap(etapas) {
   return map;
 }
 
+// ─── Vínculo cruzado (ciclo) ─────────────────────────────────────────────────
+// Como no MS Project, A não pode depender de B se B já depende de A, nem por uma cadeia (A→B→C→A):
+// o agendador não tem por onde começar e deixa as tarefas do ciclo paradas (ver schedulePass).
+// Antecessoras de cada tarefa para este efeito: a folha tem as do `dep`; o grupo tem as filhas diretas,
+// porque o envelope dele vem delas (updateParentBounds), e o `dep` do próprio grupo é ignorado, como o
+// agendador já faz. Assim "X depende do grupo G e uma filha de G depende de X" também fecha ciclo, e uma
+// tarefa não pode depender do grupo a que pertence. Map id -> [{ id, filho }] (`filho`: a aresta é a
+// filha do grupo, não um vínculo).
+export function grafoDeAntecessoras(etapas) {
+  const ids = new Set(etapas.map(e => e.id));
+  const g = new Map();
+  etapas.forEach(e => { if (!g.has(e.id)) g.set(e.id, []); });
+  etapas.forEach(e => {
+    if (!e.isGroup) {
+      (e.dep || []).forEach(d => {
+        const pid = typeof d === 'string' ? d : d.id;
+        if (ids.has(pid)) g.get(e.id).push({ id: pid, filho: false });
+      });
+    }
+    if (e.parentId && ids.has(e.parentId)) g.get(e.parentId).push({ id: e.id, filho: true });
+  });
+  return g;
+}
+
+// O vínculo `predId -> succId` (succId passa a depender de predId) fecha ciclo? Devolve null se não, ou
+// { tipo, caminho }: `caminho` = [succId, ..., predId], a cadeia que já existia de succId até predId (o
+// vínculo novo fecha a volta). tipo: 'mutuo' (predId já depende direto de succId: "já estão vinculadas
+// entre si"), 'hierarquia' (succId é filha de predId, direta ou não) ou 'ciclo' (cadeia mais longa).
+// `grafo` opcional: quem confere vários vínculos em sequência mantém o próprio grafo atualizado em vez de
+// reconstruí-lo a cada chamada. Autoligação não é tratada aqui (quem chama já a descarta).
+export function criaCiclo(etapas, succId, predId, grafo = grafoDeAntecessoras(etapas)) {
+  if (!succId || !predId || succId === predId) return null;
+  const via = new Map([[predId, null]]); // id -> { de, filho }: de quem partimos para chegar nele
+  const pilha = [predId];
+  while (pilha.length) {
+    const id = pilha.pop();
+    const antecessoras = grafo.get(id) || [];
+    for (let i = 0; i < antecessoras.length; i++) {
+      const a = antecessoras[i];
+      if (via.has(a.id)) continue;
+      via.set(a.id, { de: id, filho: a.filho });
+      if (a.id === succId) {
+        const caminho = [succId];
+        const filhos = [];
+        for (let atual = via.get(succId); atual; atual = via.get(atual.de)) {
+          caminho.push(atual.de);
+          filhos.push(atual.filho);
+        }
+        const tipo = caminho.length === 2 && !filhos[0] ? 'mutuo'
+          : filhos.every(Boolean) ? 'hierarquia' : 'ciclo';
+        return { tipo, caminho };
+      }
+      pilha.push(a.id);
+    }
+  }
+  return null;
+}
+
+// Texto do aviso (toast). Linhas citadas pelo número da calha, o mesmo que se digita em Predecessora.
+export function mensagemDeCiclo(etapas, ciclo) {
+  if (ciclo.tipo === 'mutuo') return 'Estas tarefas já estão vinculadas entre si.';
+  if (ciclo.tipo === 'hierarquia') return 'Uma tarefa não pode ser vinculada ao grupo a que pertence.';
+  const linhas = computeRowNumberMap(etapas);
+  const volta = [...ciclo.caminho, ciclo.caminho[0]].map(id => linhas[id]);
+  const mostradas = volta.length > 7 ? [...volta.slice(0, 3), '…', ...volta.slice(-3)] : volta;
+  return `Vínculo recusado: criaria um ciclo (linhas ${mostradas.join(', ')}).`;
+}
+
+// Vários vínculos recusados de uma vez (colar, Vincular, Ctrl+F2): `recusados` = [{ succId, predId, ciclo }].
+export function resumoDeCiclos(etapas, recusados) {
+  if (!recusados.length) return '';
+  const primeira = mensagemDeCiclo(etapas, recusados[0].ciclo);
+  if (recusados.length === 1) return primeira;
+  return `${recusados.length} vínculos recusados por criarem ciclo. ${primeira}`;
+}
+
+// Ids que estão num ciclo de vínculos (componente fortemente conexo com mais de um nó, ou autoligação).
+// Tarjan iterativo: uma cadeia longa de tarefas não pode estourar a pilha de chamadas.
+export function idsEmCiclo(etapas) {
+  const g = grafoDeAntecessoras(etapas);
+  const indice = new Map(), baixo = new Map(), naPilha = new Set(), pilha = [], emCiclo = new Set();
+  let n = 0;
+  const entrar = (id, chamadas) => {
+    indice.set(id, n); baixo.set(id, n); n++;
+    pilha.push(id); naPilha.add(id);
+    chamadas.push({ id, i: 0 });
+  };
+  for (const raiz of g.keys()) {
+    if (indice.has(raiz)) continue;
+    const chamadas = [];
+    entrar(raiz, chamadas);
+    while (chamadas.length) {
+      const f = chamadas[chamadas.length - 1];
+      const vizinhas = g.get(f.id);
+      if (f.i < vizinhas.length) {
+        const w = vizinhas[f.i++].id;
+        if (w === f.id) emCiclo.add(w);
+        if (!indice.has(w)) entrar(w, chamadas);
+        else if (naPilha.has(w)) baixo.set(f.id, Math.min(baixo.get(f.id), indice.get(w)));
+        continue;
+      }
+      if (baixo.get(f.id) === indice.get(f.id)) {
+        const componente = [];
+        let w;
+        do { w = pilha.pop(); naPilha.delete(w); componente.push(w); } while (w !== f.id);
+        if (componente.length > 1) componente.forEach(x => emCiclo.add(x));
+      }
+      chamadas.pop();
+      if (chamadas.length) {
+        const pai = chamadas[chamadas.length - 1].id;
+        baixo.set(pai, Math.min(baixo.get(pai), baixo.get(f.id)));
+      }
+    }
+  }
+  return emCiclo;
+}
+
+// Tarefas que PASSARAM a estar num ciclo entre `antes` e `depois`, na ordem de `depois`. Ciclo que já
+// existia (dado antigo) não conta: editar uma tarefa qualquer não pode ser barrado por ele.
+export function ciclosNovos(antes, depois) {
+  const antigos = idsEmCiclo(antes);
+  const agora = idsEmCiclo(depois);
+  return depois.filter(e => agora.has(e.id) && !antigos.has(e.id)).map(e => e.id);
+}
+
+// Aviso para o commit que seria recusado por ciclos novos (as linhas citadas são as de `depois`).
+export function mensagemDeCiclosNovos(depois, ids) {
+  const linhas = computeRowNumberMap(depois);
+  const nums = ids.map(id => linhas[id]);
+  const mostradas = nums.length > 6 ? [...nums.slice(0, 6), '…'] : nums;
+  return `Alteração desfeita: criaria um ciclo entre vínculos (linhas ${mostradas.join(', ')}).`;
+}
+
 // ID PERMANENTE de cada tarefa (id interno -> displayId): é o número da coluna "ID" (Lista, Gantt,
 // Medição, Orçamento × Cronograma). Fixo desde a criação: inserir, mover ou excluir linhas não muda
 // o número de nenhuma outra tarefa, e tarefa nova recebe um número novo no fim da sequência
@@ -712,6 +845,19 @@ export function parseDep(raw, etapas) {
 // Campos que exigem reprogramação (recalcular datas via dependências)
 export const RESCHEDULE_FIELDS = ['dep', 'inicio', 'fim', 'duracaoDias', 'restricao', 'restricaoTipo', 'restricaoData', 'modo', 'avanco'];
 
+// Os vínculos que applyFieldToEtapa('dep') descarta por ciclo, para a tela avisar:
+// [{ succId, predId, ciclo }]. Mesma regra: só os novos, nunca os que a tarefa já tinha.
+export function depsRecusadosPorCiclo(etapas, taskId, rawValue) {
+  const e = etapas.find(x => x.id === taskId);
+  if (!e || e.isGroup) return [];
+  const atuais = new Set((e.dep || []).map(d => (typeof d === 'string' ? d : d.id)));
+  const grafo = grafoDeAntecessoras(etapas);
+  return parseDep(rawValue, etapas)
+    .filter(d => d.id !== e.id && !atuais.has(d.id))
+    .map(d => ({ succId: e.id, predId: d.id, ciclo: criaCiclo(etapas, e.id, d.id, grafo) }))
+    .filter(r => r.ciclo);
+}
+
 // Aplica um único campo a uma etapa (conversões de valor). Reutilizado pela Lista
 // (célula editável, colar em bloco) e pelo Formulário de Tarefa do Gantt.
 // NÃO trata 'id' (caso especial de renomeação, tratado no chamador).
@@ -745,7 +891,14 @@ export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   // de propósito) — no-op aqui fecha o caminho de Delete/colar em bloco (ListaInterativa.jsx,
   // applyBlockEdits/pasteExternalText), que sem isso ainda conseguia escrever na célula em
   // branco de Predecessora de um grupo mesmo com duplo-clique/F2 já bloqueados pra ela.
-  if (field === 'dep')         { return e.isGroup ? e : { ...e, dep: parseDep(rawValue, etapas).filter(d => d.id !== e.id) }; }
+  // Vínculo NOVO que fecha ciclo (A depende de B e B de A, ou por cadeia) é descartado, como no Project.
+  // Os que a tarefa já tinha ficam: dado antigo em ciclo não some só porque a célula foi regravada.
+  // Quem precisa avisar a pessoa usa depsRecusadosPorCiclo.
+  if (field === 'dep') {
+    if (e.isGroup) return e;
+    const atuais = new Set((e.dep || []).map(d => (typeof d === 'string' ? d : d.id)));
+    return { ...e, dep: parseDep(rawValue, etapas).filter(d => d.id !== e.id && (atuais.has(d.id) || !criaCiclo(etapas, e.id, d.id))) };
+  }
   if (field === 'restricao') {
     // Campo virtual da coluna simplificada (estilo Project): só uma data, sem tipo à escolha.
     // Preenchida = "não iniciar antes de" (snet); vazia = sem restrição (asap).
@@ -1153,15 +1306,40 @@ export function agruparPorPai(etapas, ids) {
 // padrão TI/0). `edicoes` = { [sucessoraId]: { [predecessoraAtualId]: { remover?, predId?, tipo?, lag? } } }
 // com só as diferenças em relação ao vínculo atual: `predId` troca a predecessora, `tipo`/`lag` mudam o
 // vínculo, `remover` o tira. Não duplica a mesma predecessora numa tarefa nem liga a tarefa a ela mesma.
-// Devolve { etapas, criados, alterados, removidos, ignorados } (`ignorados` = par novo que já existia);
-// só as tarefas afetadas ganham um objeto novo, e sem mudança nenhuma devolve o MESMO array.
+// Vínculo (novo ou troca de predecessora) que fecha ciclo, com o que já existe ou com outro do mesmo lote,
+// não entra: a troca fica como era e o novo é pulado. Os vínculos tirados pelo lote (`remover` e o lado
+// antigo de uma troca) saem do grafo ANTES da conferência, para que "tirar A→B e criar B→A" no mesmo lote
+// funcione em qualquer ordem das tarefas.
+// Devolve { etapas, criados, alterados, removidos, ignorados, ciclos } (`ignorados` = par novo que já existia;
+// `ciclos` = [{ succId, predId, ciclo }] recusados); só as tarefas afetadas ganham um objeto novo, e sem
+// mudança nenhuma devolve o MESMO array.
 export function aplicarVinculosEmLote(etapas, { novos = [], edicoes = {}, meta = {} } = {}) {
   let criados = 0, alterados = 0, removidos = 0, ignorados = 0;
+  const ciclos = [];
   const novosPorSucc = new Map();
   novos.forEach(([sid, pid]) => {
     if (!sid || !pid) return;
     if (!novosPorSucc.has(sid)) novosPorSucc.set(sid, []);
     novosPorSucc.get(sid).push(pid);
+  });
+  const grafo = grafoDeAntecessoras(etapas);
+  const grupos = new Set(etapas.filter(e => e.isGroup).map(e => e.id)); // dep de grupo não entra no grafo
+  const tirarAresta = (succId, predId) => {
+    const lista = grafo.get(succId) || [];
+    const i = lista.findIndex(a => a.id === predId && !a.filho);
+    if (i >= 0) lista.splice(i, 1);
+  };
+  const porAresta = (succId, predId) => {
+    if (!grupos.has(succId) && grafo.has(succId)) grafo.get(succId).push({ id: predId, filho: false });
+  };
+  etapas.forEach(e => {
+    const ed = edicoes[e.id];
+    if (!ed) return;
+    (e.dep || []).forEach(d => {
+      const id = typeof d === 'string' ? d : d.id;
+      const x = ed[id];
+      if (x?.remover || (x?.predId && x.predId !== id)) tirarAresta(e.id, id);
+    });
   });
   const saida = etapas.map(e => {
     const ed = edicoes[e.id];
@@ -1174,20 +1352,33 @@ export function aplicarVinculosEmLote(etapas, { novos = [], edicoes = {}, meta =
       if (x?.remover) { removidos++; return; }
       const novo = { id: x?.predId || d.id, tipo: x?.tipo ?? d.tipo ?? 'TI', lag: x?.lag ?? d.lag ?? 0 };
       if (novo.id === e.id || dep.some(o => o.id === novo.id)) { removidos++; return; } // autoligação ou duplicata
+      if (novo.id !== d.id) {
+        const ciclo = criaCiclo(etapas, e.id, novo.id, grafo);
+        if (ciclo) {
+          ciclos.push({ succId: e.id, predId: novo.id, ciclo });
+          dep.push({ id: d.id, tipo: d.tipo ?? 'TI', lag: d.lag ?? 0 }); // a troca é recusada: fica o vínculo de antes
+          porAresta(e.id, d.id);
+          return;
+        }
+        porAresta(e.id, novo.id);
+      }
       if (novo.id !== d.id || novo.tipo !== (d.tipo ?? 'TI') || novo.lag !== (d.lag ?? 0)) alterados++;
       dep.push(novo);
     });
     (adicionar || []).forEach(pid => {
       if (pid === e.id) return;
       if (dep.some(o => o.id === pid)) { ignorados++; return; }
+      const ciclo = criaCiclo(etapas, e.id, pid, grafo);
+      if (ciclo) { ciclos.push({ succId: e.id, predId: pid, ciclo }); return; }
       const m = meta[e.id];
       dep.push({ id: pid, tipo: m?.tipo || 'TI', lag: m?.lag ?? 0 });
+      porAresta(e.id, pid);
       criados++;
     });
     return { ...e, dep };
   });
   const mudou = criados || alterados || removidos;
-  return { etapas: mudou ? saida : etapas, criados, alterados, removidos, ignorados };
+  return { etapas: mudou ? saida : etapas, criados, alterados, removidos, ignorados, ciclos };
 }
 
 // Retorna o Set de ids de uma tarefa-pai + todos os seus descendentes (grupos e folhas),

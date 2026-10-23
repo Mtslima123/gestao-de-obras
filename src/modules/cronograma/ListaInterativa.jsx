@@ -22,6 +22,7 @@ import {
   createGroup, autoScheduleFromDeps, formatDepList, parseDep,
   moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento, tarefasLivresForaDoInicio,
   reprogramarRestante, computeSuccessors, computeIdMap, computeRowNumberMap, filtrarComAncestrais,
+  criaCiclo, depsRecusadosPorCiclo, resumoDeCiclos, grafoDeAntecessoras,
 } from './scheduleEngine';
 import { computeAutofillSeries } from './autofillSeries';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal, TarefasLivresModal, ExcluirTarefasModal } from './cronogramaModais';
@@ -1051,6 +1052,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     let reschedule = false;
     // Sucessora é derivada (grava no `dep` de OUTRAS tarefas) — separada e aplicada à parte.
     const succEdits = [];
+    const recusados = []; // vínculos que fechariam ciclo (a Predecessora/Sucessora colada os descarta)
     const editadas = etapas.map(e => {
       const list = byTask.get(e.id);
       if (!list) return e;
@@ -1058,6 +1060,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       list.forEach(ed => {
         if (ed.field === 'succ') { succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue }); return; }
         if (bloqueiaEdicaoEmMassa(ed.field, e)) return;
+        if (ed.field === 'dep') recusados.push(...depsRecusadosPorCiclo(etapas, ed.taskId, ed.rawValue));
         const antes = ne;
         ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, etapas);
         if (RESCHEDULE_FIELDS.includes(ed.field) && etapaMudouParaAgendamento(antes, ne)) reschedule = true;
@@ -1065,8 +1068,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       return ne;
     });
     let novas = [...editadas, ...novos];
-    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, etapas); reschedule = true; }
+    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, etapas, recusados); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
+    avisarCiclos(recusados);
     // A última linha colada pode ser uma tarefa NOVA (passou do fim da lista).
     const nColunas = Math.max(...grid.map(gr => gr.length));
     selecionarBlocoColado(
@@ -2672,16 +2676,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         const cadeia = multiSel.length >= 2 ? multiSel : filtrada.filter(t => sel.has(t.id)).map(t => t.id);
         if (cadeia.length < 2) { toast('Selecione ao menos 2 tarefas (Ctrl+clique ou pela calha)', { tone: 'warning', icon: 'alert-triangle' }); return; }
         const novas = etapas.map(et => ({ ...et }));
+        const recusados = [];
         for (let i = 1; i < cadeia.length; i++) {
           const succ = novas.find(et => et.id === cadeia[i]);
           const predId = cadeia[i - 1];
           if (succ && !(succ.dep || []).some(d => (typeof d === 'string' ? d : d.id) === predId)) {
+            // Elo que fecha ciclo (ex.: a cadeia pede 1→2 mas a 1 já depende da 2) é pulado, os outros entram.
+            const ciclo = criaCiclo(novas, succ.id, predId);
+            if (ciclo) { recusados.push({ succId: succ.id, predId, ciclo }); continue; }
             succ.dep = [...(succ.dep || []), { id: predId, tipo: 'TI', lag: 0 }];
           }
         }
+        avisarCiclos(recusados);
+        const criados = cadeia.length - 1 - recusados.length;
+        if (criados <= 0) return;
         onCommit(autoScheduleFromDeps(novas));
         setMultiSel([]);
-        toast(`${cadeia.length - 1} vínculo(s) criado(s)`, { tone: 'success', icon: 'check' });
+        toast(`${criados} vínculo(s) criado(s)`, { tone: 'success', icon: 'check' });
       }
       // Insert — insere linha abaixo da tarefa selecionada
       if (e.key === 'Insert' && selectedId) {
@@ -2717,6 +2728,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // Sucessora é derivada (grava no `dep` de OUTRAS tarefas) — não passa por applyFieldToEtapa
     // como as demais colunas; separada aqui e aplicada depois via applySuccEdits.
     const succEdits = [];
+    const recusados = []; // vínculos que fechariam ciclo (descartados; a pessoa é avisada no fim)
     let novas = etapas.map(e => {
       const list = byTask.get(e.id);
       if (!list) return e;
@@ -2727,6 +2739,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (ed.field !== undefined) {
           if (ed.field === 'succ') succEdits.push({ taskId: ed.taskId, rawValue: ed.rawValue });
           else if (!bloqueiaEdicaoEmMassa(ed.field, e)) {
+            if (ed.field === 'dep') recusados.push(...depsRecusadosPorCiclo(etapas, ed.taskId, ed.rawValue));
             const antes = ne;
             ne = applyFieldToEtapa(ne, ed.field, ed.rawValue, etapas, etapas);
             if (RESCHEDULE_FIELDS.includes(ed.field) && etapaMudouParaAgendamento(antes, ne)) reschedule = true;
@@ -2741,8 +2754,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       if (fmtChanged) ne = { ...ne, fmt };
       return ne;
     });
-    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, etapas); reschedule = true; }
+    if (succEdits.length) { novas = applySuccEdits(novas, succEdits, etapas, recusados); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
+    avisarCiclos(recusados);
   };
 
   // Arraste da alcinha de preenchimento (estilo Excel): a partir da célula (ou intervalo
@@ -2853,6 +2867,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     }
   };
 
+  // Vínculo cruzado (A depende de B e B de A, ou por cadeia) é recusado como no Project: o vínculo não é
+  // gravado e a pessoa é avisada. `recusados` = [{ succId, predId, ciclo }] (ver criaCiclo).
+  const avisarCiclos = (recusados) => {
+    if (!recusados.length) return;
+    toast(resumoDeCiclos(etapas, recusados), { tone: 'warning', icon: 'alert-triangle' });
+  };
+
   const handleCellSave = (id, field, rawValue) => {
     // Tratamento especial para mudança de ID (propaga referências)
     if (field === 'id') {
@@ -2880,7 +2901,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // Predecessora digitada sem corresponder a nenhuma tarefa real (ID errado, tarefa
     // ainda sem displayId etc.): parseDep descarta o token em silêncio — sem isso o
     // usuário só vê a célula "não salvar", sem entender por quê.
-    if (field === 'dep') avisarTokensNaoResolvidos(rawValue);
+    if (field === 'dep') { avisarTokensNaoResolvidos(rawValue); avisarCiclos(depsRecusadosPorCiclo(etapas, id, rawValue)); }
 
     // No-op guard: se o valor não mudou de verdade (ex.: abrir/fechar a célula sem editar,
     // ou digitar o mesmo número), não commita — senão empilha uma entrada idêntica no undo
@@ -2938,7 +2959,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // cada edição, em sequência, recalculando o mapa de sucessoras a cada passo (uma edição pode
   // afetar o que a próxima considera "antiga"). Mesma regra usada por handleSuccSave (uma linha
   // só) — aqui generalizada para N linhas no mesmo commit.
-  const applySuccEdits = (base, succEdits, resolveList) => succEdits.reduce((acc, { taskId, rawValue }) => {
+  // `recusados` (opcional): recebe as sucessoras novas descartadas por fecharem ciclo.
+  const applySuccEdits = (base, succEdits, resolveList, recusados) => succEdits.reduce((acc, { taskId, rawValue }) => {
     // Sucessora de uma tarefa-resumo não existe pra edição (a coluna já vem em branco pra
     // grupo em toda a Lista). Sem esta guarda, "nenhuma sucessora digitada" (ex.: Delete na
     // célula em branco) era interpretado como "remover todas as sucessoras atuais" — e
@@ -2949,6 +2971,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const alvos   = parseDep(rawValue, resolveList || acc);
     const novoSet = new Map(alvos.filter(a => a.id !== taskId).map(a => [a.id, a]));
     const antigos = new Set(computeSuccessors(acc)[taskId] || []);
+    // Sucessora NOVA que fecha ciclo (a própria tarefa já depende dela, direto ou por cadeia) é recusada;
+    // as que já eram sucessoras ficam como estão. Os vínculos novos desta mesma edição não se afetam entre
+    // si (todos apontam para taskId), então um grafo só serve para conferir todos.
+    const grafo = grafoDeAntecessoras(acc);
+    Array.from(novoSet.keys()).forEach(id => {
+      if (antigos.has(id)) return;
+      const ciclo = criaCiclo(acc, id, taskId, grafo);
+      if (!ciclo) return;
+      novoSet.delete(id);
+      if (recusados) recusados.push({ succId: id, predId: taskId, ciclo });
+    });
     return acc.map(e => {
       if (e.id === taskId) return e;
       const alvo = novoSet.get(e.id);
@@ -2963,7 +2996,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Edita a Sucessora escrevendo o vínculo reverso (predecessora) nas outras tarefas.
   const handleSuccSave = (taskId, raw) => {
     avisarTokensNaoResolvidos(raw);
-    const reprog = autoScheduleFromDeps(applySuccEdits(etapas, [{ taskId, rawValue: raw }], etapas));
+    const recusados = [];
+    const reprog = autoScheduleFromDeps(applySuccEdits(etapas, [{ taskId, rawValue: raw }], etapas, recusados));
+    avisarCiclos(recusados);
     if (JSON.stringify(reprog) === JSON.stringify(etapas)) return; // sem mudança real
     onCommit(reprog);
     // Mesmo motivo do campo Predecessora (handleCellSave, acima): sem devolver o foco pra

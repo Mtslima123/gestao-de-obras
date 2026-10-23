@@ -5,7 +5,7 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay, projectStartOffset } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, agruparPorPai, aplicarVinculosEmLote, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, agruparPorPai, aplicarVinculosEmLote, resumoDeCiclos, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
 import { itemValor } from "../financeiro/vinculoService";
 import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
@@ -1014,6 +1014,10 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     if (r.ignorados > 0) {
       toast(`${r.ignorados} vínculo${r.ignorados !== 1 ? 's' : ''} já exist${r.ignorados !== 1 ? 'iam' : 'ia'} e ${r.ignorados !== 1 ? 'foram ignorados' : 'foi ignorado'}`, { tone: 'neutral' });
     }
+    // Vínculo cruzado (a predecessora já depende da sucessora, direto ou por cadeia) é recusado, como no Project.
+    if (r.ciclos.length) toast(resumoDeCiclos(etapas, r.ciclos), { tone: 'warning', icon: 'alert-triangle' });
+    // Nada entrou (tudo recusado): mantém as marcas e os pares montados, para a pessoa corrigir.
+    if (r.ciclos.length && r.etapas === etapas) return;
     // Não fecha o modal: fica fácil encadear outro grupo de vínculos na mesma sessão (ex.:
     // IMPERMEABILIZAÇÃO→REVESTIMENTO e, na sequência, PISO→TETO) sem reabrir o modal a cada
     // vez — só limpa a seleção e os pares montados, senão a seleção antiga (de um grupo já

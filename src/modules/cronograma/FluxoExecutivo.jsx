@@ -1,6 +1,8 @@
 import React from 'react';
 import { fluxoService } from './fluxo.service';
 import { logger } from '../../services/logger';
+import { useToast } from '../../components/Modals';
+import { criaCiclo, mensagemDeCiclo, resumoDeCiclos } from './scheduleEngine';
 
 const GROUP_PALETTE = [
   '#2563eb', '#ef4444', '#16a34a', '#7c3aed',
@@ -107,6 +109,7 @@ function statusLabel(s) {
 }
 
 export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
+  const toast = useToast();
   const [cards, setCards] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(`fluxo_cards_${obraId}`) || '[]'); }
     catch { return []; }
@@ -326,6 +329,9 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
     const target = eps.find(e => e.id === targetId);
     if (!target) return;
     if ((target.dep || []).some(d => d.id === sourceId)) return;
+    // Vínculo cruzado (o cartão de origem já depende do destino, direto ou por cadeia) é recusado, como no Project.
+    const ciclo = criaCiclo(eps, targetId, sourceId);
+    if (ciclo) { toast(mensagemDeCiclo(eps, ciclo), { tone: 'warning', icon: 'alert-triangle' }); return; }
     onCommit(eps.map(e =>
       e.id === targetId ? { ...e, dep: [...(e.dep || []), { id: sourceId, tipo: 'TI', lag: 0 }] } : e
     ));
@@ -505,13 +511,18 @@ export const FluxoExecutivo = ({ etapas, onCommit, obraId }) => {
     const ordered = subtasks.filter(s => autoLinkSel.has(s.id));
     if (ordered.length < 2) return;
     let novas = etapas, count = 0;
+    const recusados = [];
     for (let i = 1; i < ordered.length; i++) {
       const src = ordered[i - 1].id, tgt = ordered[i].id;
       const t = novas.find(e => e.id === tgt);
       if ((t.dep || []).some(d => d.id === src)) continue;
+      // Elo que fecha ciclo é pulado; os outros entram.
+      const ciclo = criaCiclo(novas, tgt, src);
+      if (ciclo) { recusados.push({ succId: tgt, predId: src, ciclo }); continue; }
       novas = novas.map(e => e.id === tgt ? { ...e, dep: [...(e.dep || []), { id: src, tipo: 'TI', lag: 0 }] } : e);
       count++;
     }
+    if (recusados.length) toast(resumoDeCiclos(etapas, recusados), { tone: 'warning', icon: 'alert-triangle' });
     if (count > 0) onCommit(novas);
   };
 

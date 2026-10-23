@@ -4,8 +4,9 @@
 // Recursos nem "Controlada pelo empenho"/"Tipo de tarefa" (não existem neste sistema).
 import React from 'react';
 import { Icon } from '../../components/Icons';
+import { useToast } from '../../components/Modals';
 import { offsetToISO, taskEndDisplay, isoToBR } from './cronogramaDateUtils';
-import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors, computeRowNumberMap } from './scheduleEngine';
+import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors, computeRowNumberMap, criaCiclo, mensagemDeCiclo } from './scheduleEngine';
 
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 const PANEL_H = 220; // também serve de altura mínima ao arrastar
@@ -16,6 +17,7 @@ const thSt = { padding: '5px 8px', fontSize: 10.5, fontWeight: 700, textTransfor
 const tdSt = { padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))' };
 
 export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext, onClose }) => {
+  const toast = useToast();
   const [novoPredId, setNovoPredId] = React.useState('');
   const [novoSuccId, setNovoSuccId] = React.useState('');
   const groupVals = React.useMemo(() => computeGroupValues(etapas), [etapas]);
@@ -96,6 +98,9 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
     if (!ref) return;
     const found = resolveRef(ref);
     if (!found || found.id === task.id || (task.dep || []).some(d => d.id === found.id)) { setNovoPredId(''); return; }
+    // Vínculo cruzado (found já depende desta tarefa, direto ou por cadeia) é recusado, como no Project.
+    const ciclo = criaCiclo(etapas, task.id, found.id);
+    if (ciclo) { toast(mensagemDeCiclo(etapas, ciclo), { tone: 'warning', icon: 'alert-triangle' }); setNovoPredId(''); return; }
     setDep([...(task.dep || []), { id: found.id, tipo: 'TI', lag: 0 }]);
     setNovoPredId('');
   };
@@ -131,6 +136,8 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
     if (!ref) return;
     const found = resolveRef(ref);
     if (!found || found.id === task.id || (found.dep || []).some(d => depId(d) === task.id)) { setNovoSuccId(''); return; }
+    const ciclo = criaCiclo(etapas, found.id, task.id);
+    if (ciclo) { toast(mensagemDeCiclo(etapas, ciclo), { tone: 'warning', icon: 'alert-triangle' }); setNovoSuccId(''); return; }
     reschedule(etapas.map(e => (e.id === found.id ? { ...e, dep: [...(e.dep || []), { id: task.id, tipo: 'TI', lag: 0 }] } : e)));
     setNovoSuccId('');
   };

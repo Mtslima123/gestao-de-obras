@@ -20,6 +20,7 @@ import {
   migrateEtapas, fmtBRL, computeAllWBS, effStatus, statusAposAvanco, autoScheduleFromDeps,
   getMonthRange, computeMonthlyDist, computeRealizedDist, getGroupMonthlyDist, computeAllGroupMonthlyDist,
   computeGroupValues, computeSuccessors, computeAvancoFisico, computeIdMap, voltarAoInicioDoProjeto,
+  ciclosNovos, mensagemDeCiclosNovos,
 } from './scheduleEngine';
 import MedicaoMensal from './MedicaoMensal';
 import {
@@ -3283,6 +3284,17 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     if (conflitoRef.current) {
       setAvisoConflito(true);
       return;
+    }
+    // Rede de segurança contra vínculo cruzado (A depende de B e B de A, ou por cadeia), como no Project:
+    // cada tela já descarta o vínculo que fecha ciclo e avisa, mas uma alteração em lote (colar duas linhas
+    // que se ligam entre si, por exemplo) pode escapar da conferência por tarefa. Ciclo que já existia nos
+    // dados não conta, então editar outra coisa nunca é barrado por ele. `etapas` ainda é o estado anterior.
+    if (etapas.length) {
+      const emCiclo = ciclosNovos(etapas, novas);
+      if (emCiclo.length) {
+        toast(mensagemDeCiclosNovos(novas, emCiclo), { tone: 'warning', icon: 'alert-triangle' });
+        return;
+      }
     }
     // Exclusão com itens do orçamento vinculados (ExcluirTarefasModal): mover ou remover os
     // vínculos fica para DEPOIS da gravação da exclusão (ver processarAcoesVinculo).
