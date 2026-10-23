@@ -422,6 +422,15 @@ export function mergePercMedido(itensBase, registroItens) {
 // `previstoCongelado` ({ percPrevisto, percPrevistoAcumulado }) já vem congelado desde
 // a ABERTURA do mês (ver abrirMedicao/MedicaoMensal.jsx) — só é recalculado aqui como
 // último recurso, para uma medição aberta antes desse campo existir e fechada só agora.
+// Snapshot do FECHAMENTO: totais calculados aqui, sobre a lista inteira de itens da
+// medição. Não recebe `totais` de fora de propósito: o da tela vem de `filtradas` (busca,
+// pavimento, filtros de coluna) e, passado ao buildSnapshotFechamento, congelava
+// valorTotalMedido/percMedido só das linhas visíveis enquanto `itens` ia inteiro.
+export function snapshotDeFechamento(itens, previstoCongelado = {}) {
+  const valorTotalBase = itens.reduce((s, i) => s + (i.foraDoMes ? 0 : i.valor), 0);
+  return buildSnapshotFechamento(itens, computeTotaisMedicao(itens, valorTotalBase), previstoCongelado);
+}
+
 export function buildSnapshotFechamento(itens, totais, previstoCongelado = {}) {
   return {
     valorTotalMedido: totais.valorAMedir,

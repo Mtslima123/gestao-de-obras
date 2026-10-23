@@ -21,7 +21,7 @@ import { passaFiltrosDeColuna } from './filtroColunasPure';
 import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
-  computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
+  computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento, snapshotDeFechamento,
   hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, ordenarPavimentos, chavePavimento,
   aplicarAlteracoes,
 } from './medicaoMensalPure';
@@ -1320,7 +1320,11 @@ export default function MedicaoMensal({
     () => arvoreCompleta.reduce((m, l) => (l.tipo === 'grupo' ? Math.max(m, l.nivel + 1) : m), 0),
     [arvoreCompleta]
   );
+  // `totais` segue os filtros da tela e serve só ao rodapé/export da tabela. O que é do mês
+  // inteiro (KPIs "Executado do mês/acumulado") usa `totaisCompletos`: filtrar por pavimento
+  // ou busca não pode mudar o executado do mês (BUG-008).
   const totais = React.useMemo(() => computeTotaisMedicao(filtradas, valorTotalBase), [filtradas, valorTotalBase]);
+  const totaisCompletos = React.useMemo(() => computeTotaisMedicao(itensTrabalho, valorTotalBase), [itensTrabalho, valorTotalBase]);
   const qtdForaDoMes = React.useMemo(() => filtradas.filter(i => i.foraDoMes).length, [filtradas]);
   const qtdVistas = React.useMemo(() => filtradas.filter(i => i.visto).length, [filtradas]);
 
@@ -1332,8 +1336,8 @@ export default function MedicaoMensal({
 
   const resumo = React.useMemo(() => {
     if (!mesRefKey) return { valorObra: 0, metaProgramada: 0, previstoAcumulado: 0, executadoMesPct: 0, executadoAcumulado: 0 };
-    return computeResumo({ monthlyTotals, mesRefKey, valorMedidoMes: totais.valorAMedir });
-  }, [monthlyTotals, mesRefKey, totais.valorAMedir]);
+    return computeResumo({ monthlyTotals, mesRefKey, valorMedidoMes: totaisCompletos.valorAMedir });
+  }, [monthlyTotals, mesRefKey, totaisCompletos.valorAMedir]);
 
   // "Previsto do mês" (KPI): só o previsto de verdade (valorTotalBase, exclui as manuais "fora
   // do mês" — mesma regra já usada pro peso/PESO% da tabela) como fração do valor total do
@@ -1649,7 +1653,7 @@ export default function MedicaoMensal({
       percPrevisto: registro?.perc_previsto != null ? registro.perc_previsto : previstoMesPctAoVivo,
       percPrevistoAcumulado: registro?.perc_previsto_acumulado != null ? registro.perc_previsto_acumulado : resumo.previstoAcumulado,
     };
-    const snapshot = buildSnapshotFechamento(itensTrabalho, totais, previstoCongelado);
+    const snapshot = snapshotDeFechamento(itensTrabalho, previstoCongelado);
     const { data, error } = await medicaoMensalService.fechar(obraId, mesRefKey, snapshot, currentUser?.nome || currentUser?.email);
     // !data sem error acontece se o RLS filtrar a linha silenciosamente (0 linhas
     // afetadas) — sem essa checagem o toast de sucesso dispara mesmo sem ter fechado nada.

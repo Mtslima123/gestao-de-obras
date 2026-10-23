@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
-  gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
+  gruposParaNivel, buildSnapshotFechamento, snapshotDeFechamento, hidratarSnapshot, computeDisciplinaInfo,
   computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
   mesesDaMedicao, mergePercMedido, ordenarPavimentos, chavePavimento,
 } from '../modules/cronograma/medicaoMensalPure';
@@ -348,6 +348,57 @@ describe('buildSnapshotFechamento', () => {
     const snap = buildSnapshotFechamento(itens, totais);
     expect(snap.itens.find(i => i.id === 'A').observacao).toBe('Aguardando material');
     expect(snap.itens.find(i => i.id === 'B')).not.toHaveProperty('observacao');
+  });
+});
+
+// BUG-008: fechar com busca/pavimento ativos congelava valorTotalMedido e percMedido só das
+// linhas visíveis, mas os itens do snapshot iam inteiros (o mesmo documento com dois valores).
+describe('snapshotDeFechamento', () => {
+  const medidos = () => buildItensMedicao(etapas, MES, opts).map(i => ({
+    ...i, percMedido: { A: 100, B: 0, C: 50 }[i.id],
+  }));
+  const valorMedidoDe = (itens) => itens.reduce((s, i) => s + (i.valor * i.percMedido) / 100, 0);
+
+  it('congela o total do mês inteiro e ele bate com a soma dos itens congelados', () => {
+    const snap = snapshotDeFechamento(medidos());
+    expect(snap.itens).toHaveLength(3);
+    expect(snap.valorTotalMedido).toBeCloseTo(1250, 5); // 1000 (A) + 250 (C)
+    expect(snap.valorTotalMedido).toBeCloseTo(valorMedidoDe(snap.itens), 5);
+    expect(snap.percMedido).toBeCloseTo(50, 5);         // 1250 / 2500
+  });
+
+  it('o total do fechamento não muda com o filtro da tela', () => {
+    const todos = medidos();
+    const soPavimentoC = todos.filter(i => i.id === 'C'); // o que sobra com busca/pavimento ativos
+    const doFiltro = computeTotaisMedicao(soPavimentoC, 2500);
+    // Comportamento antigo: totais do subconjunto + itens inteiros = documento incoerente.
+    const antigo = buildSnapshotFechamento(todos, doFiltro);
+    expect(antigo.valorTotalMedido).toBeCloseTo(250, 5);
+    expect(antigo.itens).toHaveLength(3);
+    // Agora: não há como passar o total filtrado, o snapshot sai com o total cheio.
+    expect(snapshotDeFechamento(todos).valorTotalMedido).toBeCloseTo(1250, 5);
+  });
+
+  it('item fora do mês entra no medido, mas não no denominador do %', () => {
+    const comExtra = buildItensMedicao(etapas, MES, { ...opts, idsExtras: new Set(['F']) })
+      .map(i => ({ ...i, percMedido: { A: 100, B: 0, C: 50, F: 40 }[i.id] }));
+    const snap = snapshotDeFechamento(comExtra);
+    expect(snap.itens).toHaveLength(4);
+    expect(snap.valorTotalMedido).toBeCloseTo(1250 + 320, 5); // + 800 x 40%
+    expect(snap.percMedido).toBeCloseTo(((1000 * 100 + 500 * 50 + 800 * 40) / 2500), 5);
+  });
+
+  it('repassa o previsto congelado na abertura', () => {
+    const snap = snapshotDeFechamento(medidos(), { percPrevisto: 12.5, percPrevistoAcumulado: 40 });
+    expect(snap.percPrevisto).toBe(12.5);
+    expect(snap.percPrevistoAcumulado).toBe(40);
+  });
+
+  it('lista vazia fecha com zero, sem dividir por zero', () => {
+    const snap = snapshotDeFechamento([]);
+    expect(snap.valorTotalMedido).toBe(0);
+    expect(snap.percMedido).toBe(0);
+    expect(snap.itens).toEqual([]);
   });
 });
 
