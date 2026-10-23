@@ -1116,6 +1116,38 @@ export function parearEmSequencia(etapas, predIds, succIds, links) {
   return { pares, semPar };
 }
 
+// Separa tarefas pela tarefa PAI no modal Vincular tarefas (cabeçalhos da tabela de vínculos e
+// <optgroup> dos dropdowns). `ids` vem na ordem em que devem aparecer e o agrupamento é por trechos
+// CONTÍGUOS do mesmo pai: a ordem nunca muda, então a tabela continua na ordem do cronograma, a mesma
+// que o "Vincular em sequência" usa. Devolve [{ paiId, rotulo, ids }]; o rótulo é o nome do pai e,
+// quando dois pais DIFERENTES do conjunto têm o mesmo nome, ganha o avô: "Pai (Avô)". Tarefa sem pai (ou
+// com pai que não existe mais) forma um trecho sem rótulo (paiId null). Ids que não existem são ignorados.
+export function agruparPorPai(etapas, ids) {
+  const porId = new Map(etapas.map(e => [e.id, e]));
+  const grupos = [];
+  ids.forEach(id => {
+    const e = porId.get(id);
+    if (!e) return;
+    const pai = e.parentId ? porId.get(e.parentId) : null;
+    const paiId = pai ? pai.id : null;
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.paiId === paiId) { ultimo.ids.push(id); return; }
+    grupos.push({ paiId, rotulo: pai ? (pai.etapa || pai.id) : '', ids: [id] });
+  });
+  const paisPorNome = new Map();
+  grupos.forEach(g => {
+    if (!g.paiId) return;
+    if (!paisPorNome.has(g.rotulo)) paisPorNome.set(g.rotulo, new Set());
+    paisPorNome.get(g.rotulo).add(g.paiId);
+  });
+  grupos.forEach(g => {
+    if (!g.paiId || paisPorNome.get(g.rotulo).size < 2) return;
+    const avo = porId.get(porId.get(g.paiId)?.parentId);
+    if (avo) g.rotulo = `${g.rotulo} (${avo.etapa || avo.id})`;
+  });
+  return grupos;
+}
+
 // Aplica de uma vez o que o modal Vincular tarefas montou: vínculos NOVOS e alterações nos vínculos que a
 // sucessora já tem. `novos` = pares [sucessoraId, predecessoraId] (tipo e folga em `meta[sucessoraId]`,
 // padrão TI/0). `edicoes` = { [sucessoraId]: { [predecessoraAtualId]: { remover?, predId?, tipo?, lag? } } }

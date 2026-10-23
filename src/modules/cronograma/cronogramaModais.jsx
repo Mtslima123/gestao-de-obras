@@ -5,7 +5,7 @@ import React from "react";
 import { Modal, useToast } from "../../components/Modals";
 import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay, projectStartOffset } from "./cronogramaDateUtils";
-import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, aplicarVinculosEmLote, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
+import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, agruparPorPai, aplicarVinculosEmLote, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
 import { itemValor } from "../financeiro/vinculoService";
 import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
@@ -852,6 +852,15 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
   const predFiltradas = React.useMemo(() => filtrarComSubarvore(buscaPred), [etapas, buscaPred]);
   const succFiltradas = React.useMemo(() => filtrarComSubarvore(buscaSucc), [etapas, buscaSucc]);
   const succRows = React.useMemo(() => leafTasks.filter(e => succSelected.includes(e.id)), [leafTasks, succSelected]);
+  // Posição de cada tarefa no cronograma: as predecessoras dos dropdowns saem nessa ordem (não na ordem em
+  // que as caixas foram marcadas), que também é a do "Vincular em sequência".
+  const posicaoNoCronograma = React.useMemo(() => new Map(etapas.map((e, i) => [e.id, i])), [etapas]);
+  // Cabeçalho de tarefa pai antes da primeira sucessora de cada trecho do mesmo pai (id da 1ª -> trecho):
+  // só quando as sucessoras vêm de MAIS de um pai (com um pai só a tabela fica como sempre).
+  const cabecalhosSucc = React.useMemo(() => {
+    const grupos = agruparPorPai(etapas, succRows.map(s => s.id));
+    return new Set(grupos.map(g => g.paiId)).size > 1 ? new Map(grupos.map(g => [g.ids[0], g])) : null;
+  }, [etapas, succRows]);
   const qtdLinks = Object.values(links).filter(Boolean).length;
   const qtdEdicoes = Object.values(edicoes).reduce((n, porDep) => n + Object.values(porDep).filter(x => Object.keys(x).length).length, 0);
   const qtdAlteracoes = qtdLinks + qtdEdicoes;
@@ -879,6 +888,16 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     const p = etapas.find(e => e.id === pid);
     const datas = p ? `${isoToBR(offsetToISO(p.inicio))} → ${isoToBR(offsetToISO(taskEndDisplay(p)))}` : '';
     return <option key={pid} value={pid}>{(p?.etapa ?? pid) + (datas ? ` · ${datas}` : '')}</option>;
+  };
+  // Opções de um dropdown de predecessora, na ordem do cronograma. Vindo de MAIS de um pai, cada trecho
+  // do mesmo pai fica num <optgroup> com o nome dele; com um pai só, lista plana como sempre.
+  const opcoesDePredecessora = (pids) => {
+    const ordenados = [...pids].sort((a, b) => (posicaoNoCronograma.get(a) ?? Infinity) - (posicaoNoCronograma.get(b) ?? Infinity));
+    const grupos = agruparPorPai(etapas, ordenados);
+    if (new Set(grupos.map(g => g.paiId)).size <= 1) return ordenados.map(opcaoPred);
+    return grupos.map((g, i) => (g.rotulo
+      ? <optgroup key={`${g.paiId}|${i}`} label={g.rotulo}>{g.ids.map(opcaoPred)}</optgroup>
+      : <React.Fragment key={`sem-pai|${i}`}>{g.ids.map(opcaoPred)}</React.Fragment>));
   };
 
   // Folhas (não-grupo) abaixo de `pai`, dentro da lista VISÍVEL (`lista`, não a completa) —
@@ -1151,8 +1170,17 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                   // vale somar mais uma predecessora. Só aparece o vínculo com uma predecessora MARCADA
                   // à esquerda (a tarefa escolhida); os demais da sucessora ficam fora da tela.
                   const existentes = (s.dep || []).map(d => (typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d));
+                  const cabecalho = cabecalhosSucc?.get(s.id);
                   return (
                     <React.Fragment key={s.id}>
+                    {cabecalho && (
+                      <tr style={{ borderTop: '1px solid var(--border)', background: 'var(--brand-50)' }}>
+                        <td colSpan={5} style={{ padding: '6px 12px', fontSize: 11.5, fontWeight: 700, color: 'var(--brand)' }}>
+                          {cabecalho.rotulo || 'Sem tarefa pai'}
+                          <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}> ({cabecalho.ids.length})</span>
+                        </td>
+                      </tr>
+                    )}
                     <tr style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: '6px 12px' }}>
                         {s.etapa}
@@ -1164,7 +1192,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                           <option value="">Nenhuma</option>
                           {/* Nunca lista a própria tarefa — evita vincular uma tarefa a ela mesma
                               quando ela também está marcada do lado das predecessoras. */}
-                          {predSelected.filter(pid => pid !== s.id).map(opcaoPred)}
+                          {opcoesDePredecessora(predSelected.filter(pid => pid !== s.id))}
                         </select>
                       </td>
                       {/* Tipo/folga só fazem sentido com uma Predecessora escolhida na linha —
@@ -1198,7 +1226,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                             <select className="input" value={ed.predId || d.id} disabled={removido}
                               onChange={ev => editarVinculo(s.id, d, { predId: ev.target.value })}
                               style={{ width: '100%', textDecoration: removido ? 'line-through' : undefined }}>
-                              {opcoes.map(opcaoPred)}
+                              {opcoesDePredecessora(opcoes)}
                             </select>
                           </td>
                           <td style={{ padding: '4px 12px' }}>
