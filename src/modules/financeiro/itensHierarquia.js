@@ -15,6 +15,46 @@ export function ancestraisDe(codigo) {
   return out;
 }
 
+/** Códigos que têm filhos em `lista` (os "pais"), em O(n). Sempre derivado da lista recebida. */
+export function conjuntoDePais(lista) {
+  const pais = new Set();
+  for (const it of lista || []) ancestraisDe(it.codigo).forEach(a => pais.add(a));
+  return pais;
+}
+
+const nivelDe = (codigo) => (String(codigo).match(/\./g) || []).length;
+// Arredonda para centavos por linha ANTES de somar, evitando acúmulo de erro de ponto
+// flutuante ao propagar os totais de baixo para cima (folha → grupos).
+const arredondar2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/**
+ * Totais bottom-up: folha = quantidade × valor unitário; grupo = soma dos filhos diretos.
+ *
+ * Quem é grupo e quem é folha vem da PRÓPRIA `lista` recebida, nunca de um conjunto de
+ * pais calculado antes: na importação a lista acabou de ser recarregada do banco, e usar
+ * os pais da lista anterior (vazia na 1ª importação) tratava os grupos como folha e
+ * gravava `orcamentos.valor` errado.
+ */
+export function calcularTotaisItens(lista) {
+  const itens = lista || [];
+  const pais = conjuntoDePais(itens);
+  const total = {};
+  [...itens]
+    .sort((a, b) => nivelDe(b.codigo) - nivelDe(a.codigo))
+    .forEach(it => {
+      if (pais.has(it.codigo)) {
+        const filhos = itens.filter(ch =>
+          ch.codigo.startsWith(it.codigo + '.') &&
+          nivelDe(ch.codigo) === nivelDe(it.codigo) + 1
+        );
+        total[it.codigo] = arredondar2(filhos.reduce((s, ch) => s + (total[ch.codigo] ?? 0), 0));
+      } else {
+        total[it.codigo] = arredondar2((Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0));
+      }
+    });
+  return itens.map(it => ({ ...it, valor_total: total[it.codigo] ?? it.valor_total ?? 0 }));
+}
+
 /**
  * Busca que enxerga a subárvore.
  *

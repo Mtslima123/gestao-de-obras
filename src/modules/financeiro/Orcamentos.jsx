@@ -14,6 +14,8 @@ import { invalidateOcCache } from '../cronograma/cronogramaCache';
 import { isoToBR } from '../cronograma/cronogramaDateUtils';
 import { formatBRL } from '../../utils/formatters';
 import { moduloSomenteLeitura, isAdmin, obrasPermitidas } from '../../utils/permissions';
+import { conjuntoDePais, calcularTotaisItens } from './itensHierarquia';
+import { avaliarSubstituicao } from './importacaoOrcamentoPure';
 
 // Orçamentos — lista + detalhe com composição
 const { brl: brlOR } = AppData;
@@ -662,38 +664,12 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
 
   // Conjunto de códigos que são "pais" (têm filhos), pré-computado em O(n).
   // Substitui isParent() O(n)-por-linha, que tornava o render O(n²).
-  const parentSet = React.useMemo(() => {
-    const s = new Set();
-    for (const it of items) {
-      const parts = it.codigo.split('.');
-      for (let i = 1; i < parts.length; i++) s.add(parts.slice(0, i).join('.'));
-    }
-    return s;
-  }, [items]);
+  const parentSet = React.useMemo(() => conjuntoDePais(items), [items]);
 
-  // Calcula totais bottom-up: folha = qty × unit; grupo = soma dos filhos diretos
-  // Arredonda para centavos por linha ANTES de somar, evitando acúmulo de erro de
-  // ponto flutuante ao propagar os totais de baixo para cima (folha → grupos).
-  const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-  const calcTotals = (list) => {
-    const map = {};
-    [...list]
-      .sort((a, b) => getNivel(b.codigo) - getNivel(a.codigo))
-      .forEach(it => {
-        if (parentSet.has(it.codigo)) {
-          const children = list.filter(ch =>
-            ch.codigo.startsWith(it.codigo + '.') &&
-            getNivel(ch.codigo) === getNivel(it.codigo) + 1
-          );
-          map[it.codigo] = round2(children.reduce((s, ch) => s + (map[ch.codigo] ?? 0), 0));
-        } else {
-          map[it.codigo] = round2((Number(it.quantidade) || 0) * (Number(it.valor_unitario) || 0));
-        }
-      });
-    return list.map(it => ({ ...it, valor_total: map[it.codigo] ?? it.valor_total ?? 0 }));
-  };
-
-  const withTotals = React.useMemo(() => calcTotals(items), [items, parentSet]);
+  // Totais bottom-up (folha = qty × unit; grupo = soma dos filhos diretos) em
+  // itensHierarquia.js. Os pais saem da PRÓPRIA lista passada: na importação a lista é a
+  // recém-recarregada do banco, não a `items` do render (BUG-014).
+  const withTotals = React.useMemo(() => calcularTotaisItens(items), [items]);
 
   // Itens folha (sem filhos) vinculados/não vinculados — mesma base do card "Itens
   // cadastrados", para os totais baterem entre os cards.
@@ -934,6 +910,20 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
 
   // Importação grava direto no banco — não exige clicar em "Salvar alterações"
   const handleImport = async (newItems, modo) => {
+    // "Substituir" apaga os itens e, em cascata, os vínculos deles com o cronograma (BUG-002).
+    // A conferência é no banco, na hora: o vinculadoSet da tela pode estar vazio por carga
+    // pendente ou erro. Sem resposta confiável, não substitui.
+    if (modo === 'substituir') {
+      let consulta;
+      try { consulta = await vinculoService.existeVinculoParaOrcamento(orcamento.id); }
+      catch (err) { consulta = { error: err }; }
+      const decisao = avaliarSubstituicao(consulta);
+      if (!decisao.permitido) {
+        if (decisao.motivo === 'consulta') logger.error('nao foi possivel conferir vinculos antes de substituir', { module: 'orcamento', action: 'importar.substituir.conferir' });
+        toast(decisao.mensagem, { tone: 'warning', icon: 'alert-triangle' });
+        return; // nada foi alterado no banco
+      }
+    }
     // Em "substituir", remove os itens já persistidos antes de inserir os novos
     const idsToDelete = modo === 'substituir'
       ? items.filter(it => !it._new).map(it => it.id)
@@ -980,7 +970,7 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
       invalidateOcCache(orcamento.obra_id);
 
       // 4) Atualiza o valor total no cabeçalho do orçamento
-      const grandTotal = calcTotals(loaded)
+      const grandTotal = calcularTotaisItens(loaded)
         .filter(it => getNivel(it.codigo) === 0)
         .reduce((s, it) => s + it.valor_total, 0);
       const hoje = new Date().toISOString().slice(0, 10);

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ancestraisDe, filtrarComSubarvore, folhasDaSubarvore } from '../modules/financeiro/itensHierarquia';
+import {
+  ancestraisDe, filtrarComSubarvore, folhasDaSubarvore, conjuntoDePais, calcularTotaisItens,
+} from '../modules/financeiro/itensHierarquia';
 
 // Lista de referência espelhando a tela real (001.08.04 Ferragens e as três fechaduras),
 // mais um sub-resumo para cobrir profundidade > 1.
@@ -132,5 +134,97 @@ describe('folhasDaSubarvore', () => {
 
   it('pai sem código devolve vazio', () => {
     expect(folhasDaSubarvore({ id: 99 }, todos, resumoIds)).toEqual([]);
+  });
+});
+
+describe('conjuntoDePais', () => {
+  it('é derivado da lista recebida: todo prefixo de código é pai', () => {
+    expect([...conjuntoDePais(lista())].sort()).toEqual(['001', '001.08', '001.08.04', '001.08.05']);
+  });
+
+  it('lista vazia ou ausente não tem pais', () => {
+    expect(conjuntoDePais([]).size).toBe(0);
+    expect(conjuntoDePais(undefined).size).toBe(0);
+  });
+});
+
+describe('calcularTotaisItens', () => {
+  // Planilha importada: os grupos (001, 002) vêm com quantidade e valor unitário próprios,
+  // que não valem nada: o total do grupo é a soma das folhas.
+  const importada = () => [
+    { id: 1, codigo: '001', nome: 'EDIFICAÇÃO', quantidade: 1, valor_unitario: 999 },
+    { id: 2, codigo: '001.01', nome: 'Alvenaria', quantidade: 10, valor_unitario: 100 },
+    { id: 3, codigo: '001.02', nome: 'Pintura', quantidade: 5, valor_unitario: 40 },
+    { id: 4, codigo: '002', nome: 'INSTALAÇÕES', quantidade: 1, valor_unitario: 777 },
+    { id: 5, codigo: '002.01', nome: 'Elétrica', quantidade: 2, valor_unitario: 250 },
+  ];
+  const totalDe = (l, codigo) => l.find(i => i.codigo === codigo).valor_total;
+
+  it('folha = quantidade x valor unitário', () => {
+    const r = calcularTotaisItens(importada());
+    expect(totalDe(r, '001.01')).toBe(1000);
+    expect(totalDe(r, '002.01')).toBe(500);
+  });
+
+  it('grupo = soma dos filhos, ignorando a quantidade e o valor da própria linha (BUG-014)', () => {
+    const r = calcularTotaisItens(importada());
+    expect(totalDe(r, '001')).toBe(1200);
+    expect(totalDe(r, '002')).toBe(500);
+  });
+
+  it('o total geral (raízes) é a soma das folhas, também na primeira importação', () => {
+    // Regressão: o cálculo usava os pais da lista ANTERIOR (vazia), tratava 001 e 002 como
+    // folha e gravava 999 + 777 = 1776 em orcamentos.valor.
+    const r = calcularTotaisItens(importada());
+    const geral = r.filter(i => !i.codigo.includes('.')).reduce((s, i) => s + i.valor_total, 0);
+    expect(geral).toBe(1700);
+  });
+
+  it('não guarda estado entre chamadas: lista nova, pais novos', () => {
+    calcularTotaisItens([{ id: 9, codigo: '009', quantidade: 3, valor_unitario: 2 }]);
+    const r = calcularTotaisItens(importada());
+    expect(totalDe(r, '001')).toBe(1200);
+  });
+
+  it('soma vários níveis de baixo para cima', () => {
+    const l = [
+      { id: 1, codigo: '001', quantidade: 0, valor_unitario: 0 },
+      { id: 2, codigo: '001.01', quantidade: 0, valor_unitario: 0 },
+      { id: 3, codigo: '001.01.01', quantidade: 2, valor_unitario: 10 },
+      { id: 4, codigo: '001.01.02', quantidade: 1, valor_unitario: 5 },
+      { id: 5, codigo: '001.02', quantidade: 4, valor_unitario: 1 },
+    ];
+    const r = calcularTotaisItens(l);
+    expect(totalDe(r, '001.01')).toBe(25);
+    expect(totalDe(r, '001')).toBe(29);
+  });
+
+  it('arredonda para centavos por linha antes de somar', () => {
+    const l = [
+      { id: 1, codigo: '001', quantidade: 0, valor_unitario: 0 },
+      { id: 2, codigo: '001.01', quantidade: 1, valor_unitario: 0.1 },
+      { id: 3, codigo: '001.02', quantidade: 1, valor_unitario: 0.2 },
+    ];
+    expect(totalDe(calcularTotaisItens(l), '001')).toBe(0.3);
+  });
+
+  it('quantidade ou valor ausente vira zero e não quebra', () => {
+    const l = [{ id: 1, codigo: '001', quantidade: null }, { id: 2, codigo: '002', valor_unitario: 'abc' }];
+    const r = calcularTotaisItens(l);
+    expect(r.map(i => i.valor_total)).toEqual([0, 0]);
+  });
+
+  it('mantém a ordem e os demais campos, e não altera a lista original', () => {
+    const original = importada();
+    const copia = JSON.parse(JSON.stringify(original));
+    const r = calcularTotaisItens(original);
+    expect(r.map(i => i.id)).toEqual([1, 2, 3, 4, 5]);
+    expect(r[1].nome).toBe('Alvenaria');
+    expect(original).toEqual(copia);
+  });
+
+  it('lista vazia ou ausente devolve lista vazia', () => {
+    expect(calcularTotaisItens([])).toEqual([]);
+    expect(calcularTotaisItens(undefined)).toEqual([]);
   });
 });
