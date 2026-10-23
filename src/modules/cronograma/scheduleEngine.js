@@ -207,17 +207,47 @@ export function getVisibleEtapas(etapas) {
   const byId = new Map(etapas.map(e => [e.id, e]));
   return etapas.filter(e => {
     let cur = e;
-    while (cur.parentId) {
+    // `visto` evita laço infinito se algum parentId formar ciclo (BUG-001): sem ele a aba
+    // congelava dentro do useMemo da lista visível.
+    const visto = new Set();
+    while (cur.parentId && !visto.has(cur.parentId)) {
       if (collapsed.has(cur.parentId)) return false;
+      visto.add(cur.parentId);
       cur = byId.get(cur.parentId) || { parentId: null };
     }
     return true;
   });
 }
 
-export function nextEtapaId(etapas) {
-  const nums = etapas.map(e => parseInt(e.id.replace(/\D/g, '')) || 0);
-  return 'TSK-' + String(Math.max(0, ...nums) + 1).padStart(3, '0');
+// Colar uma linha recortada ATRIBUI a ela o parentId do destino. Se o destino está dentro da
+// subárvore de alguma das linhas recortadas (um filho, um neto), isso faz a linha virar
+// descendente de si mesma: parentId cíclico, que trava a tela e estoura a pilha nos cálculos
+// (BUG-001). Devolve true quando o colar deve ser recusado. `cutIds`: ids recortados;
+// `destinoId`: a linha sobre a qual se cola. O próprio destino estar no recorte não conta
+// aqui (isso é no-op tratado à parte).
+export function destinoNaSubarvoreDoRecorte(etapas, cutIds, destinoId) {
+  const byId = new Map(etapas.map(e => [e.id, e]));
+  const cortados = cutIds instanceof Set ? cutIds : new Set(cutIds);
+  const visto = new Set();
+  let p = byId.get(destinoId)?.parentId;
+  while (p && !visto.has(p)) {
+    if (cortados.has(p)) return true;
+    visto.add(p);
+    p = byId.get(p)?.parentId;
+  }
+  return false;
+}
+
+// Id interno da tarefa: 'TSK-' + número, e o número NUNCA volta a um já usado (BUG-011).
+// Era max(existentes)+1: excluir a tarefa de maior número fazia a próxima nascer com o mesmo
+// id e herdar vínculos de orçamento, histórico, anexos e linha de base da excluída (que vivem
+// fora do cronograma, por task_id/etapa_id). Agora o número é o maior entre "existente + 1" e
+// o relógio em ms: o relógio só cresce, então o id de uma tarefa excluída (criada antes) não é
+// gerado de novo, e criar várias de uma vez segue distinto porque quem cria em lote devolve
+// cada id à lista antes de pedir o próximo. `agora` existe para os testes.
+export function nextEtapaId(etapas, agora = Date.now()) {
+  const nums = etapas.map(e => parseInt(String(e.id).replace(/\D/g, '')) || 0);
+  return 'TSK-' + String(Math.max(Math.max(0, ...nums) + 1, agora)).padStart(3, '0');
 }
 
 export function nextDisplayId(etapas) {

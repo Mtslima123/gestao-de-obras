@@ -22,6 +22,7 @@ import {
   createGroup, autoScheduleFromDeps, formatDepList, parseDep,
   moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento, tarefasLivresForaDoInicio,
   reprogramarRestante, computeSuccessors, computeIdMap, computeRowNumberMap, filtrarComAncestrais,
+  destinoNaSubarvoreDoRecorte,
 } from './scheduleEngine';
 import { computeAutofillSeries } from './autofillSeries';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal, TarefasLivresModal, ExcluirTarefasModal } from './cronogramaModais';
@@ -1323,6 +1324,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         if (cutIds.has(id)) { // colou em cima de uma das linhas recortadas: no-op
           cutPendingRef.current = null;
           rowClipRef.current = null;
+          return;
+        }
+        // Destino dentro do que foi recortado (ex.: grupo recortado e colado sobre um filho
+        // dele): a linha viraria descendente de si mesma e o cronograma ficaria com ciclo.
+        if (destinoNaSubarvoreDoRecorte(etapas, cutIds, id)) {
+          cutPendingRef.current = null;
+          rowClipRef.current = null;
+          toast('Não dá para colar um grupo dentro dele mesmo. Escolha uma linha fora dele e recorte de novo.', { tone: 'warning', icon: 'alert-triangle' });
           return;
         }
         const moving = etapas.filter(e => cutIds.has(e.id))
