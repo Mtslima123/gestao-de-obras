@@ -163,10 +163,68 @@ export function computeArvoreForaDoMes(candidatas, etapas) {
   return linhas;
 }
 
-// Parse do input "% medido": aceita vírgula ou ponto, remove lixo, clamp 0-100.
+// Parse do input "% medido": aceita vírgula ou ponto, remove lixo, clamp 0-100 e duas casas
+// (medição é documento financeiro: ver fmtPct100).
 export function parsePercInput(raw) {
   const limpo = Number(String(raw).replace(',', '.').replace(/[^\d.]/g, ''));
-  return Number.isFinite(limpo) ? Math.max(0, Math.min(100, limpo)) : 0;
+  return Number.isFinite(limpo) ? Math.round(Math.max(0, Math.min(100, limpo)) * 100) / 100 : 0;
+}
+
+// ── Gravação da medição sem sobrescrever (BUG-019 e BUG-020) ─────────────────
+// A abertura e a gravação da lista inteira eram upsert/UPDATE sem condição: erro de servidor
+// ao carregar o mês aparecia como "Nenhuma medição aberta" e "Abrir medição" sobrescrevia o
+// rascunho existente; incluir/remover tarefa e excluir gravavam a lista de uma tela que podia
+// estar velha, desfazendo o que outro aparelho enviou. Agora a abertura é INSERT (a UNIQUE do
+// mês recusa se já existe) e a gravação da lista é UPDATE condicional por updated_at.
+
+export const MSG_ERRO_CARGA_MEDICAO =
+  'O servidor devolveu um erro ao buscar a medição deste mês. Nada foi alterado e a abertura ' +
+  'do mês fica bloqueada, para não sobrescrever uma medição que pode existir. ' +
+  'Tente novamente; se continuar, avise o TI.';
+
+/** Resultado do INSERT que abre o mês. 23505 = UNIQUE (obra_id, mes_referencia): já existe. */
+export function resultadoAbertura(resp) {
+  if (resp?.error) return resp.error.code === '23505' ? 'ja_existe' : 'erro';
+  return resp?.data ? 'ok' : 'erro';
+}
+
+/**
+ * Resultado de um UPDATE condicional (`... where updated_at = esperado and status = 'rascunho'`):
+ * sem erro e sem linha = 0 linhas afetadas = outra gravação veio no meio (ou o RLS barrou).
+ */
+export function resultadoGravacaoCondicional(resp) {
+  if (resp?.error) return 'erro';
+  return resp?.data ? 'ok' : 'conflito';
+}
+
+// ── Digitação do campo "% medido" (BUG-009) ───────────────────────────────────
+// O campo era controlado por um NÚMERO e cada tecla passava por parsePercInput: ao digitar o
+// separador ("33,") o parse devolvia 33 e o campo voltava a mostrar "33", e o dígito seguinte
+// virava "333" (limitado a 100): "5,5" dava 55 e "33,3" dava 100. Cada passo intermediário
+// ainda entrava na fila de envio. Agora o texto digitado fica em estado local no campo e só o
+// valor FINAL é convertido e registrado, ao sair do campo ou no Enter.
+
+// Até 3 dígitos inteiros e 2 decimais, com vírgula ou ponto; vazio é aceito (apagar tudo).
+export const PERC_DIGITACAO_RE = /^\d{0,3}([.,]\d{0,2})?$/;
+
+/** Texto aceito depois de uma tecla: o novo se for uma digitação válida, senão o anterior. */
+export function aceitarDigitacaoPerc(novo, anterior) {
+  return PERC_DIGITACAO_RE.test(novo) ? novo : anterior;
+}
+
+/** Valor para exibir no campo, em pt-BR: 33.3 -> "33,3", 5 -> "5". */
+export function percParaCampo(valor) {
+  const n = Number(valor);
+  return Number.isFinite(n) ? String(Math.round(n * 100) / 100).replace('.', ',') : '';
+}
+
+/**
+ * Fim da edição: só registra se o texto mudou em relação ao que o campo mostrava ao receber o
+ * foco (entrar e sair sem digitar não marca "visto"). Apagar o campo conta como 0 digitado.
+ */
+export function concluirEdicaoPerc(texto, inicial) {
+  if (texto === inicial) return { registrar: false, valor: null };
+  return { registrar: true, valor: parsePercInput(texto) };
 }
 
 // Deriva o status quando a API/etapa não traz um valor explícito. "Atrasada" nunca

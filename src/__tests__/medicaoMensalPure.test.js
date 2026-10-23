@@ -4,6 +4,8 @@ import { describe, it, expect } from 'vitest';
 import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, snapshotDeFechamento, hidratarSnapshot, computeDisciplinaInfo,
+  parsePercInput, aceitarDigitacaoPerc, percParaCampo, concluirEdicaoPerc,
+  resultadoAbertura, resultadoGravacaoCondicional, MSG_ERRO_CARGA_MEDICAO,
   computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
   mesesDaMedicao, mergePercMedido, ordenarPavimentos, chavePavimento,
 } from '../modules/cronograma/medicaoMensalPure';
@@ -348,6 +350,137 @@ describe('buildSnapshotFechamento', () => {
     const snap = buildSnapshotFechamento(itens, totais);
     expect(snap.itens.find(i => i.id === 'A').observacao).toBe('Aguardando material');
     expect(snap.itens.find(i => i.id === 'B')).not.toHaveProperty('observacao');
+  });
+});
+
+// BUG-019 e BUG-020: abrir o mês e gravar a lista eram upsert/UPDATE sem condição e podiam
+// sobrescrever o rascunho de outro aparelho (ou o que existe quando a leitura falhou).
+describe('resultadoAbertura (INSERT que abre o mês)', () => {
+  it('sucesso com a linha criada', () => {
+    expect(resultadoAbertura({ data: { id: 1 }, error: null })).toBe('ok');
+  });
+  it('UNIQUE violada (23505): o mês já existe, não sobrescreve', () => {
+    expect(resultadoAbertura({ data: null, error: { code: '23505', message: 'duplicate key value' } })).toBe('ja_existe');
+  });
+  it('qualquer outro erro é erro, sem dizer que o mês já existe', () => {
+    expect(resultadoAbertura({ data: null, error: { code: '42501', message: 'RLS' } })).toBe('erro');
+    expect(resultadoAbertura({ data: null, error: { message: 'Failed to fetch' } })).toBe('erro');
+  });
+  it('resposta vazia (sem linha e sem erro) não conta como aberta', () => {
+    expect(resultadoAbertura({ data: null, error: null })).toBe('erro');
+    expect(resultadoAbertura(undefined)).toBe('erro');
+  });
+});
+
+describe('resultadoGravacaoCondicional (UPDATE ... where updated_at = esperado)', () => {
+  it('linha devolvida: gravou', () => {
+    expect(resultadoGravacaoCondicional({ data: { id: 1, updated_at: 'x' }, error: null })).toBe('ok');
+  });
+  it('sem erro e sem linha: outra gravação veio no meio (conflito), nada foi sobrescrito', () => {
+    expect(resultadoGravacaoCondicional({ data: null, error: null })).toBe('conflito');
+  });
+  it('erro tem prioridade sobre qualquer dado', () => {
+    expect(resultadoGravacaoCondicional({ data: null, error: { message: 'x' } })).toBe('erro');
+    expect(resultadoGravacaoCondicional({ data: { id: 1 }, error: { message: 'x' } })).toBe('erro');
+  });
+});
+
+describe('mensagem de erro de carga da medição', () => {
+  it('avisa que nada foi alterado e que a abertura está bloqueada', () => {
+    expect(MSG_ERRO_CARGA_MEDICAO).toMatch(/Nada foi alterado/);
+    expect(MSG_ERRO_CARGA_MEDICAO).toMatch(/bloqueada/);
+  });
+});
+
+// BUG-009: o campo "% medido" convertia a cada tecla: o separador sumia ("5,5" virava 55,
+// "33,3" virava 100) e cada passo intermediário entrava na fila de envio.
+describe('parsePercInput', () => {
+  it('aceita vírgula e ponto, com até duas casas', () => {
+    expect(parsePercInput('33,3')).toBe(33.3);
+    expect(parsePercInput('33.3')).toBe(33.3);
+    expect(parsePercInput('5,5')).toBe(5.5);
+    expect(parsePercInput('45.55')).toBe(45.55);
+  });
+  it('limita a 0-100 e arredonda a duas casas', () => {
+    expect(parsePercInput('150')).toBe(100);
+    expect(parsePercInput('-5')).toBe(5); // o sinal é descartado como lixo (e o campo nem deixa digitar "-")
+    expect(parsePercInput('33,333')).toBe(33.33);
+    expect(parsePercInput('99,999')).toBe(100);
+  });
+  it('vazio, lixo e separador solto viram 0 ou o inteiro', () => {
+    expect(parsePercInput('')).toBe(0);
+    expect(parsePercInput('abc')).toBe(0);
+    expect(parsePercInput('33,')).toBe(33);
+    expect(parsePercInput(',5')).toBe(0.5);
+    expect(parsePercInput(33.3)).toBe(33.3); // alterarMedido recebe o número final
+  });
+});
+
+describe('digitação do campo % medido', () => {
+  // Simula o campo: cada tecla passa por aceitarDigitacaoPerc com o texto atual.
+  const digitar = (teclas, inicial = '') => {
+    let texto = inicial;
+    const passos = [];
+    for (const t of teclas) { texto = aceitarDigitacaoPerc(texto + t, texto); passos.push(texto); }
+    return { texto, passos };
+  };
+
+  it('"33,3" mantém o separador em todos os passos (antes: 3, 33, 33, 100)', () => {
+    const { texto, passos } = digitar(['3', '3', ',', '3']);
+    expect(passos).toEqual(['3', '33', '33,', '33,3']);
+    expect(parsePercInput(texto)).toBe(33.3);
+  });
+
+  it('"5,5" vira 5,5 (antes: 5, 5, 55) e "45.5" vira 45,5 (antes: 45, 45, 100)', () => {
+    expect(parsePercInput(digitar(['5', ',', '5']).texto)).toBe(5.5);
+    expect(parsePercInput(digitar(['4', '5', '.', '5']).texto)).toBe(45.5);
+  });
+
+  it('recusa a tecla que não forma um percentual válido e mantém o texto', () => {
+    expect(digitar(['1', '0', '0', '0']).texto).toBe('100');        // 4º dígito inteiro
+    expect(digitar(['3', ',', '3', '3', '3']).texto).toBe('3,33'); // 3ª casa decimal
+    expect(digitar(['a', '1', 'b']).texto).toBe('1');               // letras
+    expect(digitar(['1', ',', ',']).texto).toBe('1,');              // dois separadores
+    expect(digitar(['-', '5']).texto).toBe('5');                    // sinal
+  });
+
+  it('apagar tudo é aceito (o campo fica vazio até concluir)', () => {
+    expect(aceitarDigitacaoPerc('', '7')).toBe('');
+  });
+
+  it('150 digitado é aceito no campo e limitado a 100 só ao concluir', () => {
+    const { texto } = digitar(['1', '5', '0']);
+    expect(texto).toBe('150');
+    expect(concluirEdicaoPerc(texto, '0')).toEqual({ registrar: true, valor: 100 });
+  });
+});
+
+describe('percParaCampo', () => {
+  it('mostra em pt-BR, sem zeros à direita', () => {
+    expect(percParaCampo(33.3)).toBe('33,3');
+    expect(percParaCampo(5)).toBe('5');
+    expect(percParaCampo(0)).toBe('0');
+    expect(percParaCampo(12.5)).toBe('12,5');
+    expect(percParaCampo(33.333)).toBe('33,33');
+  });
+  it('valor ausente ou inválido vira vazio', () => {
+    expect(percParaCampo(undefined)).toBe('');
+    expect(percParaCampo(NaN)).toBe('');
+  });
+});
+
+describe('concluirEdicaoPerc', () => {
+  it('entrar e sair sem digitar não registra (não marca "visto")', () => {
+    expect(concluirEdicaoPerc('33,3', '33,3')).toEqual({ registrar: false, valor: null });
+  });
+  it('registra uma vez, com o número final', () => {
+    expect(concluirEdicaoPerc('33,3', '0')).toEqual({ registrar: true, valor: 33.3 });
+  });
+  it('apagar o campo conta como 0 digitado (visto)', () => {
+    expect(concluirEdicaoPerc('', '40')).toEqual({ registrar: true, valor: 0 });
+  });
+  it('separador solto ao sair vale o inteiro', () => {
+    expect(concluirEdicaoPerc('33,', '0')).toEqual({ registrar: true, valor: 33 });
   });
 });
 

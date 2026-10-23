@@ -1,6 +1,6 @@
 import { supabase } from '../../services/supabase';
 import { logger } from '../../services/logger';
-import { serializarItensRascunho } from './medicaoMensalPure';
+import { serializarItensRascunho, resultadoAbertura } from './medicaoMensalPure';
 
 // Boletins de medição mensal (tabela medicoes_mensais), por obra + mês de referência.
 // Se a tabela ainda não existir (migration não aplicada pelo TI), as chamadas
@@ -109,28 +109,41 @@ export const medicaoMensalService = {
     return { data: data || [], error: null };
   },
 
-  // `previstoCongelado` ({ percPrevisto, percPrevistoAcumulado }) só vem preenchido na
-  // ABERTURA do mês (ver abrirMedicao/MedicaoMensal.jsx) — os autosaves seguintes
-  // (editar % medido etc.) chamam sem esse argumento, então essas duas colunas ficam
-  // de fora do upsert e o valor congelado na abertura nunca é sobrescrito depois.
-  async salvarRascunho(obraId, mesReferencia, itens, previstoCongelado) {
+  // Abre o mês: cria o rascunho com os itens do cronograma e congela o previsto (mês e
+  // acumulado, `previstoCongelado`) deste momento. É INSERT, nunca upsert: se o mês já tem
+  // medição (outro aparelho abriu, ou a tela não viu o registro por erro de carga), a UNIQUE
+  // (obra_id, mes_referencia) recusa com 23505 e devolve `jaExiste`, em vez de sobrescrever o
+  // rascunho com os itens recém-montados do cronograma (BUG-019/BUG-020). Os autosaves
+  // seguintes não passam por aqui: usam salvarRascunhoCondicional.
+  async abrir(obraId, mesReferencia, itens, previstoCongelado) {
     const payload = {
       obra_id: obraId,
       mes_referencia: mesReferencia,
       status: 'rascunho',
       itens: serializarItensRascunho(itens),
-      ...(previstoCongelado ? {
-        perc_previsto: previstoCongelado.percPrevisto,
-        perc_previsto_acumulado: previstoCongelado.percPrevistoAcumulado,
-      } : {}),
+      perc_previsto: previstoCongelado?.percPrevisto,
+      perc_previsto_acumulado: previstoCongelado?.percPrevistoAcumulado,
       updated_at: new Date().toISOString(),
     };
-    const { data, error } = await upsertComFallback(payload, ['perc_previsto', 'perc_previsto_acumulado']);
-    if (error) {
-      logger.error('falha ao salvar rascunho de medição', { module: 'medicaoMensal', action: 'salvarRascunho', obraId, mesReferencia, err: error });
-      return { data: null, error };
+    const inserir = (p) => supabase.from('medicoes_mensais').insert(p).select().maybeSingle();
+    let resp = await inserir(payload);
+    // Colunas do previsto congelado podem ainda não existir em produção (migration do TI):
+    // mesmo fallback do upsertComFallback, tirando só o que o banco não conhece.
+    if (resp.error && colunaAusente(resp.error)) {
+      const reduzido = { ...payload };
+      delete reduzido.perc_previsto; delete reduzido.perc_previsto_acumulado;
+      resp = await inserir(reduzido);
     }
-    return { data, error: null };
+    const resultado = resultadoAbertura(resp);
+    if (resultado === 'ja_existe') {
+      logger.warn('medição do mês já existe ao abrir', { module: 'medicaoMensal', action: 'abrir', obraId, mesReferencia });
+      return { data: null, error: resp.error, jaExiste: true };
+    }
+    if (resultado === 'erro') {
+      logger.error('falha ao abrir medição mensal', { module: 'medicaoMensal', action: 'abrir', obraId, mesReferencia, err: resp.error });
+      return { data: null, error: resp.error || new Error('abertura sem retorno') };
+    }
+    return { data: resp.data, error: null };
   },
 
   // `snapshot` (buildSnapshotFechamento) congela os valores medidos: sem isso os R$ de
@@ -269,13 +282,19 @@ export const medicaoMensalService = {
   // a RESTRICTIVE de DELETE (medicoes_mensais_ro_del) só olha pro modo somente-leitura do
   // módulo, então isso apaga tanto rascunho quanto fechada — a tela só oferece o botão pra
   // medição em rascunho (ver `bloqueado` em MedicaoMensal.jsx).
-  async excluir(obraId, mesReferencia) {
-    const { data, error } = await supabase
+  //
+  // `updatedAtEsperado` (updated_at do rascunho que a tela mostra) torna a exclusão condicional:
+  // só apaga se a medição ainda é esse rascunho. Sem isso, uma tela antiga que mostra 0%
+  // apagava uma medição que outro aparelho já tinha preenchido (BUG-020). `data` vazio = nada
+  // foi apagado (alguém gravou no meio, ou já não era rascunho): quem chama deve conferir.
+  async excluir(obraId, mesReferencia, { updatedAtEsperado } = {}) {
+    let consulta = supabase
       .from('medicoes_mensais')
       .delete()
       .eq('obra_id', obraId)
-      .eq('mes_referencia', mesReferencia)
-      .select();
+      .eq('mes_referencia', mesReferencia);
+    if (updatedAtEsperado) consulta = consulta.eq('status', 'rascunho').eq('updated_at', updatedAtEsperado);
+    const { data, error } = await consulta.select();
     if (error) {
       logger.error('falha ao excluir medição mensal', { module: 'medicaoMensal', action: 'excluir', obraId, mesReferencia, err: error });
       return { data: null, error };

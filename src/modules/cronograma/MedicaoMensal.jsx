@@ -18,12 +18,13 @@ import {
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha, ColumnHeaderFilterMenu,
 } from './cronogramaShared';
 import { passaFiltrosDeColuna } from './filtroColunasPure';
+import InputPercMedido from './InputPercMedido';
 import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento, snapshotDeFechamento,
   hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, ordenarPavimentos, chavePavimento,
-  aplicarAlteracoes,
+  aplicarAlteracoes, serializarItensRascunho, resultadoGravacaoCondicional, MSG_ERRO_CARGA_MEDICAO,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -654,6 +655,10 @@ export default function MedicaoMensal({
   // sem isto, offline caía no ramo "Nenhuma medição aberta / feche e aprove o mês
   // anterior", que é falso (o mês pode estar aberto, só não deu pra confirmar).
   const [medicaoOffline, setMedicaoOffline] = React.useState(false);
+  // Erro do servidor (5xx, JWT recusado, statement timeout) ao buscar a medição do mês. NÃO é
+  // "mês sem medição": a tela mostra o erro com "Tentar de novo" e não oferece "Abrir medição",
+  // que sobrescreveria o rascunho que existe e não conseguimos ler (BUG-019).
+  const [erroCarga, setErroCarga] = React.useState(false);
   // salvoEm da medição guardada no aparelho em uso (sem internet, só no modo foco), ou null.
   const [registroDoAparelho, setRegistroDoAparelho] = React.useState(null);
   const [retryTick, setRetryTick] = React.useState(0);
@@ -832,6 +837,7 @@ export default function MedicaoMensal({
       const guardado = hideChrome ? await offlineCache.ler('medicao', chaveMes) : null;
       const pendente = guardado ? await lerPendente() : null;
       if (!atual()) return;
+      setErroCarga(false);
       precisaRecarregarRef.current = true;
       if (guardado) {
         aplicarRegistro(guardado.dados.registro, pendente);
@@ -858,8 +864,21 @@ export default function MedicaoMensal({
       await semRede(regErro === TIMEOUT_REDE ? { message: 'Failed to fetch' } : regErro);
       return;
     }
+    if (regErro) {
+      // Falha que não é de rede: não dá para dizer se o mês tem medição. Limpa a tela (senão
+      // os itens do mês anterior ficariam editáveis sob o mês novo) e mostra o erro.
+      setMedicaoOffline(false);
+      setRegistroDoAparelho(null);
+      setRegistro(null);
+      setItensTrabalho([]);
+      setIdsManuais(new Set());
+      setErroCarga(true);
+      setCarregando(false);
+      return;
+    }
     const pendente = await lerPendente();
     if (!atual()) return;
+    setErroCarga(false);
     setMedicaoOffline(false);
     setRegistroDoAparelho(null);
     precisaRecarregarRef.current = false; // antes do reportSuccess, que lê este ref
@@ -1490,19 +1509,46 @@ export default function MedicaoMensal({
 
   // Grava a lista no rascunho. `itens` explícito porque a inclusão/remoção manual precisa
   // salvar a lista nova no mesmo tick, antes do state ter sido aplicado.
-  const persistirRascunho = React.useCallback(async (itens, { silencioso = false } = {}) => {
-    if (bloqueado) return;
-    const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens);
-    if (error) {
+  //
+  // UPDATE condicional por updated_at (BUG-020): grava só se o rascunho ainda é a versão que a
+  // tela conhece. Antes era upsert sem condição e a lista de uma tela velha desfazia o que
+  // outro aparelho tinha enviado pela fila. Em conflito a tela recarrega do banco e avisa; a
+  // alteração (incluir/remover tarefa) precisa ser refeita sobre o que está lá.
+  // As gravações entram numa fila (uma por vez): duas seguidas partiriam do mesmo updated_at e
+  // a segunda acusaria conflito com a PRÓPRIA gravação.
+  const filaListaRef = React.useRef(Promise.resolve());
+  const persistirRascunho = React.useCallback((itens, { silencioso = false } = {}) => {
+    const rodar = async () => {
+      if (bloqueado) return;
+      const reg = registroRef.current;
+      if (!reg?.id || reg.status !== 'rascunho') {
+        toast('Não foi possível salvar o rascunho. Recarregue a medição.', { tone: 'danger' });
+        return;
+      }
+      const resp = await medicaoMensalService.salvarRascunhoCondicional({
+        id: reg.id, itens: serializarItensRascunho(itens), updatedAtEsperado: reg.updated_at,
+      });
+      const resultado = resultadoGravacaoCondicional(resp);
+      if (resultado === 'ok') {
+        registroRef.current = resp.data; // já vale para a próxima da fila, antes do re-render
+        setRegistro(resp.data);
+        if (!silencioso) toast('Rascunho salvo', { tone: 'success', icon: 'check' });
+        return;
+      }
+      if (resultado === 'conflito') {
+        toast('A medição foi alterada por outro aparelho. Mostrei o que está no sistema: confira e refaça a alteração.', { tone: 'warning', icon: 'alert-triangle' });
+        setRetryTick((t) => t + 1);
+        return;
+      }
       // Falha SEMPRE avisa, mesmo no autosave silencioso (que só suprime o toast de
       // SUCESSO) — ficar sempre calado numa falha real fazia o usuário achar que salvou
       // e o valor sumir ao recarregar a página.
       toast('Não foi possível salvar o rascunho. Tente novamente.', { tone: 'danger' });
-      return;
-    }
-    setRegistro(data);
-    if (!silencioso) toast('Rascunho salvo', { tone: 'success', icon: 'check' });
-  }, [obraId, mesRefKey, bloqueado, toast]);
+    };
+    const fila = filaListaRef.current.catch(() => {}).then(rodar);
+    filaListaRef.current = fila;
+    return fila;
+  }, [bloqueado, toast]);
 
   // Ao reconectar: recarrega do banco quando a tela está em "Sem conexão" ou com a medição
   // do aparelho. O que foi preenchido sem internet não se perde: está na fila do aparelho,
@@ -1516,7 +1562,7 @@ export default function MedicaoMensal({
   // do primeiro salvamento, e um mês sem registro já vinha editável.
   const abrirMedicao = async () => {
     if (somenteConsulta) { avisarSemInternet(); return; }
-    if (readOnly || registro || foraDoPeriodo || anteriorNaoAprovada || anteriorSemReprogramacao) return;
+    if (readOnly || registro || erroCarga || foraDoPeriodo || anteriorNaoAprovada || anteriorSemReprogramacao) return;
     const { ok, pendentes } = validarAbertura(etapas, mesRefKey, wbsMap);
     if (!ok) { setPendenciasAbertura({ mesKey: mesRefKey, pendentes }); return; }
     setSalvando(true);
@@ -1531,9 +1577,16 @@ export default function MedicaoMensal({
       percPrevisto: resumo.valorObra > 0 ? (valorTotalBaseFresco / resumo.valorObra) * 100 : 0,
       percPrevistoAcumulado: resumo.previstoAcumulado,
     };
-    const { data, error } = await medicaoMensalService.salvarRascunho(obraId, mesRefKey, itens, previstoCongelado);
+    // INSERT: se o mês já tem medição (outro aparelho abriu), NÃO sobrescreve (BUG-019/020).
+    const { data, error, jaExiste } = await medicaoMensalService.abrir(obraId, mesRefKey, itens, previstoCongelado);
     setSalvando(false);
-    if (error) { toast('Não foi possível abrir a medição (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
+    if (jaExiste) {
+      toast('Esta medição já foi aberta em outro aparelho. Mostrando o que está no sistema.', { tone: 'warning', icon: 'alert-triangle' });
+      setRetryTick((t) => t + 1);
+      return;
+    }
+    if (error || !data) { toast('Não foi possível abrir a medição (tabela de medição ainda não disponível).', { tone: 'danger' }); return; }
+    registroRef.current = data;
     setRegistro(data);
     setItensTrabalho(itens);
     setIdsManuais(new Set());
@@ -1780,9 +1833,17 @@ export default function MedicaoMensal({
     if (somenteConsulta) { avisarSemInternet(); return; }
     if (existePosteriorCriada || temPercMedidoPreenchido) return;
     setSalvando(true);
-    const { data, error } = await medicaoMensalService.excluir(obraId, mesRefKey);
+    // Condicional: só apaga se a medição ainda é o rascunho que a tela mostra. Uma tela antiga
+    // que mostra 0% apagava medição que outro aparelho já tinha preenchido (BUG-020).
+    const { data, error } = await medicaoMensalService.excluir(obraId, mesRefKey, { updatedAtEsperado: registroRef.current?.updated_at });
     setSalvando(false);
-    if (error || !data || data.length === 0) { toast('Não foi possível excluir a medição.', { tone: 'danger' }); return; }
+    if (!error && (!data || data.length === 0)) {
+      toast('A medição foi alterada por outro aparelho e não foi excluída. Mostrei o que está no sistema.', { tone: 'warning', icon: 'alert-triangle' });
+      setMostrarConfirmExcluir(false);
+      setRetryTick((t) => t + 1);
+      return;
+    }
+    if (error) { toast('Não foi possível excluir a medição.', { tone: 'danger' }); return; }
     setRegistro(null);
     setItensTrabalho([]);
     setIdsManuais(new Set());
@@ -2400,6 +2461,9 @@ export default function MedicaoMensal({
                       <div style={{ fontSize: 13.5 }}>Carregando medição…</div>
                     ) : medicaoOffline ? (
                       <OfflineFallback onRetry={() => setRetryTick((t) => t + 1)} mensagem={msgSemMedicaoGuardada} />
+                    ) : erroCarga ? (
+                      <OfflineFallback titulo="Não foi possível carregar a medição" icone="alert-triangle"
+                        mensagem={MSG_ERRO_CARGA_MEDICAO} onRetry={() => setRetryTick((t) => t + 1)} />
                     ) : !registro ? (
                       // Mês sem medição: o ciclo começa aqui. Nada de itens e nada editável
                       // até abrir — antes a tela já vinha preenchida e livre, sem registro.
@@ -2557,14 +2621,13 @@ export default function MedicaoMensal({
                     </td>
                     <td className="center">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                        <input
+                        <InputPercMedido
                           className="input medicao-input-medido"
                           style={{ width: 56, height: 24, padding: '0 6px', textAlign: 'right' }}
-                          inputMode="decimal"
-                          value={l.percMedido}
+                          valor={l.percMedido}
                           disabled={bloqueado}
                           aria-label={`Percentual medido de ${l.descricao}`}
-                          onChange={e => alterarMedido(l.id, e.target.value)}
+                          onCommit={(v) => alterarMedido(l.id, v)}
                           onKeyDown={e => {
                             if (e.key !== 'Enter') return;
                             e.preventDefault();
@@ -2775,6 +2838,9 @@ export default function MedicaoMensal({
                 <div>Carregando medição…</div>
               ) : medicaoOffline ? (
                 <OfflineFallback onRetry={() => setRetryTick((t) => t + 1)} mensagem={msgSemMedicaoGuardada} />
+              ) : erroCarga ? (
+                <OfflineFallback titulo="Não foi possível carregar a medição" icone="alert-triangle"
+                  mensagem={MSG_ERRO_CARGA_MEDICAO} onRetry={() => setRetryTick((t) => t + 1)} />
               ) : !registro ? (
                 <>
                   <div>Nenhuma medição aberta para <strong>{mesLabel(mesRefKey)}</strong>.</div>
@@ -2846,13 +2912,12 @@ export default function MedicaoMensal({
                     </button>
                     <span className="mm-card-nome">{l.descricao}</span>
                     <span className="mm-card-pav">{nomePavimento(l.pavimento)}</span>
-                    <input
+                    <InputPercMedido
                       className="input medicao-input-medido mm-card-input"
-                      inputMode="decimal"
-                      value={l.percMedido}
+                      valor={l.percMedido}
                       disabled={bloqueado}
                       aria-label={`Percentual medido de ${l.descricao}`}
-                      onChange={e => alterarMedido(l.id, e.target.value)}
+                      onCommit={(v) => alterarMedido(l.id, v)}
                     />
                   </div>
                   {l.foraDoMes && (
