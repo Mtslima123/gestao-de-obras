@@ -896,7 +896,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     const grupos = agruparPorPai(etapas, ordenados);
     if (new Set(grupos.map(g => g.paiId)).size <= 1) return ordenados.map(opcaoPred);
     return grupos.map((g, i) => (g.rotulo
-      ? <optgroup key={`${g.paiId}|${i}`} label={g.rotulo}>{g.ids.map(opcaoPred)}</optgroup>
+      ? <optgroup key={`${g.paiId}|${i}`} className="optgroup-pai" label={g.rotulo}>{g.ids.map(opcaoPred)}</optgroup>
       : <React.Fragment key={`sem-pai|${i}`}>{g.ids.map(opcaoPred)}</React.Fragment>));
   };
 

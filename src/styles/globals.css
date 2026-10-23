@@ -2230,6 +2230,13 @@ tr:hover .obras-row-actions {
 /* ── Menu de cabeçalho de coluna (Ordenar/Filtrar, estilo MS Project) ────── */
 .col-filter-opt:hover { background: var(--surface-hover, rgba(0,0,0,0.05)); }
 
+/* ── Título de grupo (tarefa pai) nos dropdowns agrupados do Vincular tarefas ─
+   Faixa azul com texto branco; as opções do grupo ficam em fundo normal. Vale onde o navegador deixa
+   estilizar o popup do <select> (Chrome, Edge e Firefox no Windows e Linux); no Mac o menu é do sistema
+   e ignora essas cores (o título continua em negrito). */
+optgroup.optgroup-pai { background: var(--brand); color: #fff; font-weight: 700; font-style: normal; }
+optgroup.optgroup-pai > option { background: var(--surface); color: var(--text); font-weight: 400; }
+
 /* ── Indicador de drop ao arrastar linhas da lista ───────────────────────── */
 .drag-over-row > td,
 .drag-over-row > th {
