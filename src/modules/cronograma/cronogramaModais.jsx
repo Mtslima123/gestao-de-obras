@@ -880,6 +880,19 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
     return next;
   });
 
+  // Delete com o dropdown de predecessora em foco apaga o vínculo daquela linha (como no Project): na
+  // linha de vínculo NOVO volta a "Nenhuma" (e o tipo/folga ao padrão); no "vínculo atual" marca para
+  // remover (continua desfazível pelo botão "Desfazer", e só vale ao clicar em Aplicar).
+  const aoApertarDelete = (ev, acao) => {
+    if (ev.key !== 'Delete') return;
+    ev.preventDefault();
+    acao();
+  };
+  const limparVinculoNovo = (succId) => {
+    setLinks(l => ({ ...l, [succId]: '' }));
+    setLinkMeta(m => { const n = { ...m }; delete n[succId]; return n; });
+  };
+
   // <option> de uma predecessora, com início/término junto do nome — <option> nativo só aceita texto
   // puro (sem segunda linha/coluna própria), então entra tudo na mesma label. predSelected só guarda
   // folha (o checkbox de grupo marca os descendentes, nunca o próprio grupo), então p.inicio/dur bastam,
@@ -1187,7 +1200,9 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                       </td>
                       <td style={{ padding: '6px 12px' }}>
                         <select className="input" value={links[s.id] || ''}
+                          title="Delete limpa a predecessora desta linha"
                           onChange={ev => setLinks(l => ({ ...l, [s.id]: ev.target.value }))}
+                          onKeyDown={ev => aoApertarDelete(ev, () => limparVinculoNovo(s.id))}
                           style={{ width: '100%' }}>
                           <option value="">Nenhuma</option>
                           {/* Nunca lista a própria tarefa — evita vincular uma tarefa a ela mesma
@@ -1224,7 +1239,9 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
                           <td style={{ padding: '4px 12px 4px 28px', fontSize: 11.5, color: 'var(--text-muted)' }}>↳ vínculo atual</td>
                           <td style={{ padding: '4px 12px' }}>
                             <select className="input" value={ed.predId || d.id} disabled={removido}
+                              title="Delete remove este vínculo"
                               onChange={ev => editarVinculo(s.id, d, { predId: ev.target.value })}
+                              onKeyDown={ev => aoApertarDelete(ev, () => editarVinculo(s.id, d, { remover: true }))}
                               style={{ width: '100%', textDecoration: removido ? 'line-through' : undefined }}>
                               {opcoesDePredecessora(opcoes)}
                             </select>
