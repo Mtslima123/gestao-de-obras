@@ -214,6 +214,49 @@ export function computeValorVinculadoMap(etapas, vinculos, orcamentoItensMap) {
 }
 
 /**
+ * Trava de valor das folhas (valorVinculadoFixo), aplicada a cada gravação do cronograma.
+ *
+ * - Folha que chega a 100% congela o valor vinculado de agora: deixa de entrar no rateio
+ *   proporcional do grupo (ver distributeToLeaves).
+ * - Folha reaberta (< 100%) destrava e volta ao rateio.
+ * - SÓ congela com valor vinculado real (> 0). Antes gravava 0 quando não havia vínculo (ou
+ *   quando a lista de vínculos falhou ao carregar) e esse 0 virava permanente: ao vincular o
+ *   orçamento a um grupo depois, as folhas concluídas recebiam R$ 0 e todo o valor do grupo
+ *   ia para as abertas; o Custo Orçado, a Curva S e o avanço ponderado ignoravam o executado
+ *   (BUG-005, 253 tarefas em 4 obras já gravadas assim).
+ * - Folha concluída já congelada em 0 por esse bug é tratada como aberta no cálculo e, assim
+ *   que existe valor vinculado para ela, congela nele (cura sem UPDATE no banco).
+ *
+ * Devolve a MESMA lista quando nada muda. Grupos nunca são alterados.
+ */
+export function aplicarTravaDeValor(etapas, vinculos, orcamentoItensMap) {
+  const concluida = (e) => !e.isGroup && (e.avanco ?? 0) >= 100;
+  const semValorCongelado = (e) => e.valorVinculadoFixo == null || e.valorVinculadoFixo === 0;
+  const temVinculos = !!vinculos?.length;
+
+  const precisaTravar = temVinculos && etapas.some(e => concluida(e) && semValorCongelado(e));
+  const precisaDestravar = etapas.some(e => !e.isGroup && (e.avanco ?? 0) < 100 && e.valorVinculadoFixo != null);
+  if (!precisaTravar && !precisaDestravar) return etapas;
+
+  let valorMap = null;
+  if (precisaTravar) {
+    // Os zeros antigos entram no cálculo como abertas, para receberem a parte que lhes cabe.
+    const base = etapas.map(e => (concluida(e) && e.valorVinculadoFixo === 0) ? { ...e, valorVinculadoFixo: null } : e);
+    valorMap = computeValorVinculadoMap(base, vinculos, orcamentoItensMap);
+  }
+
+  return etapas.map(e => {
+    if (e.isGroup) return e;
+    if ((e.avanco ?? 0) >= 100) {
+      if (!semValorCongelado(e)) return e; // já congelada com valor: não muda mais
+      const v = valorMap?.[e.id] || 0;
+      return v > 0 ? { ...e, valorVinculadoFixo: v } : e;
+    }
+    return e.valorVinculadoFixo != null ? { ...e, valorVinculadoFixo: null } : e;
+  });
+}
+
+/**
  * "Custo Orçado" — novo peso do avanço físico: Valor Vinculado + Custo Real de cada
  * folha, somados sempre (não é OR, ao contrário do peso antigo). Bubble-up para
  * grupos igual computeValorVinculadoMap, então custoOrcadoMap[id] funciona tanto

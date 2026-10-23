@@ -14,7 +14,7 @@ import { SCurveChart } from './SCurveChart';
 import { SCurveChart2 } from './SCurveChart2';
 import { Modal, useToast } from '../../components/Modals';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';
-import { computeValorVinculadoMap, computeCustoOrcadoMap } from './ganttUtils';
+import { computeValorVinculadoMap, computeCustoOrcadoMap, aplicarTravaDeValor } from './ganttUtils';
 import { podeVerAba, moduloSomenteLeitura, abaSomenteLeitura, isAdmin } from '../../utils/permissions';
 import { offsetToDate, offsetToISO, isoToBR, setWorkCal, taskEnd, taskEndDisplay, dateToOffset, dateToExcelSerial } from './cronogramaDateUtils';
 import {
@@ -3305,19 +3305,9 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     // Roda pra QUALQUER commit (Lista, Gantt, colar, etc.) — é o único caminho de gravação —
     // então também "pega" tarefas que já estavam 100% concluídas antes desta trava existir,
     // na primeira vez que qualquer edição tocar o cronograma delas.
-    const precisaTravar   = novas.some(e => !e.isGroup && (e.avanco ?? 0) >= 100 && e.valorVinculadoFixo == null);
-    const precisaDestravar = novas.some(e => !e.isGroup && (e.avanco ?? 0) < 100 && e.valorVinculadoFixo != null);
-    let ajustadas = novas;
-    if (precisaTravar || precisaDestravar) {
-      const valorMap = precisaTravar ? computeValorVinculadoMap(novas, vinculos, orcamentoItensMap) : null;
-      ajustadas = novas.map(e => {
-        if (e.isGroup) return e;
-        const done = (e.avanco ?? 0) >= 100;
-        if (done && e.valorVinculadoFixo == null) return { ...e, valorVinculadoFixo: valorMap[e.id] || 0 };
-        if (!done && e.valorVinculadoFixo != null) return { ...e, valorVinculadoFixo: null };
-        return e;
-      });
-    }
+    // Só congela com valor vinculado real (nunca 0 por falta de vínculo) e cura os zeros
+    // antigos: ver aplicarTravaDeValor em ganttUtils.js (BUG-005).
+    let ajustadas = aplicarTravaDeValor(novas, vinculos, orcamentoItensMap);
     // Tarefa que perdeu a última predecessora volta ao início do projeto (ver voltarAoInicioDoProjeto).
     // `etapas` ainda é o estado anterior a este commit.
     ajustadas = voltarAoInicioDoProjeto(etapas, ajustadas);
