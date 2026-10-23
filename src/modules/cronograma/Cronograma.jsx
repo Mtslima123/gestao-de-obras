@@ -7,6 +7,7 @@ import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
 import { isNetworkError, connectivity, useRetryOnReconnect } from '../../utils/connectivity';
 import { OfflineFallback } from '../../components/OfflineFallback';
+import { ehObraSemCronograma, MSG_ERRO_CARGA_SERVIDOR } from './erroCargaPure';
 import { offlineCache } from '../../services/offlineCache';
 import { reduzirReprogramacoes } from '../../utils/offlinePure';
 import { SCurveChart } from './SCurveChart';
@@ -2536,7 +2537,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // para que término/barras/duração usem dias úteis. Roda no render (síncrono).
   React.useMemo(() => { setWorkCal(feriadosCfg); return feriadosCfg; }, [feriadosCfg]);
   const [loadedObraId, setLoadedObraId] = React.useState(null);
-  const [cronogramaErro, setCronogramaErro] = React.useState(null); // só erro de REDE
+  const [cronogramaErro, setCronogramaErro] = React.useState(null); // falha de carga: rede, ou { servidor: true } (erro que não é de rede)
   // salvoEm do pacote guardado no aparelho em uso (sem rede, só no modo foco da Medição),
   // ou null quando os dados na tela vieram do banco. Ver restaurarDoAparelho em carregar().
   const [dadosDoAparelho, setDadosDoAparelho] = React.useState(null);
@@ -2816,6 +2817,17 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
         definirErroRede(dbErro);
         setLoadedObraId(obraSel); // essencial: senão isLoading nunca vira false e a tela
                                   // trava em "Carregando…" pra sempre, o fallback nunca aparece
+        return;
+      }
+      // Erro que não é de rede (5xx, JWT expirado, statement timeout) NÃO é "obra sem
+      // cronograma": só o PGRST116 (zero linhas) é. Antes caía no ramo de demonstração abaixo,
+      // com a cópia do ObraDetail ou o localStorage, edição liberada e o próximo save por cima
+      // das linhas de base e reprogramações do banco (BUG-003). Agora vira tela de erro com
+      // "Tentar novamente", sem edição e sem espelhar nada no cache.
+      if (dbErro && !ehObraSemCronograma(dbErro)) {
+        logger.error('cronograma: falha ao carregar (nao e rede)', { module: 'cronograma', action: 'carregar', obraSel, code: dbErro.code, status: dbErro.status, err: dbErro });
+        definirErroRede({ servidor: true, detalhe: dbErro });
+        setLoadedObraId(obraSel);
         return;
       }
       // Antes do reportSuccess: ele pode avisar a reconexão na hora, e o aviso olha estes
@@ -3587,12 +3599,19 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       {isLoading
         ? <div className="text-muted" style={{ padding: 64, textAlign: 'center' }}>Carregando…</div>
         : cronogramaErro
-        ? <OfflineFallback
-            onRetry={() => recarregarCronograma()}
-            mensagem={hideChrome
-              ? 'Os dados desta obra não estão guardados neste aparelho. Com internet, abra esta obra pela Medição para poder consultar sem conexão.'
-              : undefined}
-          />
+        ? (cronogramaErro.servidor
+          ? <OfflineFallback
+              titulo="Não foi possível carregar o cronograma"
+              icone="alert-triangle"
+              mensagem={MSG_ERRO_CARGA_SERVIDOR}
+              onRetry={() => recarregarCronograma()}
+            />
+          : <OfflineFallback
+              onRetry={() => recarregarCronograma()}
+              mensagem={hideChrome
+                ? 'Os dados desta obra não estão guardados neste aparelho. Com internet, abra esta obra pela Medição para poder consultar sem conexão.'
+                : undefined}
+            />)
         : !obraSel || (etapas.length === 0 && !iniciando)
           ? (
             <div className="card" style={{ marginTop: 'var(--gap)', padding: '72px 24px', textAlign: 'center' }}>
