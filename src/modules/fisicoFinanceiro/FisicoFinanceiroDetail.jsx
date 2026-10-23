@@ -3,7 +3,7 @@ import { Icon } from '../../components/Icons';
 import { Modal, useToast } from '../../components/Modals';
 import { fisicoFinanceiroService } from './fisicoFinanceiro.service';
 import {
-  parseFechamentoSheet, getLinhaTotal, getDisciplinas, computeKPIs,
+  parseFechamentoSheet, lerPlanilhaFechamento, getLinhaTotal, getDisciplinas, computeKPIs,
 } from './fisicoFinanceiroPure';
 import { formatBRL, formatNum, mesCurto } from '../../utils/formatters';
 import { moduloSomenteLeitura } from '../../utils/permissions';
@@ -98,22 +98,10 @@ const ImportarFechamentoModal = ({ obraId, obraNome, mesInicial, mesesExistentes
     try {
       const XLSX = await import('xlsx'); // carregado sob demanda (fora do bundle inicial)
       const buf = await file.arrayBuffer();
-      const wb  = XLSX.read(buf, { type: 'array' });
-      const ws  = wb.Sheets[wb.SheetNames[0]];
-      // O modo de leitura certo depende do TIPO de arquivo, testado contra os dois
-      // formatos reais que essa obra já mandou:
-      //  - .xlsx de verdade (bookType 'biff8'/'xlsx'/...): célula numérica tem tipo
-      //    próprio no arquivo — raw:true dá o number de verdade (%, sempre fração do
-      //    Excel: 0.228; o resto, valor absoluto). O texto formatado (`w`) que o
-      //    SheetJS gera pra essas células usa separador EN-US (vírgula de milhar),
-      //    não pt-BR, e dava número truncado se lido como texto.
-      //  - .htm de "Salvar como > Página da Web" (bookType 'html'): o parser de HTML do
-      //    SheetJS tenta ADIVINHAR se cada célula "parece" número, e adivinha errado
-      //    pra algumas (confirmado com arquivo real: uma célula com um só ponto de
-      //    milhar, tipo "50.043,42", virava o number 50.04342 — a vírgula decimal some
-      //    no meio do palpite). raw:false evita esse palpite: toda célula sai como o
-      //    texto pt-BR mesmo, que o parsePtBR (fisicoFinanceiroPure.js) já lê certo.
-      const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: wb.bookType !== 'html', defval: '' });
+      // O modo de leitura certo depende do TIPO de arquivo (xlsx de verdade, .htm de "Página
+      // da Web" e CSV/TXT): ver lerPlanilhaFechamento em fisicoFinanceiroPure.js. CSV pt-BR
+      // lido pelo modo do xlsx gravava valores errados sem erro (BUG-015).
+      const { aoa, bookType } = lerPlanilhaFechamento(XLSX, buf, { nome: file.name, tipo: file.type });
       const resultado = parseFechamentoSheet(aoa);
       // Excel "Salvar como > Página da Web (completa)" gera um arquivo-índice pequeno
       // (frameset) + uma pasta "..._arquivos" ao lado com os dados de verdade — quem
@@ -121,7 +109,7 @@ const ImportarFechamentoModal = ({ obraId, obraNome, mesInicial, mesesExistentes
       // sem tabela nenhuma. bookType 'html' + arquivo pequeno + cabeçalho não reconhecido
       // é o sinal disso — dá pra confirmar exatamente esse caso, então orienta direto em
       // vez de deixar só o erro genérico de cabeçalho.
-      if (resultado.erros.length && wb.bookType === 'html' && file.size < 100 * 1024) {
+      if (resultado.erros.length && bookType === 'html' && file.size < 100 * 1024) {
         resultado.erros.push('Se este arquivo veio de "Salvar como > Página da Web" do Excel, ele pode ser só o índice — os dados ficam num arquivo separado (algo como "sheet001.htm") dentro de uma pasta "..._arquivos" com o mesmo nome, ao lado deste arquivo. Selecione esse arquivo em vez deste.');
       }
       setItens(resultado.itens);

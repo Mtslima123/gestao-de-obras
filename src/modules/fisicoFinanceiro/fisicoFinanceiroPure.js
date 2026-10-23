@@ -143,6 +143,43 @@ export function parseCampo(raw, isPercentual) {
   return parsePtBR(raw);
 }
 
+// CSV/TXT: texto puro. O SheetJS lê esse tipo "adivinhando" número pelas regras en-US: a
+// vírgula decimal do pt-BR vira separador de milhar ("57508397,12" -> 5750839712,
+// "1.234,56" -> 1.23456), "30,00%" vira o número 30 (e o parseCampo ainda multiplica por 100
+// -> 3000) e o código "001" vira 1. Foi o que gravou valores errados sem nenhum erro (BUG-015).
+export function ehArquivoCsv(nome, tipo) {
+  return /\.(csv|txt)$/i.test(nome || '') || /^text\/(csv|plain)$/i.test(tipo || '');
+}
+
+// Lê a 1ª aba da planilha como AOA, escolhendo o modo certo por TIPO de arquivo:
+//  - .xlsx/.xls de verdade: célula numérica tem tipo próprio, então raw:true dá o number.
+//  - .htm ("Salvar como > Página da Web") e CSV/TXT: tudo como TEXTO já formatado em pt-BR,
+//    que o parsePtBR lê certo. No CSV há duas proteções que se cobrem: `raw: true` já no
+//    XLSX.read (nem tenta adivinhar número) e `raw: false` no sheet_to_json (devolve o texto
+//    original da célula). Testado com CSV ANSI (cp1252) e UTF-8 com BOM: acento e código com
+//    zero à esquerda saem intactos.
+// `XLSX` é injetado para este módulo continuar sem importar a biblioteca (carregada sob
+// demanda pela tela). O bookType de CSV vem undefined, por isso a detecção é pelo nome.
+export function lerPlanilhaFechamento(XLSX, buf, { nome = '', tipo = '' } = {}) {
+  const ehCsv = ehArquivoCsv(nome, tipo);
+  const wb = XLSX.read(buf, ehCsv ? { type: 'array', raw: true } : { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const textoPuro = ehCsv || wb.bookType === 'html';
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: !textoPuro, defval: '' });
+  return { aoa, bookType: wb.bookType, ehCsv };
+}
+
+// Faixa aceita para os percentuais (previsto, executado físico, gasto), em pontos percentuais.
+// Gasto acima de 100% é possível (estouro), mas passar de 200% ou ficar negativo na linha de
+// total da obra é sinal de planilha lida com o separador errado (2280% em vez de 22,80%).
+export const FAIXA_PERCENTUAL = { min: 0, max: 200 };
+const ROTULO_PERCENTUAL = {
+  previstoLinhaBase: 'Previsto (Linha de Base) %',
+  executadoFisico: 'Executado Físico %',
+  gastoPct: 'Gasto %',
+};
+const foraDaFaixa = (v) => !(v >= FAIXA_PERCENTUAL.min && v <= FAIXA_PERCENTUAL.max);
+
 // Lê o AOA (XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }) — raw:
 // TRUE, célula numérica chega como number de verdade, não texto formatado; ver
 // parseCampo) e devolve os itens (uma linha por disciplina + a linha de total da
@@ -197,6 +234,25 @@ export function parseFechamentoSheet(aoa) {
   const erros = [];
   if (!itens.length) erros.push('Nenhuma linha de dado reconhecida abaixo do cabeçalho.');
   else if (!getLinhaTotal(itens)) avisos.push('Linha de total da obra (código sem ponto, ex. "001") não encontrada — os KPIs do topo ficarão vazios.');
+
+  // Trava de sanidade (vale para qualquer formato): percentual absurdo na linha de total
+  // bloqueia a importação em vez de gravar valores errados sem aviso (BUG-015). Nas
+  // disciplinas só avisa, porque um estouro isolado pode ser real.
+  const total = getLinhaTotal(itens);
+  if (total) {
+    for (const chave of CAMPOS_PERCENTUAL) {
+      if (foraDaFaixa(total[chave])) {
+        erros.push(`Linha de total (${total.codigo}): "${ROTULO_PERCENTUAL[chave]}" leu ${total[chave]}%, fora do esperado (${FAIXA_PERCENTUAL.min} a ${FAIXA_PERCENTUAL.max}%). A planilha provavelmente foi lida com o separador decimal errado. Salve como .xlsx e importe de novo. Nada foi importado.`);
+      }
+    }
+  }
+  for (const it of itens) {
+    if (it === total) continue;
+    const fora = [...CAMPOS_PERCENTUAL].filter(chave => foraDaFaixa(it[chave]));
+    if (fora.length) {
+      avisos.push(`Disciplina ${it.codigo}: ${fora.map(c => `"${ROTULO_PERCENTUAL[c]}" = ${it[c]}%`).join(', ')} fora de ${FAIXA_PERCENTUAL.min} a ${FAIXA_PERCENTUAL.max}%. Confira a planilha.`);
+    }
+  }
 
   return { itens, erros, avisos };
 }
