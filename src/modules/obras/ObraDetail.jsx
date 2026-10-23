@@ -1952,7 +1952,7 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
   const iniciarAjuste = () => { setPos({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 }); setAdjustMode(true); };
   const cancelarAjuste = () => { setPos({ x: obra.capaPos?.x ?? 50, y: obra.capaPos?.y ?? 50 }); setAdjustMode(false); };
   const salvarAjuste = () => {
-    onObraUpdate({ ...obra, capaPos: pos });
+    onObraUpdate({ id: obra.id, capaPos: pos }); // só o campo alterado (BUG-016)
     setAdjustMode(false);
     toast('Posição da miniatura salva', { tone: 'success', icon: 'check' });
   };
@@ -2036,7 +2036,7 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
     setHeroSrc(signed?.signedUrl || null);
     if (signed?.signedUrl) capaCache.set(obra.id, signed.signedUrl);
     // Guarda o caminho (marcador de "tem capa"); a exibição sempre re-assina.
-    onObraUpdate({ ...obra, imageUrl: path });
+    onObraUpdate({ id: obra.id, imageUrl: path });
     toast('Imagem salva com sucesso', { tone: 'success', icon: 'check' });
     setUploading(false);
   };
@@ -2047,7 +2047,7 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
     await supabase.storage.from('obras-images').remove([path]);
     setHeroSrc(null);
     capaCache.clear(obra.id);
-    onObraUpdate({ ...obra, imageUrl: null });
+    onObraUpdate({ id: obra.id, imageUrl: null });
     toast('Imagem da capa removida', { tone: 'neutral' });
     setUploading(false);
     setConfirmRemover(false);

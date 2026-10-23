@@ -6,6 +6,7 @@ import { orcamentosService } from '../modules/financeiro/orcamentos.service';
 import { notificacoesService } from '../services/notificacoes.service';
 import { logger } from '../services/logger';
 import { friendlyError } from '../utils/friendlyError';
+import { patchDeEdicaoDaObra } from '../modules/obras/obraPatchPure';
 
 // Modals, toasts, dropdowns — shared interactive components
 
@@ -395,17 +396,10 @@ const ObraFormModal = ({ obra = null, onClose, onSave }) => {
     if (!form.nome.trim() || saving) return;
     let result;
     if (isEdit) {
-      result = {
-        ...obra,
-        nome:        form.nome,
-        sigla:       form.sigla.trim() || obra.sigla || obra.id,
-        status:      form.status,
-        endereco:    form.endereco,
-        area:        form.area === '' ? null : Number(form.area),
-        previsto:    form.dataPrevista || obra.previsto,
-        dataFimObra: form.dataFimObra || null,
-        // id não é sobrescrito — permanece imutável
-      };
+      // Só o que a pessoa mudou em relação ao que o modal mostrou ao abrir, mais o id (chave,
+      // imutável). Mandar {...obra, ...} regravava a linha inteira a partir de uma obra que
+      // podia estar velha e desfazia mudanças de outras telas (BUG-016).
+      result = patchDeEdicaoDaObra(obra, form);
     } else {
       result = {
         sigla: form.sigla.trim() || '',

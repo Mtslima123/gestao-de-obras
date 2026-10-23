@@ -10,6 +10,7 @@ import { authService } from './modules/auth/auth.service';
 import { supabase } from './services/supabase';
 import { moduloLiberado, obraLiberada, obrasPermitidas } from './utils/permissions';
 import { obrasService, obraDeleteErrorMessage } from './modules/obras/obras.service';
+import { mesclarObra } from './modules/obras/obraPatchPure';
 import { logger, setContext, clearContext } from './services/logger';
 import { friendlyError } from './utils/friendlyError';
 import { isNetworkError, connectivity, useRetryOnReconnect } from './utils/connectivity';
@@ -349,17 +350,27 @@ const AppInner = () => {
     toast('Obra criada com sucesso', { tone: 'success', icon: 'check' });
     return true;
   };
-  const handleObraUpdate = async (updated) => {
-    const { error } = await obrasService.atualizar(updated.id, updated);
+  // `patch` = { id, ...só os campos alterados }. Gravar a obra inteira a partir do estado da
+  // tela desfazia o que outra tela/pessoa tinha mudado (BUG-016); aqui só vai o que mudou e a
+  // linha devolvida pelo banco (a mais atual) vira a obra no estado.
+  const handleObraUpdate = async (patch) => {
+    const { id, ...campos } = patch;
+    if (!Object.keys(campos).length) return true; // nada mudou: não grava nem avisa
+    const { data, error } = await obrasService.atualizar(id, campos);
     if (error) {
       logger.error('erro ao atualizar obra', { module: 'obras', action: 'atualizar', err: error });
       toast('Erro ao atualizar obra. ' + friendlyError(error), { tone: 'danger' });
       return false;
     }
-    const novas = obras.map(o => o.id === updated.id ? updated : o);
+    const atual = obras.find(o => o.id === id) || (selectedObra?.id === id ? selectedObra : null);
+    const updated = mesclarObra(atual, campos, data);
+    const novas = obras.map(o => o.id === id ? updated : o);
     AppData.obras = novas;
     setObras(novas);
-    if (selectedObra?.id === updated.id) setSelectedObra(updated);
+    if (selectedObra?.id === id) {
+      setSelectedObra(updated);
+      try { sessionStorage.setItem('nav_obra', JSON.stringify(updated)); } catch { /* ignore */ }
+    }
     toast('Obra atualizada com sucesso', { tone: 'success', icon: 'check' });
     return true;
   };
@@ -582,6 +593,19 @@ const AppInner = () => {
       } catch { setView('obras'); }
     }
   }, []);
+
+  // O snapshot de sessionStorage restaurado acima pode estar velho (nome editado, capa enviada,
+  // mês inicial da medição mudado depois que ele foi gravado). Assim que a lista de obras
+  // chega do banco, troca pelo registro fresco, para a tela e a edição partirem do que existe
+  // hoje (BUG-016). Só age quando é outro objeto: após handleObraUpdate/abrir pela lista o
+  // selectedObra já é o mesmo da lista e não faz nada.
+  React.useEffect(() => {
+    if (!obrasLoaded || !selectedObra) return;
+    const fresca = obras.find(o => o.id === selectedObra.id);
+    if (!fresca || fresca === selectedObra) return;
+    setSelectedObra(fresca);
+    try { sessionStorage.setItem('nav_obra', JSON.stringify(fresca)); } catch { /* ignore */ }
+  }, [obrasLoaded, obras]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Restaura fisico-financeiro-detail após reload (mesmo mecanismo de obra-detail acima,
   // chave própria — nav_obra_ff não colide com o nav_obra de Obras).

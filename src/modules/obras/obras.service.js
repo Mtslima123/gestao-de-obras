@@ -60,13 +60,19 @@ export const obrasService = {
     return res;
   },
 
+  // `dados` são SÓ os campos alterados (ver obraPatchPure.camposAlterados), nunca a linha
+  // inteira: gravar a linha toda a partir de estado velho desfazia mudanças de outras telas
+  // (BUG-016). Devolve a linha atual (`data`), que quem chama usa para atualizar a tela.
+  // `.single()` também faz um UPDATE que não alcançou nenhuma linha (RLS) virar erro, em vez
+  // de sucesso falso.
   atualizar: async (id, dados) => {
-    const res = await supabase.from('obras').update(dados).eq('id', id);
+    const res = await supabase.from('obras').update(dados).eq('id', id).select().single();
+    const nome = res.data?.nome || dados.nome;
     if (!res.error) registrar({
       modulo: 'obras', acao: 'editou',
       entidadeTipo: 'obra', entidadeId: String(id),
-      obraId: id, obraNome: dados.nome,
-      descricao: `Atualizou dados da obra "${dados.nome || id}"`,
+      obraId: id, obraNome: nome,
+      descricao: `Atualizou dados da obra "${nome || id}"`,
       criticidade: 'media',
     });
     return res;
