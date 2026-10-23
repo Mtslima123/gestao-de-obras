@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/check-sw-precache.mjs",
+    "build": "vitest run && vite build && node scripts/check-sw-precache.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
