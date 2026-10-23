@@ -2467,13 +2467,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return () => document.removeEventListener('mousedown', onDown);
   }, []);
 
-  // Atalho Ctrl+L — abre o "Localizar" (estilo Excel/Project). preventDefault: o navegador
-  // usaria Ctrl+L para a barra de endereços.
+  // Atalho Ctrl+L — abre o "Localizar" (estilo Excel/Project) e, apertando de novo, fecha.
+  // preventDefault: o navegador usaria Ctrl+L para a barra de endereços. e.repeat: segurar
+  // as teclas não pode ficar abrindo e fechando.
   React.useEffect(() => {
     const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L')) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'l' || e.key === 'L')) {
         e.preventDefault();
-        setShowLocalizar(true);
+        if (e.repeat) return;
+        setShowLocalizar(v => !v);
       }
     };
     document.addEventListener('keydown', handler);
