@@ -275,6 +275,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     setPasteSubmenuFlip(el.getBoundingClientRect().right > window.innerWidth - 8);
   }, [pasteFlyoutOpen]);
   const listaScrollRef = React.useRef(null); // container rolável da lista (foco p/ navegação por setas)
+  // Ctrl+Enter nos editores de Valor (gravam no onBlur): avisa o onBlur que o valor já foi aplicado ao intervalo
+  // inteiro por preencherSelecao, para ele só fechar o campo e não sobrescrever o preenchimento.
+  const ctrlEnterRef = React.useRef(false);
+  const celulaAtivaRef = React.useRef(null); // { ativa, outra }: pontas do intervalo já trocadas por celulaDeEdicao
 
   // Altura das linhas da lista (ajustável na UI, estilo MS Project), persistida no navegador.
   // Mínimo 20 e não menos: o maior piso que sobra numa linha é o .lista-toggle de 18px (seta
@@ -1338,9 +1342,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
   // Ao sair da edição de uma célula (EditableCell): refoca a grade e, se confirmou com
   // Enter, desce a célula ativa uma linha (estilo Excel).
-  const exitEdit = (via) => {
+  const exitEdit = (via, valor) => {
     listaScrollRef.current?.focus?.({ preventScroll: true });
     if (via === 'enter') advanceCellDown(selectedCell);
+    // Ctrl+Enter (estilo Excel): preenche o intervalo com o valor digitado e fica onde está, sem descer.
+    // selectedCell é a célula que estava em edição (ver celulaDeEdicao).
+    else if (via === 'ctrl-enter' && selectedCell) preencherSelecao(selectedCell.colId, valor);
   };
   // ── Copiar/inserir LINHA (quando uma linha está selecionada, sem célula) ─────
   const copyRow = (idOverride) => {
@@ -1849,7 +1856,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // `seedChar`, quando presente, substitui o valor atual pelo caractere digitado —
   // estilo Excel/Project: F2 chama sem seedChar (abre só pra navegar/editar o que já
   // tinha); digitar direto chama com o caractere que acabou de ser pressionado.
-  const abrirEdicaoCelula = (cell, seedChar) => {
+  const abrirEdicaoCelula = (cell, seedChar, tentativas = 12) => {
     if (!cell || readOnly) return;
     const { taskId, colId } = cell;
     const task = filtrada.find(x => x.id === taskId);
@@ -1864,6 +1871,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       // usam EditableCell: dispara o mesmo caminho do duplo-clique.
       const sc = listaScrollRef.current;
       const td = sc?.querySelector(`td[data-ck="${taskId}|${colId}"]`);
+      if (!td && tentativas > 0) {
+        // Linha fora da janela virtual (ex.: âncora de um arraste longo): ainda não tem <td>. A rolagem
+        // (evento de scroll + render do virtualizador) leva alguns quadros para montar a linha: tenta de novo
+        // a cada quadro, por até ~12, levando o caractere digitado junto.
+        requestAnimationFrame(() => abrirEdicaoCelula(cell, seedChar, tentativas - 1));
+        return;
+      }
       // Contém, não igual: o title real é "<valor>\nDuplo-clique para editar" quando a célula
       // tem conteúdo (cronogramaShared.jsx) — um seletor de igualdade exata só achava a célula
       // VAZIA, então digitar direto/F2 parou de abrir a edição em qualquer célula preenchida.
@@ -1896,6 +1910,27 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       // InvalidStateError e o main.jsx registrava cada ocorrência como erro global.
       try { input.setSelectionRange?.(seedChar.length, seedChar.length); } catch { /* sem seleção nesse tipo de input */ }
     });
+  };
+  // Digitar ou F2 com um intervalo selecionado edita a célula ATIVA — onde a seleção começou (âncora), como no
+  // Excel — e não a ponta do arraste (selectedCell). Trocar as pontas mantém o MESMO retângulo (tudo que lê o
+  // intervalo usa mínimo/máximo) e faz o resto (Enter, Ctrl+Enter, editores de Valor) tratar a célula em
+  // edição como a ativa, sem estado novo. Células soltas (Ctrl+clique) não têm âncora própria: ficam como estão.
+  // O Ctrl+Enter mantém o intervalo, então a próxima digitação cai de novo aqui com as pontas já trocadas:
+  // celulaAtivaRef lembra qual ponta é a ativa (e qual é a outra) para não trocar de novo e abrir na última.
+  const celulaDeEdicao = () => {
+    const ancora = selAnchor;
+    const mesma = (a, b) => a.taskId === b.taskId && a.colId === b.colId;
+    if (!ancora || multiSelCells.length > 1 || mesma(ancora, selectedCell)) return selectedCell;
+    const troca = celulaAtivaRef.current;
+    if (troca && mesma(troca.ativa, selectedCell) && mesma(troca.outra, ancora)) return selectedCell;
+    celulaAtivaRef.current = { ativa: ancora, outra: selectedCell };
+    setSelAnchor(selectedCell);
+    setSelectedCell(ancora);
+    // O campo abre na âncora: se ela saiu da tela (arraste longo, rolagem), traz para a vista.
+    const fora = origemForaDaVista(ancora);
+    scrollRowIntoView(ancora.taskId, fora.linha);
+    scrollColIntoView(ancora.taskId, ancora.colId, fora.coluna);
+    return ancora;
   };
 
   // Teclado da lista: ligado ao container focável (onKeyDown), não ao document,
@@ -2106,7 +2141,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       // F2 (estilo Excel): abre a célula selecionada para digitação.
       // Só F2 puro — com Ctrl/Alt/Meta não abre (Ctrl+F2 é o atalho de vincular em cadeia).
       if (ev.key === 'F2' && selectedCell && !readOnly && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-        abrirEdicaoCelula(selectedCell);
+        abrirEdicaoCelula(celulaDeEdicao());
       } else if (ev.key === 'Enter' && selectedCell) {
         // Enter (estilo Excel): desce a célula ativa uma linha.
         moveSelCell('ArrowDown', false);
@@ -2125,10 +2160,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         // entrega o keypress ao campo já focado, que trata o dígito sozinho e pula
         // dia > mês > ano. (Confirmado em Chromium com teclado real: 01022027 vira 01/02/2027;
         // com o preventDefault + semear de antes virava 10/02/2027.)
-        flushSync(() => abrirEdicaoCelula(selectedCell));
+        flushSync(() => abrirEdicaoCelula(celulaDeEdicao()));
       } else {
         ev.preventDefault();
-        abrirEdicaoCelula(selectedCell, ev.key);
+        abrirEdicaoCelula(celulaDeEdicao(), ev.key);
       }
     }
   };
@@ -2801,6 +2836,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (succEdits.length) { novas = applySuccEdits(novas, succEdits, etapas, recusados); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
     avisarCiclos(recusados);
+  };
+  // Ctrl+Enter durante a edição (estilo Excel): grava o valor digitado em todas as células do intervalo
+  // selecionado — e nas células soltas do Ctrl+clique — que sejam da MESMA coluna da célula editada, num
+  // commit só (um Ctrl+Z desfaz tudo). Só a mesma coluna: num intervalo de várias colunas, "7" não pode virar
+  // nome de tarefa nem data. Sem intervalo, grava só a célula editada (e a seleção não desce).
+  const preencherSelecao = (colId, rawValue) => {
+    const spec = cellSpec(colId);
+    if (readOnly || !spec || !selectedCell) return;
+    const vistas = new Set();
+    const alvos = [...(multiSelCells.length > 1 ? multiSelCells : rangeCellList()), selectedCell]
+      .filter(({ taskId, colId: c }) => {
+        const chave = `${taskId}|${c}`;
+        if (c !== colId || vistas.has(chave)) return false;
+        vistas.add(chave);
+        return true;
+      });
+    applyBlockEdits(alvos.map(({ taskId }) => ({ taskId, colId, field: spec.field, rawValue })));
   };
 
   // Arraste da alcinha de preenchimento (estilo Excel): a partir da célula (ou intervalo
@@ -4297,7 +4349,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <input autoFocus type="text" defaultValue={fmtBRL(e.custo || 0)}
                         onFocus={ev => ev.target.select()}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
-                        onBlur={ev => { handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null); }}
+                        onBlur={ev => {
+                          if (ctrlEnterRef.current) { ctrlEnterRef.current = false; setEditingCusto(null); return; } // já aplicado ao intervalo
+                          handleCellSave(e.id, 'custo', ev.target.value); setEditingCusto(null);
+                        }}
                         onKeyDown={ev => {
                           // Ctrl+Z cancela a edição em vez de ser engolido (ver comentário na coluna
                           // Predecessora) — senão o atalho global de desfazer fica mudo aqui.
@@ -4306,7 +4361,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             return;
                           }
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
+                          if (ev.key === 'Enter') {
+                            ev.preventDefault();
+                            const preenche = ev.ctrlKey || ev.metaKey; // Ctrl+Enter: preenche o intervalo, não desce
+                            if (preenche) { ctrlEnterRef.current = true; preencherSelecao('custo', ev.currentTarget.value); }
+                            ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true });
+                            ctrlEnterRef.current = false; // o blur acima já consumiu a marca; garante que não sobra para o próximo campo
+                            if (!preenche) advanceCellDown(selectedCell);
+                          }
                           if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }}
                       />
@@ -4387,7 +4449,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                       <input autoFocus type="text" defaultValue={fmtBRL(e.custoRealizado || 0)}
                         onFocus={ev => ev.target.select()}
                         style={{ width: 100, textAlign: 'right', border: 'none', outline: '2px solid var(--brand)', borderRadius: 4, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--font-mono)', background: 'var(--surface)', boxSizing: 'border-box' }}
-                        onBlur={ev => { handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null); }}
+                        onBlur={ev => {
+                          if (ctrlEnterRef.current) { ctrlEnterRef.current = false; setEditingCusto(null); return; } // já aplicado ao intervalo
+                          handleCellSave(e.id, 'custoRealizado', ev.target.value); setEditingCusto(null);
+                        }}
                         onKeyDown={ev => {
                           // Ctrl+Z cancela a edição em vez de ser engolido (ver comentário na coluna
                           // Predecessora) — senão o atalho global de desfazer fica mudo aqui.
@@ -4396,7 +4461,14 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                             return;
                           }
                           ev.stopPropagation();
-                          if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true }); advanceCellDown(selectedCell); }
+                          if (ev.key === 'Enter') {
+                            ev.preventDefault();
+                            const preenche = ev.ctrlKey || ev.metaKey; // Ctrl+Enter: preenche o intervalo, não desce
+                            if (preenche) { ctrlEnterRef.current = true; preencherSelecao('custoReal', ev.currentTarget.value); }
+                            ev.currentTarget.blur(); listaScrollRef.current?.focus?.({ preventScroll: true });
+                            ctrlEnterRef.current = false; // o blur acima já consumiu a marca; garante que não sobra para o próximo campo
+                            if (!preenche) advanceCellDown(selectedCell);
+                          }
                           if (ev.key === 'Escape') { setEditingCusto(null); listaScrollRef.current?.focus?.({ preventScroll: true }); }
                         }}
                       />

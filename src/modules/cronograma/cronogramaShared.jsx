@@ -272,8 +272,11 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
     if (doneRef.current) return;   // segunda chamada (blur reentrante do Enter) — ignora
     doneRef.current = true;
     setEditing(false);
-    if (String(draft ?? '') !== String(value ?? '')) onSave(draft ?? '');
-    onExitEdit?.(via);
+    // Ctrl+Enter (preencher a seleção, estilo Excel): quem grava é o onExitEdit, que aplica o valor em TODAS
+    // as células do intervalo (inclusive esta) num commit só. Salvar aqui também geraria um 2º commit — e
+    // um 2º Ctrl+Z — com o `etapas` antigo do render atual.
+    if (via !== 'ctrl-enter' && String(draft ?? '') !== String(value ?? '')) onSave(draft ?? '');
+    onExitEdit?.(via, draft ?? '');
   };
   const cancel = () => { doneRef.current = true; setEditing(false); setDraft(value); onExitEdit?.('cancel'); };
 
@@ -321,7 +324,8 @@ export const EditableCell = ({ value, type = 'text', onSave, readOnly = false, s
           cancel();
           return;
         }
-        if (e.key === 'Enter') { e.preventDefault(); save('enter'); }
+        // Só vira 'ctrl-enter' quando há quem trate a saída (onExitEdit); sem ele o Ctrl+Enter perderia o valor.
+        if (e.key === 'Enter') { e.preventDefault(); save((e.ctrlKey || e.metaKey) && onExitEdit ? 'ctrl-enter' : 'enter'); }
         if (e.key === 'Escape') cancel();
         e.stopPropagation();
       }}
