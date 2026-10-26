@@ -1137,8 +1137,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     pasteExternalText(text);
     setMarquee(null);
   };
+  // Fundo do cabeçalho FIXO. O <thead> em si rola junto com o conteúdo (só os <th> são sticky), então o rect
+  // dele só vale com o scroll no topo; com a lista rolada ele sobe para fora da tela e a linha escondida
+  // sob o cabeçalho nunca parecia "fora". O rect dos <th> fica preso logo abaixo do topo do container.
+  const fundoCabecalho = (sc, scRect) => {
+    const th = sc.querySelector('thead tr:last-child th');
+    return th ? th.getBoundingClientRect().bottom : scRect.top;
+  };
   // Rola a linha em foco para dentro da área visível, respeitando o cabeçalho fixo.
-  const scrollRowIntoView = (taskId) => {
+  // `centralizar`: o cursor tinha saído da tela (o usuário rolou com o mouse) — como no Excel, o destino
+  // vai para o meio da área útil em vez de colar na borda (ver origemForaDaVista).
+  const scrollRowIntoView = (taskId, centralizar = false) => {
     const sc = listaScrollRef.current;
     if (!sc) return;
     const tr = sc.querySelector(`tr[data-taskid="${CSS.escape(String(taskId))}"]`);
@@ -1152,31 +1161,62 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     }
     const scRect = sc.getBoundingClientRect();
     const trRect = tr.getBoundingClientRect();
-    const head = sc.querySelector('thead');
-    const headBottom = head ? head.getBoundingClientRect().bottom : scRect.top;
+    const headBottom = fundoCabecalho(sc, scRect);
     // Antes de o card "pinar" (ver listaPinned em Cronograma.jsx), sua altura já é
     // ~100vh mas ele começa mais abaixo na página — o fundo do container fica fora da
     // janela visível. Comparar contra esse fundo invisível nunca dispara o scroll a
     // tempo: a célula ativa "some" abaixo da dobra antes de o container perceber que
     // precisa rolar. Usa o menor entre o fundo do container e o fundo da JANELA.
     const bottomVisivel = Math.min(scRect.bottom, window.innerHeight);
+    if (centralizar) {
+      // O navegador limita o scrollTop nos extremos, então a 1ª e a última linha não rolam além do fim.
+      sc.scrollTop += (trRect.top + trRect.height / 2) - (headBottom + bottomVisivel) / 2;
+      return;
+    }
     if (trRect.top < headBottom) sc.scrollTop -= (headBottom - trRect.top);
     else if (trRect.bottom > bottomVisivel) sc.scrollTop += (trRect.bottom - bottomVisivel);
   };
+  // Largura da faixa congelada à esquerda (calha de número + colunas fixas): faz o papel do thead no eixo horizontal.
+  const larguraCongelada = () => GUTTER_W + LISTA_FROZEN.filter(c => !hiddenCols.has(c)).reduce((a, c) => a + getColW(c), 0);
   // Rola a coluna em foco para dentro da área visível horizontalmente — irmã de
   // scrollRowIntoView, mesmo raciocínio no eixo horizontal: a faixa de colunas
   // congeladas (sticky, LISTA_FROZEN + calha de número) faz o papel do thead fixo.
-  const scrollColIntoView = (taskId, colId) => {
+  const scrollColIntoView = (taskId, colId, centralizar = false) => {
     const sc = listaScrollRef.current;
     if (!sc || LISTA_FROZEN.includes(colId)) return; // congelada: sempre visível, nunca precisa rolar
     const td = sc.querySelector(`td[data-ck="${taskId}|${colId}"]`);
     if (!td) return;
     const scRect = sc.getBoundingClientRect();
     const tdRect = td.getBoundingClientRect();
-    const frozenW = GUTTER_W + LISTA_FROZEN.filter(c => !hiddenCols.has(c)).reduce((a, c) => a + getColW(c), 0);
-    const leftBound = scRect.left + frozenW;
+    const leftBound = scRect.left + larguraCongelada();
+    if (centralizar) {
+      sc.scrollLeft += (tdRect.left + tdRect.width / 2) - (leftBound + scRect.right) / 2;
+      return;
+    }
     if (tdRect.left < leftBound) sc.scrollLeft -= (leftBound - tdRect.left);
     else if (tdRect.right > scRect.right) sc.scrollLeft += (tdRect.right - scRect.right);
+  };
+  // Antes de mover a seleção pelo teclado: a célula ativa ainda aparece na janela? Se o usuário a perdeu de
+  // vista (rolou com o mouse), o destino é centralizado como no Excel; se ainda aparece, segue a rolagem
+  // mínima — andar linha a linha não pode dar pulo. Eixos separados: pode ter rolado só em um deles.
+  // Sem a linha no DOM (janela virtual) não há como medir a coluna, então ela não é centralizada.
+  const origemForaDaVista = (cell) => {
+    const sc = listaScrollRef.current;
+    if (!sc || !cell) return { linha: false, coluna: false };
+    const scRect = sc.getBoundingClientRect();
+    const tr = sc.querySelector(`tr[data-taskid="${CSS.escape(String(cell.taskId))}"]`);
+    if (!tr) return { linha: true, coluna: false };
+    const trRect = tr.getBoundingClientRect();
+    const headBottom = fundoCabecalho(sc, scRect);
+    const bottomVisivel = Math.min(scRect.bottom, window.innerHeight);
+    const linha = trRect.bottom <= headBottom || trRect.top >= bottomVisivel;
+    let coluna = false;
+    const td = LISTA_FROZEN.includes(cell.colId) ? null : sc.querySelector(`td[data-ck="${cell.taskId}|${cell.colId}"]`);
+    if (td) {
+      const tdRect = td.getBoundingClientRect();
+      coluna = tdRect.right <= scRect.left + larguraCongelada() || tdRect.left >= scRect.right;
+    }
+    return { linha, coluna };
   };
   // Rola até a última célula colada (ver selecionarBlocoColado). Roda depois do render do commit, com a
   // lista e as linhas novas já atualizadas; confere de novo se a linha ainda não estava na janela virtual.
@@ -1274,9 +1314,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (key === 'ArrowLeft')  c = Math.max(0, c - 1);
     if (key === 'ArrowRight') c = Math.min(cols.length - 1, c + 1);
     const next = { taskId: rows[r], colId: cols[c] };
+    const fora = origemForaDaVista(selectedCell); // medir ANTES de mover: depois o DOM já é do destino
     setSelectedCell(next);
-    scrollRowIntoView(next.taskId);
-    scrollColIntoView(next.taskId, next.colId);
+    scrollRowIntoView(next.taskId, fora.linha);
+    scrollColIntoView(next.taskId, next.colId, fora.coluna);
     if (extend) return;                       // Shift+seta: estende o intervalo (âncora fica)
     setSelAnchor(next);                        // seta sem shift: colapsa o intervalo
     setSelectedId(rows[r]);                    // linha atual acompanha para as ações da barra
@@ -1289,8 +1330,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const r = rows.indexOf(fromCell.taskId);
     if (r < 0 || r >= rows.length - 1) return; // última linha: não move, não foca o branco
     const next = { taskId: rows[r + 1], colId: fromCell.colId };
+    const fora = origemForaDaVista(fromCell);
     setSelectedCell(next); setSelAnchor(next); setSelectedId(rows[r + 1]);
-    scrollRowIntoView(next.taskId);
+    scrollRowIntoView(next.taskId, fora.linha);
+    // Só rola a coluna se ela também saiu de vista: com o cursor visível o Enter nunca mexeu na horizontal.
+    if (fora.coluna) scrollColIntoView(next.taskId, next.colId, true);
   };
   // Ao sair da edição de uma célula (EditableCell): refoca a grade e, se confirmou com
   // Enter, desce a célula ativa uma linha (estilo Excel).
