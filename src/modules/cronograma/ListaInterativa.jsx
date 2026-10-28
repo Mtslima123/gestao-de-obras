@@ -41,6 +41,7 @@ import {
 import { classificarConflitos } from './conflitosOkPure';
 import { celulasAlvoFormatacao, alternarCelulaMarcada, alternarLinhaMarcada } from './alvoFormatacaoPure';
 import { passaCondicoes, passaCor, coresDaColuna } from './filtroCondicaoPure';
+import { repartirLarguras, minimosCabem } from './larguraColunasPdfPure';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
@@ -3285,13 +3286,31 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       // caber exatamente no espaço disponível da página (W menos as margens laterais) —
       // antes era um /4 fixo desatrelado da página/formato/quantidade de colunas, e com
       // muitas colunas visíveis a soma estourava a margem direita.
+      // Piso por coluna: valor em R$, WBS, data etc. nunca quebram de linha (a fatia
+      // proporcional ficava menor que "R$ 44.771.288,90" e o número partia na casa decimal),
+      // então cada uma ganha no mínimo a largura do seu texto mais largo; se nem assim
+      // couber na página, a fonte da tabela diminui até caber (ver larguraColunasPdfPure.js).
       const PDF_MARGIN     = { top: 25, right: 14, bottom: 14, left: 14 };
       const larguraDisp    = W - PDF_MARGIN.left - PDF_MARGIN.right;
       const pesos          = visCols.map(cid => getColW(cid));
-      const somaPesos      = pesos.reduce((s, p) => s + p, 0) || 1;
+      const SEM_QUEBRA     = new Set([...RIGHT_C, ...CENTER_C, 'wbs']);
+      const PDF_PAD        = 5 / doc.internal.scaleFactor; // mesmo padding padrão do autotable
+      const FONTE_BASE     = 10; // a largura do texto é linear no tamanho da fonte: mede uma vez e escala
+      doc.setFont('helvetica', 'bold'); // negrito (grupo, cabeçalho, total) é o pior caso
+      doc.setFontSize(FONTE_BASE);
+      const textoMax = visCols.map((cid, i) => {
+        const palavraLonga = Math.max(0, ...getLabel(cid).split(/\s+/).map(p => doc.getTextWidth(p)));
+        if (!SEM_QUEBRA.has(cid)) return palavraLonga;
+        return Math.max(palavraLonga, doc.getTextWidth(totRow[i]), ...body.map(r => doc.getTextWidth(r.vals[i])));
+      });
+      doc.setFont('helvetica', 'normal');
+      const minimasPara = (fs) => textoMax.map(t => Math.max(10, t * fs / FONTE_BASE + 2 * PDF_PAD + 0.5));
+      const FONTES_PDF = [7, 6.5, 6, 5.5, 5];
+      const fonteTab   = FONTES_PDF.find(fs => minimosCabem(minimasPara(fs), larguraDisp)) ?? FONTES_PDF[FONTES_PDF.length - 1];
+      const larguras   = repartirLarguras(pesos, minimasPara(fonteTab), larguraDisp);
       const colStyles = Object.fromEntries(visCols.map((cid, i) => [i, {
         halign: RIGHT_C.has(cid) ? 'right' : CENTER_C.has(cid) ? 'center' : 'left',
-        cellWidth: Math.max(10, pesos[i] / somaPesos * larguraDisp),
+        cellWidth: larguras[i],
       }]));
       autoTable(doc, {
         startY: 25,
@@ -3299,10 +3318,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         body: body.map(r => r.vals),
         foot: [totRow],
         theme: 'grid',
-        headStyles: { fillColor: BRAND, textColor: 255, fontSize: 7, fontStyle: 'bold' },
-        bodyStyles: { fontSize: 7, textColor: 40 },
+        styles: { cellPadding: PDF_PAD },
+        headStyles: { fillColor: BRAND, textColor: 255, fontSize: fonteTab, fontStyle: 'bold' },
+        bodyStyles: { fontSize: fonteTab, textColor: 40 },
         alternateRowStyles: { fillColor: [248, 249, 250] },
-        footStyles: { fillColor: [225, 232, 242], fontStyle: 'bold', fontSize: 7 },
+        footStyles: { fillColor: [225, 232, 242], fontStyle: 'bold', fontSize: fonteTab },
         columnStyles: colStyles,
         margin: PDF_MARGIN,
         didParseCell: (data) => {
