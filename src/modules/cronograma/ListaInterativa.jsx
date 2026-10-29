@@ -133,13 +133,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Localizar/Substituir — o modal continua aberto entre trocas de aba (não desmonta como
   // ao trocar de VIEW do Cronograma, que reseta tudo sozinho), então sem isto o termo da
   // busca/troca anterior ficava preso lá até o usuário apagar na mão.
-  React.useEffect(() => {
+  const limparLocalizar = () => {
     setLocalizarTermo('');
     setSubstituirTermo('');
     setLocalizarResultados(null);
     setLocalizarSel(-1);
     localizarIdxRef.current = -1;
-  }, [activeTab]);
+  };
+  React.useEffect(() => { limparLocalizar(); }, [activeTab]);
+  // Cada abertura do Localizar (Ctrl+L) também começa limpa: o termo e os resultados da busca anterior não ficam
+  // esperando ao fechar e reabrir. useLayoutEffect para o campo já nascer vazio, sem piscar o texto antigo.
+  React.useLayoutEffect(() => { if (showLocalizar) limparLocalizar(); }, [showLocalizar]);
   const [openModoMenu,   setOpenModoMenu]   = React.useState(null); // id da tarefa com o menu de Modo aberto
   const modoMenuRef = React.useRef(null);
   React.useEffect(() => {
