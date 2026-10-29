@@ -638,6 +638,100 @@ const CondicoesDialog = ({ label, type, linhas, setLinhas, juncao, setJuncao, er
   );
 };
 
+// ─── Tamanho ajustável dos popovers de filtro ────────────────────────────────
+// Os popovers de filtro (Tarefa e cabeçalho de coluna) abrem num tamanho fixo e cortam nomes longos com
+// reticências. A pessoa pode aumentá-los arrastando o canto inferior direito; o tamanho escolhido fica salvo
+// no navegador, um por tipo de filtro (todos os filtros de coluna compartilham o mesmo).
+const MIN_FILTRO_W = 240;
+const MIN_FILTRO_LISTA_H = 120;
+const _tamFiltros = new Map(); // chave -> { w, h } | null: espelho do localStorage, comum a todas as instâncias
+const lerTamFiltro = (chave) => {
+  if (_tamFiltros.has(chave)) return _tamFiltros.get(chave);
+  let t = null;
+  try {
+    const j = JSON.parse(localStorage.getItem(chave) || 'null');
+    if (j && Number.isFinite(j.w) && Number.isFinite(j.h)) t = { w: j.w, h: j.h };
+  } catch { /* sem storage: só não lembra */ }
+  _tamFiltros.set(chave, t);
+  return t;
+};
+const gravarTamFiltro = (chave, t) => {
+  _tamFiltros.set(chave, t);
+  try { if (t) localStorage.setItem(chave, JSON.stringify(t)); else localStorage.removeItem(chave); } catch { /* sem storage */ }
+};
+// `tam` = { w: largura do popover, h: altura da LISTA } ou null (tamanho padrão de sempre). setTam(t, false)
+// só atualiza a tela (durante o arraste); com persistir (padrão) também grava.
+export const useTamanhoFiltro = (chave, aberto) => {
+  const [tam, setTamState] = React.useState(() => lerTamFiltro(chave));
+  // Reabre com o tamanho mais recente: outra coluna pode ter sido redimensionada depois que este filtro montou.
+  // useLayoutEffect para o tamanho certo já valer no primeiro quadro, sem piscar o padrão.
+  React.useLayoutEffect(() => { if (aberto) setTamState(lerTamFiltro(chave)); }, [aberto, chave]);
+  const setTam = (t, persistir = true) => { setTamState(t); if (persistir) gravarTamFiltro(chave, t); };
+  return [tam, setTam];
+};
+// Retângulo onde um popover absoluto pode crescer: a janela, recortada pelo primeiro pai com rolagem (a Lista
+// corta o que passa da sua área). Mesma regra que o ajuste de espaço do ColumnHeaderFilterMenu já usava.
+const areaUtilDoPopover = (pop) => {
+  let area = { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight };
+  for (let p = pop?.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY;
+    if (o === 'auto' || o === 'scroll' || o === 'hidden') {
+      const rc = p.getBoundingClientRect();
+      area = { top: Math.max(area.top, rc.top), left: Math.max(area.left, rc.left), right: Math.min(area.right, rc.right), bottom: Math.min(area.bottom, rc.bottom) };
+      break;
+    }
+  }
+  return area;
+};
+// Canto de arraste do popover (canto inferior direito). Muda a largura do popover e a altura da lista; duplo
+// clique volta ao padrão. `podeInverter`: o popover abre ancorado à direita quando falta espaço à direita
+// (ColumnHeaderFilterMenu); o Tarefa nunca inverte.
+export const AlcaRedimensionarFiltro = ({ popRef, listaRef, setTam, podeInverter = false }) => {
+  const iniciar = (ev) => {
+    if (ev.button !== 0) return;
+    const pop = popRef.current, lista = listaRef.current;
+    if (!pop || !lista) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const x0 = ev.clientX, y0 = ev.clientY;
+    const w0 = pop.getBoundingClientRect().width, h0 = lista.getBoundingClientRect().height;
+    const area = areaUtilDoPopover(pop);
+    const anc = pop.parentElement.getBoundingClientRect();
+    // Popover ancorado à direita (aberto "invertido" perto da borda): cresce para a ESQUERDA, então arrastar
+    // para a esquerda é que alarga, e o limite é a sobra daquele lado. O lado fica fixo durante o arraste.
+    const invertido = podeInverter && pop.style.right === '0px';
+    const maxW = Math.max(MIN_FILTRO_W, invertido ? anc.right - area.left - 6 : area.right - anc.left - 6);
+    const maxH = Math.max(MIN_FILTRO_LISTA_H, h0 + (area.bottom - 8 - pop.getBoundingClientRect().bottom));
+    let ultimo = null;
+    const mover = (e) => {
+      const dx = invertido ? x0 - e.clientX : e.clientX - x0;
+      ultimo = {
+        w: Math.round(Math.min(maxW, Math.max(MIN_FILTRO_W, w0 + dx))),
+        h: Math.round(Math.min(maxH, Math.max(MIN_FILTRO_LISTA_H, h0 + e.clientY - y0))),
+      };
+      setTam(ultimo, false);
+    };
+    const soltar = () => {
+      document.removeEventListener('mousemove', mover);
+      document.removeEventListener('mouseup', soltar);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (ultimo) setTam(ultimo, true);
+    };
+    document.body.style.cursor = 'nwse-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', mover);
+    document.addEventListener('mouseup', soltar);
+  };
+  return (
+    <span onMouseDown={iniciar} onDoubleClick={() => setTam(null, true)}
+      title="Arraste para redimensionar (duplo clique restaura o tamanho)"
+      style={{ position: 'absolute', right: 2, bottom: 2, width: 12, height: 12, cursor: 'nwse-resize', color: 'var(--text-faint)', lineHeight: 0 }}>
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M11 3 3 11M11 7 7 11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" /></svg>
+    </span>
+  );
+};
+
 export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilter, onApplyCondicoes, getDomainCores, onApplyCor, onClearFilter, sortDir, onSort, getDomainEntries }) => {
   const [open, setOpen] = React.useState(false);
   // Filtro por condição (Igual a, Maior que, Contém, Entre...): submenu "Filtros de Número/Texto/Data"
@@ -663,6 +757,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
   // "(Selecionar Todos)" alcança; nunca mexe em draftChecked, mesmo padrão do
   // TaskMultiSelectFilter (busca 'e 'Aplicar' abaixo, neste arquivo).
   const [busca, setBusca] = React.useState('');
+  const [tam, setTam] = useTamanhoFiltro('ls_filtro_tam_coluna', open); // popover aumentado pela pessoa (null = padrão)
   const ref = React.useRef(null);
 
   React.useEffect(() => {
@@ -728,18 +823,18 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
   React.useLayoutEffect(() => {
     const pop = popRef.current, lista = listaRef.current;
     if (!open || !pop) return;
-    pop.style.maxHeight = ''; pop.style.overflowY = ''; pop.style.left = ''; pop.style.right = '';
-    if (lista) lista.style.maxHeight = '220px';
-    let limite = window.innerHeight;
-    let limiteDireito = window.innerWidth;
-    for (let p = pop.parentElement; p; p = p.parentElement) {
-      const o = getComputedStyle(p).overflowY;
-      if (o === 'auto' || o === 'scroll' || o === 'hidden') {
-        const rc = p.getBoundingClientRect();
-        limite = Math.min(limite, rc.bottom);
-        limiteDireito = Math.min(limiteDireito, rc.right);
-        break;
-      }
+    // Altura-base da lista: a que a pessoa escolheu arrastando o canto, ou os 220px de sempre.
+    const alturaLista = tam ? tam.h : 220;
+    pop.style.maxHeight = ''; pop.style.overflowY = ''; pop.style.left = ''; pop.style.right = ''; pop.style.maxWidth = '';
+    if (lista) lista.style.maxHeight = alturaLista + 'px';
+    const area = areaUtilDoPopover(pop);
+    const limite = area.bottom;
+    const limiteDireito = area.right;
+    // Largura salva maior que o espaço desta tela (outro monitor, janela menor): reduz só na exibição, sem
+    // apagar o salvo. Cabe no lado que tiver mais sobra (o popover abre invertido quando falta à direita).
+    if (tam) {
+      const anc = pop.parentElement.getBoundingClientRect();
+      pop.style.maxWidth = Math.max(MIN_FILTRO_W, Math.max(area.right - anc.left, anc.right - area.left) - 6) + 'px';
     }
     // Coluna perto da borda direita (ex.: Valor Medido): o menu abria para a direita e era cortado.
     if (pop.getBoundingClientRect().right > limiteDireito - 4) { pop.style.left = 'auto'; pop.style.right = '0'; }
@@ -747,10 +842,10 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
     if (pop.getBoundingClientRect().height <= livre) return;
     if (lista) {
       const excesso = pop.getBoundingClientRect().bottom - (limite - 8);
-      lista.style.maxHeight = Math.max(90, 220 - excesso) + 'px';
+      lista.style.maxHeight = Math.max(90, alturaLista - excesso) + 'px';
     }
     if (pop.getBoundingClientRect().height > livre) { pop.style.maxHeight = Math.max(160, livre) + 'px'; pop.style.overflowY = 'auto'; }
-  }, [open, vista, subAberto, corAberto, cores, flatKeys, dateTree]);
+  }, [open, vista, subAberto, corAberto, cores, flatKeys, dateTree, tam]);
 
   const allKeys = type === 'date'
     ? (() => {
@@ -845,7 +940,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
         ▾
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: vista === 'condicoes' ? 290 : 260, cursor: 'default' }} ref={popRef}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', border: '1px solid var(--border)', borderRadius: 8, padding: vista === 'condicoes' ? 8 : '8px 8px 14px', boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: vista === 'condicoes' ? 290 : (tam?.w ?? 260), cursor: 'default' }} ref={popRef}>
           {vista === 'condicoes' ? (
             <CondicoesDialog label={label} type={type} linhas={condDraft} setLinhas={setCondDraft}
               juncao={juncao} setJuncao={setJuncao} erro={condErro}
@@ -933,7 +1028,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
               className="input" style={{ height: 26, fontSize: 12, marginBottom: 6, width: '100%', boxSizing: 'border-box' }}
             />
           )}
-          <div ref={listaRef} style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
+          <div ref={listaRef} style={{ ...(tam ? { height: tam.h } : {}), maxHeight: tam ? tam.h : 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
             <label style={{ ...optRow, fontWeight: 600 }}>
               <TriCheckbox {...stateOf(type === 'date' ? allKeys : flatKeysVisiveis)} onChange={toggleAll} />
               (Selecionar Todos)
@@ -1000,6 +1095,7 @@ export const ColumnHeaderFilterMenu = ({ label, type, activeFilter, onApplyFilte
             <button onClick={() => setOpen(false)} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>Cancelar</button>
             <button onClick={applyOk} className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>OK</button>
           </div>
+          <AlcaRedimensionarFiltro popRef={popRef} listaRef={listaRef} setTam={setTam} podeInverter />
           </>)}
         </div>
       )}
@@ -1015,7 +1111,10 @@ export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onAppl
   const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState(() => new Set(selectedIds));
   const [busca, setBusca] = React.useState('');
+  const [tam, setTam] = useTamanhoFiltro('ls_filtro_tam_tarefa', open); // popover aumentado pela pessoa (null = padrão)
   const ref = React.useRef(null);
+  const popRef = React.useRef(null);
+  const listaRef = React.useRef(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -1061,6 +1160,20 @@ export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onAppl
 
   const optRow = { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', fontSize: 12, cursor: 'pointer', borderRadius: 4 };
 
+  // Tamanho salvo maior que o espaço da tela atual (outro monitor, janela menor): reduz só na exibição, sem
+  // apagar o salvo. Escreve o maxHeight final SEMPRE (padrão de 240px ou sem teto quando há tamanho): zerar aqui
+  // apagaria o valor que o React pôs no style, e ele não reaplica uma prop que não mudou.
+  React.useLayoutEffect(() => {
+    const pop = popRef.current, lista = listaRef.current;
+    if (!open || !pop || !lista) return;
+    pop.style.maxWidth = ''; lista.style.maxHeight = tam ? 'none' : '240px';
+    if (!tam) return;
+    const area = areaUtilDoPopover(pop);
+    pop.style.maxWidth = Math.max(MIN_FILTRO_W, area.right - pop.parentElement.getBoundingClientRect().left - 6) + 'px';
+    const excesso = pop.getBoundingClientRect().bottom - (area.bottom - 8);
+    if (excesso > 0) lista.style.maxHeight = Math.max(MIN_FILTRO_LISTA_H, lista.getBoundingClientRect().height - excesso) + 'px';
+  }, [open, tam, visiveis.length]);
+
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
       <button
@@ -1071,13 +1184,13 @@ export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onAppl
         <span style={{ fontSize: 10 }}>▾</span>
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: 280 }}>
+        <div ref={popRef} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 8px 14px', boxShadow: '0 10px 30px rgba(0,0,0,0.18)', width: tam?.w ?? 280 }}>
           <input
             autoFocus className="input" placeholder="Buscar tarefa..." value={busca}
             onChange={e => setBusca(e.target.value)}
             style={{ height: 26, fontSize: 12, marginBottom: 6, width: '100%', boxSizing: 'border-box' }}
           />
-          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
+          <div ref={listaRef} style={{ ...(tam ? { height: tam.h } : {}), maxHeight: tam ? 'none' : 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
             {visiveis.length > 0 && (
               <label style={{ ...optRow, fontWeight: 600, borderBottom: '1px solid var(--border-subtle, var(--border))', marginBottom: 2 }}>
                 <TriCheckbox checked={allVisChecked} indeterminate={someVisChecked} onChange={toggleAllVisiveis} />
@@ -1111,6 +1224,7 @@ export const TaskMultiSelectFilter = ({ etapas, wbsMap, selectedIds = [], onAppl
               <button onClick={() => { onApply([...draft]); setOpen(false); }} className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px', height: 26 }}>Aplicar</button>
             </div>
           </div>
+          <AlcaRedimensionarFiltro popRef={popRef} listaRef={listaRef} setTam={setTam} />
         </div>
       )}
     </div>
