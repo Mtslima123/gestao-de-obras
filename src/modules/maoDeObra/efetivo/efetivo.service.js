@@ -53,6 +53,9 @@ export const efetivoService = {
   criarFuncao: (nome, grupoId) => chamar('criarFuncao', 'mo_funcao_criar', { p_nome: nome, p_grupo: grupoId }),
   // patch: { grupoId?, classificacao? } — classificacao: null = volta a ser a própria função.
   alterarFuncao: (id, patch) => chamar('alterarFuncao', 'mo_funcao_alterar', { p_id: id, p_patch: patch }, { funcaoId: id }),
+  // Função à parte de alterarFuncao: a antiga ignoraria o nome em silêncio num banco sem a
+  // migration 20261029000001. Devolve { id, nome } com o nome já aparado pelo banco.
+  renomearFuncao: (id, nome) => chamar('renomearFuncao', 'mo_funcao_renomear', { p_id: id, p_nome: nome }, { funcaoId: id }),
   excluirFuncao: (id) => chamar('excluirFuncao', 'mo_funcao_excluir', { p_id: id }, { funcaoId: id }),
   criarClassificacao: (nome) => chamar('criarClassificacao', 'mo_classificacao_criar', { p_nome: nome }),
   removerClassificacao: (nome) => chamar('removerClassificacao', 'mo_classificacao_remover', { p_nome: nome }),
