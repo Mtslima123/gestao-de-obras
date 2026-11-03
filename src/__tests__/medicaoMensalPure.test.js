@@ -5,7 +5,7 @@ import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
   computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
-  mesesDaMedicao, mergePercMedido, ordenarPavimentos, chavePavimento,
+  mesesDaMedicao, mergePercMedido, ordenarPavimentos, chavePavimento, previstoDefasado,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
@@ -550,6 +550,51 @@ describe('ordenarPavimentos', () => {
   it('sem cadastro cai em ordem natural e ignora duplicados', () => {
     expect(ordenarPavimentos(['10', '2', '2', '1'], [])).toEqual(['1', '2', '10']);
     expect(ordenarPavimentos([], ['A'])).toEqual([]);
+  });
+});
+
+describe('previstoDefasado (previsto congelado x cronograma de hoje)', () => {
+  const aberta = { status: 'rascunho', perc_previsto: 5.59, perc_previsto_acumulado: 32.53 };
+
+  it('sem diferença não oferece nada', () => {
+    expect(previstoDefasado(aberta, { percPrevisto: 5.59, percPrevistoAcumulado: 32.53 })).toBeNull();
+  });
+
+  it('diferença que nem aparece nos 2 decimais da tela não conta', () => {
+    expect(previstoDefasado(aberta, { percPrevisto: 5.5949, percPrevistoAcumulado: 32.5349 })).toBeNull();
+  });
+
+  it('acumulado mudou: devolve congelado e atual só dele', () => {
+    const r = previstoDefasado(aberta, { percPrevisto: 5.59, percPrevistoAcumulado: 34.1 });
+    expect(r.acumulado).toEqual({ congelado: 32.53, atual: 34.1 });
+    expect(r.mes).toBeNull();
+  });
+
+  it('mês mudou: devolve só o mês', () => {
+    const r = previstoDefasado(aberta, { percPrevisto: 6.2, percPrevistoAcumulado: 32.53 });
+    expect(r.mes).toEqual({ congelado: 5.59, atual: 6.2 });
+    expect(r.acumulado).toBeNull();
+  });
+
+  it('o banco devolve numeric como texto às vezes: compara como número', () => {
+    const r = previstoDefasado({ status: 'rascunho', perc_previsto: '5.59', perc_previsto_acumulado: '32.53' }, { percPrevisto: 5.59, percPrevistoAcumulado: 34 });
+    expect(r.acumulado).toEqual({ congelado: 32.53, atual: 34 });
+  });
+
+  it('só vale para medição aberta: fechada e aprovada mudam pelo Reabrir', () => {
+    const live = { percPrevisto: 9, percPrevistoAcumulado: 40 };
+    expect(previstoDefasado({ ...aberta, status: 'fechada' }, live)).toBeNull();
+    expect(previstoDefasado({ ...aberta, status: 'aprovada' }, live)).toBeNull();
+    expect(previstoDefasado(null, live)).toBeNull();
+  });
+
+  it('nada congelado (registro antigo) ou mês ainda não comparável: não oferece aquele campo', () => {
+    expect(previstoDefasado({ status: 'rascunho', perc_previsto: null, perc_previsto_acumulado: null }, { percPrevisto: 9, percPrevistoAcumulado: 40 })).toBeNull();
+    // lista de itens ainda carregando: percPrevisto null, só o acumulado conta
+    const r = previstoDefasado(aberta, { percPrevisto: null, percPrevistoAcumulado: 34 });
+    expect(r.acumulado).not.toBeNull();
+    expect(r.mes).toBeNull();
+    expect(previstoDefasado(aberta, { percPrevisto: null, percPrevistoAcumulado: 32.53 })).toBeNull();
   });
 });
 

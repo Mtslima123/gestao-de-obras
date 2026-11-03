@@ -24,7 +24,7 @@ import {
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
   hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, ordenarPavimentos, chavePavimento,
-  aplicarAlteracoes,
+  aplicarAlteracoes, previstoDefasado,
 } from './medicaoMensalPure';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -218,6 +218,15 @@ function ModalDesaprovarMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
       </p>
     </Modal>
   );
+}
+
+// Texto do aviso "Atualizar previsto": o que ficou congelado na abertura e o que o cronograma
+// indica hoje, só para o(s) campo(s) que mudou(aram) (ver previstoDefasado).
+function textoPrevistoDesatualizado({ acumulado, mes }) {
+  return [
+    acumulado && `Previsto acumulado congelado em ${fmtPct100(acumulado.congelado)}; o cronograma hoje indica ${fmtPct100(acumulado.atual)}`,
+    mes && `Previsto do mês congelado em ${fmtPct100(mes.congelado)}; hoje ${fmtPct100(mes.atual)}`,
+  ].filter(Boolean).join(' · ');
 }
 
 // Bloqueia "Aprovar" — não é só um aviso: sem atualizar, não tem como continuar. O botão
@@ -1355,6 +1364,17 @@ export default function MedicaoMensal({
   const previstoMesPct = registro?.perc_previsto != null ? registro.perc_previsto : previstoMesPctAoVivo;
   const previstoAcumuladoExibido = registro?.perc_previsto_acumulado != null ? registro.perc_previsto_acumulado : resumo.previstoAcumulado;
 
+  // O previsto congelado ficou diferente do que o cronograma indica hoje (valores ou datas mudaram
+  // depois da abertura). Continua congelado até alguém pedir: só oferece o "Atualizar previsto".
+  // Só medição aberta; sem valor da obra ou com a lista ainda carregando não há o que comparar
+  // (o previsto do mês sai da lista de itens, então fica de fora enquanto ela estiver vazia).
+  const previstoDesatualizado = React.useMemo(() => (
+    carregando || !(resumo.valorObra > 0) ? null : previstoDefasado(registro, {
+      percPrevisto: itensTrabalho.length ? previstoMesPctAoVivo : null,
+      percPrevistoAcumulado: resumo.previstoAcumulado,
+    })
+  ), [carregando, registro, itensTrabalho.length, previstoMesPctAoVivo, resumo.valorObra, resumo.previstoAcumulado]);
+
   // "Executado do mês" (KPI) usa resumo.executadoMesPct — o que foi medido nesta tela em R$
   // como fração da OBRA INTEIRA, não do valor deste mês (totais.med, que só mostra "quanto do
   // que cabia neste mês já foi medido" e pode chegar a 100% mesmo o mês valendo pouco da obra).
@@ -1761,6 +1781,28 @@ export default function MedicaoMensal({
     // em `data.itens`, então usa ele direto em vez de rehidratar de novo.
     setItensTrabalho(itensFrescos);
     toast('Valores atualizados a partir do cronograma', { tone: 'success', icon: 'check' });
+  };
+
+  // Botão "Atualizar previsto" (medição aberta): regrava o previsto do mês e o acumulado com o
+  // que o cronograma indica agora, sem gerar medição nova. Mexe SÓ nessas duas colunas (ver
+  // atualizarPrevistoRascunho): % medido, itens e status ficam como estão. Recalcula a partir de
+  // `montarDoCronograma` e não de itensTrabalho, pelo mesmo motivo da abertura (o estado da tela
+  // pode estar defasado no instante do clique).
+  const atualizarPrevisto = async () => {
+    if (somenteConsulta || semRede) { avisarSemInternet(); return; }
+    if (bloqueado) return;
+    setSalvando(true);
+    const itens = montarDoCronograma(new Set());
+    const valorTotalBaseFresco = itens.reduce((s, i) => s + (i.foraDoMes ? 0 : i.valor), 0);
+    const { data, error } = await medicaoMensalService.atualizarPrevistoRascunho(obraId, mesRefKey, {
+      percPrevisto: resumo.valorObra > 0 ? (valorTotalBaseFresco / resumo.valorObra) * 100 : 0,
+      percPrevistoAcumulado: resumo.previstoAcumulado,
+    });
+    setSalvando(false);
+    if (error) { toast('Não foi possível atualizar o previsto. Tente novamente.', { tone: 'danger' }); return; }
+    if (!data) { toast('Não foi possível atualizar: a medição já foi fechada ou você não tem permissão para editá-la.', { tone: 'warning' }); return; }
+    setRegistro(r => (r ? { ...r, perc_previsto: data.perc_previsto, perc_previsto_acumulado: data.perc_previsto_acumulado } : r));
+    toast('Previsto atualizado a partir do cronograma', { tone: 'success', icon: 'check' });
   };
 
   // Zera o % medido de todos os itens da medição (mantém a lista de itens/manuais como
@@ -2349,6 +2391,22 @@ export default function MedicaoMensal({
           </div>
         )}
 
+        {/* Medição aberta com o previsto congelado diferente do cronograma de hoje. Continua fixo
+            até alguém clicar (o previsto não pode "perseguir" o executado sozinho). */}
+        {previstoDesatualizado && (
+          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span className="badge warning">
+              <Icon name="alert-triangle" size={12} />
+              {textoPrevistoDesatualizado(previstoDesatualizado)}
+            </span>
+            {!readOnly && (
+              <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={atualizarPrevisto}>
+                <Icon name="refresh-cw" size={13} />{salvando ? 'Atualizando…' : 'Atualizar previsto'}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Só pra medição fechada/aprovada — rascunho lê o cronograma ao vivo, nunca
             defasa dele mesmo. Mesmo lugar/estilo do aviso de "fora do mês" acima, sempre
             visível (não é preciso abrir "Aprovar" pra notar). O clique em "Aprovar" com
@@ -2757,6 +2815,20 @@ export default function MedicaoMensal({
             <span className="badge warning" style={{ alignSelf: 'flex-start' }}>
               {qtdForaDoMes} {qtdForaDoMes === 1 ? 'item fora do mês' : 'itens fora do mês'}
             </span>
+          )}
+
+          {previstoDesatualizado && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span className="badge warning">
+                <Icon name="alert-triangle" size={12} />
+                {textoPrevistoDesatualizado(previstoDesatualizado)}
+              </span>
+              {!readOnly && (
+                <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={atualizarPrevisto}>
+                  <Icon name="refresh-cw" size={13} />Atualizar
+                </button>
+              )}
+            </div>
           )}
 
           {defasagem.length > 0 && (

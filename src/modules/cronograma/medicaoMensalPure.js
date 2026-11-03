@@ -300,6 +300,26 @@ export function computeResumo({ monthlyTotals, mesRefKey, valorMedidoMes = 0 }) 
   };
 }
 
+// Previsto (mês e acumulado) congelado na abertura x o que o cronograma indica hoje. Só vale pra
+// medição ABERTA: numa fechada/aprovada o previsto é parte do documento fechado e só muda pelo
+// Reabrir. Devolve null quando não há o que oferecer (sem registro, não é rascunho, nada
+// congelado nesse campo, ou a diferença nem aparece nos 2 decimais da tela); senão
+// { acumulado, mes } com { congelado, atual } em cada campo que mudou (o outro fica null).
+// `aoVivo` = { percPrevisto, percPrevistoAcumulado }; percPrevisto null = ainda não dá pra
+// comparar o mês (lista de itens ainda carregando), então só o acumulado conta.
+export function previstoDefasado(registro, aoVivo, tolerancia = 0.005) {
+  if (!registro || registro.status !== 'rascunho' || !aoVivo) return null;
+  const mudou = (congelado, atual) => {
+    if (congelado == null || atual == null) return null;
+    const c = Number(congelado);
+    const a = Number(atual);
+    return Math.abs(c - a) >= tolerancia ? { congelado: c, atual: a } : null;
+  };
+  const acumulado = mudou(registro.perc_previsto_acumulado, aoVivo.percPrevistoAcumulado);
+  const mes = mudou(registro.perc_previsto, aoVivo.percPrevisto);
+  return acumulado || mes ? { acumulado, mes } : null;
+}
+
 // Bloqueia o fechamento se algum item tiver %medido acima do %executado da tarefa. Tarefa
 // atravessando o mês (início e término em meses diferentes) NÃO bloqueia mais aqui — fechar
 // o mês salva o que foi medido até ali, mesmo com o cronograma da tarefa se estendendo pro
