@@ -7,6 +7,7 @@ import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay, projectStartOffset } from "./cronogramaDateUtils";
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, agruparPorPai, aplicarVinculosEmLote, resumoDeCiclos, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
+import { moverNaLista } from "../../utils/pavimentos";
 import { itemValor } from "../financeiro/vinculoService";
 import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
 
@@ -732,6 +733,93 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
 // padrão (Término → Início); repetido aqui em vez de importado porque os dois arquivos não
 // compartilham essa constante hoje.
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
+
+// ─── OrdemPavimentosModal — ordem dos pavimentos no filtro da Medição ─────────
+// Rascunho local com Subir/Descer, gravado de uma vez no Salvar (uma chamada para a obra
+// inteira): um toque errado se desfaz no Cancelar, sem nada pela metade no banco. Quem não
+// estiver na lista (pavimento criado depois) aparece no final até alguém reposicionar.
+// `onSalvar(lista)` devolve true quando gravou; só então o modal fecha, e os avisos de
+// erro ficam com quem chama.
+export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
+  const [lista, setLista] = React.useState(pavimentos);
+  const [salvando, setSalvando] = React.useState(false);
+  const travaRef = React.useRef(false);
+  const btnRefs = React.useRef({});
+  const focoRef = React.useRef(null);
+  const mudou = lista.some((p, i) => p !== pavimentos[i]);
+
+  // Depois de mover, o foco volta ao botão que foi tocado (a linha troca de lugar no DOM e,
+  // sem isso, quem usa o teclado perdia o ponto a cada Subir/Descer).
+  React.useEffect(() => {
+    if (focoRef.current) btnRefs.current[focoRef.current]?.focus();
+    focoRef.current = null;
+  }, [lista]);
+
+  const mover = (p, delta) => {
+    if (travaRef.current) return;
+    const nova = moverNaLista(lista, lista.indexOf(p), delta);
+    if (nova === lista) return; // já na ponta
+    focoRef.current = `${p}:${delta}`;
+    setLista(nova);
+  };
+
+  const salvar = async () => {
+    if (travaRef.current || !mudou) return;
+    travaRef.current = true;
+    setSalvando(true);
+    try {
+      if (await onSalvar(lista)) onClose();
+    } finally {
+      travaRef.current = false;
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Modal title="Ordem dos pavimentos" subtitle="Como aparecem no filtro Pavimento da Medição" onClose={onClose} size="compact" draggable overlay={false}
+      footer={(
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={salvando}>Cancelar</button>
+          <button className="btn btn-primary" onClick={salvar} disabled={salvando || !mudou}>
+            <Icon name="check" size={14} />{salvando ? 'Salvando…' : 'Salvar ordem'}
+          </button>
+        </>
+      )}>
+      <div className="stack">
+        <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+          Pavimentos que não estiverem aqui aparecem no final da lista.
+        </div>
+        {lista.length === 0
+          ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhum pavimento nas tarefas desta obra.</div>
+          : (
+            <table className="tbl pav-lista">
+              <tbody>
+                {lista.map((p, i) => (
+                  <tr key={p}>
+                    <td style={{ padding: '6px 8px', wordBreak: 'break-word' }}>{p}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '6px 8px', width: 1 }}>
+                      {/* aria-disabled em vez de disabled: botão desabilitado perde o foco (mesmo
+                          padrão do modal de pavimentos das Fotos). */}
+                      <div className="pav-acoes">
+                        <button className="icon-btn" title="Subir" aria-label={`Subir ${p}`} aria-disabled={salvando || i === 0}
+                          ref={el => { btnRefs.current[`${p}:-1`] = el; }} onClick={() => mover(p, -1)}>
+                          <Icon name="chevron-up" size={14} />
+                        </button>
+                        <button className="icon-btn" title="Descer" aria-label={`Descer ${p}`} aria-disabled={salvando || i === lista.length - 1}
+                          ref={el => { btnRefs.current[`${p}:1`] = el; }} onClick={() => mover(p, 1)}>
+                          <Icon name="chevron-down" size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </div>
+    </Modal>
+  );
+};
 
 // Altura das listas do modal Vincular tarefas (px): padrão, limites do ajuste por arraste e chave onde
 // a escolha fica guardada. A tabela "Vínculos a criar" usa ALT_TOTAL_PAINEIS menos a das listas.

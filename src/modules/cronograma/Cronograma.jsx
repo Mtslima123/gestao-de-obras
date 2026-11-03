@@ -2496,6 +2496,29 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     setPavimentosObra(prev => prev.filter(n => n !== nome));
     pavimentosService.excluir(obraSel, nome);
   };
+  // Ordem dos pavimentos da Medição (botão "Ordenar"): grava a lista inteira de uma vez e só
+  // então atualiza a tela, para o filtro nunca mostrar uma ordem que o banco não guardou.
+  // Relê a lista do banco em vez de usar `nomes`: pavimentos do cadastro que já nenhuma
+  // tarefa usa não estão em `nomes` e continuam existindo (e nos chips da inserção).
+  // Devolve true quando gravou (o modal só fecha nesse caso).
+  const salvarOrdemPavimentos = async (nomes) => {
+    const r = await pavimentosService.reordenar(obraSel, nomes);
+    if (!r.ok) {
+      toast(
+        r.pendenteTI
+          ? 'Reposicionar pavimentos ainda não foi liberado no banco: aguardando o TI aplicar a atualização.'
+          : 'Erro ao salvar a ordem dos pavimentos. ' + friendlyError(r.error),
+        { tone: r.pendenteTI ? 'warning' : 'danger' }
+      );
+      return false;
+    }
+    const { data, error } = await pavimentosService.listar(obraSel);
+    const atual = error ? nomes : data;
+    setPavimentosObra(atual);
+    if (hideChrome) offlineCache.gravar('pavimentos', obraSel, atual);
+    toast('Ordem dos pavimentos salva', { tone: 'success', icon: 'check' });
+    return true;
+  };
   // Preferências de visualização estilo MS Project (Mostrar/Ocultar), por obra.
   // summaryTasks (mostrar tarefa-resumo em negrito/azul) NÃO é persistido: ficava salvo
   // por navegador/aparelho, então duas pessoas na mesma obra podiam ver a hierarquia
@@ -4010,6 +4033,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   obraNome={obra?.nome || 'Projeto'}
                   hideChrome={hideChrome}
                   pavimentosOrdem={pavimentosObra}
+                  onSalvarOrdemPavimentos={salvarOrdemPavimentos}
                   dadosDoAparelho={dadosDoAparelho}
                   onTentarConexao={() => recarregarCronograma()}
                 />

@@ -1,6 +1,6 @@
 // Testes das regras de pavimento compartilhadas (Medição e Fotos). Executar: npm test
 import { describe, it, expect } from 'vitest';
-import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos } from '../utils/pavimentos';
+import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos, colunaAusente, funcaoAusente } from '../utils/pavimentos';
 
 const foto = (id, data, pavimento, created_at = '2026-09-30T10:00:00Z') => ({ id, data, pavimento, created_at });
 
@@ -87,6 +87,34 @@ describe('chavePavimento e ordenarPavimentos (movidos para o util compartilhado)
   it('continuam funcionando igual', () => {
     expect(chavePavimento(' puc')).toBe(chavePavimento('PUC'));
     expect(ordenarPavimentos([' 3° tipo', '3° tipo', 'Mezanino'], ['3° tipo'])).toEqual(['3° tipo', 'Mezanino']);
+  });
+});
+
+describe('ordem dos pavimentos da Medição: o que não está na lista vai para o final', () => {
+  it('cadastro reordenado à mão manda; pavimento novo vem depois em ordem natural, e "—" por último', () => {
+    // Ordem de baixo para cima do prédio, diferente da natural ("Cobertura" antes do "1º").
+    const cadastro = ['Subsolo 2', 'Subsolo 1', 'PUC', '10º Tipo II', '2º Tipo II', 'Cobertura'];
+    const usados = ['—', 'Mezanino 10', '2º Tipo II', 'Cobertura', 'Mezanino 2', '10º Tipo II', 'PUC', 'Subsolo 1', 'Subsolo 2'];
+    expect(ordenarPavimentos(usados, cadastro)).toEqual([
+      'Subsolo 2', 'Subsolo 1', 'PUC', '10º Tipo II', '2º Tipo II', 'Cobertura', 'Mezanino 2', 'Mezanino 10', '—',
+    ]);
+  });
+});
+
+describe('migration da ordem ainda não aplicada (colunaAusente e funcaoAusente)', () => {
+  it('reconhece coluna inexistente, pelo código ou pela mensagem', () => {
+    expect(colunaAusente({ code: 'PGRST204' })).toBe(true);
+    expect(colunaAusente({ code: '42703' })).toBe(true);
+    expect(colunaAusente({ message: 'column pavimentos_obra.ordem does not exist' })).toBe(true);
+    expect(colunaAusente({ code: '08006', message: 'connection failure' })).toBe(false);
+    expect(colunaAusente(null)).toBe(false);
+  });
+
+  it('reconhece função inexistente, pelo código ou pela mensagem', () => {
+    expect(funcaoAusente({ code: 'PGRST202' })).toBe(true);
+    expect(funcaoAusente({ message: 'function public.reordenar_pavimentos_obra(text, text[]) does not exist' })).toBe(true);
+    expect(funcaoAusente({ code: '42501', message: 'permission denied' })).toBe(false);
+    expect(funcaoAusente(undefined)).toBe(false);
   });
 });
 

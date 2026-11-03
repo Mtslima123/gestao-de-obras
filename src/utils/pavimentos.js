@@ -12,6 +12,14 @@ export function chavePavimento(nome) {
 
 const naturalCmp = (a, b) => String(a).localeCompare(String(b), 'pt-BR', { numeric: true });
 
+// Erros de "coluna/função ainda não existe no banco" (migration da ordem dos pavimentos
+// que o TI aplica à parte). Os serviços de pavimentos caem na ordem de cadastro (id) no
+// primeiro e avisam que depende do TI no segundo.
+export const colunaAusente = (error) =>
+  !!error && (error.code === 'PGRST204' || error.code === '42703' || /column .* (of .* )?(does not exist|not found)/i.test(error.message || ''));
+export const funcaoAusente = (error) =>
+  !!error && (error.code === 'PGRST202' || /function .* does not exist/i.test(error.message || ''));
+
 // Botões subir/descer do cadastro de pavimentos: lista nova com o item da posição
 // `indice` trocado com o vizinho (delta -1 sobe, +1 desce). Fora dos limites devolve a
 // MESMA lista (quem chama compara pra saber se mudou).

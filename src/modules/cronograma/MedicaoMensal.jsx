@@ -18,6 +18,7 @@ import {
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha, ColumnHeaderFilterMenu,
 } from './cronogramaShared';
 import { passaFiltrosDeColuna } from './filtroColunasPure';
+import { OrdemPavimentosModal } from './cronogramaModais';
 import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
@@ -615,7 +616,7 @@ function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar, mobileVi
 export default function MedicaoMensal({
   etapas, months, monthlyDist, monthlyTotals, valorVinculadoMap = {}, wbsMap, rowNumberMap = {},
   obraId, readOnly, currentUser, onEnviarAvanco,
-  reprogramacoes = [], obraNome = 'Projeto', hideChrome = false, pavimentosOrdem = [],
+  reprogramacoes = [], obraNome = 'Projeto', hideChrome = false, pavimentosOrdem = [], onSalvarOrdemPavimentos,
   // salvoEm do cronograma guardado no aparelho (sem internet, ver Cronograma.jsx), ou null.
   dadosDoAparelho = null, onTentarConexao,
 }) {
@@ -700,6 +701,7 @@ export default function MedicaoMensal({
   const [salvando, setSalvando] = React.useState(false);
   const [busca, setBusca] = React.useState('');
   const [pavimento, setPavimento] = React.useState('Todos');
+  const [ordemPavAberto, setOrdemPavAberto] = React.useState(false);
   // Filtros de coluna (menu da setinha no cabeçalho), no mesmo formato da Lista: por coluna, lista de valores
   // marcados ou condição. Valem só para a tela, como busca e pavimento, e somem ao trocar de mês ou obra.
   const [filtrosColuna, setFiltrosColuna] = React.useState({});
@@ -1159,6 +1161,10 @@ export default function MedicaoMensal({
     () => ['Todos', ...ordenarPavimentos(itensTrabalho.map(i => i.pavimento), pavimentosOrdem)],
     [itensTrabalho, pavimentosOrdem]
   );
+  // Botão "Ordenar": precisa de pelo menos dois pavimentos com nome, de quem pode editar o
+  // cronograma e da gravação vinda do Cronograma. "—" (sem pavimento) fica sempre por último.
+  const pavimentosParaOrdenar = React.useMemo(() => pavimentos.slice(1).filter(p => p !== '—'), [pavimentos]);
+  const podeOrdenarPavimentos = !readOnly && !!onSalvarOrdemPavimentos && pavimentosParaOrdenar.length > 1;
   // Nome que prevalece para cada pavimento (o do cadastro, se houver): " puc" na tarefa
   // aparece como "PUC", e o filtro compara pela mesma chave (chavePavimento), não pelo texto cru.
   const nomePavimento = React.useMemo(() => {
@@ -2208,6 +2214,12 @@ export default function MedicaoMensal({
               {pavimentos.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
+          {podeOrdenarPavimentos && (
+            <button type="button" className="btn btn-ghost" title="Definir a ordem em que os pavimentos aparecem no filtro"
+              onClick={() => setOrdemPavAberto(true)}>
+              <Icon name="move" size={14} />Ordenar
+            </button>
+          )}
           {/* Estrutura de tópicos por nível — mesmo menu da Lista e do Gantt, mas mostra o
               nível aplicado (nivelEstrutura) em vez de sempre voltar a "Escolher…": sem
               isso não havia confirmação nenhuma de que a escolha tinha feito efeito. Some
@@ -2713,6 +2725,12 @@ export default function MedicaoMensal({
             <select className="input" value={pavimento} onChange={e => escolherPavimento(e.target.value)}>
               {pavimentos.map(p => <option key={p} value={p}>{p === 'Todos' ? 'Pavimento: Todos' : p}</option>)}
             </select>
+            {podeOrdenarPavimentos && (
+              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }}
+                onClick={() => setOrdemPavAberto(true)}>
+                <Icon name="move" size={14} />Ordenar pavimentos
+              </button>
+            )}
             <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)}>
               {months.map(m => {
                 const st = statusPorMes[m.key];
@@ -2926,6 +2944,14 @@ export default function MedicaoMensal({
           {registro?.updated_at ? ` · atualizado em ${new Date(registro.updated_at).toLocaleString('pt-BR')}` : ''}
         </div>
       </div>
+      )}
+
+      {ordemPavAberto && (
+        <OrdemPavimentosModal
+          pavimentos={pavimentosParaOrdenar}
+          onSalvar={onSalvarOrdemPavimentos}
+          onClose={() => setOrdemPavAberto(false)}
+        />
       )}
 
       {mostrarConfirmFechar && (
