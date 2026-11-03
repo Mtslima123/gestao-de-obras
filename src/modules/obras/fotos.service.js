@@ -6,8 +6,54 @@ import { supabase } from '../../services/supabase';
 import { offlineQueue } from '../../services/offlineQueue';
 import { logger } from '../../services/logger';
 import { arquivoJaExiste, ehFalhaPassageira } from '../../utils/offlinePure';
+import { onNetworkReconnect } from '../../utils/connectivity';
 
 const BUCKET = 'obras-images';
+
+// Falha ao guardar foto no aparelho: o aviso da tela mostra o motivo (mensagemDeFalhaAoGuardar), e
+// aqui fica o registro para a gente conseguir ler depois. Sem internet o log não sobe na hora, então
+// a última falha também fica no localStorage e sobe quando a rede volta.
+const CHAVE_FALHA = 'fotos_falha_guardar';
+const emMB = (bytes, casas = 1) => Math.round((bytes / 1048576) * 10 ** casas) / 10 ** casas;
+
+// O que dá para saber do armazenamento do app na hora da falha: uso e cota que o navegador dá a ESTE
+// site (separados do espaço livre do celular), se a cota é garantida e quanto a própria fila ocupa.
+async function diagnosticoDoArmazenamento() {
+  const d = { online: typeof navigator !== 'undefined' ? navigator.onLine : null };
+  try {
+    const e = await navigator.storage?.estimate?.();
+    if (e) { d.usoMB = emMB(e.usage || 0); d.cotaMB = emMB(e.quota || 0); }
+  } catch { /* sem suporte */ }
+  try { d.persistente = await navigator.storage?.persisted?.(); } catch { /* sem suporte */ }
+  try {
+    const fila = await offlineQueue.listar('foto');
+    d.fotosNaFila = fila.length;
+    d.filaMB = emMB(fila.reduce((s, i) => s + (i.payload?.blob?.size || 0) + (i.payload?.thumbBlob?.size || 0), 0));
+  } catch (e) { d.filaErro = e?.name || 'erro'; } // até ler a fila falhou: é um dado importante
+  return d;
+}
+
+async function registrarFalhaAoGuardar(err, fotos) {
+  const dados = { quando: new Date().toISOString(), fotos };
+  try { Object.assign(dados, await diagnosticoDoArmazenamento()); } catch { /* o diagnóstico nunca atrapalha o aviso */ }
+  try { localStorage.setItem(CHAVE_FALHA, JSON.stringify({ ...dados, nome: err?.name, mensagem: String(err?.message || '').slice(0, 200) })); } catch { /* ignore */ }
+  logger.error('falha ao guardar fotos no aparelho', { module: 'fotos', action: 'enfileirar', err, ...dados });
+}
+
+// Falha registrada sem internet: sobe para o app_logs quando há rede e sessão (sem sessão o RLS
+// recusa o log). Melhor esforço: só apaga o registro depois de tentar com sessão válida.
+async function enviarFalhaPendente() {
+  let dados;
+  try { dados = JSON.parse(localStorage.getItem(CHAVE_FALHA) || 'null'); } catch { return; }
+  if (!dados || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (!data?.session) return;
+  } catch { return; }
+  const { nome, mensagem, ...resto } = dados;
+  logger.error('falha ao guardar fotos no aparelho (registrada sem internet)', { module: 'fotos', action: 'falhaPendente', err: { name: nome, message: mensagem }, ...resto });
+  try { localStorage.removeItem(CHAVE_FALHA); } catch { /* ignore */ }
+}
 
 // Rede "sem sinal" deixa a requisição pendente em vez de falhar. Se o tempo esgota e ela
 // chega mesmo assim depois, o reenvio reconhece (arquivo 409, linha já existente).
@@ -57,6 +103,7 @@ export const fotosService = {
     try {
       await offlineQueue.enfileirarLote('foto', payloads);
     } catch (err) {
+      await registrarFalhaAoGuardar(err, payloads.length).catch(() => {}); // registrar nunca troca o erro original
       if (typeof navigator !== 'undefined' && navigator.onLine === false) throw err;
       logger.warn('fila do aparelho indisponível, enviando foto direto', { module: 'fotos', action: 'enfileirar', err });
       // Segue mesmo se uma falhar: quem chama fecha o modal e diz quantas subiram, pra um
@@ -130,3 +177,8 @@ export const fotosService = {
 };
 
 offlineQueue.registrarHandler('foto', (payload, ctx) => fotosService.enviarDaFila(payload, ctx));
+
+// A falha registrada sem internet sobe quando a rede volta, ou na próxima abertura do app (depois de
+// uns segundos, para a sessão já estar carregada).
+onNetworkReconnect(() => { enviarFalhaPendente(); });
+if (typeof window !== 'undefined') setTimeout(enviarFalhaPendente, 20000);

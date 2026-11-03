@@ -21,7 +21,7 @@ import { offlineCache } from '../../services/offlineCache';
 import { offlineQueue } from '../../services/offlineQueue';
 import { fotosService } from './fotos.service';
 import { useSemRede, useRetryOnReconnect, connectivity, isNetworkError } from '../../utils/connectivity';
-import { ehFalhaPassageira } from '../../utils/offlinePure';
+import { ehFalhaPassageira, mensagemDeFalhaAoGuardar } from '../../utils/offlinePure';
 import { AvisoOffline } from '../../components/OfflineFallback';
 import { ordenarFotosPorPavimento, posicaoPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos } from '../../utils/pavimentos';
 import { zipSync } from 'fflate';
@@ -848,7 +848,8 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
       r = await fotosService.enfileirar(obra.id, metadados, lote);
     } catch (err) {
       // A gravação do lote é tudo ou nada: nada ficou guardado, então tentar de novo não duplica.
-      toast('Não foi possível guardar as fotos neste aparelho. Tente de novo.', { tone: 'danger' });
+      // Com o motivo do navegador (ex.: QuotaExceededError) em vez de um texto fixo que escondia a causa.
+      toast(mensagemDeFalhaAoGuardar(err), { tone: 'danger', duration: 12000 });
       throw err; // mantém o modal aberto com as fotos escolhidas (ver UploadFotoModal.handleSave)
     }
     // Aparelho não deixou guardar e as fotos subiram direto (ver fotosService.enfileirar).
