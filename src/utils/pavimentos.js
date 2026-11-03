@@ -31,6 +31,17 @@ export function moverNaLista(lista, indice, delta) {
   return nova;
 }
 
+// Arrastar para mover: lista nova com o item da posição `de` levado para a posição `para`, e os
+// demais se acomodando (arrastar para baixo deixa o item depois do alvo, para cima, antes dele). Igual
+// de, ou posição fora da lista, devolve a MESMA lista (quem chama compara pra saber se mudou).
+export function moverParaIndice(lista, de, para) {
+  if (de === para || de < 0 || para < 0 || de >= lista.length || para >= lista.length) return lista;
+  const nova = [...lista];
+  const [item] = nova.splice(de, 1);
+  nova.splice(para, 0, item);
+  return nova;
+}
+
 // Nome do pavimento duplicado: "X (cópia)", "X (cópia 2)"... sem repetir um nome que já
 // existe (mesma regra de comparação do cadastro, ver chavePavimento) e cabendo nos 60
 // caracteres do campo.

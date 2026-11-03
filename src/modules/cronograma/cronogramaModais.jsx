@@ -7,7 +7,7 @@ import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay, projectStartOffset } from "./cronogramaDateUtils";
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, agruparPorPai, aplicarVinculosEmLote, resumoDeCiclos, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
-import { moverNaLista } from "../../utils/pavimentos";
+import { moverNaLista, moverParaIndice } from "../../utils/pavimentos";
 import { itemValor } from "../financeiro/vinculoService";
 import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
 
@@ -735,7 +735,8 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 
 // ─── OrdemPavimentosModal — ordem dos pavimentos no filtro da Medição ─────────
-// Rascunho local com Subir/Descer, gravado de uma vez no Salvar (uma chamada para a obra
+// Rascunho local com Subir/Descer e arrastar a linha para mover (HTML5, só com mouse: no toque
+// ficam as setas), gravado de uma vez no Salvar (uma chamada para a obra
 // inteira): um toque errado se desfaz no Cancelar, sem nada pela metade no banco. Quem não
 // estiver na lista (pavimento criado depois) aparece no final até alguém reposicionar.
 // `onSalvar(lista)` devolve true quando gravou; só então o modal fecha, e os avisos de
@@ -763,6 +764,20 @@ export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
     setLista(nova);
   };
 
+  // Arrastar a linha: `dragRef` guarda quem está sendo arrastado (a lógica dos eventos não pode
+  // depender de state, que só vale no render seguinte); `arrastando` e `alvo` são só o visual:
+  // linha esmaecida e uma linha azul no lado do alvo em que o item vai cair (depois, se arrastando
+  // para baixo). Só move ao soltar, para a lista não pular debaixo do mouse.
+  const dragRef = React.useRef(null);
+  const [arrastando, setArrastando] = React.useState(null);
+  const [alvo, setAlvo] = React.useState(null); // { nome, depois }
+  const terminarArraste = () => { dragRef.current = null; setArrastando(null); setAlvo(null); };
+  const soltarEm = (nomeAlvo) => {
+    const nova = moverParaIndice(lista, lista.indexOf(dragRef.current), lista.indexOf(nomeAlvo));
+    terminarArraste();
+    if (nova !== lista) setLista(nova);
+  };
+
   const salvar = async () => {
     if (travaRef.current || !mudou) return;
     travaRef.current = true;
@@ -787,8 +802,8 @@ export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
       )}>
       <div className="stack">
         <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-          Organize a ordem uma vez: a Medição mostra, em cada mês, só os pavimentos daquele mês, nesta ordem.
-          Pavimentos novos, que ainda não estiverem aqui, aparecem no final da lista.
+          Arraste a linha para mover (ou use as setas). A Medição mostra, em cada mês, só os pavimentos
+          daquele mês, nesta ordem. Pavimentos novos, que ainda não estiverem aqui, aparecem no final da lista.
         </div>
         {lista.length === 0
           ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhum pavimento nas tarefas desta obra.</div>
@@ -796,7 +811,36 @@ export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
             <table className="tbl pav-lista">
               <tbody>
                 {lista.map((p, i) => (
-                  <tr key={p}>
+                  <tr key={p}
+                    draggable={!salvando}
+                    title="Arraste para mover"
+                    onDragStart={ev => {
+                      if (travaRef.current) { ev.preventDefault(); return; }
+                      dragRef.current = p;
+                      ev.dataTransfer.effectAllowed = 'move';
+                      ev.dataTransfer.setData('text/plain', p); // o Firefox só começa o arraste com algum dado
+                      // O visual esmaecido entra depois do evento: mexer no estilo dentro do dragstart
+                      // deixa o navegador capturar (ou até cancelar) o arraste com a linha já alterada.
+                      setTimeout(() => { if (dragRef.current === p) setArrastando(p); }, 0);
+                    }}
+                    onDragOver={ev => {
+                      if (dragRef.current == null) return; // arraste de outra coisa (arquivo, texto): não é daqui
+                      ev.preventDefault();
+                      ev.dataTransfer.dropEffect = 'move';
+                      if (dragRef.current === p) { if (alvo) setAlvo(null); return; }
+                      const depois = lista.indexOf(dragRef.current) < i;
+                      if (alvo?.nome !== p || alvo.depois !== depois) setAlvo({ nome: p, depois });
+                    }}
+                    onDrop={ev => { ev.preventDefault(); if (dragRef.current != null) soltarEm(p); }}
+                    onDragEnd={terminarArraste}
+                    style={{
+                      cursor: salvando ? 'default' : 'grab',
+                      opacity: arrastando === p ? 0.4 : 1,
+                      boxShadow: alvo?.nome === p ? `inset 0 ${alvo.depois ? '-' : ''}2px 0 var(--brand)` : undefined,
+                    }}>
+                    <td style={{ padding: '6px 0 6px 8px', width: 1, color: 'var(--text-faint)' }} aria-hidden="true">
+                      <Icon name="grip" size={14} />
+                    </td>
                     <td style={{ padding: '6px 8px', wordBreak: 'break-word' }}>{p}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '6px 8px', width: 1 }}>
                       {/* aria-disabled em vez de disabled: botão desabilitado perde o foco (mesmo

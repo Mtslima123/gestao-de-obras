@@ -1,6 +1,6 @@
 // Testes das regras de pavimento compartilhadas (Medição e Fotos). Executar: npm test
 import { describe, it, expect } from 'vitest';
-import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos, colunaAusente, funcaoAusente, pavimentosDoCronograma } from '../utils/pavimentos';
+import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos, colunaAusente, funcaoAusente, pavimentosDoCronograma, moverParaIndice } from '../utils/pavimentos';
 
 const foto = (id, data, pavimento, created_at = '2026-09-30T10:00:00Z') => ({ id, data, pavimento, created_at });
 
@@ -98,6 +98,38 @@ describe('ordem dos pavimentos da Medição: o que não está na lista vai para 
     expect(ordenarPavimentos(usados, cadastro)).toEqual([
       'Subsolo 2', 'Subsolo 1', 'PUC', '10º Tipo II', '2º Tipo II', 'Cobertura', 'Mezanino 2', 'Mezanino 10', '—',
     ]);
+  });
+});
+
+describe('moverParaIndice (arrastar para mover)', () => {
+  const lista = ['A', 'B', 'C', 'D', 'E'];
+
+  it('arrastar para baixo deixa o item na posição do alvo, depois dele', () => {
+    expect(moverParaIndice(lista, 0, 2)).toEqual(['B', 'C', 'A', 'D', 'E']);
+    expect(moverParaIndice(lista, 1, 4)).toEqual(['A', 'C', 'D', 'E', 'B']);
+  });
+
+  it('arrastar para cima deixa o item na posição do alvo, antes dele', () => {
+    expect(moverParaIndice(lista, 3, 1)).toEqual(['A', 'D', 'B', 'C', 'E']);
+    expect(moverParaIndice(lista, 4, 0)).toEqual(['E', 'A', 'B', 'C', 'D']);
+  });
+
+  it('vizinhos trocam, como no Subir e Descer', () => {
+    expect(moverParaIndice(lista, 1, 2)).toEqual(moverNaLista(lista, 1, 1));
+    expect(moverParaIndice(lista, 2, 1)).toEqual(moverNaLista(lista, 2, -1));
+  });
+
+  it('não mexe na lista original', () => {
+    const copia = [...lista];
+    moverParaIndice(lista, 0, 4);
+    expect(lista).toEqual(copia);
+  });
+
+  it('mesma posição ou posição fora da lista devolve a mesma lista (nada a gravar)', () => {
+    expect(moverParaIndice(lista, 2, 2)).toBe(lista);
+    expect(moverParaIndice(lista, -1, 2)).toBe(lista);
+    expect(moverParaIndice(lista, 2, 5)).toBe(lista);
+    expect(moverParaIndice([], 0, 0)).toEqual([]);
   });
 });
 
