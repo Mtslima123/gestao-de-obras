@@ -41,6 +41,7 @@ import {
 import { classificarConflitos } from './conflitosOkPure';
 import { celulasAlvoFormatacao, alternarCelulaMarcada, alternarLinhaMarcada } from './alvoFormatacaoPure';
 import { passaCondicoes, passaCor, coresDaColuna } from './filtroCondicaoPure';
+import { recorteEsquerdoDoMarquee, clipPathDoMarquee } from './marqueePure';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
@@ -179,6 +180,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [selectedCell,   setSelectedCell]   = React.useState(null); // { taskId, colId } — foco ativo (planilha)
   const [selAnchor,      setSelAnchor]      = React.useState(null); // { taskId, colId } — âncora do intervalo
   const [marquee,        setMarquee]        = React.useState(null); // retângulo "marching ants" da cópia
+  const marqueeRef = React.useRef(null); // elemento da moldura: o recorte ao rolar é aplicado direto nele
   const [painterOn,      setPainterOn]      = React.useState(false); // pincel de formatação ativo
   // Último comando de formatação da faixa (descritor, não função: o F4 roda com o estado ATUAL da
   // tela; uma closure guardada aqui carregaria etapas/seleção de um render antigo).
@@ -864,8 +866,33 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const top    = Math.min(r1.top,  r2.top)      - scr.top  + sc.scrollTop;
     const right  = Math.max(r1.right, r2.right)   - scr.left + sc.scrollLeft;
     const bottom = Math.max(r1.bottom, r2.bottom) - scr.top  + sc.scrollTop;
-    setMarquee({ left, top, width: right - left, height: bottom - top });
+    // `tocaCongelado`: a moldura envolve coluna fixa. As células fixas não rolam e a moldura sim, então
+    // ao rolar para o lado ela não consegue acompanhá-las (ver onScroll da lista): `sl0` é o scrollLeft
+    // de quando foi desenhada.
+    const tocaCongelado = LISTA_FROZEN.includes(a.colId) || LISTA_FROZEN.includes(selectedCell.colId);
+    setMarquee({ left, top, width: right - left, height: bottom - top, sl0: sc.scrollLeft, tocaCongelado });
   };
+
+  // Borda direita da área congelada (calha + colunas fixas visíveis), a mesma conta do cabeçalho.
+  const bordaCongelado = () => GUTTER_W + LISTA_FROZEN.filter(c => !hiddenCols.has(c)).reduce((a, c) => a + getColW(c), 0);
+  // Corta da moldura a parte que rolou para baixo da área congelada (ver marqueePure.js). Direto no
+  // elemento, sem setState: rolar não pode re-renderizar a Lista inteira a cada quadro.
+  const recortarMarquee = () => {
+    const el = marqueeRef.current, sc = listaScrollRef.current;
+    if (!el || !sc || !marquee || marquee.tocaCongelado) return;
+    el.style.clipPath = clipPathDoMarquee(recorteEsquerdoDoMarquee({
+      scrollLeft: sc.scrollLeft, bordaCongelado: bordaCongelado(), left: marquee.left, width: marquee.width,
+    }));
+  };
+  // Moldura nova já nasce recortada (a lista pode estar rolada para o lado na hora do Ctrl+C).
+  React.useLayoutEffect(() => { recortarMarquee(); }, [marquee]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A moldura está em pixels do conteúdo: se as linhas ou colunas mudam de lugar ou de tamanho
+  // (filtro, ordenação, recolher grupo, inserir/excluir, largura/ordem/ocultar coluna, altura de
+  // linha) ela fica no lugar errado. Rolar já não a apaga, então apaga aqui. A assinatura dos ids
+  // evita apagar à toa num re-render com as mesmas linhas.
+  const linhasSig = React.useMemo(() => filtrada.map(x => x.id).join('|'), [filtrada]);
+  React.useEffect(() => { setMarquee(null); }, [linhasSig, colOrder, hiddenCols, colWidths, rowHeights]);
 
   const copyCell = () => {
     if (!selectedCell) return;
@@ -4061,7 +4088,13 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       })()}
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
-      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} onPaste={handlePasteEvent} onScroll={() => { if (marquee) setMarquee(null); }} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none', position: 'relative' }}>
+      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} onPaste={handlePasteEvent} onScroll={(ev) => {
+        if (!marquee) return;
+        // Moldura em coluna congelada não acompanha as células fixas ao rolar para o lado: apaga.
+        // Rolar na vertical mantém tudo (a moldura rola junto, por baixo do cabeçalho).
+        if (marquee.tocaCongelado) { if (ev.currentTarget.scrollLeft !== marquee.sl0) setMarquee(null); return; }
+        recortarMarquee();
+      }} style={{ overflow: 'auto', flex: 1, minHeight: 0, outline: 'none', userSelect: 'none', WebkitUserSelect: 'none', position: 'relative' }}>
         <table className="tbl tbl-lista tbl-lista-grid" style={{ minWidth: 1780 + GUTTER_W, tableLayout: 'fixed', '--lista-row-h': rowH + 'px' }}>
           {/* Larguras autoritativas por coluna. Com table-layout: fixed as larguras vêm do
               colgroup (não do conteúdo montado), então as colunas param de "dançar" ao rolar
@@ -5041,7 +5074,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           {pavimentoOptions.map(o => <option key={o} value={o} />)}
         </datalist>
         {marquee && (
-          <div className="copy-marquee" style={{ position: 'absolute', left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height, pointerEvents: 'none', zIndex: 4 }} />
+          // zIndex 2: acima das células congeladas (1) e ABAIXO dos th fixos do cabeçalho (3, 6, 7),
+          // senão o tracejado passava por cima do cabeçalho ao rolar.
+          <div ref={marqueeRef} className="copy-marquee" style={{ position: 'absolute', left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height, pointerEvents: 'none', zIndex: 2 }} />
         )}
       </div>
 
