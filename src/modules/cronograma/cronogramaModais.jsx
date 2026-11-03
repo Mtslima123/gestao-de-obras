@@ -776,7 +776,7 @@ export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
   };
 
   return (
-    <Modal title="Ordem dos pavimentos" subtitle="Como aparecem no filtro Pavimento da Medição" onClose={onClose} size="compact" draggable overlay={false}
+    <Modal title="Ordem dos pavimentos" subtitle="Todos os pavimentos do cronograma" onClose={onClose} size="compact" draggable overlay={false}
       footer={(
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={salvando}>Cancelar</button>
@@ -787,7 +787,8 @@ export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
       )}>
       <div className="stack">
         <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-          Pavimentos que não estiverem aqui aparecem no final da lista.
+          Organize a ordem uma vez: a Medição mostra, em cada mês, só os pavimentos daquele mês, nesta ordem.
+          Pavimentos novos, que ainda não estiverem aqui, aparecem no final da lista.
         </div>
         {lista.length === 0
           ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhum pavimento nas tarefas desta obra.</div>

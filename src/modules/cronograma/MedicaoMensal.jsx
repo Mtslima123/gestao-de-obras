@@ -19,6 +19,7 @@ import {
 } from './cronogramaShared';
 import { passaFiltrosDeColuna } from './filtroColunasPure';
 import { OrdemPavimentosModal } from './cronogramaModais';
+import { pavimentosDoCronograma } from '../../utils/pavimentos';
 import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
@@ -1171,8 +1172,10 @@ export default function MedicaoMensal({
     [itensTrabalho, pavimentosOrdem]
   );
   // Botão "Ordenar": precisa de pelo menos dois pavimentos com nome, de quem pode editar o
-  // cronograma e da gravação vinda do Cronograma. "—" (sem pavimento) fica sempre por último.
-  const pavimentosParaOrdenar = React.useMemo(() => pavimentos.slice(1).filter(p => p !== '—'), [pavimentos]);
+  // cronograma e da gravação vinda do Cronograma. A janela lista TODOS os pavimentos das tarefas do
+  // cronograma (não só os deste mês, que são os do filtro acima), sem repetir: a ordem é uma só para
+  // todos os meses. "—" (sem pavimento) fica fora e sempre por último no filtro.
+  const pavimentosParaOrdenar = React.useMemo(() => pavimentosDoCronograma(etapas, pavimentosOrdem), [etapas, pavimentosOrdem]);
   const podeOrdenarPavimentos = !readOnly && !!onSalvarOrdemPavimentos && pavimentosParaOrdenar.length > 1;
   // Nome que prevalece para cada pavimento (o do cadastro, se houver): " puc" na tarefa
   // aparece como "PUC", e o filtro compara pela mesma chave (chavePavimento), não pelo texto cru.

@@ -1,6 +1,6 @@
 // Testes das regras de pavimento compartilhadas (Medição e Fotos). Executar: npm test
 import { describe, it, expect } from 'vitest';
-import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos, colunaAusente, funcaoAusente } from '../utils/pavimentos';
+import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos, colunaAusente, funcaoAusente, pavimentosDoCronograma } from '../utils/pavimentos';
 
 const foto = (id, data, pavimento, created_at = '2026-09-30T10:00:00Z') => ({ id, data, pavimento, created_at });
 
@@ -98,6 +98,43 @@ describe('ordem dos pavimentos da Medição: o que não está na lista vai para 
     expect(ordenarPavimentos(usados, cadastro)).toEqual([
       'Subsolo 2', 'Subsolo 1', 'PUC', '10º Tipo II', '2º Tipo II', 'Cobertura', 'Mezanino 2', 'Mezanino 10', '—',
     ]);
+  });
+});
+
+describe('pavimentosDoCronograma: todos os pavimentos da Lista, sem repetir', () => {
+  const t = (pavimento) => ({ id: Math.random(), pavimento });
+
+  it('junta os pavimentos de tarefas de qualquer mês, cada um uma vez', () => {
+    const etapas = [t('Subsolo'), t('1º Tipo'), t('Subsolo'), t('Cobertura'), t('1º Tipo')];
+    expect(pavimentosDoCronograma(etapas)).toEqual(['1º Tipo', 'Cobertura', 'Subsolo']);
+  });
+
+  it('espaço sobrando e maiúscula/minúscula são o mesmo pavimento, e o nome do cadastro prevalece', () => {
+    const etapas = [t(' puc'), t('PUC'), t('puc '), t('2º  tipo'), t('2º tipo')];
+    expect(pavimentosDoCronograma(etapas, ['PUC', '2º tipo'])).toEqual(['PUC', '2º tipo']);
+  });
+
+  it('acento continua diferenciando (térreo x Terreo)', () => {
+    expect(pavimentosDoCronograma([t('térreo'), t('Terreo')])).toEqual(['Terreo', 'térreo']);
+  });
+
+  it('sem pavimento (vazio, nulo ou "—") fica de fora', () => {
+    expect(pavimentosDoCronograma([t(''), t(null), t(undefined), t('—'), t('Térreo')])).toEqual(['Térreo']);
+  });
+
+  it('cadastro reordenado vem primeiro e o que ainda não tem posição vai depois, em ordem natural', () => {
+    const cadastro = ['Subsolo 2', 'Subsolo 1', 'Cobertura'];
+    const etapas = [t('Mezanino 10'), t('Cobertura'), t('Subsolo 1'), t('Mezanino 2'), t('Subsolo 2')];
+    expect(pavimentosDoCronograma(etapas, cadastro)).toEqual(['Subsolo 2', 'Subsolo 1', 'Cobertura', 'Mezanino 2', 'Mezanino 10']);
+  });
+
+  it('só devolve o que as tarefas usam: nome do cadastro sem tarefa não entra', () => {
+    expect(pavimentosDoCronograma([t('Térreo')], ['Subsolo', 'Térreo', 'Cobertura'])).toEqual(['Térreo']);
+  });
+
+  it('sem etapas devolve lista vazia', () => {
+    expect(pavimentosDoCronograma([])).toEqual([]);
+    expect(pavimentosDoCronograma(null)).toEqual([]);
   });
 });
 

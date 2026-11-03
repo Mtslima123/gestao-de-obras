@@ -75,6 +75,14 @@ export function ordenarPavimentos(usados, ordemCadastro = []) {
   return [...cadastrados, ...resto, ...(usadas.has('—') ? ['—'] : [])];
 }
 
+// Todos os pavimentos que aparecem nas tarefas do cronograma (a coluna Pavimento da Lista), não só
+// os de um mês: é a lista da janela "Ordem dos pavimentos" da Medição, que organiza a ordem uma
+// vez para todos os meses. Sem repetir (mesma chave de comparação de chavePavimento), na ordem
+// atual (cadastro primeiro, depois os novos em ordem natural) e sem o "sem pavimento".
+export function pavimentosDoCronograma(etapas, ordemCadastro = []) {
+  return ordenarPavimentos((etapas || []).map(e => e.pavimento), ordemCadastro).filter(p => p !== '—');
+}
+
 // Posição de um pavimento na ordem de cadastro: 0, 1, 2... para os cadastrados; os que não
 // estão no cadastro vêm depois de todos (mesma posição, desempate fica com quem chama) e
 // "sem pavimento" por último.
