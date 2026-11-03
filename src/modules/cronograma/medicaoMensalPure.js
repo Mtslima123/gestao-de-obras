@@ -320,6 +320,42 @@ export function previstoDefasado(registro, aoVivo, tolerancia = 0.005) {
   return acumulado || mes ? { acumulado, mes } : null;
 }
 
+// Anotação livre da medição (medicoes_mensais.anotacoes): um texto por obra + mês, além da
+// observação de cada tarefa. Só se edita com a medição aberta.
+export const LIMITE_ANOTACAO = 4000;
+
+// Texto como vai pro banco: quebras de linha unificadas (o Windows manda \r\n), sem espaço ou linha
+// sobrando nas pontas e dentro do limite. Vazio = sem anotação.
+export function normalizarAnotacao(texto) {
+  return String(texto ?? '').replace(/\r\n?/g, '\n').trim().slice(0, LIMITE_ANOTACAO);
+}
+
+// Quebra a anotação em linhas de no máximo `colunas` caracteres, respeitando as quebras que a
+// pessoa digitou e quebrando em espaço quando dá (palavra maior que a linha é cortada). Serve pra
+// estimar a altura da linha mesclada do Excel, onde o texto quebra sozinho; no PDF quem quebra é o
+// jsPDF (splitTextToSize). Sem texto, nenhuma linha.
+export function linhasDaAnotacao(texto, colunas) {
+  const largura = Math.max(1, Math.floor(colunas) || 1);
+  const limpo = String(texto ?? '').replace(/\r\n?/g, '\n');
+  if (!limpo.trim()) return [];
+  const saida = [];
+  limpo.split('\n').forEach(paragrafo => {
+    let linha = '';
+    paragrafo.split(/\s+/).filter(Boolean).forEach(inteira => {
+      let palavra = inteira;
+      while (palavra.length > largura) {
+        if (linha) { saida.push(linha); linha = ''; }
+        saida.push(palavra.slice(0, largura));
+        palavra = palavra.slice(largura);
+      }
+      const prox = linha ? `${linha} ${palavra}` : palavra;
+      if (prox.length > largura) { saida.push(linha); linha = palavra; } else linha = prox;
+    });
+    saida.push(linha); // parágrafo vazio vira linha em branco (a pessoa deixou uma linha livre)
+  });
+  return saida;
+}
+
 // Bloqueia o fechamento se algum item tiver %medido acima do %executado da tarefa. Tarefa
 // atravessando o mês (início e término em meses diferentes) NÃO bloqueia mais aqui — fechar
 // o mês salva o que foi medido até ali, mesmo com o cronograma da tarefa se estendendo pro

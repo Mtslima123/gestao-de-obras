@@ -6,6 +6,7 @@ import {
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
   computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
   mesesDaMedicao, mergePercMedido, ordenarPavimentos, chavePavimento, previstoDefasado,
+  LIMITE_ANOTACAO, normalizarAnotacao, linhasDaAnotacao,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
@@ -595,6 +596,53 @@ describe('previstoDefasado (previsto congelado x cronograma de hoje)', () => {
     expect(r.acumulado).not.toBeNull();
     expect(r.mes).toBeNull();
     expect(previstoDefasado(aberta, { percPrevisto: null, percPrevistoAcumulado: 32.53 })).toBeNull();
+  });
+});
+
+describe('normalizarAnotacao', () => {
+  it('tira o espaço e as linhas das pontas e unifica \\r\\n', () => {
+    expect(normalizarAnotacao('  \n Primeira\r\nSegunda \r\n\r\n')).toBe('Primeira\nSegunda');
+  });
+
+  it('vazio, só espaço e nulo viram texto vazio', () => {
+    expect(normalizarAnotacao('')).toBe('');
+    expect(normalizarAnotacao('   \n  ')).toBe('');
+    expect(normalizarAnotacao(null)).toBe('');
+    expect(normalizarAnotacao(undefined)).toBe('');
+  });
+
+  it('corta no limite', () => {
+    expect(normalizarAnotacao('a'.repeat(LIMITE_ANOTACAO + 50))).toHaveLength(LIMITE_ANOTACAO);
+  });
+});
+
+describe('linhasDaAnotacao', () => {
+  it('sem texto não gera linha nenhuma', () => {
+    expect(linhasDaAnotacao('', 40)).toEqual([]);
+    expect(linhasDaAnotacao('  \n ', 40)).toEqual([]);
+    expect(linhasDaAnotacao(null, 40)).toEqual([]);
+  });
+
+  it('texto curto fica numa linha só', () => {
+    expect(linhasDaAnotacao('Aguardando liberação do cliente', 40)).toEqual(['Aguardando liberação do cliente']);
+  });
+
+  it('quebra em espaço quando passa da largura', () => {
+    expect(linhasDaAnotacao('um dois três quatro cinco', 10)).toEqual(['um dois', 'três', 'quatro', 'cinco']);
+  });
+
+  it('respeita as quebras de linha digitadas, inclusive a linha em branco', () => {
+    expect(linhasDaAnotacao('Item 1\n\nItem 2', 40)).toEqual(['Item 1', '', 'Item 2']);
+    expect(linhasDaAnotacao('Item 1\r\nItem 2', 40)).toEqual(['Item 1', 'Item 2']);
+  });
+
+  it('palavra maior que a linha é cortada em pedaços', () => {
+    expect(linhasDaAnotacao('abcdefghij', 4)).toEqual(['abcd', 'efgh', 'ij']);
+    expect(linhasDaAnotacao('oi abcdefghij', 4)).toEqual(['oi', 'abcd', 'efgh', 'ij']);
+  });
+
+  it('largura inválida não trava: usa 1 coluna', () => {
+    expect(linhasDaAnotacao('ab', 0)).toEqual(['a', 'b']);
   });
 });
 
