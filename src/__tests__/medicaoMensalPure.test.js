@@ -1,12 +1,16 @@
 // Testes unitários da lógica pura da Medição Mensal.
 // Roda em node (sem browser/Supabase). Executar: npm test
 import { describe, it, expect } from 'vitest';
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
+import XLSX from 'xlsx-js-style';
 import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
   computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
   mesesDaMedicao, mesesDoSeletor, mergePercMedido, ordenarPavimentos, chavePavimento, previstoDefasado,
   LIMITE_ANOTACAO, normalizarAnotacao, linhasDaAnotacao,
+  PALETA_ANOTACAO, lerAnotacao, escreverAnotacao, textoPuroDaAnotacao, anotacaoTemFormato,
+  quebrarRunsEmLinhas, siRicoDoExcel, aplicarTextoRicoNoXlsx,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
@@ -670,6 +674,189 @@ describe('linhasDaAnotacao', () => {
 
   it('largura inválida não trava: usa 1 coluna', () => {
     expect(linhasDaAnotacao('ab', 0)).toEqual(['a', 'b']);
+  });
+});
+
+describe('anotação formatada: negrito e cor', () => {
+  const MARCADA = '<b>Atenção:</b> prazo <span style="color:#C62828">vermelho</span>\nlinha 2';
+  const simples = (texto, negrito = false, cor = null) => ({ texto, negrito, cor });
+
+  it('lerAnotacao separa parágrafos e trechos com o formato de cada um', () => {
+    expect(lerAnotacao(MARCADA)).toEqual([
+      [simples('Atenção:', true), simples(' prazo '), simples('vermelho', false, '#C62828')],
+      [simples('linha 2')],
+    ]);
+  });
+
+  it('texto simples de antes lê igual, com linha em branco como parágrafo vazio', () => {
+    expect(lerAnotacao('Primeira\n\nTerceira')).toEqual([[simples('Primeira')], [], [simples('Terceira')]]);
+    expect(lerAnotacao('Windows\r\nquebra')).toEqual([[simples('Windows')], [simples('quebra')]]);
+    expect(lerAnotacao('')).toEqual([[]]);
+    expect(lerAnotacao(null)).toEqual([[]]);
+  });
+
+  it('negrito e cor juntos, em qualquer ordem de aninhamento', () => {
+    expect(lerAnotacao('<b><span style="color:#2E7D32">ok</span></b>')).toEqual([[simples('ok', true, '#2E7D32')]]);
+    expect(lerAnotacao('<span style="color:#2E7D32"><b>ok</b></span>')).toEqual([[simples('ok', true, '#2E7D32')]]);
+  });
+
+  it('cor em minúscula é normalizada para a da paleta', () => {
+    expect(lerAnotacao('<span style="color:#c62828">x</span>')[0][0].cor).toBe('#C62828');
+  });
+
+  it('só as cores da paleta valem: outra cor vira cor padrão, mantendo o texto', () => {
+    expect(lerAnotacao('<span style="color:#123456">x</span>')).toEqual([[simples('x')]]);
+    expect(PALETA_ANOTACAO.filter(c => c.hex).map(c => c.hex)).toEqual(['#C62828', '#1C4584', '#2E7D32', '#E65100']);
+  });
+
+  it('marca desconhecida e HTML solto são texto comum, nunca marca', () => {
+    expect(textoPuroDaAnotacao('<script>alert(1)</script>')).toBe('<script>alert(1)</script>');
+    expect(textoPuroDaAnotacao('<span style="color:red">x')).toBe('<span style="color:red">x'); // cor que não é #RRGGBB: abertura é texto
+    expect(textoPuroDaAnotacao('<b class="x">y')).toBe('<b class="x">y');
+    expect(textoPuroDaAnotacao('<img src=x onerror=alert(1)>')).toBe('<img src=x onerror=alert(1)>');
+    // ao gravar, os símbolos voltam escapados: no banco não fica nenhuma marca além das quatro
+    expect(normalizarAnotacao('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  it('símbolos & < > : escapados no texto gravado, normais na leitura', () => {
+    expect(textoPuroDaAnotacao('a &lt; b &amp; c &gt; d')).toBe('a < b & c > d');
+    expect(escreverAnotacao([[simples('a < b & c > d')]])).toBe('a &lt; b &amp; c &gt; d');
+    expect(textoPuroDaAnotacao('A & B < C')).toBe('A & B < C'); // texto antigo, sem escape, lê igual
+    expect(normalizarAnotacao('A & B < C')).toBe('A &amp; B &lt; C');
+  });
+
+  it('marca de fechamento sem abertura é ignorada e marca aberta vale até o fim', () => {
+    expect(textoPuroDaAnotacao('a</b>b</span>c')).toBe('abc');
+    expect(lerAnotacao('<b>até o fim\nsegunda')).toEqual([[simples('até o fim', true)], [simples('segunda', true)]]);
+  });
+
+  it('escrever e ler dão a mesma coisa (ida e volta)', () => {
+    expect(escreverAnotacao(lerAnotacao(MARCADA))).toBe(MARCADA);
+    const paras = [[simples('a', true, '#1C4584'), simples('b', true, '#1C4584'), simples(' & c')], [], [simples('fim', false, '#E65100')]];
+    expect(lerAnotacao(escreverAnotacao(paras))).toEqual([
+      [simples('ab', true, '#1C4584'), simples(' & c')], [], [simples('fim', false, '#E65100')],
+    ]);
+  });
+
+  it('textoPuroDaAnotacao devolve o que se vê, e anotacaoTemFormato diz se há formato', () => {
+    expect(textoPuroDaAnotacao(MARCADA)).toBe('Atenção: prazo vermelho\nlinha 2');
+    expect(anotacaoTemFormato(lerAnotacao(MARCADA))).toBe(true);
+    expect(anotacaoTemFormato(lerAnotacao('só texto'))).toBe(false);
+    expect(anotacaoTemFormato(lerAnotacao('<b></b>vazio'))).toBe(false);
+    expect(anotacaoTemFormato(null)).toBe(false);
+  });
+
+  it('normalizarAnotacao tira linhas e espaços das pontas, também entre marcas', () => {
+    expect(normalizarAnotacao('<b> \n</b>\n  <b>Título</b>  \n\n')).toBe('<b>Título</b>');
+    expect(normalizarAnotacao('  <span style="color:#C62828"> x </span>  ')).toBe('<span style="color:#C62828">x</span>');
+    expect(normalizarAnotacao('<b>   </b>')).toBe('');
+  });
+
+  it('o limite conta só o texto visível e não parte uma marca ao meio', () => {
+    const longa = normalizarAnotacao(`<b>${'a'.repeat(LIMITE_ANOTACAO + 10)}</b>`);
+    expect(textoPuroDaAnotacao(longa)).toHaveLength(LIMITE_ANOTACAO);
+    expect(longa.startsWith('<b>') && longa.endsWith('</b>')).toBe(true);
+    // marcas não consomem o limite: cabem exatamente LIMITE caracteres visíveis formatados
+    const exata = `<b>${'a'.repeat(LIMITE_ANOTACAO)}</b>`;
+    expect(normalizarAnotacao(exata)).toBe(exata);
+    // cada quebra de linha conta como 1 caractere
+    const comQuebra = normalizarAnotacao(`${'a'.repeat(LIMITE_ANOTACAO - 2)}\n<b>bbb</b>`);
+    expect(textoPuroDaAnotacao(comQuebra)).toHaveLength(LIMITE_ANOTACAO);
+    expect(textoPuroDaAnotacao(comQuebra).endsWith('\nb')).toBe(true);
+    // se o corte cai logo depois da quebra, a linha em branco que sobraria no fim é descartada
+    const sobraQuebra = normalizarAnotacao(`${'a'.repeat(LIMITE_ANOTACAO - 1)}\n<b>bbb</b>`);
+    expect(textoPuroDaAnotacao(sobraQuebra)).toBe('a'.repeat(LIMITE_ANOTACAO - 1));
+  });
+});
+
+describe('quebrarRunsEmLinhas (anotação no PDF)', () => {
+  const medir = (t) => t.length; // 1 unidade por caractere
+  const simples = (texto, negrito = false, cor = null) => ({ texto, negrito, cor });
+
+  it('quebra em espaço mantendo o formato de cada pedaço', () => {
+    const paras = [[simples('um dois três', true), simples(' quatro', false, '#C62828')]];
+    expect(quebrarRunsEmLinhas(paras, 10, medir)).toEqual([
+      [simples('um dois', true)],
+      [simples('três', true)],
+      [simples('quatro', false, '#C62828')],
+    ]);
+  });
+
+  it('um pedaço formatado no meio da linha continua na mesma linha', () => {
+    const paras = [[simples('ver '), simples('urgente', true, '#C62828'), simples(' hoje')]];
+    expect(quebrarRunsEmLinhas(paras, 40, medir)).toEqual([
+      [simples('ver '), simples('urgente', true, '#C62828'), simples(' hoje')],
+    ]);
+  });
+
+  it('linha em branco digitada vira linha vazia, e espaço no começo da linha some', () => {
+    expect(quebrarRunsEmLinhas([[simples('a')], [], [simples('b')]], 10, medir)).toEqual([[simples('a')], [], [simples('b')]]);
+    expect(quebrarRunsEmLinhas([[simples('  oi')]], 10, medir)).toEqual([[simples('oi')]]);
+  });
+
+  it('palavra maior que a linha é cortada, e largura zero não trava', () => {
+    expect(quebrarRunsEmLinhas([[simples('abcdefghij')]], 4, medir)).toEqual([[simples('abcd')], [simples('efgh')], [simples('ij')]]);
+    expect(quebrarRunsEmLinhas([[simples('abcdefgh')]], 4, medir)).toEqual([[simples('abcd')], [simples('efgh')]]);
+    expect(quebrarRunsEmLinhas([[simples('ab cd')]], 0, medir).length).toBeGreaterThan(0);
+  });
+
+  it('negrito mede mais largo: o medidor recebe se o trecho é negrito', () => {
+    const medirBold = (t, negrito) => t.length * (negrito ? 2 : 1);
+    expect(quebrarRunsEmLinhas([[simples('aa bb', true)]], 5, medirBold)).toEqual([[simples('aa', true)], [simples('bb', true)]]);
+    expect(quebrarRunsEmLinhas([[simples('aa bb')]], 5, medirBold)).toEqual([[simples('aa bb')]]);
+  });
+
+  it('sem texto, nenhuma linha', () => {
+    expect(quebrarRunsEmLinhas([], 10, medir)).toEqual([]);
+    expect(quebrarRunsEmLinhas(null, 10, medir)).toEqual([]);
+  });
+});
+
+describe('anotação formatada no Excel', () => {
+  const simples = (texto, negrito = false, cor = null) => ({ texto, negrito, cor });
+
+  it('siRicoDoExcel monta um trecho por formato, com negrito, cor e o prefixo em negrito', () => {
+    const si = siRicoDoExcel([[simples('Atenção', true, '#C62828'), simples(' a < b')], [simples('fim')]], 'Anotações: ');
+    expect(si.startsWith('<si>') && si.endsWith('</si>')).toBe(true);
+    expect(si).toContain('<b/>');
+    expect(si).toContain('<color rgb="FFC62828"/>');
+    expect(si).toContain('Anotações: </t>');
+    expect(si).toContain('Atenção</t>');
+    expect(si).toContain('a &lt; b</t>'); // XML escapado
+    expect(si).toContain('<t xml:space="preserve">\n</t>'); // quebra entre parágrafos
+    expect((si.match(/<r>/g) || []).length).toBe(5);
+  });
+
+  it('aplicarTextoRicoNoXlsx troca a célula marcada dentro do zip', () => {
+    const arquivos = {
+      'xl/sharedStrings.xml': strToU8('<sst><si><t>Medição</t></si><si><t xml:space="preserve">@@ANOTACAO@@</t></si></sst>'),
+      'xl/workbook.xml': strToU8('<workbook/>'),
+    };
+    const si = siRicoDoExcel([[simples('olá', true)]]);
+    const novo = unzipSync(aplicarTextoRicoNoXlsx(zipSync(arquivos), '@@ANOTACAO@@', si, { unzipSync, zipSync, strFromU8, strToU8 }));
+    expect(strFromU8(novo['xl/sharedStrings.xml'])).toBe(`<sst><si><t>Medição</t></si>${si}</sst>`);
+    expect(strFromU8(novo['xl/workbook.xml'])).toBe('<workbook/>');
+  });
+
+  it('sem marcador ou sem tabela de textos, lança erro (quem chama exporta texto simples)', () => {
+    const f = { unzipSync, zipSync, strFromU8, strToU8 };
+    const semMarcador = zipSync({ 'xl/sharedStrings.xml': strToU8('<sst><si><t>x</t></si></sst>') });
+    expect(() => aplicarTextoRicoNoXlsx(semMarcador, '@@ANOTACAO@@', '<si/>', f)).toThrow();
+    expect(() => aplicarTextoRicoNoXlsx(zipSync({ 'a.xml': strToU8('<a/>') }), '@@ANOTACAO@@', '<si/>', f)).toThrow();
+  });
+
+  it('com planilha de verdade (xlsx-js-style): o arquivo continua abrindo e a célula traz o texto da anotação', () => {
+    const ws = XLSX.utils.aoa_to_sheet([['Título'], ['@@ANOTACAO_TESTE@@'], ['depois']]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Medição');
+    const bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array', bookSST: true });
+    const si = siRicoDoExcel([[simples('Prazo', true, '#C62828'), simples(' curto')], [simples('segunda linha')]], 'Anotações: ');
+    const novo = aplicarTextoRicoNoXlsx(bytes, '@@ANOTACAO_TESTE@@', si, { unzipSync, zipSync, strFromU8, strToU8 });
+    const lido = XLSX.read(novo, { type: 'array' });
+    const aba = lido.Sheets['Medição'];
+    expect(aba.A2.v).toBe('Anotações: Prazo curto\nsegunda linha');
+    expect(aba.A1.v).toBe('Título');
+    expect(aba.A3.v).toBe('depois');
   });
 });
 

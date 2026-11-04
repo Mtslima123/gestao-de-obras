@@ -26,7 +26,9 @@ import {
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
   hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, mesesDoSeletor, ordenarPavimentos, chavePavimento,
   aplicarAlteracoes, previstoDefasado, LIMITE_ANOTACAO, normalizarAnotacao, linhasDaAnotacao,
+  lerAnotacao, textoPuroDaAnotacao, anotacaoTemFormato, quebrarRunsEmLinhas, siRicoDoExcel, aplicarTextoRicoNoXlsx,
 } from './medicaoMensalPure';
+import { EditorAnotacao } from './EditorAnotacao';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
 // mês a partir dos itens do cronograma agendados no mês de referência (mesma
@@ -1830,11 +1832,17 @@ export default function MedicaoMensal({
   // inclui "salvando outra coisa", que não pode piscar o botão e o campo.)
   const anotacaoSoLeitura = readOnly || fechada || !registro;
   const abrirAnotacao = () => { setAnotacaoDraft(anotacaoAtual); setAnotacaoAberta(true); };
+  // O texto da anotação guarda negrito e cor em marcas (ver lerAnotacao): o limite e a dica do botão usam
+  // só o que se vê.
+  const anotacaoAtualPura = textoPuroDaAnotacao(anotacaoAtual);
+  const anotacaoCaracteres = anotacaoAberta ? textoPuroDaAnotacao(anotacaoDraft).length : 0;
+  const anotacaoPassouLimite = anotacaoCaracteres > LIMITE_ANOTACAO;
   const salvarAnotacao = async () => {
     if (bloqueado || salvandoAnotacao) return;
     if (somenteConsulta || semRede) { avisarSemInternet(); return; }
+    if (anotacaoPassouLimite) { toast(`A anotação passou de ${LIMITE_ANOTACAO} caracteres. Encurte o texto para salvar.`, { tone: 'warning' }); return; }
     const texto = normalizarAnotacao(anotacaoDraft);
-    if (texto === anotacaoAtual) { setAnotacaoAberta(false); return; } // nada mudou
+    if (texto === normalizarAnotacao(anotacaoAtual)) { setAnotacaoAberta(false); return; } // nada mudou
     setSalvandoAnotacao(true);
     const { data, error, pendenteTI } = await medicaoMensalService.salvarAnotacoes(obraId, mesRefKey, texto);
     setSalvandoAnotacao(false);
@@ -1930,6 +1938,12 @@ export default function MedicaoMensal({
       // Anotação da medição (só se a pessoa marcou no menu Exportar e há texto): uma linha mesclada
       // abaixo de "Gerado em", o que empurra o cabeçalho da tabela uma linha para baixo.
       const anotacao    = exportarAnotacao ? normalizarAnotacao(anotacaoAtual) : '';
+      const anotacaoParas = anotacao ? lerAnotacao(anotacao) : [];
+      const anotacaoTexto = textoPuroDaAnotacao(anotacao);
+      // Anotação com negrito ou cor: a célula leva um marcador e, depois de gerar o arquivo, o texto formatado
+      // entra no .xlsx (a biblioteca só estiliza a célula inteira). Sem formato, segue como texto simples.
+      const MARCADOR_NOTA = '@@ANOTACAO_FORMATADA@@';
+      const anotacaoRica  = anotacaoTemFormato(anotacaoParas);
       const HEADER_ROW  = anotacao ? 4 : 3;
       const linhas2     = linhasExport();
       const groupRowIdx = [];
@@ -1956,7 +1970,7 @@ export default function MedicaoMensal({
       const rows = [
         [`Medição Mensal · ${obraNome} · ${mesLabel(mesRefKey)}`],
         [`Gerado em ${new Date().toLocaleDateString('pt-BR')}`],
-        ...(anotacao ? [[`Anotações: ${anotacao}`]] : []),
+        ...(anotacao ? [[anotacaoRica ? MARCADOR_NOTA : `Anotações: ${anotacaoTexto}`]] : []),
         [],
         CABECALHOS,
         ...corpo,
@@ -1986,7 +2000,7 @@ export default function MedicaoMensal({
         ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: CABECALHOS.length - 1 } });
         ws['A3'].s = { font: { sz: 10 }, alignment: { wrapText: true, vertical: 'top', horizontal: 'left' } };
         const larguraTotal = exportColsVisiveis.reduce((s, id) => s + (MEDICAO_EXCEL_WCH[id] || 10), 0);
-        const nLinhas = linhasDaAnotacao(`Anotações: ${anotacao}`, Math.max(40, larguraTotal)).length;
+        const nLinhas = linhasDaAnotacao(`Anotações: ${anotacaoTexto}`, Math.max(40, larguraTotal)).length;
         ws['!rows'] = [];
         ws['!rows'][2] = { hpt: Math.max(15, nLinhas * 13.5) };
       }
@@ -1995,7 +2009,25 @@ export default function MedicaoMensal({
       aplicarEstiloLinha(XLSX, ws, totalRowIdx, CABECALHOS.length, XLSX_TOTAL_ROW_STYLE);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Medição');
-      XLSX.writeFile(wb, `medicao-mensal-${mesRefKey || 'mes'}.xlsx`);
+      const nomeArquivo = `medicao-mensal-${mesRefKey || 'mes'}.xlsx`;
+      let gravado = false;
+      if (anotacaoRica) {
+        try {
+          const bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array', bookSST: true });
+          const fflate = await import('fflate');
+          const novo = aplicarTextoRicoNoXlsx(bytes, MARCADOR_NOTA, siRicoDoExcel(anotacaoParas, 'Anotações: '), fflate);
+          const url = URL.createObjectURL(new Blob([novo], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+          const a = document.createElement('a');
+          a.href = url; a.download = nomeArquivo;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+          gravado = true;
+        } catch { /* não deu para formatar a anotação: sai como texto simples logo abaixo */ }
+      }
+      if (!gravado) {
+        if (anotacaoRica) ws.A3.v = `Anotações: ${anotacaoTexto}`; // trocou o marcador pelo texto sem formato
+        XLSX.writeFile(wb, nomeArquivo);
+      }
     } catch {
       toast('Erro ao exportar para Excel', { tone: 'danger' });
     } finally {
@@ -2026,10 +2058,32 @@ export default function MedicaoMensal({
         doc.setFontSize(8); doc.setFont('helvetica', 'bold');
         doc.text('Anotações', 14, 26);
         doc.setFont('helvetica', 'normal');
-        let linhasNota = doc.splitTextToSize(anotacao, W - 28);
+        // Texto montado por trechos (negrito e cor de cada pedaço): a quebra de linha mede cada palavra com a
+        // fonte que ela vai usar (negrito é mais largo).
+        const medirNota = (t, negrito) => { doc.setFont('helvetica', negrito ? 'bold' : 'normal'); return doc.getTextWidth(t); };
+        let linhasNota = quebrarRunsEmLinhas(lerAnotacao(anotacao), W - 28, medirNota);
         const maxLinhas = Math.max(1, Math.floor((H - 30 - 50) / passo));
-        if (linhasNota.length > maxLinhas) linhasNota = [...linhasNota.slice(0, maxLinhas - 1), `${linhasNota[maxLinhas - 1]}…`];
-        doc.text(linhasNota, 14, 30, { lineHeightFactor: 1.25 });
+        if (linhasNota.length > maxLinhas) {
+          linhasNota = linhasNota.slice(0, maxLinhas);
+          const ultima = linhasNota[maxLinhas - 1];
+          const fimDaUltima = ultima[ultima.length - 1];
+          linhasNota[maxLinhas - 1] = fimDaUltima
+            ? [...ultima.slice(0, -1), { ...fimDaUltima, texto: `${fimDaUltima.texto}…` }]
+            : [{ texto: '…', negrito: false, cor: null }];
+        }
+        linhasNota.forEach((linha, i) => {
+          let x = 14;
+          const y = 30 + i * passo;
+          linha.forEach(seg => {
+            const rgb = seg.cor ? [1, 3, 5].map(k => parseInt(seg.cor.slice(k, k + 2), 16)) : [0, 0, 0];
+            doc.setFont('helvetica', seg.negrito ? 'bold' : 'normal');
+            doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+            doc.text(seg.texto, x, y);
+            x += doc.getTextWidth(seg.texto);
+          });
+        });
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(0);
         tabelaY = 30 + linhasNota.length * passo + 2;
         doc.setFontSize(13);
       }
@@ -2237,7 +2291,7 @@ export default function MedicaoMensal({
               não há onde gravar; fechada, só abre para ler (e só se já tiver texto). */}
           <button type="button" className="btn btn-ghost" onClick={abrirAnotacao}
             disabled={!registro || (anotacaoSoLeitura && !anotacaoAtual)}
-            title={anotacaoAtual || (registro ? 'Anotações da medição' : 'Abra a medição do mês para anotar')}>
+            title={anotacaoAtualPura || (registro ? 'Anotações da medição' : 'Abra a medição do mês para anotar')}>
             <Icon name="message-square" size={14} className={anotacaoAtual ? 'mm-nota-flag' : ''} />Anotações
           </button>
           <div ref={exportRef} style={{ position: 'relative' }}>
@@ -3114,37 +3168,38 @@ export default function MedicaoMensal({
           overlay={false}
           draggable
           resizable
+          fillBody
           footer={
             <>
               <div className="spacer" />
               <button className="btn btn-ghost" onClick={() => setAnotacaoAberta(false)}>{anotacaoSoLeitura ? 'Fechar' : 'Cancelar'}</button>
               {!anotacaoSoLeitura && (
-                <button className="btn btn-dark" disabled={salvandoAnotacao} onClick={salvarAnotacao}>
+                <button className="btn btn-dark" disabled={salvandoAnotacao || anotacaoPassouLimite} onClick={salvarAnotacao}>
                   {salvandoAnotacao ? 'Salvando…' : 'Salvar'}
                 </button>
               )}
             </>
           }
         >
-          <textarea
-            className="input"
-            style={{ width: '100%', minHeight: 160, padding: 10, fontSize: 13.5, fontFamily: 'inherit', resize: 'vertical' }}
-            value={anotacaoDraft}
-            readOnly={anotacaoSoLeitura}
-            disabled={salvandoAnotacao}
-            maxLength={LIMITE_ANOTACAO}
+          {/* Editor com negrito e cor (EditorAnotacao). Em tela cheia o campo cresce até o rodapé (fillBody). */}
+          <EditorAnotacao
+            valor={anotacaoDraft}
+            onChange={setAnotacaoDraft}
+            somenteLeitura={anotacaoSoLeitura}
+            desabilitado={salvandoAnotacao}
             autoFocus
             placeholder="Ex.: pendências gerais, combinado com o cliente, motivo de uma diferença no previsto…"
-            aria-label="Anotações da medição"
-            onChange={e => setAnotacaoDraft(e.target.value)}
+            rotulo="Anotações da medição"
           />
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4, fontSize: 11.5, color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4, fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0 }}>
             <span>
               {anotacaoSoLeitura
                 ? (readOnly ? 'Você não tem permissão para editar esta medição.' : 'Medição fechada: para editar, reabra a medição.')
                 : 'Vale para a medição inteira deste mês. A observação de cada tarefa continua na linha dela.'}
             </span>
-            <span style={{ flexShrink: 0 }}>{anotacaoDraft.length}/{LIMITE_ANOTACAO}</span>
+            <span style={{ flexShrink: 0, color: anotacaoPassouLimite ? 'var(--danger)' : undefined, fontWeight: anotacaoPassouLimite ? 600 : undefined }}>
+              {anotacaoCaracteres}/{LIMITE_ANOTACAO}
+            </span>
           </div>
         </Modal>
       )}

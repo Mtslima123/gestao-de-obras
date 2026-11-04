@@ -10,7 +10,7 @@ import { friendlyError } from '../utils/friendlyError';
 // Modals, toasts, dropdowns — shared interactive components
 
 // ----- Modal shell -----
-const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false, resizable = false, overlay = true }) => {
+const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false, resizable = false, overlay = true, fillBody = false }) => {
   const nodeRef  = React.useRef(null);
   const dragging = React.useRef(false);
   const offset   = React.useRef({ x: 0, y: 0 });
@@ -199,7 +199,9 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-        <div className="modal-body">{children}</div>
+        {/* fillBody (opt-in): em tela cheia ou redimensionado, o corpo vira coluna para um filho com
+            flex:1 (o campo de texto das anotações) ocupar o espaço que sobra. Sem a prop, nada muda. */}
+        <div className="modal-body" style={fillBody && (maximizado || customSize) ? { display: 'flex', flexDirection: 'column' } : undefined}>{children}</div>
         {footer && <div className="modal-footer">{footer}</div>}
         {resizable && !maximizado && (
           <div className="modal-resize" onPointerDown={handleResizeDown} title="Arraste para redimensionar">

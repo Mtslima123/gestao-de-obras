@@ -322,12 +322,212 @@ export function previstoDefasado(registro, aoVivo, tolerancia = 0.005) {
 
 // Anotação livre da medição (medicoes_mensais.anotacoes): um texto por obra + mês, além da
 // observação de cada tarefa. Só se edita com a medição aberta.
+// O limite conta só o texto que se vê (as marcas de negrito e cor não entram).
 export const LIMITE_ANOTACAO = 4000;
 
+// Cores do texto da anotação. `padrao` é a cor normal do campo (sem marca nenhuma no texto gravado);
+// as demais são as únicas cores aceitas ao ler. Todas legíveis no PDF (fundo branco).
+export const PALETA_ANOTACAO = [
+  { id: 'padrao', nome: 'Padrão', hex: null },
+  { id: 'vermelho', nome: 'Vermelho', hex: '#C62828' },
+  { id: 'azul', nome: 'Azul', hex: '#1C4584' },
+  { id: 'verde', nome: 'Verde', hex: '#2E7D32' },
+  { id: 'laranja', nome: 'Laranja', hex: '#E65100' },
+];
+const CORES_ANOTACAO = new Set(PALETA_ANOTACAO.filter(c => c.hex).map(c => c.hex));
+
+// Formato gravado: texto com só quatro marcas, `<b>…</b>` e `<span style="color:#RRGGBB">…</span>`, e
+// `&amp; &lt; &gt;` para esses três símbolos; a quebra de linha é `\n`. Texto simples de antes lê igual.
+// A leitura é feita por este interpretador (nunca vira HTML na tela): marca que não for uma dessas
+// quatro, e cor fora da paleta, são tratadas como texto comum ou como cor padrão.
+const MARCA_ANOTACAO = /<b>|<\/b>|<span style="color:(#[0-9A-Fa-f]{6})">|<\/span>|&amp;|&lt;|&gt;|\n/g;
+const ENTIDADES_ANOTACAO = { '&amp;': '&', '&lt;': '<', '&gt;': '>' };
+
+// Junta trechos vizinhos de mesmo formato e descarta os vazios.
+function compactarTrechos(trechos) {
+  const saida = [];
+  trechos.forEach(t => {
+    if (!t.texto) return;
+    const ult = saida[saida.length - 1];
+    if (ult && ult.negrito === t.negrito && ult.cor === t.cor) ult.texto += t.texto;
+    else saida.push({ texto: t.texto, negrito: t.negrito, cor: t.cor });
+  });
+  return saida;
+}
+
+// Texto gravado -> parágrafos, cada um uma lista de trechos { texto, negrito, cor }. Parágrafo vazio
+// (linha em branco) é lista vazia. Marca de fechamento sem abertura é ignorada; marca aberta e não
+// fechada vale até o fim do texto.
+export function lerAnotacao(texto) {
+  const s = String(texto ?? '').replace(/\r\n?/g, '\n');
+  const paragrafos = [[]];
+  let negrito = 0;
+  const cores = []; // pilha de <span>: cor da paleta, ou null (cor fora da paleta = padrão)
+  const poe = (t) => {
+    if (t) paragrafos[paragrafos.length - 1].push({ texto: t, negrito: negrito > 0, cor: cores.length ? cores[cores.length - 1] : null });
+  };
+  let fim = 0;
+  MARCA_ANOTACAO.lastIndex = 0;
+  for (let m = MARCA_ANOTACAO.exec(s); m; m = MARCA_ANOTACAO.exec(s)) {
+    poe(s.slice(fim, m.index));
+    fim = m.index + m[0].length;
+    const marca = m[0];
+    if (marca === '\n') paragrafos.push([]);
+    else if (marca === '<b>') negrito += 1;
+    else if (marca === '</b>') negrito = Math.max(0, negrito - 1);
+    else if (marca === '</span>') cores.pop();
+    else if (marca.startsWith('<span')) { const hex = m[1].toUpperCase(); cores.push(CORES_ANOTACAO.has(hex) ? hex : null); }
+    else poe(ENTIDADES_ANOTACAO[marca]);
+  }
+  poe(s.slice(fim));
+  return paragrafos.map(compactarTrechos);
+}
+
+const escaparAnotacao = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Parágrafos -> texto gravado. Cada trecho leva as suas próprias marcas (o que lerAnotacao devolve volta
+// igual): negrito por fora, cor por dentro.
+export function escreverAnotacao(paragrafos) {
+  return (paragrafos || []).map(p => compactarTrechos(p).map(t => {
+    let x = escaparAnotacao(t.texto);
+    if (t.cor && CORES_ANOTACAO.has(String(t.cor).toUpperCase())) x = `<span style="color:${String(t.cor).toUpperCase()}">${x}</span>`;
+    if (t.negrito) x = `<b>${x}</b>`;
+    return x;
+  }).join('')).join('\n');
+}
+
+// O que a pessoa vê, sem marcas: para a dica do botão, a contagem de caracteres e a altura da linha
+// do Excel.
+export function textoPuroDaAnotacao(texto) {
+  return lerAnotacao(texto).map(p => p.map(t => t.texto).join('')).join('\n');
+}
+
+// Algum trecho tem negrito ou cor? (sem isso, a exportação segue o caminho de texto simples)
+export function anotacaoTemFormato(paragrafos) {
+  return (paragrafos || []).some(p => p.some(t => t.negrito || t.cor));
+}
+
 // Texto como vai pro banco: quebras de linha unificadas (o Windows manda \r\n), sem espaço ou linha
-// sobrando nas pontas e dentro do limite. Vazio = sem anotação.
+// sobrando nas pontas e dentro do limite de caracteres visíveis, sem partir uma marca ao meio. Vazio =
+// sem anotação. Texto simples sai como entrou (só `& < >` viram `&amp; &lt; &gt;`).
 export function normalizarAnotacao(texto) {
-  return String(texto ?? '').replace(/\r\n?/g, '\n').trim().slice(0, LIMITE_ANOTACAO);
+  // Pontas: tira linhas em branco e espaço do começo e do fim (o espaço no meio fica como a pessoa pôs).
+  const aparar = (paras) => {
+    const vazio = (p) => p.every(t => !t.texto.trim());
+    while (paras.length && vazio(paras[0])) paras.shift();
+    while (paras.length && vazio(paras[paras.length - 1])) paras.pop();
+    if (!paras.length) return paras;
+    const primeiro = paras[0];
+    while (primeiro.length) {
+      const ini = primeiro[0].texto.trimStart();
+      if (ini) { primeiro[0].texto = ini; break; }
+      primeiro.shift();
+    }
+    const ultimo = paras[paras.length - 1];
+    while (ultimo.length) {
+      const fimT = ultimo[ultimo.length - 1].texto.trimEnd();
+      if (fimT) { ultimo[ultimo.length - 1].texto = fimT; break; }
+      ultimo.pop();
+    }
+    return paras;
+  };
+  const paras = aparar(lerAnotacao(texto).map(p => p.map(t => ({ ...t }))));
+  // Limite: cada quebra de linha conta como 1 caractere, como no texto simples.
+  let restante = LIMITE_ANOTACAO;
+  const cortadas = [];
+  for (let i = 0; i < paras.length; i += 1) {
+    if (i > 0) { restante -= 1; if (restante < 0) break; }
+    const p = [];
+    for (const t of paras[i]) {
+      if (restante <= 0) break;
+      const texto = t.texto.slice(0, restante);
+      restante -= texto.length;
+      p.push({ ...t, texto });
+    }
+    cortadas.push(p);
+  }
+  // O corte pode deixar linha em branco ou espaço sobrando no fim.
+  return escreverAnotacao(aparar(cortadas));
+}
+
+// Quebra a anotação em linhas que cabem em `larguraMax` (mesma unidade que devolve `medir`), para o
+// PDF: cada linha é uma lista de trechos { texto, negrito, cor }. `medir(texto, negrito)` dá a largura de
+// um pedaço de texto (no PDF, a do jsPDF com a fonte normal ou negrito). Respeita as quebras de linha
+// digitadas (linha em branco vira linha vazia), quebra em espaço quando dá e corta palavra maior que a linha.
+export function quebrarRunsEmLinhas(paragrafos, larguraMax, medir) {
+  const limite = Math.max(0, larguraMax);
+  const linhas = [];
+  (paragrafos || []).forEach(p => {
+    let linha = [];
+    let largura = 0;
+    const fechar = () => {
+      while (linha.length && !linha[linha.length - 1].texto.trim()) linha.pop(); // espaço no fim da linha não conta
+      linhas.push(compactarTrechos(linha));
+      linha = [];
+      largura = 0;
+    };
+    p.forEach(t => {
+      t.texto.split(/(\s+)/).filter(Boolean).forEach(pedaco => {
+        const espaco = /^\s+$/.test(pedaco);
+        const base = { negrito: t.negrito, cor: t.cor };
+        if (espaco) {
+          if (linha.length) { linha.push({ ...base, texto: pedaco }); largura += medir(pedaco, t.negrito); }
+          return; // espaço no começo da linha some
+        }
+        let resto = pedaco;
+        while (resto) {
+          const w = medir(resto, t.negrito);
+          if (largura + w <= limite || (!linha.length && limite <= 0)) { linha.push({ ...base, texto: resto }); largura += w; resto = ''; break; }
+          if (linha.length) { fechar(); continue; } // não coube: recomeça numa linha nova
+          // palavra maior que a linha inteira: corta no último caractere que cabe (no mínimo 1)
+          let n = 1;
+          while (n < resto.length && medir(resto.slice(0, n + 1), t.negrito) <= limite) n += 1;
+          linha.push({ ...base, texto: resto.slice(0, n) });
+          largura += medir(resto.slice(0, n), t.negrito);
+          resto = resto.slice(n);
+          fechar();
+        }
+      });
+    });
+    fechar(); // fecha o parágrafo (vazio = linha em branco)
+  });
+  return linhas;
+}
+
+// Texto formatado do Excel para a anotação: o `<si>` da tabela de textos compartilhados do .xlsx, com
+// um trecho (`<r>`) por pedaço de formato. `prefixo` entra em negrito antes do texto ("Anotações: ").
+// Quebra de linha vira \n dentro do trecho (a célula precisa de quebra automática). O Excel aceita as
+// propriedades do trecho em qualquer ordem.
+export function siRicoDoExcel(paragrafos, prefixo = '') {
+  const xml = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const trecho = (texto, negrito, cor) => (
+    `<r><rPr>${negrito ? '<b/>' : ''}<sz val="10"/>${cor ? `<color rgb="FF${cor.replace('#', '').toUpperCase()}"/>` : ''}<rFont val="Calibri"/></rPr>`
+    + `<t xml:space="preserve">${xml(texto)}</t></r>`
+  );
+  const partes = [];
+  if (prefixo) partes.push(trecho(prefixo, true, null));
+  (paragrafos || []).forEach((p, i) => {
+    if (i > 0) partes.push(trecho('\n', false, null));
+    compactarTrechos(p).forEach(t => partes.push(trecho(t.texto, t.negrito, t.cor)));
+  });
+  return `<si>${partes.join('')}</si>`;
+}
+
+// Troca, dentro de um .xlsx já gerado (zip), a célula que leva `marcador` pelo texto formatado
+// `siXml`. O .xlsx precisa ter sido escrito com tabela de textos compartilhados (bookSST). `fflate` é
+// recebido de fora ({ unzipSync, zipSync, strFromU8, strToU8 }) para esta função não carregar a
+// biblioteca. Devolve os bytes do novo arquivo; se não achar o marcador, lança erro (quem chama
+// exporta o texto simples).
+export function aplicarTextoRicoNoXlsx(bytes, marcador, siXml, fflate) {
+  const { unzipSync, zipSync, strFromU8, strToU8 } = fflate;
+  const arquivos = unzipSync(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+  const caminho = 'xl/sharedStrings.xml';
+  if (!arquivos[caminho]) throw new Error('xlsx sem tabela de textos compartilhados');
+  const xml = strFromU8(arquivos[caminho]);
+  const alvo = new RegExp(`<si><t(?: xml:space="preserve")?>${marcador.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</t></si>`);
+  if (!alvo.test(xml)) throw new Error('marcador da anotação não encontrado');
+  arquivos[caminho] = strToU8(xml.replace(alvo, () => siXml));
+  return zipSync(arquivos);
 }
 
 // Quebra a anotação em linhas de no máximo `colunas` caracteres, respeitando as quebras que a
