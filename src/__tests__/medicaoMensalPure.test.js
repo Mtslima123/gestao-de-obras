@@ -5,7 +5,7 @@ import {
   buildItensMedicao, listarTarefasForaDoMes, computeArvoreMedicao, computeTotaisMedicao,
   gruposParaNivel, buildSnapshotFechamento, hidratarSnapshot, computeDisciplinaInfo,
   computeArvoreForaDoMes, computeResumo, validarAbertura, validarFechamento, detectarDefasagem,
-  mesesDaMedicao, mergePercMedido, ordenarPavimentos, chavePavimento, previstoDefasado,
+  mesesDaMedicao, mesesDoSeletor, mergePercMedido, ordenarPavimentos, chavePavimento, previstoDefasado,
   LIMITE_ANOTACAO, normalizarAnotacao, linhasDaAnotacao,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
@@ -514,6 +514,33 @@ describe('mesesDaMedicao', () => {
 
   it('corta os meses antes do mês inicial (lançamento retroativo)', () => {
     expect(mesesDaMedicao(months, '2026-09').map(m => m.key)).toEqual(['2026-09', '2026-10']);
+  });
+});
+
+describe('mesesDoSeletor: meses antes do início não aparecem na lista', () => {
+  const months = [{ key: '2026-07' }, { key: '2026-08' }, { key: '2026-09' }, { key: '2026-10' }];
+  const keys = (l) => l.map(m => m.key);
+
+  it('sem mês inicial lista o cronograma inteiro', () => {
+    expect(mesesDoSeletor(months, null)).toEqual(months);
+    expect(mesesDoSeletor(months, '', { '2026-07': 'rascunho' })).toEqual(months);
+  });
+
+  it('com mês inicial, tira os anteriores e mantém ele e os seguintes', () => {
+    expect(keys(mesesDoSeletor(months, '2026-09'))).toEqual(['2026-09', '2026-10']);
+    expect(keys(mesesDoSeletor(months, '2026-07'))).toEqual(['2026-07', '2026-08', '2026-09', '2026-10']);
+  });
+
+  it('mês anterior ao início que já tem medição continua na lista (registro não fica sem acesso)', () => {
+    expect(keys(mesesDoSeletor(months, '2026-09', { '2026-08': 'fechada' }))).toEqual(['2026-08', '2026-09', '2026-10']);
+    expect(keys(mesesDoSeletor(months, '2026-10', { '2026-07': 'aprovada', '2026-09': 'rascunho' }))).toEqual(['2026-07', '2026-09', '2026-10']);
+  });
+
+  it('não altera a cadeia de aprovação (mesesDaMedicao) nem a lista recebida', () => {
+    const copia = [...months];
+    mesesDoSeletor(months, '2026-09', { '2026-08': 'fechada' });
+    expect(months).toEqual(copia);
+    expect(keys(mesesDaMedicao(months, '2026-09'))).toEqual(['2026-09', '2026-10']);
   });
 });
 

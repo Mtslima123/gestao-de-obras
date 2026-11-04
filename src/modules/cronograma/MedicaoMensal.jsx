@@ -24,7 +24,7 @@ import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
-  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, ordenarPavimentos, chavePavimento,
+  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, mesesDoSeletor, ordenarPavimentos, chavePavimento,
   aplicarAlteracoes, previstoDefasado, LIMITE_ANOTACAO, normalizarAnotacao, linhasDaAnotacao,
 } from './medicaoMensalPure';
 
@@ -1146,6 +1146,8 @@ export default function MedicaoMensal({
   // A cadeia só conta do mês inicial da obra em diante: o 1º mês de medição fica sem
   // mesAnterior, então abre sem exigir aprovação/reprogramação dos meses de antes.
   const mesesCadeia = React.useMemo(() => mesesDaMedicao(months, mesInicial), [months, mesInicial]);
+  // Lista dos seletores de mês (computador e celular): sem os meses antes do início da medição.
+  const mesesNoSeletor = React.useMemo(() => mesesDoSeletor(months, mesInicial, statusPorMes), [months, mesInicial, statusPorMes]);
   const foraDoPeriodo = !!mesInicial && mesRefKey < mesInicial;
   const mesIdxAtual = mesesCadeia.findIndex(m => m.key === mesRefKey);
   const mesAnterior = mesIdxAtual > 0 ? mesesCadeia[mesIdxAtual - 1] : null;
@@ -2216,7 +2218,7 @@ export default function MedicaoMensal({
               cronograma sem nenhuma relação com as medições, então não havia como saber
               quais meses já tinham sido abertos ou fechados. */}
           <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)} style={{ minWidth: 190 }}>
-            {months.map(m => {
+            {mesesNoSeletor.map(m => {
               const st = statusPorMes[m.key];
               const sufixo = st === 'aprovada' ? ' · aprovada' : st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
               return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;
@@ -2871,7 +2873,7 @@ export default function MedicaoMensal({
             {/* Sem o botão de ordenar pavimentos aqui: a ordem é definida no computador (arrastar
                 linhas não combina com tela de obra); o celular só usa a ordem já salva no filtro. */}
             <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)}>
-              {months.map(m => {
+              {mesesNoSeletor.map(m => {
                 const st = statusPorMes[m.key];
                 const sufixo = st === 'aprovada' ? ' · aprovada' : st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
                 return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;

@@ -375,6 +375,16 @@ export function mesesDaMedicao(months, mesInicial) {
   return months.filter(m => m.key >= mesInicial);
 }
 
+// Meses do seletor da Medição: com início definido, os anteriores a ele saem da lista (não há
+// medição ali). Exceção: mês anterior que JÁ tem medição no banco (`statusPorMes[mes]`, de
+// quando o início era outro) continua listado, para não deixar um registro sem como abrir.
+// Sem início, lista tudo. Diferente de mesesDaMedicao, que é a cadeia de aprovação e não
+// inclui esses meses.
+export function mesesDoSeletor(months, mesInicial, statusPorMes = {}) {
+  if (!mesInicial) return months;
+  return months.filter(m => m.key >= mesInicial || !!statusPorMes[m.key]);
+}
+
 // Bloqueia a abertura se alguma folha com término num mês anterior a mesRefKey ainda não
 // chegou a 100% de avanço — abrir o mês seguinte com pendência do passado escondia que a
 // tarefa precisa ser reprogramada. Só folhas (grupo é média dos filhos, não é reprogramável)
