@@ -72,9 +72,10 @@ const MEDICAO_EXCEL_WCH = {
   servico: 12, descricao: 46, pavimento: 14, inicio: 12, termino: 12, dur: 7,
   peso: 10, executado: 13, medido: 11, valorAMedir: 16, valorMedido: 16,
 };
-// Alinhamento no PDF por coluna — texto (servico/descricao/pavimento) fica no padrão
-// (esquerda) do autoTable, só as numéricas/data precisam de override.
+// Alinhamento no PDF por coluna — só servico/descricao (texto longo) ficam no padrão (esquerda)
+// do autoTable; pavimento e datas são curtos e ficam centralizados sob o cabeçalho, que já é centralizado.
 const MEDICAO_PDF_ALIGN = {
+  pavimento: 'center', inicio: 'center', termino: 'center',
   dur: 'center', peso: 'center', executado: 'center', medido: 'center',
   valorAMedir: 'right', valorMedido: 'right',
 };
