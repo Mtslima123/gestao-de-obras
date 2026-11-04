@@ -20,8 +20,8 @@ import { offlineQueue } from './services/offlineQueue';
 import { pavimentosFotosService } from './services/pavimentosFotos.service';
 import { useIsMobile, useIsTouchDevice, ehSiteDeComputadorNoToque, lerAmbienteDeTela } from './utils/useIsMobile';
 import { MobileGate } from './modules/mobile/MobileGate';
-import { MobileFullHeader, MobileFullNav, LegadoMobile, lerChaveMobileFull } from './modules/mobile/full/MobileFullChrome';
-import { modoMobileCompleto as calcularModoMobileCompleto, telaDeRetornoDoFoco } from './modules/mobile/full/mobileFullPure';
+import { MobileFullHeader, MobileFullNav, LegadoMobile, TelaMobile, lerChaveMobileFull } from './modules/mobile/full/MobileFullChrome';
+import { modoMobileCompleto as calcularModoMobileCompleto, telaDeRetornoDoFoco, telaJaAdaptada } from './modules/mobile/full/mobileFullPure';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
 // Renderizadas dentro de <Suspense> no corpo do App.
 const Dashboard                 = React.lazy(() => import('./modules/dashboard/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -35,6 +35,8 @@ const AuditoriaScreen           = React.lazy(() => import('./modules/admin/Audit
 const FisicoFinanceiroList      = React.lazy(() => import('./modules/fisicoFinanceiro/FisicoFinanceiroList').then(m => ({ default: m.FisicoFinanceiroList })));
 const FisicoFinanceiroDetail    = React.lazy(() => import('./modules/fisicoFinanceiro/FisicoFinanceiroDetail').then(m => ({ default: m.FisicoFinanceiroDetail })));
 const MaoDeObraEfetivo          = React.lazy(() => import('./modules/maoDeObra/efetivo/MaoDeObraEfetivo').then(m => ({ default: m.MaoDeObraEfetivo })));
+// Variantes da casca mobile do Sistema Completo (só carregadas quando usadas)
+const DashboardMobile           = React.lazy(() => import('./modules/mobile/full/dashboard/DashboardMobile').then(m => ({ default: m.DashboardMobile })));
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect, TweakColor, TweakButton } from './components/TweaksPanel';
 
 // Um módulo (React.lazy) que já estava carregado na aba e o site foi atualizado (novo
@@ -976,18 +978,20 @@ const AppInner = () => {
             <AcessoNegado onVoltar={() => handleNavigate(primeiraViewLiberada)} />
           ) : (
           <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
-          <LegadoMobile ativo={modoMobileCompleto}>
+          <LegadoMobile ativo={modoMobileCompleto && !telaJaAdaptada(view)}>
           {view === 'dashboard' && (
             // Sem a lista de obras (sem rede) o Dashboard diria "Nenhuma obra liberada
             // para o seu usuário", que é falso — mostra o aviso de conexão no lugar.
             obrasOffline && !obrasVisiveis.length
               ? <OfflineFallback onRetry={() => setObrasRetryTick((t) => t + 1)} />
-              : <Dashboard obras={obrasVisiveis} onOpenObra={handleOpenObra} />
+              : (modoMobileCompleto
+                  ? <TelaMobile ativo nome="dashboard"><DashboardMobile obras={obrasVisiveis} /></TelaMobile>
+                  : <Dashboard obras={obrasVisiveis} onOpenObra={handleOpenObra} />)
           )}
           {view === 'obras' && (
             obrasOffline
               ? <OfflineFallback onRetry={() => setObrasRetryTick((t) => t + 1)} />
-              : <ObrasList onOpenObra={handleOpenObra} obras={obrasVisiveis} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} userProfile={userProfile} />
+              : <TelaMobile ativo={modoMobileCompleto} nome="obras"><ObrasList onOpenObra={handleOpenObra} obras={obrasVisiveis} onObraCreate={handleObraCreate} onObraUpdate={handleObraUpdate} onObraDelete={handleObraDelete} userProfile={userProfile} /></TelaMobile>
           )}
           {view === 'obra-detail' && (
             <ObraDetail
@@ -1019,7 +1023,7 @@ const AppInner = () => {
             </>
           )}
           {view === 'fisico-financeiro' && (
-            <FisicoFinanceiroList onOpenObra={handleOpenObraFF} obras={obrasVisiveis} />
+            <TelaMobile ativo={modoMobileCompleto} nome="fisico-financeiro"><FisicoFinanceiroList onOpenObra={handleOpenObraFF} obras={obrasVisiveis} /></TelaMobile>
           )}
           {view === 'fisico-financeiro-detail' && (
             <FisicoFinanceiroDetail

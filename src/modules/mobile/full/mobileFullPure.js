@@ -21,6 +21,11 @@ export const decidirChaveDeTeste = ({ search = '', guardado = null } = {}) => {
 export const modoMobileCompleto = ({ chaveAtiva, isMobile, gateLiberado, mobileFocus }) =>
   !!chaveAtiva && !!isMobile && !!gateLiberado && !mobileFocus;
 
+// Telas (views do App) que já têm apresentação mobile própria. As demais continuam sendo a tela do desktop
+// dentro do contêiner de rolagem (LegadoMobile). Ao adaptar uma tela nova, incluir a view aqui.
+export const TELAS_ADAPTADAS = ['dashboard', 'obras', 'fisico-financeiro'];
+export const telaJaAdaptada = (view) => TELAS_ADAPTADAS.includes(view);
+
 // Barra inferior: os três módulos mais usados + "Mais" (gaveta com o resto). Os ids vêm de config/modulos.
 export const DESTINOS_DA_BARRA = ['dashboard', 'obras', 'cronograma'];
 

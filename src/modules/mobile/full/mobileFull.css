@@ -174,6 +174,85 @@ html.mob-full .modal-footer .btn { min-height: 44px; flex: 1 1 auto; justify-con
 /* O espaçador empurrava os botões para a direita; com botões de largura total ele só atrapalharia. */
 html.mob-full .modal-footer .spacer { display: none; }
 
+/* ---------- Formulários dentro da casca ----------
+   Campos com 16px: abaixo disso o Safari do iPhone dá zoom na página ao focar o campo. Uma coluna e altura de
+   toque de 44px. Vale para os formulários das janelas (Nova obra etc.). */
+html.mob-full .field input,
+html.mob-full .field select,
+html.mob-full .field textarea { font-size: 16px; }
+html.mob-full .field input,
+html.mob-full .field select { height: 44px; }
+html.mob-full .form-grid { grid-template-columns: 1fr; }
+
+/* ---------- Telas já adaptadas (ver TelaMobile) ----------
+   Obras e Físico Financeiro (lista) já são listas de cards: aqui só se ajusta o que atrapalha no celular, sem
+   duplicar a lógica delas. O título da tela já está no cabeçalho da casca. */
+.mfs-tela .page-header { margin-bottom: 12px; gap: 8px; flex-wrap: wrap; align-items: center; }
+.mfs-tela .page-title { display: none; }
+.mfs-tela .obra-card-grid { grid-template-columns: 1fr; gap: 12px; }
+/* No toque o :hover fica "preso" depois do toque e levantava o cartão. */
+.mfs-tela .obra-card:hover { transform: none; box-shadow: var(--shadow-xs); border-color: var(--border); }
+.mfs-tela .obra-card:active { background: var(--surface-muted); }
+.mfs-tela .obra-card-img { height: 150px; }
+/* Físico Financeiro (lista): o cabeçalho da página só tinha o título. */
+.mfs-tela-fisico-financeiro .page-header { display: none; }
+/* Obras: botão com alvo de toque, filtros em chips (quebram de linha em vez de esconder um deles) e busca em
+   linha própria. !important só no min-width da busca, que o componente grava em estilo inline (260px). */
+.mfs-tela-obras .page-actions .btn { height: 44px; }
+.mfs-tela-obras .chip { height: 38px; padding: 0 12px; font-size: 13.5px; white-space: nowrap; }
+.mfs-tela-obras .input-search { min-width: 0 !important; flex: 1 1 100%; height: 44px; font-size: 16px; }
+
+/* ---------- Dashboard (DashboardMobile) ---------- */
+.mfs-dash { display: flex; flex-direction: column; gap: 18px; }
+.mfs-kpis, .mfs-ff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mfs-kpi {
+  min-width: 0; padding: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
+}
+.mfs-kpi-destaque { grid-column: 1 / -1; }
+.mfs-kpi-rotulo {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted);
+}
+.mfs-kpi-icone {
+  width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+  display: grid; place-items: center; background: var(--brand-tint); color: var(--brand);
+}
+.mfs-kpi-valor {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+  font-size: 24px; font-weight: 700; letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums;
+}
+.mfs-kpi-destaque .mfs-kpi-valor { font-size: 30px; }
+.mfs-kpi-unidade { font-size: 12px; font-weight: 500; letter-spacing: 0; color: var(--text-muted); }
+.mfs-kpi-rodape { margin-top: 6px; font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mfs-secao-topo { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 8px; }
+.mfs-secao-titulo { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--text); }
+.mfs-secao-topo .mfs-secao-titulo { margin: 0; }
+.mfs-secao-detalhe { font-size: 12px; color: var(--text-muted); }
+.mfs-select { width: 100%; height: 44px; font-size: 16px; margin-bottom: 10px; }
+.mfs-aviso { font-size: 13.5px; color: var(--text-muted); }
+.mfs-aviso-erro { color: var(--danger); }
+/* Curva S: é o gráfico do desktop dentro do cartão dele. Só se ajusta o cabeçalho (título e legenda quebram linha)
+   e o alvo de toque do seletor e das caixas, gravados em estilo inline (por isso o !important no seletor). */
+.mfs-dash .card-header { flex-wrap: wrap; gap: 10px; }
+.mfs-dash .card-header select { height: 36px !important; font-size: 14px !important; }
+.mfs-dash .card-header input[type='checkbox'] { width: 18px; height: 18px; }
+.mfs-obras { display: flex; flex-direction: column; gap: 10px; }
+.mfs-obra {
+  display: flex; flex-direction: column; gap: 12px; padding: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-xs);
+}
+.mfs-obra-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.mfs-obra-nome { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mfs-obra-nome strong { font-size: 15px; color: var(--text); }
+.mfs-obra-nome .mono { font-size: 11.5px; color: var(--text-muted); }
+.mfs-linha-rotulo-valor { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 12px; color: var(--text-muted); }
+.mfs-linha-rotulo-valor strong { color: var(--brand); font-size: 13px; font-variant-numeric: tabular-nums; }
+.mfs-metricas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; padding-top: 10px; border-top: 1px solid var(--border); }
+.mfs-metricas dt { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-metricas dd { margin: 2px 0 0; font-size: 15px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+
 /* ---------- Avisos (toast) acima da barra inferior ---------- */
 html.mob-full .toast-stack {
   bottom: calc(68px + env(safe-area-inset-bottom, 0px));

@@ -4,7 +4,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   decidirChaveDeTeste, modoMobileCompleto, montarNavegacao, abaDaBarraAtiva, itemDaGavetaAtivo,
-  atalhosLiberados, cabecalhoDaTela, telaDeRetornoDoFoco, DESTINOS_DA_BARRA,
+  atalhosLiberados, cabecalhoDaTela, telaDeRetornoDoFoco, DESTINOS_DA_BARRA, TELAS_ADAPTADAS, telaJaAdaptada,
 } from '../modules/mobile/full/mobileFullPure';
 import { MODULOS_TOPO } from '../config/modulos';
 
@@ -192,6 +192,20 @@ describe('cabecalhoDaTela (breadcrumb da Topbar do desktop vira cabeçalho compa
   });
   it('ignora itens sem rótulo', () => {
     expect(cabecalhoDaTela([null, { label: '' }, { label: 'Obras' }]).titulo).toBe('Obras');
+  });
+});
+
+describe('telas já adaptadas (saem do contêiner de rolagem LegadoMobile)', () => {
+  it('Dashboard, Obras e Físico Financeiro (lista) já estão adaptados', () => {
+    ['dashboard', 'obras', 'fisico-financeiro'].forEach(v => expect(telaJaAdaptada(v)).toBe(true));
+  });
+  it('o resto ainda é a tela do desktop', () => {
+    ['obra-detail', 'orcamentos', 'cronograma', 'fisico-financeiro-detail', 'mao-de-obra', 'admin'].forEach(v => {
+      expect(telaJaAdaptada(v)).toBe(false);
+    });
+  });
+  it('toda tela adaptada é uma view que existe no menu ou na navegação', () => {
+    TELAS_ADAPTADAS.forEach(v => expect(MODULOS_TOPO.map(m => m.id)).toContain(v));
   });
 });
 
