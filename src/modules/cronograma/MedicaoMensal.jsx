@@ -2048,45 +2048,9 @@ export default function MedicaoMensal({
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
 
-      // Anotação da medição (só se marcada no menu Exportar e com texto), abaixo de "Gerado em".
-      // A tabela começa depois dela na 1ª página; nas seguintes a margem de cima continua a de sempre.
-      // Texto enorme é cortado para sobrar pelo menos 50 mm de página para a tabela.
-      let tabelaY = 25;
+      // Anotação da medição (só se marcada no menu Exportar e com texto): vai no FIM do documento, depois da
+      // tabela e do total geral (ver abaixo do autoTable), e não mais no topo.
       const anotacao = exportarAnotacao ? normalizarAnotacao(anotacaoAtual) : '';
-      if (anotacao) {
-        const passo = 8 * 1.25 * 0.3528; // fonte 8 pt com entrelinha 1,25, em mm
-        doc.setFontSize(8); doc.setFont('helvetica', 'bold');
-        doc.text('Anotações', 14, 26);
-        doc.setFont('helvetica', 'normal');
-        // Texto montado por trechos (negrito e cor de cada pedaço): a quebra de linha mede cada palavra com a
-        // fonte que ela vai usar (negrito é mais largo).
-        const medirNota = (t, negrito) => { doc.setFont('helvetica', negrito ? 'bold' : 'normal'); return doc.getTextWidth(t); };
-        let linhasNota = quebrarRunsEmLinhas(lerAnotacao(anotacao), W - 28, medirNota);
-        const maxLinhas = Math.max(1, Math.floor((H - 30 - 50) / passo));
-        if (linhasNota.length > maxLinhas) {
-          linhasNota = linhasNota.slice(0, maxLinhas);
-          const ultima = linhasNota[maxLinhas - 1];
-          const fimDaUltima = ultima[ultima.length - 1];
-          linhasNota[maxLinhas - 1] = fimDaUltima
-            ? [...ultima.slice(0, -1), { ...fimDaUltima, texto: `${fimDaUltima.texto}…` }]
-            : [{ texto: '…', negrito: false, cor: null }];
-        }
-        linhasNota.forEach((linha, i) => {
-          let x = 14;
-          const y = 30 + i * passo;
-          linha.forEach(seg => {
-            const rgb = seg.cor ? [1, 3, 5].map(k => parseInt(seg.cor.slice(k, k + 2), 16)) : [0, 0, 0];
-            doc.setFont('helvetica', seg.negrito ? 'bold' : 'normal');
-            doc.setTextColor(rgb[0], rgb[1], rgb[2]);
-            doc.text(seg.texto, x, y);
-            x += doc.getTextWidth(seg.texto);
-          });
-        });
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(0);
-        tabelaY = 30 + linhasNota.length * passo + 2;
-        doc.setFontSize(13);
-      }
 
       const dados = linhasExport();
       const fmtD = (d) => (d ? d.toLocaleDateString('pt-BR') : '');
@@ -2119,7 +2083,7 @@ export default function MedicaoMensal({
         return fmtPct100(v);
       };
       autoTable(doc, {
-        startY: tabelaY,
+        startY: 25,
         head: [CABECALHOS],
         body: dados.map(l => exportColsVisiveis.map((id, i) => fmtCell(id, l.cells[i]))),
         foot: [[
@@ -2147,6 +2111,44 @@ export default function MedicaoMensal({
           doc.setTextColor(0);
         },
       });
+      // Anotação no fim: começa logo abaixo da tabela e segue para uma página nova quando não cabe. As páginas
+      // novas levam o número da página como as da tabela (didDrawPage só roda nas páginas do autoTable).
+      if (anotacao) {
+        const passo = 8 * 1.25 * 0.3528; // fonte 8 pt com entrelinha 1,25, em mm
+        const limiteY = H - 14; // mesma margem de baixo da tabela
+        const novaPagina = () => {
+          doc.addPage();
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text(`Página ${doc.internal.getNumberOfPages()}`, W - 20, H - 6);
+          doc.setTextColor(0);
+          return 20;
+        };
+        doc.setFontSize(8);
+        // Texto por trechos (negrito e cor de cada pedaço): a quebra mede cada palavra com a fonte que ela vai usar
+        // (negrito é mais largo).
+        const medirNota = (t, negrito) => { doc.setFont('helvetica', negrito ? 'bold' : 'normal'); return doc.getTextWidth(t); };
+        const linhasNota = quebrarRunsEmLinhas(lerAnotacao(anotacao), W - 28, medirNota);
+        let y = (doc.lastAutoTable?.finalY ?? 25) + 8;
+        // O título não fica sozinho no pé da página: precisa caber com as duas primeiras linhas do texto.
+        if (y + 4 + passo * Math.min(2, linhasNota.length) > limiteY) y = novaPagina();
+        doc.setFont('helvetica', 'bold');
+        doc.text('Anotações', 14, y);
+        y += 4;
+        linhasNota.forEach(linha => {
+          if (y > limiteY) y = novaPagina();
+          let x = 14;
+          linha.forEach(seg => {
+            const rgb = seg.cor ? [1, 3, 5].map(k => parseInt(seg.cor.slice(k, k + 2), 16)) : [0, 0, 0];
+            doc.setFont('helvetica', seg.negrito ? 'bold' : 'normal');
+            doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+            doc.text(seg.texto, x, y);
+            x += doc.getTextWidth(seg.texto);
+          });
+          y += passo;
+        });
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(0);
+      }
       doc.save(`medicao-mensal-${mesRefKey || 'mes'}.pdf`);
     } catch {
       toast('Erro ao exportar para PDF', { tone: 'danger' });
