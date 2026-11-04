@@ -2868,16 +2868,8 @@ export default function MedicaoMensal({
             <select className="input" value={pavimento} onChange={e => escolherPavimento(e.target.value)}>
               {pavimentos.map(p => <option key={p} value={p}>{p === 'Todos' ? 'Pavimento: Todos' : p}</option>)}
             </select>
-            {podeOrdenarPavimentos && (
-              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }}
-                onClick={() => setOrdemPavAberto(true)}>
-                <Icon name="move" size={14} />Ordenar pavimentos
-              </button>
-            )}
-            <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={abrirAnotacao}
-              disabled={!registro || (anotacaoSoLeitura && !anotacaoAtual)}>
-              <Icon name="message-square" size={14} className={anotacaoAtual ? 'mm-nota-flag' : ''} />Anotações da medição
-            </button>
+            {/* Sem o botão de ordenar pavimentos aqui: a ordem é definida no computador (arrastar
+                linhas não combina com tela de obra); o celular só usa a ordem já salva no filtro. */}
             <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)}>
               {months.map(m => {
                 const st = statusPorMes[m.key];
@@ -2898,6 +2890,11 @@ export default function MedicaoMensal({
                 <option key={n} value={n}>Nível {n}</option>
               ))}
             </select>
+            {/* Anotações fica logo abaixo de Estrutura (pedido do usuário); o ícone fica vermelho quando já há texto. */}
+            <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={abrirAnotacao}
+              disabled={!registro || (anotacaoSoLeitura && !anotacaoAtual)}>
+              <Icon name="message-square" size={14} className={anotacaoAtual ? 'mm-nota-flag' : ''} />Anotações da medição
+            </button>
           </div>
 
           {qtdForaDoMes > 0 && (
