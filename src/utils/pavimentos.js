@@ -42,6 +42,65 @@ export function moverParaIndice(lista, de, para) {
   return nova;
 }
 
+// ─── Mover vários de uma vez (janela "Ordem dos pavimentos") ─────────────────────────────
+// `selecionados` é um Set (ou lista) de nomes. Todas devolvem a MESMA lista quando nada muda
+// (quem chama compara pra saber se há algo a gravar) e nunca alteram a lista recebida.
+const comoSet = (s) => (s instanceof Set ? s : new Set(s));
+const mesmaOrdem = (a, b) => a.length === b.length && a.every((p, i) => p === b[i]);
+
+// Sobe (delta < 0) ou desce (delta > 0) os selecionados uma posição: cada um troca com o vizinho
+// não selecionado. Quem já está na ponta não passa dela, e o bloco encostado nela também fica;
+// os demais continuam andando. A ordem relativa entre os selecionados nunca muda.
+export function moverSelecionados(lista, selecionados, delta) {
+  const sel = comoSet(selecionados);
+  const nova = [...lista];
+  let mudou = false;
+  const trocar = (i, j) => { [nova[i], nova[j]] = [nova[j], nova[i]]; mudou = true; };
+  if (delta < 0) {
+    for (let i = 1; i < nova.length; i += 1) {
+      if (sel.has(nova[i]) && !sel.has(nova[i - 1])) trocar(i, i - 1);
+    }
+  } else {
+    for (let i = nova.length - 2; i >= 0; i -= 1) {
+      if (sel.has(nova[i]) && !sel.has(nova[i + 1])) trocar(i, i + 1);
+    }
+  }
+  return mudou ? nova : lista;
+}
+
+// Arrastar: os selecionados saem de onde estão e caem juntos, como um bloco e na ordem em que
+// já estavam, antes do alvo (`depois` falso) ou depois dele (`depois` verdadeiro: arrastar para
+// baixo). Soltar sobre um dos próprios selecionados, ou num nome que não está na lista, não faz nada.
+export function moverSelecionadosPara(lista, selecionados, nomeAlvo, depois) {
+  const sel = comoSet(selecionados);
+  if (sel.has(nomeAlvo) || !lista.includes(nomeAlvo)) return lista;
+  const grupo = lista.filter(p => sel.has(p));
+  if (grupo.length === 0) return lista;
+  const resto = lista.filter(p => !sel.has(p));
+  const i = resto.indexOf(nomeAlvo) + (depois ? 1 : 0);
+  const nova = [...resto.slice(0, i), ...grupo, ...resto.slice(i)];
+  return mesmaOrdem(nova, lista) ? lista : nova;
+}
+
+// "Ao topo" / "Ao fim": leva os selecionados para uma ponta, juntos e na ordem em que estavam.
+export function moverSelecionadosExtremo(lista, selecionados, onde) {
+  const sel = comoSet(selecionados);
+  const grupo = lista.filter(p => sel.has(p));
+  const resto = lista.filter(p => !sel.has(p));
+  const nova = onde === 'topo' ? [...grupo, ...resto] : [...resto, ...grupo];
+  return mesmaOrdem(nova, lista) ? lista : nova;
+}
+
+// Shift + clique: os nomes entre duas linhas, inclusive as duas. Sem a âncora (nunca clicou antes,
+// ou ela saiu da lista), vale só a linha clicada; sem a linha clicada, nada.
+export function intervaloNaLista(lista, ancora, nome) {
+  const fim = lista.indexOf(nome);
+  if (fim === -1) return [];
+  const inicio = lista.indexOf(ancora);
+  if (inicio === -1) return [nome];
+  return lista.slice(Math.min(inicio, fim), Math.max(inicio, fim) + 1);
+}
+
 // Nome do pavimento duplicado: "X (cópia)", "X (cópia 2)"... sem repetir um nome que já
 // existe (mesma regra de comparação do cadastro, ver chavePavimento) e cabendo nos 60
 // caracteres do campo.

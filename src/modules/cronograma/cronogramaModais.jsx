@@ -7,7 +7,7 @@ import { Icon } from "../../components/Icons";
 import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay, projectStartOffset } from "./cronogramaDateUtils";
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, agruparPorPai, aplicarVinculosEmLote, resumoDeCiclos, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
-import { moverNaLista, moverParaIndice } from "../../utils/pavimentos";
+import { moverSelecionados, moverSelecionadosPara, moverSelecionadosExtremo, intervaloNaLista } from "../../utils/pavimentos";
 import { itemValor } from "../financeiro/vinculoService";
 import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
 
@@ -736,54 +736,110 @@ const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 
 // ─── OrdemPavimentosModal — ordem dos pavimentos no filtro da Medição ─────────
 // Rascunho local com Subir/Descer e arrastar a linha para mover (HTML5, só com mouse: no toque
-// ficam as setas), gravado de uma vez no Salvar (uma chamada para a obra
-// inteira): um toque errado se desfaz no Cancelar, sem nada pela metade no banco. Quem não
-// estiver na lista (pavimento criado depois) aparece no final até alguém reposicionar.
-// `onSalvar(lista)` devolve true quando gravou; só então o modal fecha, e os avisos de
-// erro ficam com quem chama.
+// ficam as setas). Dá para marcar vários pavimentos (caixa, ou Shift + clique para um intervalo)
+// e mover todos juntos: as setas, o arraste e o "Ao topo" / "Ao fim" valem para a seleção inteira
+// quando a linha tocada faz parte dela; senão movem só a linha tocada. Gravado de uma vez no
+// Salvar (uma chamada para a obra inteira): um toque errado se desfaz no Cancelar, sem nada pela
+// metade no banco. Quem não estiver na lista (pavimento criado depois) aparece no final até
+// alguém reposicionar.
+// `onSalvar(lista)` devolve true quando gravou. A janela NÃO fecha: dá para seguir ajustando e
+// salvar de novo, e a lista gravada passa a ser a nova base da comparação (os avisos de erro e o
+// de sucesso ficam com quem chama).
 export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
   const [lista, setLista] = React.useState(pavimentos);
+  // Última ordem gravada (ou a de abertura): "mudou" compara com ela, e não com a prop, que só
+  // reflete a gravação depois que quem chama recarrega os pavimentos do banco.
+  const [base, setBase] = React.useState(pavimentos);
   const [salvando, setSalvando] = React.useState(false);
+  const [selecionados, setSelecionados] = React.useState(() => new Set());
+  const ancoraRef = React.useRef(null); // última linha clicada: ponto de partida do Shift + clique
   const travaRef = React.useRef(false);
   const btnRefs = React.useRef({});
+  const linhaRefs = React.useRef({});
   const focoRef = React.useRef(null);
-  const mudou = lista.some((p, i) => p !== pavimentos[i]);
+  const verRef = React.useRef(null);
+  const mudou = lista.some((p, i) => p !== base[i]);
+  const qtdSel = selecionados.size;
+  const todosMarcados = lista.length > 0 && qtdSel === lista.length;
 
   // Depois de mover, o foco volta ao botão que foi tocado (a linha troca de lugar no DOM e,
-  // sem isso, quem usa o teclado perdia o ponto a cada Subir/Descer).
+  // sem isso, quem usa o teclado perdia o ponto a cada Subir/Descer). Com "Ao topo" / "Ao fim" a
+  // seleção pula para longe: leva a primeira (ou a última) linha dela para a área visível.
   React.useEffect(() => {
     if (focoRef.current) btnRefs.current[focoRef.current]?.focus();
     focoRef.current = null;
+    if (verRef.current) linhaRefs.current[verRef.current]?.scrollIntoView?.({ block: 'nearest' });
+    verRef.current = null;
   }, [lista]);
+
+  // Quem se move: a seleção inteira, se a linha tocada faz parte dela; senão só a linha tocada.
+  const grupoDe = (p) => (selecionados.has(p) ? selecionados : new Set([p]));
 
   const mover = (p, delta) => {
     if (travaRef.current) return;
-    const nova = moverNaLista(lista, lista.indexOf(p), delta);
+    const nova = moverSelecionados(lista, grupoDe(p), delta);
     if (nova === lista) return; // já na ponta
     focoRef.current = `${p}:${delta}`;
     setLista(nova);
   };
+  // Seta sem efeito (grupo já encostado na ponta): fica com aria-disabled, como a primeira e a
+  // última linha sempre ficaram.
+  const semMovimento = (p, delta) => moverSelecionados(lista, grupoDe(p), delta) === lista;
+
+  const levarAoExtremo = (onde) => {
+    if (travaRef.current || qtdSel === 0) return;
+    const nova = moverSelecionadosExtremo(lista, selecionados, onde);
+    if (nova === lista) return;
+    const grupo = nova.filter(p => selecionados.has(p));
+    verRef.current = onde === 'topo' ? grupo[0] : grupo[grupo.length - 1];
+    setLista(nova);
+  };
+
+  // Clique na linha (ou na caixa): marca/desmarca. Com Shift, marca tudo entre a última linha
+  // clicada e esta. A âncora é lida antes do setState: a função dele roda depois, já com a
+  // âncora trocada.
+  const clicarLinha = (p, shift) => {
+    const ancora = ancoraRef.current;
+    ancoraRef.current = p;
+    setSelecionados(atual => {
+      const novo = new Set(atual);
+      if (shift && ancora) intervaloNaLista(lista, ancora, p).forEach(n => novo.add(n));
+      else if (novo.has(p)) novo.delete(p);
+      else novo.add(p);
+      return novo;
+    });
+  };
+  // Caixa do topo (como a do e-mail): sem nenhum marcado, marca todos; com algum marcado, limpa.
+  const alternarTodos = () => {
+    ancoraRef.current = null;
+    setSelecionados(qtdSel === 0 ? new Set(lista) : new Set());
+  };
 
   // Arrastar a linha: `dragRef` guarda quem está sendo arrastado (a lógica dos eventos não pode
   // depender de state, que só vale no render seguinte); `arrastando` e `alvo` são só o visual:
-  // linha esmaecida e uma linha azul no lado do alvo em que o item vai cair (depois, se arrastando
-  // para baixo). Só move ao soltar, para a lista não pular debaixo do mouse.
+  // linhas esmaecidas (a seleção toda, se a linha pegada estiver nela) e uma linha azul no lado do
+  // alvo em que o item vai cair (depois, se arrastando para baixo). Só move ao soltar, para a
+  // lista não pular debaixo do mouse.
   const dragRef = React.useRef(null);
   const [arrastando, setArrastando] = React.useState(null);
   const [alvo, setAlvo] = React.useState(null); // { nome, depois }
   const terminarArraste = () => { dragRef.current = null; setArrastando(null); setAlvo(null); };
   const soltarEm = (nomeAlvo) => {
-    const nova = moverParaIndice(lista, lista.indexOf(dragRef.current), lista.indexOf(nomeAlvo));
+    const pegada = dragRef.current;
+    const depois = lista.indexOf(pegada) < lista.indexOf(nomeAlvo);
+    const nova = moverSelecionadosPara(lista, grupoDe(pegada), nomeAlvo, depois);
     terminarArraste();
     if (nova !== lista) setLista(nova);
   };
+  const emArraste = arrastando != null ? grupoDe(arrastando) : null;
 
   const salvar = async () => {
     if (travaRef.current || !mudou) return;
     travaRef.current = true;
     setSalvando(true);
+    const enviada = lista; // nada move a lista durante a gravação (mover/arrastar respeitam a trava)
     try {
-      if (await onSalvar(lista)) onClose();
+      if (await onSalvar(enviada)) setBase(enviada);
     } finally {
       travaRef.current = false;
       setSalvando(false);
@@ -794,7 +850,7 @@ export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
     <Modal title="Ordem dos pavimentos" subtitle="Todos os pavimentos do cronograma" onClose={onClose} size="compact" draggable overlay={false}
       footer={(
         <>
-          <button className="btn btn-ghost" onClick={onClose} disabled={salvando}>Cancelar</button>
+          <button className="btn btn-ghost" onClick={onClose} disabled={salvando}>{mudou ? 'Cancelar' : 'Fechar'}</button>
           <button className="btn btn-primary" onClick={salvar} disabled={salvando || !mudou}>
             <Icon name="check" size={14} />{salvando ? 'Salvando…' : 'Salvar ordem'}
           </button>
@@ -802,64 +858,96 @@ export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
       )}>
       <div className="stack">
         <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-          Arraste a linha para mover (ou use as setas). A Medição mostra, em cada mês, só os pavimentos
-          daquele mês, nesta ordem. Pavimentos novos, que ainda não estiverem aqui, aparecem no final da lista.
+          Marque vários pavimentos (na caixa, ou com Shift + clique para um intervalo) e use as setas ou
+          arraste uma das linhas marcadas para mover todos juntos. A Medição mostra, em cada mês, só os
+          pavimentos daquele mês, nesta ordem. Pavimentos novos, que ainda não estiverem aqui, aparecem no final da lista.
         </div>
         {lista.length === 0
           ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhum pavimento nas tarefas desta obra.</div>
           : (
-            <table className="tbl pav-lista">
-              <tbody>
-                {lista.map((p, i) => (
-                  <tr key={p}
-                    draggable={!salvando}
-                    title="Arraste para mover"
-                    onDragStart={ev => {
-                      if (travaRef.current) { ev.preventDefault(); return; }
-                      dragRef.current = p;
-                      ev.dataTransfer.effectAllowed = 'move';
-                      ev.dataTransfer.setData('text/plain', p); // o Firefox só começa o arraste com algum dado
-                      // O visual esmaecido entra depois do evento: mexer no estilo dentro do dragstart
-                      // deixa o navegador capturar (ou até cancelar) o arraste com a linha já alterada.
-                      setTimeout(() => { if (dragRef.current === p) setArrastando(p); }, 0);
-                    }}
-                    onDragOver={ev => {
-                      if (dragRef.current == null) return; // arraste de outra coisa (arquivo, texto): não é daqui
-                      ev.preventDefault();
-                      ev.dataTransfer.dropEffect = 'move';
-                      if (dragRef.current === p) { if (alvo) setAlvo(null); return; }
-                      const depois = lista.indexOf(dragRef.current) < i;
-                      if (alvo?.nome !== p || alvo.depois !== depois) setAlvo({ nome: p, depois });
-                    }}
-                    onDrop={ev => { ev.preventDefault(); if (dragRef.current != null) soltarEm(p); }}
-                    onDragEnd={terminarArraste}
-                    style={{
-                      cursor: salvando ? 'default' : 'grab',
-                      opacity: arrastando === p ? 0.4 : 1,
-                      boxShadow: alvo?.nome === p ? `inset 0 ${alvo.depois ? '-' : ''}2px 0 var(--brand)` : undefined,
-                    }}>
-                    <td style={{ padding: '6px 0 6px 8px', width: 1, color: 'var(--text-faint)' }} aria-hidden="true">
-                      <Icon name="grip" size={14} />
-                    </td>
-                    <td style={{ padding: '6px 8px', wordBreak: 'break-word' }}>{p}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '6px 8px', width: 1 }}>
-                      {/* aria-disabled em vez de disabled: botão desabilitado perde o foco (mesmo
-                          padrão do modal de pavimentos das Fotos). */}
-                      <div className="pav-acoes">
-                        <button className="icon-btn" title="Subir" aria-label={`Subir ${p}`} aria-disabled={salvando || i === 0}
-                          ref={el => { btnRefs.current[`${p}:-1`] = el; }} onClick={() => mover(p, -1)}>
-                          <Icon name="chevron-up" size={14} />
-                        </button>
-                        <button className="icon-btn" title="Descer" aria-label={`Descer ${p}`} aria-disabled={salvando || i === lista.length - 1}
-                          ref={el => { btnRefs.current[`${p}:1`] = el; }} onClick={() => mover(p, 1)}>
-                          <Icon name="chevron-down" size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div>
+              <div className="pav-barra">
+                <label className="pav-barra-todos" title={qtdSel === 0 ? 'Marcar todos' : 'Limpar a seleção'}>
+                  <input type="checkbox" checked={todosMarcados}
+                    ref={el => { if (el) el.indeterminate = qtdSel > 0 && !todosMarcados; }}
+                    onChange={alternarTodos} disabled={salvando} />
+                  <span>{qtdSel === 0 ? 'Nenhum marcado' : `${qtdSel} ${qtdSel === 1 ? 'marcado' : 'marcados'}`}</span>
+                </label>
+                <div className="pav-barra-acoes">
+                  <button type="button" className="btn btn-ghost btn-sm" title="Levar os selecionados para o início da lista"
+                    onClick={() => levarAoExtremo('topo')} disabled={qtdSel === 0 || salvando}>
+                    <Icon name="chevron-up" size={14} />Ao topo
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" title="Levar os selecionados para o fim da lista"
+                    onClick={() => levarAoExtremo('fim')} disabled={qtdSel === 0 || salvando}>
+                    <Icon name="chevron-down" size={14} />Ao fim
+                  </button>
+                </div>
+              </div>
+              <table className="tbl pav-lista">
+                <tbody>
+                  {lista.map((p, i) => {
+                    const marcado = selecionados.has(p);
+                    return (
+                      <tr key={p}
+                        ref={el => { linhaRefs.current[p] = el; }}
+                        className={marcado ? 'pav-sel' : undefined}
+                        draggable={!salvando}
+                        title="Arraste para mover"
+                        onClick={ev => { if (!ev.target.closest('button, input')) clicarLinha(p, ev.shiftKey); }}
+                        onDragStart={ev => {
+                          if (travaRef.current) { ev.preventDefault(); return; }
+                          dragRef.current = p;
+                          ev.dataTransfer.effectAllowed = 'move';
+                          ev.dataTransfer.setData('text/plain', p); // o Firefox só começa o arraste com algum dado
+                          // O visual esmaecido entra depois do evento: mexer no estilo dentro do dragstart
+                          // deixa o navegador capturar (ou até cancelar) o arraste com a linha já alterada.
+                          setTimeout(() => { if (dragRef.current === p) setArrastando(p); }, 0);
+                        }}
+                        onDragOver={ev => {
+                          if (dragRef.current == null) return; // arraste de outra coisa (arquivo, texto): não é daqui
+                          ev.preventDefault();
+                          ev.dataTransfer.dropEffect = 'move';
+                          // Sobre a própria linha pegada ou sobre outra do mesmo grupo: soltar aqui não faz nada.
+                          if (grupoDe(dragRef.current).has(p)) { if (alvo) setAlvo(null); return; }
+                          const depois = lista.indexOf(dragRef.current) < i;
+                          if (alvo?.nome !== p || alvo.depois !== depois) setAlvo({ nome: p, depois });
+                        }}
+                        onDrop={ev => { ev.preventDefault(); if (dragRef.current != null) soltarEm(p); }}
+                        onDragEnd={terminarArraste}
+                        style={{
+                          cursor: salvando ? 'default' : 'grab',
+                          opacity: emArraste?.has(p) ? 0.4 : 1,
+                          boxShadow: alvo?.nome === p ? `inset 0 ${alvo.depois ? '-' : ''}2px 0 var(--brand)` : undefined,
+                        }}>
+                        <td style={{ padding: '6px 0 6px 8px', width: 1 }}>
+                          <input type="checkbox" checked={marcado} aria-label={`Selecionar ${p}`}
+                            onChange={ev => clicarLinha(p, ev.nativeEvent.shiftKey)} />
+                        </td>
+                        <td style={{ padding: '6px 0', width: 1, color: 'var(--text-faint)' }} aria-hidden="true">
+                          <Icon name="grip" size={14} />
+                        </td>
+                        <td style={{ padding: '6px 8px', wordBreak: 'break-word' }}>{p}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '6px 8px', width: 1 }}>
+                          {/* aria-disabled em vez de disabled: botão desabilitado perde o foco (mesmo
+                              padrão do modal de pavimentos das Fotos). */}
+                          <div className="pav-acoes">
+                            <button className="icon-btn" title="Subir" aria-label={`Subir ${p}`} aria-disabled={salvando || semMovimento(p, -1)}
+                              ref={el => { btnRefs.current[`${p}:-1`] = el; }} onClick={() => mover(p, -1)}>
+                              <Icon name="chevron-up" size={14} />
+                            </button>
+                            <button className="icon-btn" title="Descer" aria-label={`Descer ${p}`} aria-disabled={salvando || semMovimento(p, 1)}
+                              ref={el => { btnRefs.current[`${p}:1`] = el; }} onClick={() => mover(p, 1)}>
+                              <Icon name="chevron-down" size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
       </div>
     </Modal>

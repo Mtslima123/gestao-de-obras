@@ -1,6 +1,6 @@
 // Testes das regras de pavimento compartilhadas (Medição e Fotos). Executar: npm test
 import { describe, it, expect } from 'vitest';
-import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos, colunaAusente, funcaoAusente, pavimentosDoCronograma, moverParaIndice } from '../utils/pavimentos';
+import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos, colunaAusente, funcaoAusente, pavimentosDoCronograma, moverParaIndice, moverSelecionados, moverSelecionadosPara, moverSelecionadosExtremo, intervaloNaLista } from '../utils/pavimentos';
 
 const foto = (id, data, pavimento, created_at = '2026-09-30T10:00:00Z') => ({ id, data, pavimento, created_at });
 
@@ -130,6 +130,109 @@ describe('moverParaIndice (arrastar para mover)', () => {
     expect(moverParaIndice(lista, -1, 2)).toBe(lista);
     expect(moverParaIndice(lista, 2, 5)).toBe(lista);
     expect(moverParaIndice([], 0, 0)).toEqual([]);
+  });
+});
+
+describe('mover vários pavimentos de uma vez', () => {
+  const lista = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+  describe('moverSelecionados (setas)', () => {
+    it('sobe um bloco contíguo uma posição', () => {
+      expect(moverSelecionados(lista, new Set(['C', 'D']), -1)).toEqual(['A', 'C', 'D', 'B', 'E', 'F']);
+    });
+
+    it('desce um bloco contíguo uma posição', () => {
+      expect(moverSelecionados(lista, new Set(['C', 'D']), 1)).toEqual(['A', 'B', 'E', 'C', 'D', 'F']);
+    });
+
+    it('selecionados separados andam juntos e mantêm a ordem entre si', () => {
+      expect(moverSelecionados(lista, new Set(['B', 'E']), -1)).toEqual(['B', 'A', 'C', 'E', 'D', 'F']);
+      expect(moverSelecionados(lista, new Set(['B', 'E']), 1)).toEqual(['A', 'C', 'B', 'D', 'F', 'E']);
+    });
+
+    it('quem já está na ponta fica, o bloco encostado nela também, e os outros andam', () => {
+      expect(moverSelecionados(lista, new Set(['A', 'B', 'E']), -1)).toEqual(['A', 'B', 'C', 'E', 'D', 'F']);
+      expect(moverSelecionados(lista, new Set(['B', 'E', 'F']), 1)).toEqual(['A', 'C', 'B', 'D', 'E', 'F']);
+    });
+
+    it('com um só selecionado faz o mesmo que Subir e Descer de uma linha', () => {
+      expect(moverSelecionados(lista, new Set(['C']), -1)).toEqual(moverNaLista(lista, 2, -1));
+      expect(moverSelecionados(lista, new Set(['C']), 1)).toEqual(moverNaLista(lista, 2, 1));
+    });
+
+    it('nada a mover devolve a mesma lista: todos na ponta, todos selecionados, vazio ou nome fora da lista', () => {
+      expect(moverSelecionados(lista, new Set(['A', 'B']), -1)).toBe(lista);
+      expect(moverSelecionados(lista, new Set(['E', 'F']), 1)).toBe(lista);
+      expect(moverSelecionados(lista, new Set(lista), -1)).toBe(lista);
+      expect(moverSelecionados(lista, new Set(), 1)).toBe(lista);
+      expect(moverSelecionados(lista, new Set(['Z']), 1)).toBe(lista);
+    });
+
+    it('aceita lista de nomes no lugar de Set e não altera a lista original', () => {
+      const copia = [...lista];
+      expect(moverSelecionados(lista, ['C'], -1)).toEqual(['A', 'C', 'B', 'D', 'E', 'F']);
+      expect(lista).toEqual(copia);
+    });
+  });
+
+  describe('moverSelecionadosPara (arrastar)', () => {
+    it('arrastar para baixo cai o bloco depois do alvo', () => {
+      expect(moverSelecionadosPara(lista, new Set(['A', 'C']), 'E', true)).toEqual(['B', 'D', 'E', 'A', 'C', 'F']);
+    });
+
+    it('arrastar para cima cai o bloco antes do alvo, na ordem em que estavam', () => {
+      expect(moverSelecionadosPara(lista, new Set(['E', 'C']), 'B', false)).toEqual(['A', 'C', 'E', 'B', 'D', 'F']);
+    });
+
+    it('com um só selecionado faz o mesmo que arrastar uma linha', () => {
+      expect(moverSelecionadosPara(lista, new Set(['A']), 'C', true)).toEqual(moverParaIndice(lista, 0, 2));
+      expect(moverSelecionadosPara(lista, new Set(['E']), 'B', false)).toEqual(moverParaIndice(lista, 4, 1));
+    });
+
+    it('soltar sobre um dos selecionados, num nome de fora ou sem selecionados não faz nada', () => {
+      expect(moverSelecionadosPara(lista, new Set(['A', 'C']), 'C', true)).toBe(lista);
+      expect(moverSelecionadosPara(lista, new Set(['A', 'C']), 'Z', true)).toBe(lista);
+      expect(moverSelecionadosPara(lista, new Set(), 'C', true)).toBe(lista);
+    });
+
+    it('soltar onde o bloco já está devolve a mesma lista', () => {
+      expect(moverSelecionadosPara(lista, new Set(['B', 'C']), 'A', true)).toBe(lista);
+      expect(moverSelecionadosPara(lista, new Set(['B', 'C']), 'D', false)).toBe(lista);
+    });
+  });
+
+  describe('moverSelecionadosExtremo (ao topo, ao fim)', () => {
+    it('leva os selecionados para o topo, juntos e na ordem em que estavam', () => {
+      expect(moverSelecionadosExtremo(lista, new Set(['E', 'C']), 'topo')).toEqual(['C', 'E', 'A', 'B', 'D', 'F']);
+    });
+
+    it('leva os selecionados para o fim, juntos e na ordem em que estavam', () => {
+      expect(moverSelecionadosExtremo(lista, new Set(['B', 'D']), 'fim')).toEqual(['A', 'C', 'E', 'F', 'B', 'D']);
+    });
+
+    it('já na ponta, sem seleção ou com tudo selecionado devolve a mesma lista', () => {
+      expect(moverSelecionadosExtremo(lista, new Set(['A', 'B']), 'topo')).toBe(lista);
+      expect(moverSelecionadosExtremo(lista, new Set(['E', 'F']), 'fim')).toBe(lista);
+      expect(moverSelecionadosExtremo(lista, new Set(), 'topo')).toBe(lista);
+      expect(moverSelecionadosExtremo(lista, new Set(lista), 'fim')).toBe(lista);
+    });
+  });
+
+  describe('intervaloNaLista (Shift + clique)', () => {
+    it('devolve as linhas entre as duas, inclusive, nos dois sentidos', () => {
+      expect(intervaloNaLista(lista, 'B', 'D')).toEqual(['B', 'C', 'D']);
+      expect(intervaloNaLista(lista, 'E', 'C')).toEqual(['C', 'D', 'E']);
+    });
+
+    it('mesma linha devolve só ela', () => {
+      expect(intervaloNaLista(lista, 'C', 'C')).toEqual(['C']);
+    });
+
+    it('sem âncora vale só a linha clicada; linha fora da lista não devolve nada', () => {
+      expect(intervaloNaLista(lista, null, 'D')).toEqual(['D']);
+      expect(intervaloNaLista(lista, 'Z', 'D')).toEqual(['D']);
+      expect(intervaloNaLista(lista, 'B', 'Z')).toEqual([]);
+    });
   });
 });
 
