@@ -20,6 +20,8 @@ import { offlineQueue } from './services/offlineQueue';
 import { pavimentosFotosService } from './services/pavimentosFotos.service';
 import { useIsMobile, useIsTouchDevice, ehSiteDeComputadorNoToque, lerAmbienteDeTela } from './utils/useIsMobile';
 import { MobileGate } from './modules/mobile/MobileGate';
+import { MobileFullHeader, MobileFullNav, LegadoMobile, lerChaveMobileFull } from './modules/mobile/full/MobileFullChrome';
+import { modoMobileCompleto as calcularModoMobileCompleto, telaDeRetornoDoFoco } from './modules/mobile/full/mobileFullPure';
 // Telas pesadas carregadas sob demanda (code-splitting) — reduz o bundle inicial.
 // Renderizadas dentro de <Suspense> no corpo do App.
 const Dashboard                 = React.lazy(() => import('./modules/dashboard/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -224,6 +226,9 @@ const AppInner = () => {
   const [mobileGateBypassed, setMobileGateBypassed] = React.useState(() => {
     try { return sessionStorage.getItem('mobile_gate_ok') === '1'; } catch { return false; }
   });
+  // Chave de teste da casca mobile do Sistema Completo (?mobile=novo liga, ?mobile=antigo desliga).
+  // Desligada, o app se comporta exatamente como antes. Ver modules/mobile/full.
+  const [mobileFullChave] = React.useState(lerChaveMobileFull);
   // Deep links "de uma vez só" para dentro dos módulos — ver handleOpenCronograma/handleOpenObra abaixo.
   const [cronogramaInitialTab, setCronogramaInitialTab] = React.useState(null);
   const [selectedObraInitialTab, setSelectedObraInitialTab] = React.useState('cronograma');
@@ -736,6 +741,36 @@ const AppInner = () => {
     cronogramaViewAnteriorRef.current = view;
   }, [view]);
 
+  // Casca mobile do Sistema Completo: duas ações da gaveta "Mais".
+  // 1) Voltar ao início simplificado (MobileGate): até hoje a única saída era sair da conta.
+  const voltarAoInicioSimplificado = () => {
+    try { sessionStorage.removeItem('mobile_gate_ok'); } catch { /* ignore */ }
+    setMobileGateBypassed(false);
+  };
+  // 2) Medição e Fotos abrem o modo foco que já existe (mesmos handlers do MobileGate, nada novo nele).
+  // O atalho navega por baixo (Cronograma/Obra); ao sair do foco volta à tela em que a pessoa estava, senão
+  // ela cairia no Cronograma ou na Obra que o atalho abriu. Só vale para foco aberto pela gaveta: pelo
+  // MobileGate a ref fica vazia e o comportamento segue o de sempre.
+  const telaAntesDoFocoRef = React.useRef(null);
+  const abrirFocoNoCelular = (destino, obra) => {
+    telaAntesDoFocoRef.current = view;
+    if (destino === 'medicao') {
+      try { sessionStorage.setItem('mobile_focus_obra_id', obra.id); } catch { /* ignore */ }
+      handleOpenCronograma(obra.id, 'medicao');
+      setMobileFocus('medicao');
+    } else {
+      handleOpenObra(obra, 'fotos');
+      setMobileFocus('fotos');
+    }
+  };
+  React.useEffect(() => {
+    if (mobileFocus || !telaAntesDoFocoRef.current) return;
+    const volta = telaDeRetornoDoFoco(telaAntesDoFocoRef.current);
+    telaAntesDoFocoRef.current = null;
+    setCronogramaInitialTab(null);
+    handleNavigate(volta);
+  }, [mobileFocus]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const screenLabels = {
     'dashboard':  '01 Dashboard',
     'obras':      '02 Obras — Lista',
@@ -795,6 +830,11 @@ const AppInner = () => {
   // que é onde o modo offline vale; pela largura sozinha um tablet de 10" cairia no
   // sistema completo.
   const showMobileGate = (isMobile || isTouch) && !mobileGateBypassed && !mobileFocus;
+  // Sistema Completo no celular com a casca própria (barra inferior no lugar da Sidebar). Falso no desktop,
+  // no tablet em retrato, no MobileGate, no modo foco e com a chave de teste desligada.
+  const modoMobileCompleto = calcularModoMobileCompleto({
+    chaveAtiva: mobileFullChave, isMobile, gateLiberado: mobileGateBypassed, mobileFocus,
+  });
 
   return (
     <>
@@ -887,6 +927,22 @@ const AppInner = () => {
       )}
       {authed && !acessoNegado && !showMobileGate && !mobileFocus && (
     <div className={'app' + (sidebarPinned ? ' sidebar-pinned' : '')} data-screen-label={screenLabels[view] || view}>
+      {modoMobileCompleto ? (
+        <MobileFullNav
+          view={view}
+          cronogramaTab={cronogramaTab}
+          adminTab={adminTab}
+          user={user}
+          userProfile={userProfile}
+          obras={obrasVisiveis}
+          onNavigate={handleNavigate}
+          onCronogramaTabChange={setCronogramaTab}
+          onAdminTabChange={setAdminTab}
+          onAbrirFoco={abrirFocoNoCelular}
+          onVoltarInicio={voltarAoInicioSimplificado}
+          onLogout={pedirSair}
+        />
+      ) : (
       <Sidebar
         currentView={view === 'obra-detail' ? 'obras' : view === 'fisico-financeiro-detail' ? 'fisico-financeiro' : view}
         onNavigate={handleNavigate}
@@ -900,10 +956,15 @@ const AppInner = () => {
         pinned={sidebarPinned}
         onPinChange={setSidebarPinned}
       />
+      )}
       <div className="main">
+        {modoMobileCompleto ? (
+          <MobileFullHeader breadcrumb={buildBreadcrumb()} />
+        ) : (
         <Topbar
           breadcrumb={buildBreadcrumb()}
         />
+        )}
         <div className="content">
           <ErrorBoundary key={view}>
           {!obrasLoaded ? (
@@ -915,7 +976,7 @@ const AppInner = () => {
             <AcessoNegado onVoltar={() => handleNavigate(primeiraViewLiberada)} />
           ) : (
           <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
-          <>
+          <LegadoMobile ativo={modoMobileCompleto}>
           {view === 'dashboard' && (
             // Sem a lista de obras (sem rede) o Dashboard diria "Nenhuma obra liberada
             // para o seu usuário", que é falso — mostra o aviso de conexão no lugar.
@@ -994,7 +1055,7 @@ const AppInner = () => {
            view !== 'fisico-financeiro' && view !== 'fisico-financeiro-detail' && view !== 'mao-de-obra' && (
             <PlaceholderModule view={view} onOpenObra={handleOpenObra} />
           )}
-          </>
+          </LegadoMobile>
           </React.Suspense>
           )}
           </ErrorBoundary>

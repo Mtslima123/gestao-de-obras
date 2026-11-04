@@ -1,0 +1,197 @@
+/* ============================================
+   Casca mobile do Sistema Completo (ver MobileFullChrome.jsx)
+
+   Duas regras para não afetar o resto do app:
+   1. Classes novas só com prefixo .mfs-*.
+   2. Sobrescritas de classes que já existem (.app, .content, .modal, .toast, .notif-panel) sempre sob
+      html.mob-full, classe que só existe no <html> enquanto a casca está montada. Fora dela, nada daqui vale:
+      desktop, tela mobile simplificada (MobileGate), Medição e Fotos em modo foco ficam exatamente como estavam.
+   Cores sempre por variável (--brand etc.), nunca hexadecimal: o tema e o accent do app continuam mandando.
+   ============================================ */
+
+/* ---------- Layout geral: sem Sidebar, com a barra inferior reservando espaço ---------- */
+html.mob-full .app { padding-left: 0; }
+html.mob-full .content {
+  padding: 12px 12px calc(76px + env(safe-area-inset-bottom, 0px));
+}
+/* A página nunca pode ficar mais larga que a tela. Medido no painel de 375px: um bloco de 700px alargava o
+   viewport de layout para 712px (e a altura junto), e a barra inferior, que é fixa, ia parar fora da área
+   visível. Num celular real o navegador faz o mesmo ("página zoada") quando algo estoura a largura.
+   body: o overflow-x propaga para o viewport e não cria rolagem própria, então position: sticky segue valendo.
+   .content: rede de proteção para uma tela já adaptada que estoure por engano (corta em vez de quebrar o app). */
+html.mob-full body { overflow-x: hidden; }
+html.mob-full .content { overflow-x: clip; }
+/* Telas do desktop ainda não adaptadas (ver LegadoMobile): mantêm a largura delas e rolam na horizontal
+   dentro deste contêiner, sem alargar a página. Some junto com a última tela adaptada. */
+.mfs-legado { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ---------- Cabeçalho compacto ---------- */
+html.mob-full .topbar.mfs-header {
+  height: 52px;
+  padding: 0 6px 0 10px;
+  gap: 6px;
+  background: var(--brand);
+  border-bottom: 0;
+  color: #fff;
+}
+.mfs-marca { flex-shrink: 0; width: 24px; height: 24px; margin-right: 2px; }
+.mfs-titulos { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; line-height: 1.2; }
+.mfs-subtitulo {
+  font-size: 11px; opacity: 0.78;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mfs-titulo {
+  font-size: 16px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mfs-icone {
+  position: relative; flex-shrink: 0;
+  width: 44px; height: 44px; border-radius: 12px;
+  display: grid; place-items: center;
+  color: rgba(255, 255, 255, 0.92);
+  background: transparent; border: 0; cursor: pointer;
+}
+.mfs-icone:active { background: rgba(255, 255, 255, 0.16); }
+.mfs-icone-escuro { color: var(--text-soft); }
+.mfs-icone-escuro:active { background: var(--surface-muted); }
+.mfs-ponto {
+  position: absolute; top: 10px; right: 11px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--danger); border: 1.5px solid var(--brand);
+}
+.mfs-sino { position: relative; }
+/* Painel de notificações: em vez dos 380px fixos do desktop, ocupa a largura da tela abaixo do cabeçalho.
+   Texto volta à cor padrão porque o cabeçalho é azul com texto branco e o painel herdaria isso. */
+html.mob-full .mfs-header .notif-panel {
+  position: fixed; top: 58px; left: 8px; right: 8px; width: auto;
+  color: var(--text);
+}
+html.mob-full .mfs-header .notif-panel > div:last-child { max-height: calc(100dvh - 170px) !important; }
+
+/* ---------- Barra inferior ---------- */
+.mfs-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.mfs-nav-item {
+  flex: 1; min-width: 0; min-height: 56px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  padding: 4px 2px;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--text-muted);
+  font-size: 10.5px; font-weight: 600;
+}
+.mfs-nav-icone { width: 52px; height: 28px; border-radius: 14px; display: grid; place-items: center; transition: background 0.12s; }
+.mfs-nav-rotulo { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfs-nav-item.active { color: var(--brand); }
+.mfs-nav-item.active .mfs-nav-icone { background: var(--brand-tint); }
+.mfs-nav-item.locked { opacity: 0.4; cursor: default; }
+
+/* ---------- Gaveta "Mais" (folha por baixo) ---------- */
+@keyframes mfsSobe { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+.mfs-sheet-backdrop {
+  position: fixed; inset: 0; z-index: 150;
+  background: rgba(8, 14, 28, 0.45);
+  animation: fadeIn 0.14s ease-out;
+}
+.mfs-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-height: 86dvh;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-radius: 18px 18px 0 0;
+  box-shadow: var(--shadow-lg);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: mfsSobe 0.18s ease-out;
+}
+.mfs-sheet-alca { flex-shrink: 0; width: 38px; height: 4px; border-radius: 2px; background: var(--border); margin: 8px auto 2px; }
+.mfs-sheet-corpo { overflow-y: auto; padding: 4px 12px 16px; }
+.mfs-sheet-titulo { font-size: 17px; font-weight: 700; color: var(--text); margin: 6px 4px 10px; }
+.mfs-usuario { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 6px 8px 8px 16px; }
+.mfs-avatar {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: var(--brand-tint); color: var(--brand); font-weight: 700;
+}
+.mfs-usuario-textos { flex: 1; min-width: 0; }
+.mfs-usuario-nome { font-size: 14.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfs-usuario-papel { font-size: 12px; color: var(--text-muted); }
+.mfs-secao {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted); margin: 14px 6px 4px;
+}
+.mfs-linha {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 52px; padding: 6px 8px; border-radius: 12px;
+  background: transparent; border: 0; cursor: pointer; text-align: left;
+  color: var(--text); font-size: 15px; font-weight: 600;
+}
+.mfs-linha:active { background: var(--surface-muted); }
+.mfs-linha-icone {
+  width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: var(--brand-tint); color: var(--brand);
+}
+.mfs-linha-rotulo { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfs-linha-seta { flex-shrink: 0; opacity: 0.5; }
+.mfs-linha.active { background: var(--brand-tint); color: var(--brand); }
+.mfs-linha.locked { opacity: 0.4; cursor: default; }
+.mfs-linha.danger { color: var(--danger); }
+.mfs-linha.danger .mfs-linha-icone { background: var(--danger-bg); color: var(--danger); }
+.mfs-voltar {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 44px; padding: 0 8px; margin-top: 2px;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--text-soft); font-size: 14px; font-weight: 600;
+}
+
+/* ---------- Janelas (Modal) viram folha por baixo ----------
+   Os !important existem porque o Modal grava posição e tamanho em estilo inline (arrastar, redimensionar,
+   tela cheia), e no celular essas janelas não devem ser arrastadas nem redimensionadas. */
+html.mob-full .modal-backdrop { align-items: flex-end; padding: 0; }
+html.mob-full .modal {
+  position: relative !important; left: auto !important; top: auto !important; margin: 0 !important;
+  width: 100% !important; max-width: none !important;
+  height: auto !important; max-height: calc(100dvh - 24px) !important;
+  border-radius: 18px 18px 0 0; border-bottom: 0;
+  animation: mfsSobe 0.18s ease-out;
+}
+html.mob-full .modal-max,
+html.mob-full .modal-resize { display: none !important; }
+html.mob-full .modal-header { padding: 14px 16px; }
+/* Com o botão de tela cheia oculto, a regra do desktop ".modal-max + .modal-close" (margem de 2px) ainda
+   casa e deixaria o X colado no título. */
+html.mob-full .modal-close { margin-left: auto; width: 40px; height: 40px; }
+html.mob-full .modal-body { padding: 16px; }
+html.mob-full .modal-footer {
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  gap: 8px;
+}
+html.mob-full .modal-footer .btn { min-height: 44px; flex: 1 1 auto; justify-content: center; }
+/* O espaçador empurrava os botões para a direita; com botões de largura total ele só atrapalharia. */
+html.mob-full .modal-footer .spacer { display: none; }
+
+/* ---------- Avisos (toast) acima da barra inferior ---------- */
+html.mob-full .toast-stack {
+  bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  width: calc(100vw - 24px);
+}
+html.mob-full .toast { min-width: 0; width: 100%; box-sizing: border-box; }
+
+/* ---------- Celular deitado: cabeçalho e barra mais baixos ----------
+   Em 812x375 o cabeçalho (52px) e a barra (57px) deixavam só 266px de área útil. */
+@media (orientation: landscape) and (max-height: 500px) {
+  html.mob-full .topbar.mfs-header { height: 44px; }
+  .mfs-icone { width: 40px; height: 40px; }
+  .mfs-ponto { top: 8px; right: 9px; }
+  .mfs-nav-item { min-height: 44px; flex-direction: row; gap: 8px; }
+  .mfs-nav-icone { width: 40px; }
+  html.mob-full .content { padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
+  html.mob-full .toast-stack { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  html.mob-full .mfs-header .notif-panel { top: 50px; }
+  html.mob-full .modal { max-height: calc(100dvh - 12px) !important; }
+}
+
