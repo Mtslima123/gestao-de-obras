@@ -45,6 +45,8 @@ import { LegadoMobile } from '../mobile/full/MobileFullChrome';
 import { CronogramaCabecalhoMobile } from '../mobile/full/cronograma/CronogramaCabecalhoMobile';
 const ListaMobile = React.lazy(() => import('../mobile/full/cronograma/ListaMobile').then(m => ({ default: m.ListaMobile })));
 const LinhaDoTempoMobile = React.lazy(() => import('../mobile/full/cronograma/LinhaDoTempoMobile').then(m => ({ default: m.LinhaDoTempoMobile })));
+const UsoTarefaMobile = React.lazy(() => import('../mobile/full/cronograma/UsoTarefaMobile').then(m => ({ default: m.UsoTarefaMobile })));
+const CurvaFisicaMobile = React.lazy(() => import('../mobile/full/cronograma/CurvaFisicaMobile').then(m => ({ default: m.CurvaFisicaMobile })));
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
 import { taskDetailStore } from './taskDetailStore';
 import { usuariosService } from '../admin/usuarios.service';
@@ -3691,6 +3693,22 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                 blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId} baselineEtapas={baselineEtapas}
                 undo={undo} redo={redo}
                 canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1}
+              />
+            </React.Suspense>
+          )
+          : layoutMobileCompleto && view === 'uso' ? (
+            <React.Suspense fallback={<div className="text-muted" style={{ padding: 32, textAlign: 'center' }}>Carregando…</div>}>
+              <UsoTarefaMobile key={obraSel} etapas={etapas} months={months} monthlyDist={monthlyDist} wbsMap={wbsMap} />
+            </React.Suspense>
+          )
+          : layoutMobileCompleto && view === 'curva' ? (
+            <React.Suspense fallback={<div className="text-muted" style={{ padding: 32, textAlign: 'center' }}>Carregando…</div>}>
+              <CurvaFisicaMobile
+                key={obraSel}
+                etapas={etapas} months={months} monthlyDist={monthlyDist} valorVinculadoMap={valorVinculadoMapFull}
+                baselines={baselines} blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
+                reprogramacoes={reprogramacoes} repVisivelId={repVisivelId} onSelectReprogramacao={setRepVisivelId}
+                selMonKey={selMonKey} setSelMonKey={setSelMonKey}
               />
             </React.Suspense>
           )
