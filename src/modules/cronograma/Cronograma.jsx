@@ -40,6 +40,10 @@ import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './e
 import { vinculosParaAjustar } from './exclusaoTarefasPure';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
+// Casca mobile do Sistema Completo (só entra em ação com layoutMobileCompleto; ver CronogramaFull).
+import { LegadoMobile } from '../mobile/full/MobileFullChrome';
+import { CronogramaCabecalhoMobile } from '../mobile/full/cronograma/CronogramaCabecalhoMobile';
+const ListaMobile = React.lazy(() => import('../mobile/full/cronograma/ListaMobile').then(m => ({ default: m.ListaMobile })));
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
 import { taskDetailStore } from './taskDetailStore';
 import { usuariosService } from '../admin/usuarios.service';
@@ -2337,7 +2341,11 @@ async function carregarCronogramaDB(obraId) {
 // Movidos para ./cronogramaModais.
 
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
-const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hideChrome = false }) => {
+// layoutMobileCompleto: casca mobile do Sistema Completo (celular). Independente de hideChrome (que é o modo foco
+// da Medição e liga o cache offline): só troca o cabeçalho e a apresentação da Lista; estado, `commit`, undo e
+// gravação são os mesmos. Falso (padrão) = o Cronograma do desktop, sem nenhuma diferença.
+// onAbrirMedicaoMobile(obraId): abre a Medição do modo foco (a aba Medição Mensal da casca mobile).
+const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hideChrome = false, layoutMobileCompleto = false, onAbrirMedicaoMobile }) => {
   const D    = AppData;
   const toast = useToast();
 
@@ -2363,9 +2371,12 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // `initialTab` (deep link, ex. vindo do Mobile Gate) continua tendo prioridade. Chave
   // por obra (não uma chave fixa): senão a aba salva na Medição da obra A vazava pro F5
   // dado na obra B, se as duas forem abertas na mesma aba do navegador.
-  const [view,         setView]         = React.useState(() =>
-    initialTab || (obraSel && sessionStorage.getItem(`cronograma_subtab_${obraSel}`)) || 'gantt'
-  );
+  const [view,         setView]         = React.useState(() => {
+    // Casca mobile: abre na Lista (a primeira aba já adaptada) e nunca na Medição, que ali abre pelo modo foco
+    // (o modo foco deixa 'medicao' guardado na sessão ao sair).
+    const inicial = initialTab || (obraSel && sessionStorage.getItem(`cronograma_subtab_${obraSel}`)) || (layoutMobileCompleto ? 'lista' : 'gantt');
+    return layoutMobileCompleto && inicial === 'medicao' ? 'lista' : inicial;
+  });
   React.useEffect(() => {
     if (!obraSel) return;
     try { sessionStorage.setItem(`cronograma_subtab_${obraSel}`, view); } catch { /* ignore */ }
@@ -3592,7 +3603,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
           </div>
         </Modal>
       )}
-      {!hideChrome && (
+      {!hideChrome && !layoutMobileCompleto && (
       <div className="page-header">
         <div>
           <h1 className="page-title">Cronogramas</h1>
@@ -3617,6 +3628,13 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
           </div>
         </div>
       </div>
+      )}
+      {layoutMobileCompleto && !hideChrome && (
+        <CronogramaCabecalhoMobile
+          obras={obras} obraSel={obraSel} onObraChange={setObraSel}
+          abas={abasCronograma} view={view} onView={setView}
+          onAbrirMedicao={onAbrirMedicaoMobile && obraSel ? () => onAbrirMedicaoMobile(obraSel) : undefined}
+        />
       )}
 
       {isLoading
@@ -3651,8 +3669,19 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
               )}
             </div>
           )
+          : layoutMobileCompleto && view === 'lista' ? (
+            <React.Suspense fallback={<div className="text-muted" style={{ padding: 32, textAlign: 'center' }}>Carregando…</div>}>
+              <ListaMobile
+                key={obraSel}
+                etapas={etapas} onCommit={commit} readOnly={readOnly}
+                wbsMap={wbsMap} groupVals={groupVals} succMap={succByIdAll} avancoTotal={avancoTotal}
+                undo={undo} redo={redo}
+                canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1}
+              />
+            </React.Suspense>
+          )
           : (
-            <>
+            <LegadoMobile ativo={layoutMobileCompleto}>
               {/* KPIs — faixa de 5 (redesenho handoff). Dados reais onde há; mock sinalizado. */}
               {(() => {
                 const leaves = etapas.filter(e => !e.isGroup);
@@ -4039,7 +4068,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                 />
               )}
 
-            </>
+            </LegadoMobile>
           )
       }
 

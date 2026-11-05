@@ -978,7 +978,7 @@ const AppInner = () => {
             <AcessoNegado onVoltar={() => handleNavigate(primeiraViewLiberada)} />
           ) : (
           <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
-          <LegadoMobile ativo={modoMobileCompleto && !telaJaAdaptada(view)}>
+          <LegadoMobile ativo={modoMobileCompleto && !telaJaAdaptada(view, cronogramaTab)}>
           {view === 'dashboard' && (
             // Sem a lista de obras (sem rede) o Dashboard diria "Nenhuma obra liberada
             // para o seu usuário", que é falso — mostra o aviso de conexão no lugar.
@@ -1018,7 +1018,7 @@ const AppInner = () => {
           )}
           {view === 'cronograma' && (
             <>
-              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} obras={obrasVisiveis} userProfile={userProfile} initialTab={cronogramaInitialTab} />}
+              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} obras={obrasVisiveis} userProfile={userProfile} initialTab={cronogramaInitialTab} layoutMobileCompleto={modoMobileCompleto} onAbrirMedicaoMobile={(obraId) => abrirFocoNoCelular('medicao', { id: obraId })} />}
               {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} userProfile={userProfile} />}
             </>
           )}

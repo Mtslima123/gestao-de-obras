@@ -23,8 +23,12 @@ export const modoMobileCompleto = ({ chaveAtiva, isMobile, gateLiberado, mobileF
 
 // Telas (views do App) que já têm apresentação mobile própria. As demais continuam sendo a tela do desktop
 // dentro do contêiner de rolagem (LegadoMobile). Ao adaptar uma tela nova, incluir a view aqui.
-export const TELAS_ADAPTADAS = ['dashboard', 'obras', 'fisico-financeiro'];
-export const telaJaAdaptada = (view) => TELAS_ADAPTADAS.includes(view);
+// O Cronograma conta como adaptado porque ele mesmo contém (LegadoMobile) as abas que ainda são do desktop; só a
+// aba Orç. × Cronograma, que é outra tela dentro da mesma view, ainda precisa do contêiner de fora.
+export const TELAS_ADAPTADAS = ['dashboard', 'obras', 'fisico-financeiro', 'cronograma'];
+export const telaJaAdaptada = (view, cronogramaTab) => (
+  view === 'cronograma' ? cronogramaTab !== 'orc-x-cron' : TELAS_ADAPTADAS.includes(view)
+);
 
 // Barra inferior: os três módulos mais usados + "Mais" (gaveta com o resto). Os ids vêm de config/modulos.
 export const DESTINOS_DA_BARRA = ['dashboard', 'obras', 'cronograma'];

@@ -196,13 +196,17 @@ describe('cabecalhoDaTela (breadcrumb da Topbar do desktop vira cabeçalho compa
 });
 
 describe('telas já adaptadas (saem do contêiner de rolagem LegadoMobile)', () => {
-  it('Dashboard, Obras e Físico Financeiro (lista) já estão adaptados', () => {
-    ['dashboard', 'obras', 'fisico-financeiro'].forEach(v => expect(telaJaAdaptada(v)).toBe(true));
+  it('Dashboard, Obras, Físico Financeiro (lista) e Cronograma já estão adaptados', () => {
+    ['dashboard', 'obras', 'fisico-financeiro', 'cronograma'].forEach(v => expect(telaJaAdaptada(v)).toBe(true));
   });
   it('o resto ainda é a tela do desktop', () => {
-    ['obra-detail', 'orcamentos', 'cronograma', 'fisico-financeiro-detail', 'mao-de-obra', 'admin'].forEach(v => {
+    ['obra-detail', 'orcamentos', 'fisico-financeiro-detail', 'mao-de-obra', 'admin'].forEach(v => {
       expect(telaJaAdaptada(v)).toBe(false);
     });
+  });
+  it('Cronograma: a aba Orç. × Cronograma é outra tela e ainda precisa do contêiner', () => {
+    expect(telaJaAdaptada('cronograma', 'gantt')).toBe(true);
+    expect(telaJaAdaptada('cronograma', 'orc-x-cron')).toBe(false);
   });
   it('toda tela adaptada é uma view que existe no menu ou na navegação', () => {
     TELAS_ADAPTADAS.forEach(v => expect(MODULOS_TOPO.map(m => m.id)).toContain(v));

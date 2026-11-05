@@ -244,13 +244,13 @@ const MobileFullNav = ({
 // Envolve as telas do desktop que ainda não têm versão mobile num contêiner com rolagem horizontal contida.
 // Com `ativo` falso (desktop, MobileGate, chave desligada) devolve os filhos como estão, sem criar elemento
 // nenhum, então o DOM do desktop não muda.
-const LegadoMobile = ({ ativo, children }) => (ativo ? <div className="mfs-legado">{children}</div> : children);
+const LegadoMobile = ({ ativo, children }) => (ativo ? <div className="mfs-legado">{children}</div> : <>{children}</>);
 
 // Envolve uma tela já adaptada à casca mobile e dá a ela as classes .mfs-tela e .mfs-tela-<nome>, que o CSS usa
 // para ajustar telas que já são cards por CSS (Obras, Físico Financeiro) sem duplicar a lógica delas. Com `ativo`
 // falso devolve os filhos como estão, sem elemento nenhum.
 const TelaMobile = ({ ativo, nome, children }) => (
-  ativo ? <div className={`mfs-tela mfs-tela-${nome}`}>{children}</div> : children
+  ativo ? <div className={`mfs-tela mfs-tela-${nome}`}>{children}</div> : <>{children}</>
 );
 
 export { MobileFullHeader, MobileFullNav, LegadoMobile, TelaMobile };
