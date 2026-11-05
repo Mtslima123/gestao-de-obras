@@ -196,11 +196,11 @@ describe('cabecalhoDaTela (breadcrumb da Topbar do desktop vira cabeçalho compa
 });
 
 describe('telas já adaptadas (saem do contêiner de rolagem LegadoMobile)', () => {
-  it('Dashboard, Obras, Físico Financeiro (lista) e Cronograma já estão adaptados', () => {
-    ['dashboard', 'obras', 'fisico-financeiro', 'cronograma'].forEach(v => expect(telaJaAdaptada(v)).toBe(true));
+  it('Dashboard, Obras, Obra detalhe, Físico Financeiro (lista) e Cronograma já estão adaptados', () => {
+    ['dashboard', 'obras', 'obra-detail', 'fisico-financeiro', 'cronograma'].forEach(v => expect(telaJaAdaptada(v)).toBe(true));
   });
   it('o resto ainda é a tela do desktop', () => {
-    ['obra-detail', 'orcamentos', 'fisico-financeiro-detail', 'mao-de-obra', 'admin'].forEach(v => {
+    ['orcamentos', 'fisico-financeiro-detail', 'mao-de-obra', 'admin'].forEach(v => {
       expect(telaJaAdaptada(v)).toBe(false);
     });
   });
@@ -208,8 +208,9 @@ describe('telas já adaptadas (saem do contêiner de rolagem LegadoMobile)', () 
     expect(telaJaAdaptada('cronograma', 'gantt')).toBe(true);
     expect(telaJaAdaptada('cronograma', 'orc-x-cron')).toBe(false);
   });
-  it('toda tela adaptada é uma view que existe no menu ou na navegação', () => {
-    TELAS_ADAPTADAS.forEach(v => expect(MODULOS_TOPO.map(m => m.id)).toContain(v));
+  it('toda tela adaptada é uma view que existe no menu ou uma subtela de um módulo do menu', () => {
+    const subtelas = { 'obra-detail': 'obras' };
+    TELAS_ADAPTADAS.forEach(v => expect(MODULOS_TOPO.map(m => m.id)).toContain(subtelas[v] || v));
   });
 });
 

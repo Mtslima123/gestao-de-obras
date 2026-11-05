@@ -26,6 +26,9 @@ import { AvisoOffline } from '../../components/OfflineFallback';
 import { ordenarFotosPorPavimento, posicaoPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos } from '../../utils/pavimentos';
 import { zipSync } from 'fflate';
 import { vinculoService, itemValor } from '../financeiro/vinculoService';import { capaCache } from '../../services/capaCache';
+// Casca mobile do Sistema Completo (só entra em ação com layoutMobileCompleto; ver ObraDetail).
+import { indicadoresDaObra } from '../mobile/full/obras/obraDetalhePure';
+const ObraDetalheMobile = React.lazy(() => import('../mobile/full/obras/ObraDetalheMobile').then(m => ({ default: m.ObraDetalheMobile })));
 
 // Obra Detail Page
 const { brl: brlD } = AppData;
@@ -1993,6 +1996,23 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
     setPos({ x: nx, y: ny });
   };
   const onFrameMouseUp = () => { isDraggingRef.current = false; };
+  // Mesmo arrasto da janela de recorte, por toque (celular): o mouse sozinho não funciona no toque.
+  const onWindowTouchStart = (ev) => {
+    ev.stopPropagation();
+    const t = ev.touches[0];
+    isDraggingRef.current = true;
+    dragOriginRef.current = { x: t.clientX, y: t.clientY };
+    dragStartPosRef.current = { ...pos };
+  };
+  const onFrameTouchMove = (ev) => {
+    if (!isDraggingRef.current) return;
+    const t = ev.touches[0];
+    const dx = t.clientX - dragOriginRef.current.x;
+    const dy = t.clientY - dragOriginRef.current.y;
+    const nx = excessW > 0 ? Math.min(100, Math.max(0, dragStartPosRef.current.x + (dx / excessW) * 100)) : dragStartPosRef.current.x;
+    const ny = excessH > 0 ? Math.min(100, Math.max(0, dragStartPosRef.current.y + (dy / excessH) * 100)) : dragStartPosRef.current.y;
+    setPos({ x: nx, y: ny });
+  };
 
   // Bucket privado: a capa é exibida via URL assinada do caminho determinístico.
   React.useEffect(() => {
@@ -2065,6 +2085,9 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
       onMouseMove={onFrameMouseMove}
       onMouseUp={onFrameMouseUp}
       onMouseLeave={onFrameMouseUp}
+      onTouchMove={onFrameTouchMove}
+      onTouchEnd={onFrameMouseUp}
+      onTouchCancel={onFrameMouseUp}
       style={{ cursor: adjustMode ? 'default' : (canUpload ? 'pointer' : 'default') }}
     >
       {src && <img src={src} alt={obra.nome} draggable={false} />}
@@ -2112,7 +2135,9 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
         <>
           <div
             onMouseDown={onWindowMouseDown}
+            onTouchStart={onWindowTouchStart}
             style={{
+              touchAction: 'none',
               position: 'absolute', left: winLeft, top: winTop, width: winW, height: winH,
               border: '2px solid #fff', borderRadius: 6,
               boxShadow: '0 0 0 2000px rgba(0,0,0,0.55)',
@@ -2149,7 +2174,10 @@ const HeroImage = ({ obra, onObraUpdate, isAdmin = false }) => {
 };
 
 // ----- Main ObraDetail -----
-const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma, initialTab, initialCronoView, onTabChange, onCronoViewChange, hideChrome = false }) => {
+// layoutMobileCompleto: casca mobile do Sistema Completo (celular). Independente de hideChrome (modo foco de Fotos):
+// troca só o que se vê (capa, indicadores, abas, cronograma); dados, estado e os modais de editar/excluir são os mesmos.
+// onAbrirFotosMobile(obra): a aba Fotos abre o modo foco que já existe, em vez de montar a galeria do desktop.
+const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onOpenCronograma, initialTab, initialCronoView, onTabChange, onCronoViewChange, hideChrome = false, layoutMobileCompleto = false, onAbrirFotosMobile }) => {
   // Sempre abre em "Cronograma" ao entrar numa obra — antes ficava salvo em
   // sessionStorage sem distinguir qual obra, então abrir a obra B na aba "Fotos"
   // reaproveitava a aba que tinha ficado selecionada na obra A. `initialTab` é a
@@ -2341,9 +2369,30 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
     if (tabsLiberadas.length && !tabsLiberadas.some(t => t.id === tab)) setTab(tabsLiberadas[0].id);
   }, [tabsLiberadas, tab]);
 
+  const modoMobile = layoutMobileCompleto && !hideChrome;
+
   return (
     <>
-      {!hideChrome && (
+      {modoMobile && (
+        <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+          <ObraDetalheMobile
+            obra={o}
+            capa={<HeroImage obra={o} onObraUpdate={onObraUpdate} isAdmin={isAdmin(userProfile)} />}
+            podeEditar={!!(onObraUpdate && onObraDelete && !readOnly && isAdmin(userProfile))}
+            onEditar={() => setShowEdit(true)}
+            onExcluir={() => setDeleteStep(1)}
+            indicadores={indicadoresDaObra({
+              obra: o, avancoFisico: heroStats.avancoFisico, planejadoHoje: heroStats.planejadoHoje,
+              financeiroPct, cronFinalISO, etapasLoaded,
+            })}
+            etapas={etapasObra} etapasLoaded={etapasLoaded} groupVals={groupValsObra} avancoFisico={heroStats.avancoFisico}
+            abas={tabs} aba={tab === 'fotos' ? 'cronograma' : tab} onAba={setTab}
+            onAbrirFotos={() => onAbrirFotosMobile?.(o)}
+            cronoView={cronoView} onCronoView={setCronoView} onOpenCronograma={onOpenCronograma}
+          />
+        </React.Suspense>
+      )}
+      {!hideChrome && !modoMobile && (
       <>
       <div className="page-header" style={{ marginBottom: 18 }}>
         <div>
@@ -2436,7 +2485,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
       </>
       )}
 
-      {tab === 'cronograma' && (
+      {!modoMobile && tab === 'cronograma' && (
         <>
           <div ref={cronoSentinelRef} aria-hidden="true" style={{ height: 0 }} />
           {cronoPinned && <div aria-hidden="true" style={{ height: cronoPinned.height }} />}
@@ -2580,7 +2629,7 @@ const ObraDetail = ({ obra, userProfile, onBack, onObraUpdate, onObraDelete, onO
           </div>
         </>
       )}
-      {tab === 'fotos' && <Fotos obra={o} readOnly={readOnly || abaSomenteLeitura(userProfile, 'obras', 'fotos')} isAdmin={isAdmin(userProfile)} hideChrome={hideChrome} />}
+      {!modoMobile && tab === 'fotos' && <Fotos obra={o} readOnly={readOnly || abaSomenteLeitura(userProfile, 'obras', 'fotos')} isAdmin={isAdmin(userProfile)} hideChrome={hideChrome} />}
 
       {showEdit && (
         <ObraFormModal

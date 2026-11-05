@@ -32,6 +32,8 @@ const LinhaDoTempoMobile = ({
   etapas, onCommit, readOnly, wbsMap, groupVals, succMap, feriadosCfg,
   baselines = [], reprogramacoes = [], blVisivelId = null, onSelectBaseline, baselineEtapas = null,
   undo, redo, canUndo, canRedo,
+  // Uso só para consultar (Obra detalhe): sem Desfazer e Refazer, e a área pode pedir mais altura mínima.
+  semEdicao = false, alturaMinima = ALTURA_MINIMA,
 }) => {
   const [zoomId, setZoomId] = React.useState(lerZoom);
   const [critico, setCritico] = React.useState(false);
@@ -95,9 +97,9 @@ const LinhaDoTempoMobile = ({
     const rodape = conteudo ? (parseFloat(getComputedStyle(conteudo).paddingBottom) || 76) : 76;
     // Celular deitado (menos de 500px de altura): o piso menor deixa gráfico e legenda caberem na tela depois de a
     // página rolar até eles; a conta natural dá menos que isso e o gráfico ficaria só com cabeçalho.
-    const minima = window.innerHeight <= 500 ? ALTURA_MINIMA_PAISAGEM : ALTURA_MINIMA;
+    const minima = window.innerHeight <= 500 ? Math.min(alturaMinima, ALTURA_MINIMA_PAISAGEM) : alturaMinima;
     setAltura(Math.max(minima, Math.round(window.innerHeight - topo - rodape - ALTURA_LEGENDA)));
-  }, []);
+  }, [alturaMinima]);
   // Os controles de cima mudam de altura ao abrir a busca (linha a mais), então mede de novo nesse momento.
   React.useLayoutEffect(() => { medirAltura(); }, [medirAltura, filtrosAbertos]);
   React.useLayoutEffect(() => {
@@ -198,8 +200,8 @@ const LinhaDoTempoMobile = ({
           <button type="button" className={'chip' + (critico ? ' active' : '')} aria-pressed={critico} onClick={() => setCritico(v => !v)}>Caminho crítico</button>
           <button type="button" className="mfs-acao" onClick={() => setExpandidos(idsDeGrupos(etapas))} disabled={filtrando}>Expandir tudo</button>
           <button type="button" className="mfs-acao" onClick={() => setExpandidos(new Set())} disabled={filtrando}>Recolher tudo</button>
-          <button type="button" className="mfs-acao" onClick={undo} disabled={readOnly || !canUndo}>Desfazer</button>
-          <button type="button" className="mfs-acao" onClick={redo} disabled={readOnly || !canRedo}>Refazer</button>
+          {!semEdicao && <button type="button" className="mfs-acao" onClick={undo} disabled={readOnly || !canUndo}>Desfazer</button>}
+          {!semEdicao && <button type="button" className="mfs-acao" onClick={redo} disabled={readOnly || !canRedo}>Refazer</button>}
           {temBases && (
             <select
               className="input mfs-base" aria-label="Linha de base comparada" value={blVisivelId || ''}

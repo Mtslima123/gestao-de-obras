@@ -13,7 +13,7 @@ const TAMANHO_DA_PAGINA = 120;
 // para editar a tarefa. Os dados e a gravação são os do CronogramaFull (a Lista do desktop usa os mesmos): aqui
 // só muda a apresentação. Abrir e fechar grupo é só desta tela (não grava), para não mexer no que a equipe vê.
 const ListaMobile = ({
-  etapas, onCommit, readOnly, wbsMap, groupVals, succMap, avancoTotal, undo, redo, canUndo, canRedo,
+  etapas, onCommit, readOnly, wbsMap, groupVals, succMap, avancoTotal, undo, redo, canUndo, canRedo, semEdicao = false,
 }) => {
   const [expandidos, setExpandidos] = React.useState(() => expandidosIniciais(etapas));
   const [texto, setTexto] = React.useState('');
@@ -61,8 +61,12 @@ const ListaMobile = ({
           <button type="button" className="mfs-acao" onClick={() => setExpandidos(idsDeGrupos(etapas))} disabled={filtrando}>Expandir tudo</button>
           <button type="button" className="mfs-acao" onClick={() => setExpandidos(new Set())} disabled={filtrando}>Recolher tudo</button>
           <span className="mfs-acoes-espaco" />
-          <button type="button" className="mfs-acao" onClick={undo} disabled={readOnly || !canUndo}>Desfazer</button>
-          <button type="button" className="mfs-acao" onClick={redo} disabled={readOnly || !canRedo}>Refazer</button>
+          {!semEdicao && (
+            <>
+              <button type="button" className="mfs-acao" onClick={undo} disabled={readOnly || !canUndo}>Desfazer</button>
+              <button type="button" className="mfs-acao" onClick={redo} disabled={readOnly || !canRedo}>Refazer</button>
+            </>
+          )}
         </div>
       </div>
 

@@ -584,6 +584,49 @@ html.mob-full .field input:disabled { background: var(--surface-muted); color: v
 .mfs-curva-vazia h3 { margin: 12px 0 4px; font-size: 16px; color: var(--text-soft); }
 .mfs-curva-vazia p { margin: 0; font-size: 13px; }
 
+/* ---------- Obra detalhe (ObraDetalheMobile) ----------
+   A capa é o HeroImage do desktop (com upload, ajuste e remoção para admin); só o tamanho muda. */
+.mfs-od { display: flex; flex-direction: column; gap: 12px; }
+.mfs-od-capa { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+html.mob-full .mfs-od-capa .hero-img { width: 100%; min-height: 0; max-width: 100%; max-height: 260px; aspect-ratio: 16 / 9; }
+html.mob-full .mfs-od-capa .hero-img.has-img { width: 100%; aspect-ratio: auto; }
+html.mob-full .mfs-od-capa .hero-img img { width: 100%; height: auto; min-width: 0; min-height: 0; max-width: none; max-height: 260px; object-fit: contain; }
+/* No toque não existe hover: o aviso de "Alterar imagem" (só admin) fica sempre visível, como uma etiqueta no canto. */
+html.mob-full .mfs-od-capa .hero-img-overlay {
+  opacity: 1; inset: auto 8px 8px auto; width: auto; height: auto; flex-direction: row; padding: 8px 12px; border-radius: 999px;
+}
+html.mob-full .mfs-od-capa .hero-img .icon-btn { width: 40px !important; height: 40px !important; }
+.mfs-od-titulo { display: flex; flex-direction: column; gap: 6px; }
+.mfs-od-meta { display: flex; align-items: center; gap: 8px; }
+.mfs-od-codigo {
+  padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-muted);
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-soft);
+}
+.mfs-od-titulo h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.mfs-od-endereco { display: flex; align-items: flex-start; gap: 5px; margin: 0; font-size: 13px; color: var(--text-muted); }
+.mfs-od-endereco svg { flex: none; margin-top: 2px; }
+.mfs-od-acoes { display: flex; gap: 8px; margin-top: 4px; }
+.mfs-od-acoes .btn { flex: 1; height: 44px; justify-content: center; }
+.mfs-perigo { color: var(--danger); }
+.mfs-od-indicadores { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-ind { min-width: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-ind.destaque { grid-column: 1 / -1; }
+.mfs-ind-rotulo { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-ind-valor { margin-top: 2px; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.mfs-ind.destaque .mfs-ind-valor { font-size: 26px; color: var(--brand); }
+.mfs-ind-meta { margin-top: 3px; font-size: 11.5px; line-height: 1.3; color: var(--text-muted); }
+.mfs-ind-barra { position: relative; height: 8px; margin-top: 8px; border-radius: 4px; background: var(--border); }
+.mfs-ind-barra > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--brand); }
+.mfs-ind-barra > i { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--text); }
+.mfs-od-abas { display: flex; gap: 6px; }
+.mfs-od-abas .mfs-aba { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.mfs-od-cronograma { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-od-cron-cab { display: flex; flex-direction: column; gap: 8px; }
+.mfs-od-cron-cab h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.mfs-od-cron-cab p { margin: 2px 0 0; font-size: 12.5px; color: var(--text-muted); }
+.mfs-od-cron-cab .mfs-segmentado { flex: none; }
+.mfs-od-ir { width: 100%; height: 44px; justify-content: center; gap: 6px; }
+
 /* ---------- Avisos (toast) acima da barra inferior ---------- */
 html.mob-full .toast-stack {
   bottom: calc(68px + env(safe-area-inset-bottom, 0px));
@@ -609,5 +652,10 @@ html.mob-full .toast { min-width: 0; width: 100%; box-sizing: border-box; }
   .mfs-lt-linha-a { flex: 0 0 340px; }
   .mfs-lt-chips { flex: 1 1 0; min-width: 0; }
   .mfs-lt-controles .mfs-filtros-linha { flex: 1 1 100%; }
+  /* Obra detalhe: a capa não pode ocupar a tela inteira deitada. */
+  html.mob-full .mfs-od-capa .hero-img { max-height: 160px; }
+  html.mob-full .mfs-od-capa .hero-img img { max-height: 160px; }
+  .mfs-od-indicadores { grid-template-columns: repeat(3, 1fr); }
+  .mfs-od-indicadores .mfs-ind.destaque { grid-column: 1 / -1; }
 }
 

@@ -25,7 +25,7 @@ export const modoMobileCompleto = ({ chaveAtiva, isMobile, gateLiberado, mobileF
 // dentro do contêiner de rolagem (LegadoMobile). Ao adaptar uma tela nova, incluir a view aqui.
 // O Cronograma conta como adaptado porque ele mesmo contém (LegadoMobile) as abas que ainda são do desktop; só a
 // aba Orç. × Cronograma, que é outra tela dentro da mesma view, ainda precisa do contêiner de fora.
-export const TELAS_ADAPTADAS = ['dashboard', 'obras', 'fisico-financeiro', 'cronograma'];
+export const TELAS_ADAPTADAS = ['dashboard', 'obras', 'obra-detail', 'fisico-financeiro', 'cronograma'];
 export const telaJaAdaptada = (view, cronogramaTab) => (
   view === 'cronograma' ? cronogramaTab !== 'orc-x-cron' : TELAS_ADAPTADAS.includes(view)
 );

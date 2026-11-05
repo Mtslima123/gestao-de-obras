@@ -765,12 +765,22 @@ const AppInner = () => {
       setMobileFocus('fotos');
     }
   };
+  // Fotos pela própria Obra detalhe: ao sair do foco volta para ESTA obra (e não para a lista de Obras, que é a
+  // volta de quem abriu o atalho pela gaveta de outra tela).
+  const obraAoVoltarDoFocoRef = React.useRef(null);
+  const abrirFotosDaObraAberta = (obra) => {
+    obraAoVoltarDoFocoRef.current = obra;
+    abrirFocoNoCelular('fotos', obra);
+  };
   React.useEffect(() => {
     if (mobileFocus || !telaAntesDoFocoRef.current) return;
     const volta = telaDeRetornoDoFoco(telaAntesDoFocoRef.current);
     telaAntesDoFocoRef.current = null;
+    const obraDeVolta = obraAoVoltarDoFocoRef.current;
+    obraAoVoltarDoFocoRef.current = null;
     setCronogramaInitialTab(null);
-    handleNavigate(volta);
+    if (obraDeVolta) handleOpenObra(obraDeVolta);
+    else handleNavigate(volta);
   }, [mobileFocus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const screenLabels = {
@@ -1005,6 +1015,8 @@ const AppInner = () => {
               initialCronoView={selectedObraInitialCronoView}
               onTabChange={(t) => { try { sessionStorage.setItem('nav_obra_tab', t); } catch { /* ignore */ } }}
               onCronoViewChange={(v) => { try { sessionStorage.setItem('nav_obra_crono_view', v); } catch { /* ignore */ } }}
+              layoutMobileCompleto={modoMobileCompleto}
+              onAbrirFotosMobile={abrirFotosDaObraAberta}
             />
           )}
           {view === 'orcamentos' && (
