@@ -44,6 +44,7 @@ import { ListaInterativa } from './ListaInterativa';
 import { LegadoMobile } from '../mobile/full/MobileFullChrome';
 import { CronogramaCabecalhoMobile } from '../mobile/full/cronograma/CronogramaCabecalhoMobile';
 const ListaMobile = React.lazy(() => import('../mobile/full/cronograma/ListaMobile').then(m => ({ default: m.ListaMobile })));
+const LinhaDoTempoMobile = React.lazy(() => import('../mobile/full/cronograma/LinhaDoTempoMobile').then(m => ({ default: m.LinhaDoTempoMobile })));
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
 import { taskDetailStore } from './taskDetailStore';
 import { usuariosService } from '../admin/usuarios.service';
@@ -3675,6 +3676,19 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                 key={obraSel}
                 etapas={etapas} onCommit={commit} readOnly={readOnly}
                 wbsMap={wbsMap} groupVals={groupVals} succMap={succByIdAll} avancoTotal={avancoTotal}
+                undo={undo} redo={redo}
+                canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1}
+              />
+            </React.Suspense>
+          )
+          : layoutMobileCompleto && view === 'gantt' ? (
+            <React.Suspense fallback={<div className="text-muted" style={{ padding: 32, textAlign: 'center' }}>Carregando…</div>}>
+              <LinhaDoTempoMobile
+                key={obraSel}
+                etapas={etapas} onCommit={commit} readOnly={readOnly}
+                wbsMap={wbsMap} groupVals={groupVals} succMap={succByIdAll} feriadosCfg={feriadosCfg}
+                baselines={baselines} reprogramacoes={reprogramacoes}
+                blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId} baselineEtapas={baselineEtapas}
                 undo={undo} redo={redo}
                 canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1}
               />
