@@ -796,6 +796,56 @@ html.mob-full .import-erros { overflow-x: auto !important; }
 .mfs-oc-barra-botoes .btn { flex: 1; height: 44px; justify-content: center; gap: 6px; }
 .mfs-oc-barra-botoes .btn.btn-ghost { flex: 0 0 auto; min-width: 96px; }
 
+/* ---------- Distribuir pesos (DistribuirPesosMobile) ----------
+   Folha com um cartão por subtarefa: nome, peso, cadeado e valor em R$ (o valor abre o campo ao toque, no lugar do
+   duplo clique do desktop). Alvos de toque de 44px; campos em 16px para o iOS não dar zoom. */
+.mfs-pw-resumo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.mfs-pw-resumo div { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 9px 10px; background: var(--surface-muted); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-pw-resumo span { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-pw-resumo strong { font-size: 16px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mfs-pw-nota { margin: 0 0 12px; }
+.mfs-pw-controles { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.mfs-pw-unidade { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
+.mfs-pw-unidade small { font-weight: 400; color: var(--text-muted); }
+.mfs-pw-unidade select { width: 100%; height: 44px; font-size: 16px; }
+.mfs-pw-expandir { display: flex; gap: 8px; }
+.mfs-pw-expandir .btn { flex: 1 1 0; height: 40px; justify-content: center; }
+.mfs-pw-lista { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mfs-pw-linha { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 6px 10px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-pw-linha.grupo { background: var(--brand-tint); border-left: 4px solid var(--brand); }
+.mfs-pw-topo { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.mfs-pw-chevron, .mfs-pw-retirar { flex: none; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; background: none; cursor: pointer; color: var(--text-muted); }
+.mfs-pw-chevron { width: 40px; margin-left: -8px; color: var(--brand); }
+.mfs-pw-retirar { margin-right: -8px; }
+.mfs-pw-espaco { flex: none; width: 4px; }
+.mfs-pw-nome { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14.5px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.mfs-pw-linha.grupo .mfs-pw-nome { color: var(--brand); font-weight: 700; }
+.mfs-pw-linha.bloqueada .mfs-pw-nome { color: var(--text-muted); }
+.mfs-pw-campos { display: flex; align-items: flex-end; gap: 6px; }
+.mfs-pw-peso { flex: none; width: 96px; display: flex; flex-direction: column; gap: 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-pw-peso input { width: 100%; height: 44px; font-size: 16px; text-align: right; box-sizing: border-box; }
+.mfs-pw-peso input:disabled { opacity: 0.55; }
+.mfs-pw-cadeado { flex: none; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-muted); cursor: pointer; }
+.mfs-pw-cadeado.ligado { color: var(--brand); border-color: var(--brand); background: var(--brand-tint); }
+.mfs-pw-cadeado:disabled { opacity: 0.35; cursor: default; }
+.mfs-pw-valor { flex: 1 1 0; min-width: 0; height: 44px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; box-sizing: border-box; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; color: var(--text); }
+.mfs-pw-linha.grupo .mfs-pw-valor { color: var(--brand); font-weight: 700; }
+.mfs-pw-valor.editavel { padding: 0 10px; border: 1px dashed var(--brand); border-radius: 10px; background: var(--surface); color: var(--brand); cursor: pointer; }
+.mfs-pw-valor-campo { flex: 1 1 0; min-width: 0; height: 44px; font-size: 16px; text-align: right; box-sizing: border-box; }
+.mfs-pw-motivo { font-size: 11.5px; color: var(--text-muted); }
+.mfs-pw-total { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 10px; padding: 10px 4px 0; border-top: 2px solid var(--border); font-size: 14px; }
+.mfs-pw-total strong { font-variant-numeric: tabular-nums; }
+.mfs-pw-retiradas { margin: 14px 0 0; }
+.mfs-pw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mfs-pw-chip { max-width: 100%; height: 40px; gap: 4px; padding: 0 12px; border-radius: 20px; text-align: left; }
+.mfs-pw-diverge { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--warning-bg); color: var(--danger); font-size: 12.5px; line-height: 1.35; }
+.mfs-pw-diverge svg { flex: none; margin-top: 1px; }
+.mfs-pw-rodape { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+.mfs-pw-rodape .btn { flex: 1 1 0; height: 44px; justify-content: center; }
+.mfs-pw-aviso { flex: 1 1 100%; display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; color: var(--danger); }
+.mfs-oc-pesos { flex: none; width: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0; border: 0; border-left: 1px solid var(--border); background: none; color: var(--brand); font-size: 10.5px; font-weight: 600; cursor: pointer; }
+.mfs-oc-pesos:active { background: var(--surface-muted); }
+
 /* ---------- Avisos (toast) acima da barra inferior ---------- */
 html.mob-full .toast-stack {
   bottom: calc(68px + env(safe-area-inset-bottom, 0px));
@@ -833,5 +883,14 @@ html.mob-full .toast { min-width: 0; width: 100%; box-sizing: border-box; }
   .mfs-oc-barra-texto { flex: 1 1 0; flex-direction: column; align-items: flex-start; gap: 0; }
   .mfs-oc-barra-botoes { flex: 0 0 auto; }
   .mfs-oc-barra-botoes .btn { flex: 0 0 auto; min-width: 140px; }
+  /* Distribuir pesos: unidade e Expandir/Recolher na mesma linha, e cada subtarefa em uma linha só (nome à esquerda,
+     campos à direita), senão o corpo da folha (uns 220px) mostra pouco mais que um cartão. */
+  .mfs-pw-controles { flex-direction: row; align-items: flex-end; gap: 12px; }
+  .mfs-pw-unidade, .mfs-pw-expandir { flex: 1 1 0; min-width: 0; }
+  .mfs-pw-linha { flex-direction: row; align-items: center; gap: 10px; padding: 6px 10px; }
+  .mfs-pw-topo { flex: 1 1 0; }
+  .mfs-pw-campos { flex: 0 0 340px; }
+  .mfs-pw-motivo { flex: 0 0 100%; order: 3; }
+  .mfs-pw-linha { flex-wrap: wrap; }
 }
 

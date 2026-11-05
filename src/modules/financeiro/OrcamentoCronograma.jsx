@@ -16,6 +16,7 @@ import { friendlyError } from '../../utils/friendlyError';
 
 // Casca mobile do Sistema Completo (só entra em ação com layoutMobileCompleto; ver OrcamentoCronogramaScreen).
 const OrcamentoCronogramaMobile = React.lazy(() => import('../mobile/full/orcamentos/OrcamentoCronogramaMobile').then(m => ({ default: m.OrcamentoCronogramaMobile })));
+const DistribuirPesosMobile = React.lazy(() => import('../mobile/full/orcamentos/DistribuirPesosMobile').then(m => ({ default: m.DistribuirPesosMobile })));
 
 // ─── AutocompleteInput ────────────────────────────────────────────────────────
 const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
@@ -819,7 +820,8 @@ const AlcaAltura = ({ alcaProps }) => (
 
 // ─── OrcamentoCronogramaScreen ────────────────────────────────────────────────
 // layoutMobileCompleto: casca mobile do Sistema Completo (celular). Troca só o que se vê (obra, abas Vincular, Vínculos e
-// Resumo, folha de edição); carga, gravação e regras seguem as mesmas daqui. "Distribuir pesos" ainda é só do desktop.
+// Resumo, folha de edição e folha de pesos); carga, gravação e regras seguem as mesmas daqui (a folha de pesos salva por
+// handleSalvarPesos, o mesmo do modal do desktop).
 const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobileCompleto = false }) => {
   const toast = useToast();
 
@@ -1344,7 +1346,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
             filtroItem={filtroItem} onFiltroItem={setFiltroItem} filtroEtapa={filtroEtapa} onFiltroEtapa={setFiltroEtapa}
             filtrados={filtrados} totalVinculado={totalVinculado}
             ehAdmin={isAdmin(userProfile)} onPedirRemocao={setPendingRemove}
-            onAbrirEdicao={setEditandoEtapaId} editandoEtapa={editandoEtapaId ? editandoEtapa : null}
+            onAbrirEdicao={setEditandoEtapaId} onDistribuir={setDistribuirEtapaId} editandoEtapa={editandoEtapaId ? editandoEtapa : null}
             vinculosEtapa={vinculosEtapa} itensNaoVinculados={itensNaoVinculados}
             buscaModalItem={buscaModalItem} onBuscaModalItem={setBuscaModalItem}
             novaTarefaId={novaTarefaId} onNovaTarefa={setNovaTarefaId} movendoTarefa={movendoTarefa} onMover={handleMoverVinculos}
@@ -1875,17 +1877,21 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
       )}
 
       {/* ── Modal: Distribuir pesos das subtarefas ─────────────────────────── */}
-      {distribuirEtapa && (
-        <DistribuirPesosModal
-          etapa={distribuirEtapa}
-          etapas={etapas}
-          vinculos={vinculosDistribuir}
-          orcamentoItensMap={orcamentoItensMap}
-          saving={salvandoPeso}
-          onSave={handleSalvarPesos}
-          onClose={() => setDistribuirEtapaId(null)}
-        />
-      )}
+      {distribuirEtapa && (() => {
+        const propsDosPesos = {
+          etapa: distribuirEtapa,
+          etapas,
+          vinculos: vinculosDistribuir,
+          orcamentoItensMap,
+          saving: salvandoPeso,
+          onSave: handleSalvarPesos,
+          onClose: () => setDistribuirEtapaId(null),
+        };
+        // No celular a mesma distribuição vem como folha (cartões em vez de tabela); salva pelo mesmo handleSalvarPesos.
+        return modoMobile
+          ? <React.Suspense fallback={null}><DistribuirPesosMobile key={distribuirEtapa.id} {...propsDosPesos} /></React.Suspense>
+          : <DistribuirPesosModal {...propsDosPesos} />;
+      })()}
     </>
   );
 };

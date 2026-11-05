@@ -14,7 +14,7 @@ const brl = (v) => formatBRL(v);
 // Orçamento × Cronograma na casca mobile. Três abas: "Vincular" (dois passos: escolher os itens do orçamento e depois a
 // tarefa do cronograma), "Vínculos" (a lista, com filtros e remoção) e "Resumo" (uma linha por tarefa, com a folha para
 // editar os itens dela). Quem carrega os dados e grava é o OrcamentoCronogramaScreen: estes componentes só apresentam e
-// chamam os mesmos manipuladores do desktop. Distribuir pesos das subtarefas ainda é só do desktop.
+// chamam os mesmos manipuladores do desktop. "Distribuir pesos" abre a folha DistribuirPesosMobile (montada pela tela).
 const OrcamentoCronogramaMobile = ({
   obras = [], obraSel = '', onTrocarObra, loading = false,
   itens = [], etapas = [], vinculos = [], rowNumberMap = {}, itensVinculadosIds, resumoIds,
@@ -22,7 +22,7 @@ const OrcamentoCronogramaMobile = ({
   selEtapa = '', onSelEtapa, etapasDisponiveis = [], saving = false, onAdicionar,
   filtroItem = '', onFiltroItem, filtroEtapa = '', onFiltroEtapa, filtrados = [], totalVinculado = 0,
   ehAdmin = false, onPedirRemocao,
-  onAbrirEdicao, editandoEtapa, vinculosEtapa = [], itensNaoVinculados = [], buscaModalItem = '', onBuscaModalItem,
+  onAbrirEdicao, onDistribuir, editandoEtapa, vinculosEtapa = [], itensNaoVinculados = [], buscaModalItem = '', onBuscaModalItem,
   novaTarefaId = '', onNovaTarefa, movendoTarefa = false, onMover,
   confirmRemoveId, onConfirmRemoveId, onRemover, confirmRemoveTodos = false, onConfirmRemoveTodos, removendoTodos = false, onRemoverTodos,
   onVincularNoModal, onFecharEdicao,
@@ -101,7 +101,7 @@ const OrcamentoCronogramaMobile = ({
           )}
 
           {aba === 'resumo' && (
-            <ResumoPorTarefa vinculos={vinculos} etapas={etapas} rowNumberMap={rowNumberMap} onEditar={onAbrirEdicao} />
+            <ResumoPorTarefa vinculos={vinculos} etapas={etapas} rowNumberMap={rowNumberMap} onEditar={onAbrirEdicao} onDistribuir={onDistribuir} />
           )}
         </>
       )}
@@ -294,7 +294,7 @@ const ListaDeVinculos = ({ etapas, rowNumberMap, filtrados, total, totalVinculad
 };
 
 // ---- Aba Resumo: uma linha por tarefa com vínculo ----
-const ResumoPorTarefa = ({ vinculos, etapas, rowNumberMap, onEditar }) => {
+const ResumoPorTarefa = ({ vinculos, etapas, rowNumberMap, onEditar, onDistribuir }) => {
   const [filtro, setFiltro] = React.useState('');
   const todas = React.useMemo(() => resumoPorTarefa(vinculos, etapas), [vinculos, etapas]);
   const lista = filtrarResumo(todas, filtro);
@@ -323,6 +323,12 @@ const ResumoPorTarefa = ({ vinculos, etapas, rowNumberMap, onEditar }) => {
                 <span className="mfs-oc-nome">{e.etapa}</span>
                 <span className="mfs-oc-calculo">{n} {plural(n, 'item', 'itens')} · toque para editar</span>
               </button>
+              {/* Só grupos têm subtarefas para distribuir, como o ícone do desktop. */}
+              {e.isGroup && onDistribuir && (
+                <button type="button" className="mfs-oc-pesos" aria-label={`Distribuir os pesos das subtarefas de ${e.etapa}`} onClick={() => onDistribuir(e.id)}>
+                  <Icon name="chart" size={18} />Pesos
+                </button>
+              )}
             </li>
           ))}
         </ul>
