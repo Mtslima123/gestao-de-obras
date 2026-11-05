@@ -1020,13 +1020,16 @@ const AppInner = () => {
             />
           )}
           {view === 'orcamentos' && (
-            <OrcamentosScreen
-              onNovoOrcamento={() => setModal('novo-orcamento')}
-              obras={obrasVisiveis}
-              refreshKey={refreshOrcamentos}
-              user={user}
-              userProfile={userProfile}
-            />
+            <TelaMobile ativo={modoMobileCompleto} nome="orcamentos">
+              <OrcamentosScreen
+                onNovoOrcamento={() => setModal('novo-orcamento')}
+                obras={obrasVisiveis}
+                refreshKey={refreshOrcamentos}
+                user={user}
+                userProfile={userProfile}
+                layoutMobileCompleto={modoMobileCompleto}
+              />
+            </TelaMobile>
           )}
           {view === 'cronograma' && (
             <>
