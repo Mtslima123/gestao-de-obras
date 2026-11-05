@@ -1053,6 +1053,7 @@ const AppInner = () => {
               obraId={moObraId}
               onTrocarObra={handleTrocarObraMO}
               userProfile={userProfile}
+              layoutMobileCompleto={modoMobileCompleto}
             />
           )}
           {/* 🔒 SEGURANÇA [VULN-3]: telas admin bloqueadas para não-admin no frontend */}

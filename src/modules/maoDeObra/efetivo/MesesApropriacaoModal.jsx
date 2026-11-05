@@ -65,7 +65,7 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
         {opcoes.length
           ? (
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: T.texto2, flexShrink: 0 }}>Mês a habilitar
-              <select value={alvo ? String(alvo.abs) : ''} onChange={(e) => setEscolhido(e.target.value)} disabled={ocupado} style={campo}>
+              <select className="mo-mes-select" value={alvo ? String(alvo.abs) : ''} onChange={(e) => setEscolhido(e.target.value)} disabled={ocupado} style={campo}>
                 {opcoes.map((m) => <option key={m.abs} value={m.abs}>{rotulo(m)}</option>)}
               </select>
             </label>
@@ -75,7 +75,7 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
             <b style={{ fontSize: 13 }}>Habilitados e ainda sem apropriação</b>
             {removiveis.map((m) => (
-              <div key={m.abs} style={linhaMes}>
+              <div key={m.abs} className="mo-mes-linha" style={linhaMes}>
                 <span>{rotulo(m)}</span>
                 <button type="button" className="btn btn-ghost" disabled={ocupado} onClick={() => remover(m)}>Remover</button>
               </div>
@@ -90,7 +90,7 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
                 const fechado = mesFechado(s, m);
                 const vazio = mesSemDados(s, m);
                 return (
-                  <div key={m.abs} style={linhaMes}>
+                  <div key={m.abs} className="mo-mes-linha" style={linhaMes}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {rotulo(m)}
                       <span style={fechado ? pill(T.texto2, T.faixa) : pill(T.verde, T.verdeBg)}>{fechado ? 'Fechado' : 'Aberto'}</span>

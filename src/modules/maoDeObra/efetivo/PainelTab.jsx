@@ -5,6 +5,9 @@ import { efetivoService } from './efetivo.service';
 import { mesDeAbs, ultimoDia } from './efetivoStore';
 import { filtrarPainel, mesesDoPainel, montarPainel, resumoPainel } from './painelApropriacaoPure';
 
+// Apresentação em cartões da casca mobile do Sistema Completo (só carrega nela).
+const PainelMobile = React.lazy(() => import('../../mobile/full/maoDeObra/PainelMobile').then((m) => ({ default: m.PainelMobile })));
+
 const campo = { font: 'inherit', fontSize: 13, color: T.texto, padding: '7px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8, background: 'var(--surface)' };
 
 const fmtData = (iso) => {
@@ -33,7 +36,7 @@ const Celula = ({ q }) => {
 // escolhido. `obras` já vem filtrada por permissão (obrasVisiveis do App); o banco filtra de novo
 // as linhas (admin lê todas, os demais só as obras liberadas). Não depende da obra aberta no
 // Efetivo: carrega por conta própria.
-export function PainelTab({ obras, mesAtualAbs }) {
+export function PainelTab({ obras, mesAtualAbs, layoutMobileCompleto = false }) {
   const [mesAbsSel, setMesAbsSel] = React.useState(mesAtualAbs);
   const [configs, setConfigs] = React.useState([]);
   const [linhas, setLinhas] = React.useState(null);
@@ -87,6 +90,19 @@ export function PainelTab({ obras, mesAtualAbs }) {
         <span style={{ color: T.vermelho, fontSize: 14 }}>{falha}</span>
         <button type="button" className="btn btn-ghost" onClick={() => carregar(mesSel.ano, mesSel.mes)}>Tentar de novo</button>
       </div>
+    );
+  }
+
+  if (layoutMobileCompleto) {
+    return (
+      <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+        <PainelMobile
+          carregando={!linhas} opcoesMes={opcoesMes} mesAbsSel={mesAbsSel} onMes={setMesAbsSel} fim={fim}
+          onAtualizar={() => carregar(mesSel.ano, mesSel.mes)}
+          busca={busca} onBusca={setBusca} situacao={situacao} onSituacao={setSituacao}
+          resumo={resumo} doPeriodo={doPeriodo} todasVazio={todas.length === 0} visiveis={visiveis}
+        />
+      </React.Suspense>
     );
   }
 

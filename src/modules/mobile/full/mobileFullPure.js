@@ -25,7 +25,8 @@ export const modoMobileCompleto = ({ chaveAtiva, isMobile, gateLiberado, mobileF
 // dentro do contêiner de rolagem (LegadoMobile). Ao adaptar uma tela nova, incluir a view aqui.
 // O Cronograma conta como adaptado porque ele mesmo contém (LegadoMobile) as abas que ainda são do desktop. A aba
 // Orç. × Cronograma, outra tela dentro da mesma view, também já tem a sua casca (OrcamentoCronogramaMobile).
-export const TELAS_ADAPTADAS = ['dashboard', 'obras', 'obra-detail', 'orcamentos', 'fisico-financeiro', 'cronograma'];
+// Mão de Obra também: as quatro abas (Previsto, Apropriação, Análise e Painel) têm versão em cartões.
+export const TELAS_ADAPTADAS = ['dashboard', 'obras', 'obra-detail', 'orcamentos', 'fisico-financeiro', 'cronograma', 'mao-de-obra'];
 export const telaJaAdaptada = (view) => TELAS_ADAPTADAS.includes(view);
 
 // Barra inferior: os três módulos mais usados + "Mais" (gaveta com o resto). Os ids vêm de config/modulos.

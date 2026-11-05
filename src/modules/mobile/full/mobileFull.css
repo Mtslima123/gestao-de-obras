@@ -846,6 +846,204 @@ html.mob-full .import-erros { overflow-x: auto !important; }
 .mfs-oc-pesos { flex: none; width: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0; border: 0; border-left: 1px solid var(--border); background: none; color: var(--brand); font-size: 10.5px; font-weight: 600; cursor: pointer; }
 .mfs-oc-pesos:active { background: var(--surface-muted); }
 
+/* ---------- Mão de Obra (cabeçalho, Previsto, Apropriação, Análise e Painel) ----------
+   Prefixo mfs-mo-. Cada tela é uma coluna de cartões; a tabela larga do desktop vira um cartão por função (ou por obra).
+   As abas reaproveitam .mfs-abas (coladas sob o cabeçalho). Os números calculados vêm do mesmo código do desktop. */
+.mfs-mo input[type='date'] { font-size: 16px !important; height: 44px !important; box-sizing: border-box; }
+.mfs-mo-topo { display: flex; flex-direction: column; gap: 8px; }
+.mfs-mo-campo { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.mfs-mo-campo input, .mfs-mo-campo select { width: 100%; min-width: 0; height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-mo-campo .mfs-select { margin-bottom: 0; }
+.mfs-mo-campo.cheio { grid-column: 1 / -1; }
+.mfs-mo-campo input.negativo { color: var(--danger); }
+.mfs-mo-campo input:disabled { opacity: 0.6; }
+.mfs-mo-periodo { display: flex; align-items: flex-end; gap: 8px; }
+.mfs-mo-periodo > .mfs-mo-campo { flex: 1 1 0; }
+.mfs-mo-meses { flex: none; height: 44px; gap: 6px; justify-content: center; }
+.mfs-mo-tela { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mfs-mo-tela.com-barra { padding-bottom: 72px; }
+.mfs-mo-secao {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-xs);
+}
+.mfs-mo-titulo { margin: 0; font-size: 15px; font-weight: 700; color: var(--brand); }
+.mfs-mo-sub { font-size: 12.5px; line-height: 1.35; color: var(--text-muted); }
+.mfs-mo-secao .mfs-busca, .mfs-mo-controles .mfs-busca { flex: none; width: 100%; }
+.mfs-mo-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-mo-kpi { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-mo-kpi-rotulo { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); overflow-wrap: anywhere; }
+.mfs-mo-kpi-valor { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; color: var(--text); }
+.mfs-mo-kpi-detalhe { font-size: 11.5px; line-height: 1.3; color: var(--text-muted); }
+.mfs-mo-pilula { display: inline-flex; align-items: center; gap: 5px; flex: none; width: fit-content; max-width: 100%; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.mfs-mo-pilula i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.mfs-mo-seg { flex: none; }
+.mfs-mo-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mfs-mo-chips.rolavel { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.mfs-mo-chips.rolavel::-webkit-scrollbar { display: none; }
+.mfs-mo-chips.rolavel > * { flex: none; }
+.mfs-mo-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 38px; padding: 0 12px; white-space: nowrap; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--text-soft); font-size: 13px; font-weight: 600;
+}
+.mfs-mo-chip[aria-pressed='true'] { background: var(--brand); border-color: var(--brand); color: #fff; }
+.mfs-mo-chip:disabled { opacity: 0.5; cursor: default; }
+.mfs-mo-lista { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mfs-mo-cartao { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-xs); }
+.mfs-mo-cartao-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+.mfs-mo-cartao-nome { min-width: 0; overflow-wrap: anywhere; font-size: 14.5px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.mfs-mo-cartao-sub { margin-top: -4px; font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.mfs-mo-metricas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0; }
+.mfs-mo-metricas.quatro { grid-template-columns: repeat(4, 1fr); }
+.mfs-mo-metricas > div { min-width: 0; }
+.mfs-mo-metricas dt { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); overflow-wrap: anywhere; }
+.mfs-mo-metricas dd { margin: 1px 0 0; font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mfs-mo-saldos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.mfs-mo-saldos > div { display: flex; flex-direction: column; min-width: 0; }
+.mfs-mo-saldos span { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-mo-saldos b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.mfs-mo-saldos small { font-size: 11.5px; color: var(--text-muted); }
+.mfs-mo-legenda { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; line-height: 1.4; color: var(--text-muted); }
+.mfs-mo-legenda-item { display: inline-flex; align-items: center; gap: 6px; }
+.mfs-mo-legenda-item i { flex: none; width: 12px; height: 12px; border-radius: 2px; box-sizing: border-box; }
+.mfs-mo-vazio { padding: 16px 4px; text-align: center; }
+.mfs-mo-exportar { align-self: flex-end; height: 40px; gap: 6px; }
+/* Barra de ações fixa acima da barra inferior da casca (Previsto e Apropriação). */
+.mfs-mo-fixa {
+  position: fixed; left: 0; right: 0; bottom: calc(57px + env(safe-area-inset-bottom, 0px)); z-index: 40;
+  display: flex; gap: 8px; padding: 8px 12px; background: var(--surface); border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.08);
+}
+.mfs-mo-fixa .btn { flex: 1; height: 44px; justify-content: center; gap: 6px; }
+.mfs-mo-fixa .btn.btn-ghost { flex: 0 0 auto; min-width: 96px; }
+.mfs-mo-fixa .btn:disabled { opacity: 0.45; cursor: default; }
+/* Folha de ações. */
+.mfs-mo-acoes { display: flex; flex-direction: column; gap: 8px; }
+.mfs-mo-acao {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px; width: 100%; min-height: 48px; padding: 8px 14px; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font-size: 15px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.mfs-mo-acao.perigo { color: var(--danger); }
+.mfs-mo-acao:disabled, .mfs-mo-acao.desabilitada { opacity: 0.5; cursor: default; }
+.mfs-mo-acao-rotulo { flex: 1; min-width: 0; }
+.mfs-mo-acao small { flex-basis: 100%; font-size: 12px; font-weight: 400; color: var(--text-muted); }
+/* Previsto. */
+.mfs-mo-estado { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.mfs-mo-form { display: flex; flex-direction: column; gap: 12px; }
+.mfs-mo-form-datas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-mo-campos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-mo-campos .qtd { grid-column: 1 / -1; }
+.mfs-mo-stepper { display: flex; align-items: center; gap: 6px; }
+.mfs-mo-stepper button {
+  flex: none; width: 44px; height: 44px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface);
+  color: var(--brand); font-size: 22px; font-weight: 700; line-height: 1; cursor: pointer;
+}
+.mfs-mo-stepper button:disabled { opacity: 0.35; cursor: default; }
+.mfs-mo-stepper input { flex: 1 1 0; text-align: center; font-weight: 600; }
+.mfs-mo-lixeira { flex: none; width: 44px; height: 44px; margin: -10px -10px -10px 0; display: grid; place-items: center; border: 0; background: none; color: var(--danger); cursor: pointer; }
+.mfs-mo-lixeira:disabled { opacity: 0.3; cursor: not-allowed; }
+.mfs-mo-grupo { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mfs-mo-grupo-cab {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; width: 100%; min-height: 44px; padding: 6px 12px; box-sizing: border-box;
+  background: var(--brand-tint); border: 0; border-left: 4px solid var(--brand); border-radius: 10px; color: var(--brand); font-size: 14px; text-align: left; cursor: pointer;
+}
+.mfs-mo-grupo-cab strong { font-weight: 700; }
+.mfs-mo-grupo-qtd { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.mfs-mo-grupo-nums { flex: 1 1 100%; padding-left: 26px; font-size: 12px; font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* Painel. */
+.mfs-mo-quinz { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.mfs-mo-quinz-rotulo { font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
+.mfs-mo-quinz-situacao { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; }
+.mfs-mo-quinz-situacao small { font-size: 11px; color: var(--text-muted); text-align: right; overflow-wrap: anywhere; }
+.mfs-mo-fora { color: var(--text-faint); }
+.mfs-mo-cartao-nome + .mfs-mo-quinz { margin-top: 0; }
+/* Análise. */
+.mfs-mo-seletor {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; height: 44px; padding: 0 12px; box-sizing: border-box; text-align: left; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); font-size: 15px; font-weight: 600;
+}
+.mfs-mo-seletor span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfs-mo-opcoes { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.mfs-mo-opcao { min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font-size: 15px; text-align: left; cursor: pointer; }
+.mfs-mo-opcao.ativa { background: var(--brand-tint); color: var(--brand); font-weight: 700; }
+.mfs-mo-grafico { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.mfs-mo-grafico-trilho { min-width: 100%; }
+.mfs-mo-barras { display: flex; height: 170px; border-bottom: 1px solid var(--border-strong); }
+.mfs-mo-slot {
+  position: relative; flex: 0 0 44px; width: 44px; height: 100%; padding: 0 2px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px;
+  border: 0; border-radius: 6px 6px 0 0; background: transparent; cursor: pointer;
+}
+.mfs-mo-slot.atual { background: var(--brand-tint); }
+.mfs-mo-slot.destaque { outline: 2px solid var(--brand); outline-offset: -2px; }
+.mfs-mo-valor { font-size: 10.5px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.mfs-mo-barra { display: block; width: 70%; max-width: 28px; box-sizing: border-box; border-radius: 3px 3px 0 0; }
+.mfs-mo-barra.real, .mfs-mo-barra.efetivo { background: var(--brand); }
+.mfs-mo-barra.proj { background: var(--brand-100); border: 1.5px dashed var(--brand); border-bottom: 0; }
+.mfs-mo-barra.previsto { background: var(--brand-100); }
+.mfs-mo-prev { position: absolute; left: 12%; right: 12%; height: 2px; background: var(--text); z-index: 1; pointer-events: none; }
+.mfs-mo-par { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; height: 80%; }
+.mfs-mo-par .mfs-mo-barra { width: 38%; max-width: 16px; }
+.mfs-mo-rotulos { display: flex; }
+.mfs-mo-rotulos span { flex: 0 0 44px; width: 44px; padding-top: 4px; text-align: center; font-size: 10.5px; font-weight: 500; color: var(--text-faint); }
+.mfs-mo-rotulos span.atual { color: var(--brand); font-weight: 700; }
+.mfs-mo-detalhe { margin: 0; min-height: 18px; font-size: 12.5px; color: var(--text-soft); }
+.mfs-mo-comparar { position: relative; height: 14px; }
+.mfs-mo-comparar span { position: absolute; left: 0; height: 5px; border-radius: 3px; }
+/* Apropriação. */
+.mfs-mo-quinzenas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-mo-quinzenas button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 52px; padding: 8px 12px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--text);
+}
+.mfs-mo-quinzenas button strong { font-size: 14px; }
+.mfs-mo-quinzenas button span { font-size: 11.5px; color: var(--text-muted); }
+.mfs-mo-quinzenas button[aria-pressed='true'] { background: var(--brand); border-color: var(--brand); color: #fff; }
+.mfs-mo-quinzenas button[aria-pressed='true'] span { color: rgba(255, 255, 255, 0.85); }
+.mfs-mo-estado-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; }
+.mfs-mo-salvo { font-size: 12px; color: var(--text-faint); }
+.mfs-mo-alerta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 12px; border-radius: 10px; background: var(--warning-bg); color: var(--warning); font-size: 13px; font-weight: 500; }
+.mfs-mo-alerta span { flex: 1 1 200px; }
+.mfs-mo-alerta button { flex: none; min-height: 40px; padding: 0 4px; border: 0; background: none; color: var(--brand); font-size: 13px; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.mfs-mo-controles { display: flex; flex-direction: column; gap: 8px; }
+.mfs-mo-linha-controles { display: flex; align-items: center; gap: 8px; }
+.mfs-mo-linha-controles .mfs-mo-seg { flex: 1 1 0; }
+.mfs-mo-texto-botao { flex: none; min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--brand); font-size: 13px; font-weight: 600; cursor: pointer; }
+.mfs-mo-texto-botao:disabled { opacity: 0.4; cursor: default; }
+.mfs-mo-func { width: 100%; flex-direction: row; align-items: center; gap: 8px; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.mfs-mo-func:active { background: var(--surface-muted); }
+.mfs-mo-func-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mfs-mo-func > svg { flex: none; color: var(--text-faint); }
+.mfs-mo-totais .mfs-mo-metricas { row-gap: 10px; }
+.mfs-mo-folha-resumo { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 14px; }
+.mfs-mo-folha-resumo .mfs-mo-kpis { width: 100%; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.mfs-mo-folha-resumo .mfs-mo-kpi { padding: 8px; }
+.mfs-mo-folha-resumo .mfs-mo-kpi-rotulo { font-size: 9.5px; }
+.mfs-mo-folha-resumo .mfs-mo-kpi-valor { font-size: 17px; }
+.mfs-mo-folha-campos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mfs-mo-posicao { margin: 12px 0 0; text-align: center; }
+
+/* Modais da Mão de Obra que já existem no desktop e aqui só ganham ajuste de largura (nomes de classe adicionados
+   neles; sem html.mob-full nada disto vale). Os !important cobrem tamanhos gravados em estilo inline. */
+html.mob-full .mo-grupos-fundo { align-items: flex-end !important; padding: 0 !important; }
+html.mob-full .mo-grupos { max-width: none !important; max-height: calc(100dvh - 24px) !important; border-radius: 18px 18px 0 0 !important; }
+html.mob-full .mo-grupos-topo { padding: 16px 16px 12px !important; }
+html.mob-full .mo-grupos-add { gap: 8px; }
+html.mob-full .mo-grupos-add input { min-width: 0 !important; font-size: 16px !important; height: 44px; box-sizing: border-box; }
+html.mob-full .mo-grupos-add button { min-height: 44px; }
+html.mob-full .mo-grupos-colunas { display: none !important; }
+html.mob-full .mo-grupos-lista { padding: 4px 16px 8px !important; }
+html.mob-full .mo-grupos-linha { flex-wrap: wrap !important; gap: 8px !important; padding: 10px 0 !important; }
+html.mob-full .mo-grupos-nome { order: 1; flex: 1 1 calc(100% - 112px) !important; font-weight: 600; overflow-wrap: anywhere; }
+html.mob-full .mo-grupos-icone { order: 2; flex: 0 0 44px !important; width: 44px !important; height: 44px !important; }
+html.mob-full .mo-grupos-sel { order: 3; flex: 1 1 calc(50% - 4px) !important; width: auto !important; min-width: 0; height: 44px; font-size: 16px !important; box-sizing: border-box; }
+html.mob-full .mo-grupos-painel input { flex: 1 1 100% !important; min-width: 0 !important; height: 44px; font-size: 16px !important; box-sizing: border-box; }
+html.mob-full .mo-grupos-painel button { min-height: 44px; }
+html.mob-full .mo-grupos-rodape { padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)) !important; }
+html.mob-full .mo-grupos-rodape button { flex: 1; min-height: 44px; }
+html.mob-full .mo-mes-select { width: 100%; height: 44px; font-size: 16px !important; box-sizing: border-box; }
+html.mob-full .mo-mes-linha { flex-wrap: wrap; row-gap: 6px; }
+html.mob-full .mo-mes-linha > span { flex-wrap: wrap; }
+html.mob-full .mo-mes-linha .btn { min-height: 40px; }
+
 /* ---------- Avisos (toast) acima da barra inferior ---------- */
 html.mob-full .toast-stack {
   bottom: calc(68px + env(safe-area-inset-bottom, 0px));
@@ -894,3 +1092,17 @@ html.mob-full .toast { min-width: 0; width: 100%; box-sizing: border-box; }
   .mfs-pw-linha { flex-wrap: wrap; }
 }
 
+/* Mão de Obra no celular deitado: sobra largura e falta altura. Indicadores em uma linha, cartões em duas colunas, a barra
+   de ações encosta na barra inferior baixa (45px) e a folha de uma função põe os campos lado a lado. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .mfs-mo-kpis { grid-template-columns: repeat(4, 1fr); }
+  .mfs-mo-lista { display: grid; grid-template-columns: 1fr 1fr; }
+  .mfs-mo-tela.com-barra { padding-bottom: 58px; }
+  .mfs-mo-fixa { bottom: calc(45px + env(safe-area-inset-bottom, 0px)); justify-content: flex-end; padding: 4px 12px; }
+  .mfs-mo-fixa .btn { flex: 0 0 auto; min-width: 200px; height: 40px; }
+  /* As abas deixam de grudar sob o cabeçalho: com 375px de altura, cabeçalho + abas + barra de ações comeriam metade da tela. */
+  .mfs-mo > .mfs-abas { position: static; }
+  .mfs-mo-folha-campos { grid-template-columns: repeat(4, 1fr); }
+  .mfs-mo-folha-campos .mfs-mo-campo.cheio { grid-column: span 2; }
+  .mfs-mo-barras { height: 130px; }
+}

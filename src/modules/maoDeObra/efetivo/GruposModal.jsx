@@ -105,9 +105,9 @@ export function GruposModal({ s, setS, toast, erro, recarregar, onClose }) {
   const temApropriacao = (id) => comAprop.has(id);
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,27,45,.45)', zIndex: 150, /* abaixo do toast (200), para a mensagem de erro aparecer por cima */ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div role="dialog" aria-label="Grupos e classificações" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', color: T.texto, borderRadius: 16, boxShadow: '0 20px 50px rgba(15,27,45,.3)', width: '100%', maxWidth: 780, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${T.borda}`, display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="mo-grupos-fundo" onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,27,45,.45)', zIndex: 150, /* abaixo do toast (200), para a mensagem de erro aparecer por cima */ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div className="mo-grupos" role="dialog" aria-label="Grupos e classificações" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', color: T.texto, borderRadius: 16, boxShadow: '0 20px 50px rgba(15,27,45,.3)', width: '100%', maxWidth: 780, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="mo-grupos-topo" style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${T.borda}`, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
             <div>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Grupos e classificações</h2>
@@ -115,7 +115,7 @@ export function GruposModal({ s, setS, toast, erro, recarregar, onClose }) {
             </div>
             <button type="button" onClick={onClose} aria-label="Fechar" style={{ font: 'inherit', fontSize: 20, border: 0, background: 'none', color: T.texto2, cursor: 'pointer' }}>×</button>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="mo-grupos-add" style={{ display: 'flex', gap: 8 }}>
             <input value={nova} onChange={(e) => setNova(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Nova classificação (ex.: Pintura)" style={{ font: 'inherit', fontSize: 13, padding: '8px 10px', border: `1px solid ${T.bordaInput}`, borderRadius: 8, flex: 1, background: 'var(--surface)', color: T.texto }} />
             <button type="button" style={btnPrim} disabled={ocupado} onClick={add}>Adicionar</button>
           </div>
@@ -128,25 +128,25 @@ export function GruposModal({ s, setS, toast, erro, recarregar, onClose }) {
             ))}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 12, padding: '8px 24px', fontSize: 11.5, fontWeight: 600, color: T.texto2, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: `1px solid ${T.borda}` }}>
+        <div className="mo-grupos-colunas" style={{ display: 'flex', gap: 12, padding: '8px 24px', fontSize: 11.5, fontWeight: 600, color: T.texto2, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: `1px solid ${T.borda}` }}>
           <span style={{ flex: 1 }}>Função</span><span style={{ width: 210 }}>Grupo</span><span style={{ width: 200 }}>Classificação</span><span style={{ width: 80 /* editar + excluir, com o espaço entre eles */ }} />
         </div>
-        <div style={{ overflowY: 'auto', padding: '4px 24px 8px' }}>
+        <div className="mo-grupos-lista" style={{ overflowY: 'auto', padding: '4px 24px 8px' }}>
           {funcoes.map((f, k) => (
             <div key={f.id}>
               {(k === 0 || funcoes[k - 1].grupoId !== f.grupoId) && <div style={{ fontSize: 11.5, fontWeight: 600, color: T.azul, textTransform: 'uppercase', letterSpacing: '.05em', padding: '14px 0 6px' }}>{GRUPOS.find((g) => g.id === f.grupoId)?.nome}</div>}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderTop: `1px solid ${T.linha}`, fontSize: 13.5 }}>
-                <span style={{ flex: 1, minWidth: 0 }}>{f.nome}</span>
-                <select value={f.grupoId} disabled={ocupado} onChange={(e) => setGrupo(f.id, e.target.value)} style={{ ...sel, width: 210 }}>{GRUPOS.map((g) => <option key={g.id} value={g.id}>{g.nome}</option>)}</select>
-                <select value={f.classificacao ?? ''} disabled={ocupado} onChange={(e) => setCls(f.id, e.target.value)} style={{ ...sel, width: 200 }}>
+              <div className="mo-grupos-linha" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderTop: `1px solid ${T.linha}`, fontSize: 13.5 }}>
+                <span className="mo-grupos-nome" style={{ flex: 1, minWidth: 0 }}>{f.nome}</span>
+                <select className="mo-grupos-sel" value={f.grupoId} disabled={ocupado} onChange={(e) => setGrupo(f.id, e.target.value)} style={{ ...sel, width: 210 }}>{GRUPOS.map((g) => <option key={g.id} value={g.id}>{g.nome}</option>)}</select>
+                <select className="mo-grupos-sel" value={f.classificacao ?? ''} disabled={ocupado} onChange={(e) => setCls(f.id, e.target.value)} style={{ ...sel, width: 200 }}>
                   <option value="">Própria função</option>
                   {s.classificacoes.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <button type="button" onClick={() => abrirEdicao(f)} aria-label="Editar função" title="Editar o nome da função" style={{ width: 34, height: 32, flexShrink: 0, border: `1px solid ${T.bordaInput}`, background: 'var(--surface)', color: T.azul, borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="edit" size={15} stroke={2} /></button>
-                <button type="button" onClick={() => abrirExclusao(f.id)} aria-label="Excluir função" title="Excluir função" style={{ width: 34, height: 32, flexShrink: 0, border: '1px solid var(--danger-bg)', background: 'var(--surface)', color: T.vermelho, borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="trash" size={15} stroke={2} /></button>
+                <button type="button" className="mo-grupos-icone" onClick={() => abrirEdicao(f)} aria-label="Editar função" title="Editar o nome da função" style={{ width: 34, height: 32, flexShrink: 0, border: `1px solid ${T.bordaInput}`, background: 'var(--surface)', color: T.azul, borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="edit" size={15} stroke={2} /></button>
+                <button type="button" className="mo-grupos-icone" onClick={() => abrirExclusao(f.id)} aria-label="Excluir função" title="Excluir função" style={{ width: 34, height: 32, flexShrink: 0, border: '1px solid var(--danger-bg)', background: 'var(--surface)', color: T.vermelho, borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="trash" size={15} stroke={2} /></button>
               </div>
               {editando?.id === f.id && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', marginBottom: 6, background: T.azulClaro, borderRadius: 8, fontSize: 13 }}>
+                <div className="mo-grupos-painel" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', marginBottom: 6, background: T.azulClaro, borderRadius: 8, fontSize: 13 }}>
                   <input ref={campoNomeRef} value={editando.nome} aria-label={`Novo nome de ${f.nome}`}
                     onChange={(e) => setEditando((ed) => ({ ...ed, nome: e.target.value }))}
                     onKeyDown={(e) => {
@@ -161,7 +161,7 @@ export function GruposModal({ s, setS, toast, erro, recarregar, onClose }) {
                 </div>
               )}
               {excluir === f.id && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', marginBottom: 6, background: T.vermelhoBg, borderRadius: 8, fontSize: 13, color: T.vermelho }}>
+                <div className="mo-grupos-painel" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', marginBottom: 6, background: T.vermelhoBg, borderRadius: 8, fontSize: 13, color: T.vermelho }}>
                   {/* O handoff dizia que as apropriações seriam removidas; aqui a exclusão em todas as obras
                       é soft delete (ativo = false) e o histórico lançado fica guardado. */}
                   <div style={{ flex: 1, minWidth: 260, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -178,7 +178,7 @@ export function GruposModal({ s, setS, toast, erro, recarregar, onClose }) {
             </div>
           ))}
         </div>
-        <div style={{ padding: '14px 24px', borderTop: `1px solid ${T.borda}`, display: 'flex', justifyContent: 'flex-end' }}>
+        <div className="mo-grupos-rodape" style={{ padding: '14px 24px', borderTop: `1px solid ${T.borda}`, display: 'flex', justifyContent: 'flex-end' }}>
           <button type="button" style={btnPrim} onClick={onClose}>Concluir</button>
         </div>
       </div>

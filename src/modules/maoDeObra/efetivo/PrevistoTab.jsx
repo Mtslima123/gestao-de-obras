@@ -16,6 +16,9 @@ import { logger } from '../../../services/logger';
 import { useCardCongelado } from '../../../utils/useCardCongelado';
 import { useIsMobile } from '../../../utils/useIsMobile';
 
+// Apresentação em cartões da casca mobile do Sistema Completo (só carrega nela).
+const PrevistoMobile = React.lazy(() => import('../../mobile/full/maoDeObra/PrevistoMobile').then((m) => ({ default: m.PrevistoMobile })));
+
 const fmt = (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 const fmtSaldo = (v) => (v < -0.05 ? '−' + fmt(-v) : fmt(v));
 
@@ -26,7 +29,8 @@ const Campo = ({ label, flex, children }) => (
 // Aba Previsto: orçamento de efetivo por função (qtd/mês, início, término). Lançado uma vez:
 // "Salvar previsto" grava e tranca; "Editar previsto" destranca. A trava é do banco (409); as
 // edições da tabela ficam num rascunho local até salvar.
-export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin, somenteLeitura }) {
+export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin, somenteLeitura, layoutMobileCompleto = false }) {
+  const modoMobile = layoutMobileCompleto;
   const locked = s.obra.previstoTrancado;
   const [modal, setModal] = React.useState(false);
   const [nova, setNova] = React.useState(null); // { nome, g, q, ini, fim }
@@ -216,6 +220,18 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {modoMobile && (
+        <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+          <PrevistoMobile
+            s={s} setS={setS} mesSel={mesSel} locked={locked} somenteLeitura={somenteLeitura} ehAdmin={ehAdmin} podeRemover={podeRemover}
+            ocupado={ocupado} etiqueta={etiqueta} rest={rest} TT={TT} TC={TC} grupos={grupos} removidas={removidas} comAprop={comAprop}
+            nova={nova} setNova={setNova} cadastrar={cadastrar} setPrev={setPrev} alternarTrava={alternarTrava}
+            baixarModelo={baixarModelo} escolherArquivo={escolherArquivo}
+            onGrupos={() => setModal(true)} onPedirRemover={setConfirmaRemover} onRestaurar={restaurar}
+          />
+        </React.Suspense>
+      )}
+      {!modoMobile && (<>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
         {kpi('Total orçado', fmt(TT), 'pessoa-mês (qtd/mês × meses)')}
         {kpi('Consumido', fmt(TC), `última apropriação até ${mesSel.label}`, T.azul)}
@@ -365,6 +381,7 @@ export function PrevistoTab({ s, setS, mesSel, toast, erro, recarregar, ehAdmin,
         </div>
       </section>
       </div>
+      </>)}
 
       {previa && (
         <ImportarPlanilhaModal

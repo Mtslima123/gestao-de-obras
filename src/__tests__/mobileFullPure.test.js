@@ -196,11 +196,11 @@ describe('cabecalhoDaTela (breadcrumb da Topbar do desktop vira cabeçalho compa
 });
 
 describe('telas já adaptadas (saem do contêiner de rolagem LegadoMobile)', () => {
-  it('Dashboard, Obras, Obra detalhe, Orçamentos, Físico Financeiro (lista) e Cronograma já estão adaptados', () => {
-    ['dashboard', 'obras', 'obra-detail', 'orcamentos', 'fisico-financeiro', 'cronograma'].forEach(v => expect(telaJaAdaptada(v)).toBe(true));
+  it('Dashboard, Obras, Obra detalhe, Orçamentos, Físico Financeiro (lista), Cronograma e Mão de Obra já estão adaptados', () => {
+    ['dashboard', 'obras', 'obra-detail', 'orcamentos', 'fisico-financeiro', 'cronograma', 'mao-de-obra'].forEach(v => expect(telaJaAdaptada(v)).toBe(true));
   });
   it('o resto ainda é a tela do desktop', () => {
-    ['fisico-financeiro-detail', 'mao-de-obra', 'admin'].forEach(v => {
+    ['fisico-financeiro-detail', 'admin'].forEach(v => {
       expect(telaJaAdaptada(v)).toBe(false);
     });
   });
