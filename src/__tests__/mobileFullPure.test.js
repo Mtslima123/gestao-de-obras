@@ -204,9 +204,9 @@ describe('telas já adaptadas (saem do contêiner de rolagem LegadoMobile)', () 
       expect(telaJaAdaptada(v)).toBe(false);
     });
   });
-  it('Cronograma: a aba Orç. × Cronograma é outra tela e ainda precisa do contêiner', () => {
+  it('Cronograma: todas as abas, inclusive Orç. × Cronograma, já têm casca própria (nenhuma cai no contêiner)', () => {
     expect(telaJaAdaptada('cronograma', 'gantt')).toBe(true);
-    expect(telaJaAdaptada('cronograma', 'orc-x-cron')).toBe(false);
+    expect(telaJaAdaptada('cronograma', 'orc-x-cron')).toBe(true);
   });
   it('toda tela adaptada é uma view que existe no menu ou uma subtela de um módulo do menu', () => {
     const subtelas = { 'obra-detail': 'obras' };

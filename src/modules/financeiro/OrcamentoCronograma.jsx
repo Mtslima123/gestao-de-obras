@@ -14,6 +14,9 @@ import { isAdmin } from '../../utils/permissions';
 import { logger } from '../../services/logger';
 import { friendlyError } from '../../utils/friendlyError';
 
+// Casca mobile do Sistema Completo (só entra em ação com layoutMobileCompleto; ver OrcamentoCronogramaScreen).
+const OrcamentoCronogramaMobile = React.lazy(() => import('../mobile/full/orcamentos/OrcamentoCronogramaMobile').then(m => ({ default: m.OrcamentoCronogramaMobile })));
+
 // ─── AutocompleteInput ────────────────────────────────────────────────────────
 const AutocompleteInput = ({ value, onChange, placeholder, suggestions, style }) => {
   const [open, setOpen] = React.useState(false);
@@ -815,7 +818,9 @@ const AlcaAltura = ({ alcaProps }) => (
 );
 
 // ─── OrcamentoCronogramaScreen ────────────────────────────────────────────────
-const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
+// layoutMobileCompleto: casca mobile do Sistema Completo (celular). Troca só o que se vê (obra, abas Vincular, Vínculos e
+// Resumo, folha de edição); carga, gravação e regras seguem as mesmas daqui. "Distribuir pesos" ainda é só do desktop.
+const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobileCompleto = false }) => {
   const toast = useToast();
 
   const [obraSel,    setObraSel]    = React.useState('');
@@ -1324,8 +1329,34 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
   const distribuirEtapa    = etapas.find(e => e.id === distribuirEtapaId) || null;
   const vinculosDistribuir = vinculos.filter(v => v.etapa_id === distribuirEtapaId);
 
+  const modoMobile = layoutMobileCompleto;
+
   return (
     <>
+      {modoMobile && (
+        <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+          <OrcamentoCronogramaMobile
+            obras={obrasDisponiveis} obraSel={obraSel} onTrocarObra={setObraSel} loading={loading}
+            itens={itens} etapas={etapas} vinculos={vinculos} rowNumberMap={rowNumberMap}
+            itensVinculadosIds={itensVinculadosIds} resumoIds={resumoIds}
+            selItens={selItens} onToggleItem={toggleItem} onToggleVarios={toggleVarios} onLimparSelecao={limparSelecao}
+            selEtapa={selEtapa} onSelEtapa={setSelEtapa} etapasDisponiveis={etapasDisponiveis} saving={saving} onAdicionar={handleAdd}
+            filtroItem={filtroItem} onFiltroItem={setFiltroItem} filtroEtapa={filtroEtapa} onFiltroEtapa={setFiltroEtapa}
+            filtrados={filtrados} totalVinculado={totalVinculado}
+            ehAdmin={isAdmin(userProfile)} onPedirRemocao={setPendingRemove}
+            onAbrirEdicao={setEditandoEtapaId} editandoEtapa={editandoEtapaId ? editandoEtapa : null}
+            vinculosEtapa={vinculosEtapa} itensNaoVinculados={itensNaoVinculados}
+            buscaModalItem={buscaModalItem} onBuscaModalItem={setBuscaModalItem}
+            novaTarefaId={novaTarefaId} onNovaTarefa={setNovaTarefaId} movendoTarefa={movendoTarefa} onMover={handleMoverVinculos}
+            confirmRemoveId={confirmRemoveId} onConfirmRemoveId={setConfirmRemoveId} onRemover={handleRemove}
+            confirmRemoveTodos={confirmRemoveTodos} onConfirmRemoveTodos={setConfirmRemoveTodos}
+            removendoTodos={removendoTodos} onRemoverTodos={handleRemoveTodos}
+            onVincularNoModal={handleAddVinculoModal} onFecharEdicao={fecharModal}
+          />
+        </React.Suspense>
+      )}
+      {!modoMobile && (
+      <>
       <div className="page-header">
         <div>
           <h1 className="page-title">Orçamento × Cronograma</h1>
@@ -1809,6 +1840,9 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile }) => {
             </div>
           </div>
         </Modal>
+      )}
+
+      </>
       )}
 
       {/* ── Confirmação: remover vínculo (lixeira da tabela) ────────────────── */}

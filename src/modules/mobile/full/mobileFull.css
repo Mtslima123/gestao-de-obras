@@ -702,6 +702,100 @@ html.mob-full .import-erros { overflow-x: auto !important; }
 .mfs-orc-folha-grade .btn { flex: 1; height: 44px; justify-content: center; gap: 6px; padding: 0 6px; }
 .mfs-orc-excluir { width: 100%; height: 44px; justify-content: center; gap: 6px; margin-top: 8px; }
 
+/* ---------- Orçamento × Cronograma (OrcamentoCronogramaMobile) ----------
+   Três abas (Vincular em dois passos, Vínculos e Resumo). A barra do passo fica fixa acima da barra inferior da casca,
+   como a barra de salvar da composição do orçamento. */
+.mfs-oc { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mfs-oc.com-barra { padding-bottom: 92px; }
+.mfs-oc .mfs-select { margin-bottom: 0; }
+.mfs-oc .mfs-segmentado { flex: none; }
+.mfs-oc-passos { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mfs-oc-passos li {
+  flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-muted); font-size: 12.5px; font-weight: 600;
+}
+.mfs-oc-passos li span {
+  flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%;
+  background: var(--surface-muted); color: var(--text-muted); font-size: 12px;
+}
+.mfs-oc-passos li.ativo { border-color: var(--brand); color: var(--brand); background: var(--brand-tint); }
+.mfs-oc-passos li.ativo span, .mfs-oc-passos li.feito span { background: var(--brand); color: #fff; }
+.mfs-oc-passos li.feito { color: var(--text); }
+.mfs-oc-secao { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-oc-secao-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mfs-oc-secao-cab h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.mfs-oc-secao-cab h2 span { font-weight: 500; color: var(--text-muted); font-size: 13px; }
+.mfs-oc-secao-cab p { margin: 2px 0 0; font-size: 12.5px; color: var(--text-muted); }
+.mfs-oc-pequeno { flex: none; height: 36px; padding: 0 10px; font-size: 13px; gap: 4px; }
+.mfs-oc-busca { width: 100%; height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-oc-filtros { display: flex; flex-direction: column; gap: 8px; }
+.mfs-oc-total { margin: 0; font-size: 13px; color: var(--text-muted); }
+.mfs-oc-total strong { color: var(--brand); font-variant-numeric: tabular-nums; }
+.mfs-oc-itens { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mfs-oc-mais { width: 100%; height: 44px; justify-content: center; }
+.mfs-oc-linha {
+  display: flex; align-items: flex-start; gap: 10px; min-height: 52px; padding: 10px 12px; box-sizing: border-box; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  content-visibility: auto; contain-intrinsic-size: auto 72px;
+}
+.mfs-oc-linha input[type='checkbox'] { flex: none; width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--brand); }
+.mfs-oc-linha.marcado { border-color: var(--brand); background: var(--brand-tint); }
+.mfs-oc-linha.resumo { background: var(--surface-muted); }
+.mfs-oc-linha.resumo.marcado { background: var(--brand-tint); }
+.mfs-oc-linha.n1 { margin-left: 10px; }
+.mfs-oc-linha.n2 { margin-left: 20px; }
+.mfs-oc-linha.inerte { opacity: 0.55; cursor: default; }
+.mfs-oc-textos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mfs-oc-linha1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mfs-oc-codigo { font-size: 11.5px; color: var(--text-muted); }
+.mfs-oc-valor { margin-left: auto; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mfs-oc-nome { overflow-wrap: anywhere; font-size: 14.5px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.mfs-oc-dica { font-size: 11.5px; color: var(--text-muted); }
+.mfs-oc-tag { flex: none; padding: 0 6px; border-radius: 999px; background: var(--surface-muted); border: 1px solid var(--border); color: var(--text-muted); font-size: 10.5px; font-weight: 700; line-height: 18px; }
+.mfs-oc-tarefa-linha {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; width: 100%; min-height: 48px; padding: 8px 12px; box-sizing: border-box; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; color: var(--text);
+}
+.mfs-oc-tarefa-linha.grupo { background: var(--surface-muted); }
+.mfs-oc-tarefa-linha.marcado { border-color: var(--brand); background: var(--brand-tint); box-shadow: inset 3px 0 0 var(--brand); }
+.mfs-oc-tarefa-linha .mfs-oc-nome { flex: 1 1 120px; font-size: 14px; }
+.mfs-oc-tarefa-linha .mfs-oc-dica { flex-basis: 100%; }
+.mfs-oc-cartao {
+  display: flex; align-items: stretch; min-width: 0; overflow: hidden; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-xs);
+}
+.mfs-oc-cartao.apagado { opacity: 0.6; }
+.mfs-oc-cartao-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; }
+.mfs-oc-botao-cartao { border: 0; background: none; text-align: left; color: var(--text); cursor: pointer; }
+.mfs-oc-botao-cartao:active { background: var(--surface-muted); }
+.mfs-oc-calculo { font-size: 12.5px; color: var(--text-muted); }
+.mfs-oc-destino { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: 12.5px; color: #15803d; overflow-wrap: anywhere; }
+.mfs-oc-destino svg { flex: none; }
+.mfs-oc-lixeira { flex: none; width: 48px; display: grid; place-items: center; padding: 0; border: 0; border-left: 1px solid var(--border); background: none; color: var(--danger); cursor: pointer; }
+.mfs-oc-lixeira:active { background: var(--surface-muted); }
+.mfs-oc-vincular { flex: none; align-self: center; height: 40px; margin-right: 8px; gap: 4px; }
+.mfs-oc-bloco { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.mfs-oc-bloco-titulo { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-oc-bloco-cab { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mfs-oc-mover { display: flex; gap: 8px; }
+.mfs-oc-mover select { flex: 1 1 0; min-width: 0; height: 44px; font-size: 16px; }
+.mfs-oc-mover .btn { flex: none; height: 44px; }
+.mfs-oc-confirma { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mfs-oc-perigo { height: 40px; background: var(--danger); border-color: var(--danger); color: #fff; justify-content: center; }
+.mfs-oc-texto-perigo { color: var(--danger); }
+/* Barra do passo: seleção e botões, fixa acima da barra inferior da casca. */
+.mfs-oc-barra {
+  position: fixed; left: 0; right: 0; bottom: calc(57px + env(safe-area-inset-bottom, 0px)); z-index: 40;
+  display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; background: var(--surface); border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.08);
+}
+.mfs-oc-barra-texto { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; font-size: 13px; }
+.mfs-oc-barra-texto strong { min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.mfs-oc-barra-texto span { flex: none; color: var(--brand); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mfs-oc-barra-botoes { display: flex; gap: 8px; }
+.mfs-oc-barra-botoes .btn { flex: 1; height: 44px; justify-content: center; gap: 6px; }
+.mfs-oc-barra-botoes .btn.btn-ghost { flex: 0 0 auto; min-width: 96px; }
+
 /* ---------- Avisos (toast) acima da barra inferior ---------- */
 html.mob-full .toast-stack {
   bottom: calc(68px + env(safe-area-inset-bottom, 0px));
@@ -732,5 +826,12 @@ html.mob-full .toast { min-width: 0; width: 100%; box-sizing: border-box; }
   html.mob-full .mfs-od-capa .hero-img img { max-height: 160px; }
   .mfs-od-indicadores { grid-template-columns: repeat(3, 1fr); }
   .mfs-od-indicadores .mfs-ind.destaque { grid-column: 1 / -1; }
+  /* Orç. × Cronograma: a barra do passo vira uma linha só (texto à esquerda, botões à direita) e encosta na barra
+     inferior baixa (45px), em vez de comer 89px dos 375 disponíveis. */
+  .mfs-oc.com-barra { padding-bottom: 66px; }
+  .mfs-oc-barra { bottom: calc(45px + env(safe-area-inset-bottom, 0px)); flex-direction: row; align-items: center; gap: 12px; }
+  .mfs-oc-barra-texto { flex: 1 1 0; flex-direction: column; align-items: flex-start; gap: 0; }
+  .mfs-oc-barra-botoes { flex: 0 0 auto; }
+  .mfs-oc-barra-botoes .btn { flex: 0 0 auto; min-width: 140px; }
 }
 
