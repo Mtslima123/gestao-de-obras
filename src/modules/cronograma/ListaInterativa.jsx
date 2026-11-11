@@ -42,6 +42,7 @@ import { classificarConflitos } from './conflitosOkPure';
 import { celulasAlvoFormatacao, alternarCelulaMarcada, alternarLinhaMarcada } from './alvoFormatacaoPure';
 import { passaCondicoes, passaCor, coresDaColuna } from './filtroCondicaoPure';
 import { recorteEsquerdoDoMarquee, clipPathDoMarquee } from './marqueePure';
+import { montarSomasDosGrupos } from './excelSomaGrupos';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
@@ -3320,6 +3321,27 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         }),
       ];
       const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
+      // Grupos e Total das colunas de valor saem como fórmula de soma dos filhos (regra em excelSomaGrupos.js), para
+      // acompanharem quem edita um valor na planilha. A célula guarda também o valor calculado pela tela. Isso vem
+      // ANTES do formato numérico e do estilo de grupo abaixo, que só mexem em `.z` e `.s` e preservam a fórmula.
+      const COLS_SOMA = ['custoOrcado', 'valorVinculado', 'custoReal'];
+      const somas = montarSomasDosGrupos({
+        exportadas: filtrada,
+        todas: etapas,
+        colunas: visCols.flatMap((cid, i) => (COLS_SOMA.includes(cid) ? [i] : [])),
+        primeiraLinhaExcel: HEADER_ROW + 2,
+      });
+      const comFormula = (r, c, f, valor) => {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        ws[addr] = { t: 'n', v: valor ?? (Number(ws[addr]?.v) || 0), f };
+      };
+      somas.porLinha.forEach((fs, i) => Object.entries(fs).forEach(([c, f]) => comFormula(HEADER_ROW + 1 + i, Number(c), f)));
+      if (somas.total) {
+        // O Total não tem valor próprio em toda coluna (Valor Vinculado saía em branco): o valor guardado é a soma das
+        // linhas de topo, lida das células já montadas.
+        const somaTopo = (c) => somas.linhasDoTotal.reduce((s, linha) => s + (Number(ws[XLSX.utils.encode_cell({ r: linha - 1, c })]?.v) || 0), 0);
+        Object.entries(somas.total).forEach(([c, f]) => comFormula(totalRowIdx, Number(c), f, somaTopo(Number(c))));
+      }
       const rng = XLSX.utils.decode_range(ws['!ref']);
       for (let R = HEADER_ROW + 1; R <= rng.e.r; R++) {
         Object.entries(colFmts).forEach(([C, z]) => {
