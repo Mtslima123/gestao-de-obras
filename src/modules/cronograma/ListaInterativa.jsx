@@ -43,6 +43,7 @@ import { celulasAlvoFormatacao, alternarCelulaMarcada, alternarLinhaMarcada } fr
 import { passaCondicoes, passaCor, coresDaColuna } from './filtroCondicaoPure';
 import { recorteEsquerdoDoMarquee, clipPathDoMarquee } from './marqueePure';
 import { montarSomasDosGrupos } from './excelSomaGrupos';
+import { montarTextoDaGrade, textoExibidoParaPlanilha, mesmoTextoCopiado } from './copiaParaPlanilha';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
 // quando o componente é usado sem o estado ligado ao Cronograma, ex.: testes isolados).
@@ -851,6 +852,19 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (colId?.startsWith('cc_')) return { kind: 'text', get: e => (e.customCols || {})[colId] ?? '', field: colId };
     return COPY_COLS[colId] || null;
   };
+  // Texto da célula que vai para a área de transferência (é o que o Excel cola). Coluna editável em linha de tarefa
+  // mantém o valor de sempre (spec.get). Coluna calculada (Valor Total, WBS, Peso...) não tem spec e saía VAZIA, e a
+  // linha de GRUPO tem números que são a soma dos filhos (Valor Real, datas, avanço), não o campo do próprio grupo:
+  // nesses dois casos sai como a tela mostra. A grade interna de colar (cellClipRef.grid) segue como era.
+  const textoDaCelula = (e, colId) => {
+    if (!e) return '';
+    const spec = cellSpec(colId);
+    if (spec && !e.isGroup) return spec.get(e);
+    return textoExibidoParaPlanilha(colId, colFilterValue(e, colId));
+  };
+  const gravarNaAreaDeTransferencia = (texto) => {
+    try { navigator.clipboard?.writeText(texto)?.catch?.(() => { /* best-effort */ }); } catch { /* best-effort */ }
+  };
   // Copia o RETÂNGULO selecionado (grade valores+fmt) e também as LINHAS distintas do
   // intervalo (para o Ctrl++ inserir N cópias).
   // Marching ants: retângulo tracejado animado sobre a seleção copiada (estilo Excel).
@@ -907,22 +921,28 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (r1 > r2) [r1, r2] = [r2, r1];
     if (c1 > c2) [c1, c2] = [c2, c1];
     const grid = [];
+    const textos = [];
     const rowClones = [];
     for (let r = r1; r <= r2; r++) {
       const e = etapas.find(x => x.id === rows[r]);
       if (!e) continue;
       rowClones.push(JSON.parse(JSON.stringify(e)));
       const gr = [];
+      const tx = [];
       for (let c = c1; c <= c2; c++) {
         const colId = cols[c];
         const spec = cellSpec(colId);
         gr.push({ colId, value: spec ? spec.get(e) : null, kind: spec?.kind, fmt: e.fmt?.[colId] });
+        tx.push(textoDaCelula(e, colId));
       }
       grid.push(gr);
+      textos.push(tx);
     }
-    cellClipRef.current = { grid };
+    // O texto fica guardado junto da grade: o Ctrl+V compara com ele para saber que veio daqui (cola com formatação).
+    const texto = montarTextoDaGrade(textos);
+    cellClipRef.current = { grid, texto };
     rowClipRef.current = rowClones; // permite Ctrl++ inserir o nº de linhas copiadas
-    try { navigator.clipboard?.writeText(grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n')); } catch { /* best-effort */ }
+    gravarNaAreaDeTransferencia(texto);
   };
   // Copia as células SOLTAS marcadas com Ctrl+clique (multiSelCells) — sem formato retangular
   // pra reconstruir, então sai uma lista vertical (uma célula por linha), na ordem do clique.
@@ -931,14 +951,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // de linha antiga que ficou no ref.
   const copyMultiSelCells = () => {
     cutPendingRef.current = null;
+    const textos = [];
     const grid = multiSelCells.map(({ taskId, colId }) => {
       const e = etapas.find(x => x.id === taskId);
       const spec = cellSpec(colId);
+      textos.push([textoDaCelula(e, colId)]);
       return [{ colId, value: e && spec ? spec.get(e) : null, kind: spec?.kind, fmt: e?.fmt?.[colId] }];
     });
-    cellClipRef.current = { grid };
+    const texto = montarTextoDaGrade(textos);
+    cellClipRef.current = { grid, texto };
     rowClipRef.current = null;
-    try { navigator.clipboard?.writeText(grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n')); } catch { /* best-effort */ }
+    gravarNaAreaDeTransferencia(texto);
   };
   // Depois de colar, a seleção vira o bloco colado (da primeira à última célula) e a tela rola até a
   // última, para a pessoa ver onde terminou o que colou. A rolagem fica num efeito (abaixo): as
@@ -1164,11 +1187,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (!selectedCell && !selectedId) return;
     ev.preventDefault();
     const clip = cellClipRef.current;
-    const internalText = clip?.grid ? clip.grid.map(gr => gr.map(c => c.value ?? '').join('\t')).join('\n') : null;
+    // O texto gravado no Ctrl+C (clip.texto) inclui as colunas calculadas, que a grade interna não leva.
+    const internalText = clip?.grid ? (clip.texto ?? null) : null;
     // Limpa a moldura tracejada (marching ants) do recorte/cópia ao colar — senão ela
     // fica "presa" na posição antiga na tela mesmo depois do colar concluído, porque só
     // o atalho Ctrl++ limpava (ver handleListKeyDown).
-    if (selectedCell && internalText === text) { pasteCell(); setMarquee(null); return; } // veio de um Ctrl+C interno recente
+    if (selectedCell && mesmoTextoCopiado(internalText, text)) { pasteCell(); setMarquee(null); return; } // veio de um Ctrl+C interno recente
     if (!selectedCell) { pasteRow(); setMarquee(null); return; }
     pasteExternalText(text);
     setMarquee(null);
