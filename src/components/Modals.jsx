@@ -9,6 +9,13 @@ import { friendlyError } from '../utils/friendlyError';
 
 // Modals, toasts, dropdowns — shared interactive components
 
+// Largura da barra lateral fixa à esquerda: o padding-left do `.app` (80px, ou 276px com o menu fixado). Sem barra
+// (celular, modo foco) não há `.app` com recuo e o valor é 0.
+const faixaDaBarra = () => {
+  const app = document.querySelector('.app');
+  return app ? parseFloat(getComputedStyle(app).paddingLeft) || 0 : 0;
+};
+
 // ----- Modal shell -----
 const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false, resizable = false, overlay = true, fillBody = false }) => {
   const nodeRef  = React.useRef(null);
@@ -40,6 +47,13 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     app?.addEventListener('transitionend', medir);
     return () => { window.removeEventListener('resize', medir); app?.removeEventListener('transitionend', medir); };
   }, [maximizado]);
+  // A barra lateral fica NA FRENTE do modal (z-index 200 contra 100). O modal solto (arrastável) era centralizado na
+  // tela inteira e com até 880px de largura, então numa janela estreita (tela dividida com outro programa) o começo
+  // dele ficava escondido atrás da barra. `faixa` é a largura da barra: o modal só usa a área à direita dela, mais
+  // estreito se for preciso. Sem barra (celular) vale 0 e nada muda.
+  const [faixa, setFaixa] = React.useState(() => (draggable ? faixaDaBarra() : 0));
+  const faixaRef = React.useRef(faixa);
+  faixaRef.current = faixa;
   // Mover e redimensionar por ponteiro (mouse, dedo ou caneta): só com mousedown/mousemove,
   // no celular e no tablet nada acontecia (o toque gera evento de mouse só no toque rápido,
   // nunca no arrasto). touch-action:none no cabeçalho e na alça impede o navegador de
@@ -59,8 +73,10 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   React.useEffect(() => {
     if (!draggable || !nodeRef.current) return;
     const el = nodeRef.current;
+    const f = faixaDaBarra();
+    const w = Math.min(el.offsetWidth, window.innerWidth - f - 16);
     setPos({
-      x: Math.max(0, Math.round((window.innerWidth  - el.offsetWidth)  / 2)),
+      x: Math.max(f > 0 ? f + 8 : 0, Math.round((window.innerWidth - w) / 2)),
       y: Math.max(0, Math.round((window.innerHeight - el.offsetHeight) / 4)),
     });
   }, [draggable]);
@@ -73,7 +89,7 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
       const w = el ? el.offsetWidth  : 600;
       const h = el ? el.offsetHeight : 400;
       setPos({
-        x: Math.max(0, Math.min(window.innerWidth  - w,       e.clientX - offset.current.x)),
+        x: Math.max(faixaRef.current, Math.min(window.innerWidth - w, e.clientX - offset.current.x)),
         y: Math.max(0, Math.min(window.innerHeight - h - 8,   e.clientY - offset.current.y)),
       });
     };
@@ -129,20 +145,41 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     const caberNaTela = () => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      setCustomSize(s => (s && (s.w > vw - 16 || s.h > vh - 16) ? { w: Math.min(s.w, vw - 16), h: Math.min(s.h, vh - 16) } : s));
+      // Só o modal solto desconta a barra lateral (o centralizado pelo CSS não tem posição própria).
+      const f = draggable ? faixaDaBarra() : 0;
+      setFaixa(f);
+      setCustomSize(s => (s && (s.w > vw - f - 16 || s.h > vh - 16) ? { w: Math.min(s.w, vw - f - 16), h: Math.min(s.h, vh - 16) } : s));
       setPos(p => {
         const el = nodeRef.current;
         if (!p || !el) return p;
-        const w = Math.min(el.offsetWidth, vw - 16);
+        const w = Math.min(el.offsetWidth, vw - f - 16);
         const h = Math.min(el.offsetHeight, vh - 16);
-        const x = Math.max(0, Math.min(vw - w, p.x));
+        const x = Math.max(f, Math.min(vw - w, p.x));
         const y = Math.max(0, Math.min(vh - h - 8, p.y));
         return x === p.x && y === p.y ? p : { x, y };
       });
     };
+    // Fixar ou soltar o menu lateral muda a barra de 80px para 276px (e volta) com o modal aberto.
+    const app = document.querySelector('.app');
+    const aoTerminarTransicao = (e) => { if (e.target === app && e.propertyName === 'padding-left') caberNaTela(); };
     window.addEventListener('resize', caberNaTela);
-    return () => window.removeEventListener('resize', caberNaTela);
+    app?.addEventListener('transitionend', aoTerminarTransicao);
+    return () => { window.removeEventListener('resize', caberNaTela); app?.removeEventListener('transitionend', aoTerminarTransicao); };
   }, [draggable, resizable]);
+
+  // Quando a barra muda (menu fixado ou solto) a largura do modal muda junto, e só depois do render ela é a nova:
+  // reposiciona aqui, com a largura já aplicada (no resize da janela a conta é feita acima, com a largura viva).
+  React.useLayoutEffect(() => {
+    if (!draggable) return;
+    setPos(p => {
+      const el = nodeRef.current;
+      if (!p || !el) return p;
+      const vw = window.innerWidth;
+      const w = Math.min(el.offsetWidth, vw - faixa - 16);
+      const x = Math.max(faixa, Math.min(vw - w, p.x));
+      return x === p.x ? p : { ...p, x };
+    });
+  }, [faixa, draggable]);
 
   const handleResizeDown = (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -158,6 +195,9 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   const modalStyle = {
     position: 'relative', // âncora pra alça de redimensionar (position:absolute); "fixed" abaixo sobrescreve quando draggable
     ...(draggable && pos ? { position: 'fixed', left: pos.x, top: pos.y, margin: 0 } : {}),
+    // A largura do CSS (100vw - 32px, limitada pelo max-width da classe) descontando a barra lateral: em tela larga o
+    // max-width vence e nada muda; em janela estreita o modal encolhe para caber ao lado da barra.
+    ...(draggable && faixa > 0 ? { width: `calc(100vw - ${faixa + 16}px)` } : {}),
     ...(customSize ? { width: customSize.w, height: customSize.h, maxWidth: 'none', maxHeight: 'none' } : {}),
     // 100dvh pelo mesmo motivo do .modal no celular: 100vh conta a barra do navegador
     // escondida e o rodapé ficaria abaixo da tela.
