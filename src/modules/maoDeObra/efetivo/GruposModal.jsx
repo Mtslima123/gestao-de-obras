@@ -1,14 +1,124 @@
 import React from 'react';
 import { Icon } from '../../../components/Icons';
+import { faixaDaBarra } from '../../../components/Modals';
 import { T, btn, btnPrim, pill } from './tokens';
 import { GRUPOS, funcoesComApropriacao, porOrdemDoCadastro } from './efetivoStore';
 import { efetivoService } from './efetivo.service';
 import { ehConflito } from './efetivoErro';
 
+// Menor tamanho ao redimensionar: abaixo da largura a coluna da função some (as duas listas de escolha somam 410px);
+// abaixo da altura, o topo e o rodapé (uns 290px) deixam a lista de funções sem espaço para rolar.
+const LARGURA_MIN = 640;
+const ALTURA_MIN = 420;
+const entre = (v, min, max) => Math.max(min, Math.min(max, v));
+
 // Modal "Grupos e classificações", aberto da aba Previsto em edição. Só admin chega aqui (o
 // banco também recusa os demais). Cada mudança vai direto ao banco; as funções são globais
 // (valem para todas as obras).
 export function GruposModal({ s, setS, toast, erro, recarregar, onClose }) {
+  // No desktop a janela se move pelo título e se redimensiona pelo canto, como os outros modais arrastáveis. No
+  // celular (html.mob-full) ela é uma folha inferior definida só pelo CSS: lá nada disso vale, e `pos`/`tam` ficam
+  // nulos para nenhum estilo em linha brigar com o CSS.
+  const soltavel = React.useMemo(() => !document.documentElement.classList.contains('mob-full'), []);
+  const caixaRef = React.useRef(null);
+  const gesto = React.useRef(null); // arrasto em andamento: { tipo: 'mover' | 'tamanho', ... }
+  const [pos, setPos] = React.useState(null); // { x, y } da janela solta
+  const [tam, setTam] = React.useState(null); // { w, h }; h nulo = altura pelo conteúdo
+  // A barra lateral fica NA FRENTE do modal (z-index 200 contra 100): a janela só usa a área à direita dela.
+  const [faixa, setFaixa] = React.useState(() => (soltavel ? faixaDaBarra() : 0));
+  const faixaRef = React.useRef(faixa);
+  faixaRef.current = faixa;
+
+  // Ao abrir, o CSS centraliza a janela. Mede onde ela caiu e passa a posicionar por coordenada, com a largura
+  // explícita (fixa, "100%" seria a da tela inteira).
+  React.useLayoutEffect(() => {
+    const el = caixaRef.current;
+    if (!soltavel || !el) return;
+    const r = el.getBoundingClientRect();
+    setPos({ x: Math.round(r.left), y: Math.round(r.top) });
+    setTam({ w: Math.round(r.width), h: null });
+  }, [soltavel]);
+
+  React.useEffect(() => {
+    if (!soltavel) return undefined;
+    const aoMover = (e) => {
+      const g = gesto.current;
+      const el = caixaRef.current;
+      if (!g || !el) return;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      if (g.tipo === 'mover') {
+        setPos({ x: entre(e.clientX - g.dx, faixaRef.current, vw - el.offsetWidth), y: entre(e.clientY - g.dy, 0, vh - el.offsetHeight - 8) });
+      } else {
+        const r = el.getBoundingClientRect();
+        const wMax = vw - r.left - 8;
+        const hMax = vh - r.top - 8;
+        setTam({ w: entre(g.w0 + e.clientX - g.x0, Math.min(LARGURA_MIN, wMax), wMax), h: entre(g.h0 + e.clientY - g.y0, Math.min(ALTURA_MIN, hMax), hMax) });
+      }
+    };
+    const aoSoltar = () => { gesto.current = null; };
+    // Janela redimensionada (tela dividida) ou menu lateral fixado/solto: traz a janela de volta para dentro da tela.
+    const caber = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const f = faixaDaBarra();
+      setFaixa(f);
+      setTam((t) => {
+        if (!t) return t;
+        const w = Math.min(t.w, vw - f - 16);
+        const h = t.h == null ? null : Math.min(t.h, vh - 16);
+        return w === t.w && h === t.h ? t : { w, h };
+      });
+      setPos((p) => {
+        const el = caixaRef.current;
+        if (!p || !el) return p;
+        const w = Math.min(el.offsetWidth, vw - f - 16);
+        const h = Math.min(el.offsetHeight, vh - 16);
+        const x = entre(p.x, f, vw - w);
+        const y = entre(p.y, 0, vh - h - 8);
+        return x === p.x && y === p.y ? p : { x, y };
+      });
+    };
+    const app = document.querySelector('.app');
+    // Fixar ou soltar o menu anima o recuo do .app de 80px para 276px (e volta); só vale a medida do fim da transição.
+    const aoFimDaTransicao = (e) => { if (e.target === app && e.propertyName === 'padding-left') caber(); };
+    window.addEventListener('pointermove', aoMover);
+    window.addEventListener('pointerup', aoSoltar);
+    window.addEventListener('pointercancel', aoSoltar);
+    window.addEventListener('resize', caber);
+    app?.addEventListener('transitionend', aoFimDaTransicao);
+    return () => {
+      window.removeEventListener('pointermove', aoMover);
+      window.removeEventListener('pointerup', aoSoltar);
+      window.removeEventListener('pointercancel', aoSoltar);
+      window.removeEventListener('resize', caber);
+      app?.removeEventListener('transitionend', aoFimDaTransicao);
+    };
+  }, [soltavel]);
+
+  // Ponteiro (mouse, dedo ou caneta) preso ao elemento enquanto arrasta, para não perder o gesto ao sair dele.
+  const capturar = (e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ponteiro já solto */ } };
+  const iniciarMover = (e) => {
+    if (!soltavel || !caixaRef.current || e.target.closest('button')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return; // só o botão principal
+    const r = caixaRef.current.getBoundingClientRect();
+    capturar(e);
+    gesto.current = { tipo: 'mover', dx: e.clientX - r.left, dy: e.clientY - r.top };
+    e.preventDefault();
+  };
+  const iniciarTamanho = (e) => {
+    const el = caixaRef.current;
+    if (!el || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    capturar(e);
+    gesto.current = { tipo: 'tamanho', x0: e.clientX, y0: e.clientY, w0: el.offsetWidth, h0: el.offsetHeight };
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  // Sem tamanho escolhido, a altura segue o conteúdo, limitada ao espaço que sobra abaixo da janela.
+  const estiloSolto = soltavel && pos && tam
+    ? { position: 'fixed', left: pos.x, top: pos.y, margin: 0, width: tam.w, maxWidth: 'none', ...(tam.h != null ? { height: tam.h, maxHeight: 'none' } : { maxHeight: `min(88vh, calc(100vh - ${pos.y + 8}px))` }) }
+    : null;
+
   const [nova, setNova] = React.useState('');
   const [excluir, setExcluir] = React.useState(null);
   const [editando, setEditando] = React.useState(null); // { id, nome } da função em edição
@@ -105,10 +215,13 @@ export function GruposModal({ s, setS, toast, erro, recarregar, onClose }) {
   const temApropriacao = (id) => comAprop.has(id);
 
   return (
-    <div className="mo-grupos-fundo" onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,27,45,.45)', zIndex: 150, /* abaixo do toast (200), para a mensagem de erro aparecer por cima */ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div className="mo-grupos" role="dialog" aria-label="Grupos e classificações" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', color: T.texto, borderRadius: 16, boxShadow: '0 20px 50px rgba(15,27,45,.3)', width: '100%', maxWidth: 780, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
-        <div className="mo-grupos-topo" style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${T.borda}`, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+    // Fecha só ao clicar no fundo em si: um arrasto que termina fora da janela não pode fechá-la. O recuo à esquerda
+    // reserva a barra lateral (que fica na frente) para a janela abrir inteira ao lado dela.
+    <div className="mo-grupos-fundo" onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(15,27,45,.45)', zIndex: 150, /* abaixo do toast (200), para a mensagem de erro aparecer por cima */ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: `24px 24px 24px ${Math.max(24, faixa + 8)}px` }}>
+      <div ref={caixaRef} className="mo-grupos" role="dialog" aria-label="Grupos e classificações" onClick={(e) => e.stopPropagation()} style={{ position: 'relative', background: 'var(--surface)', color: T.texto, borderRadius: 16, boxShadow: '0 20px 50px rgba(15,27,45,.3)', width: '100%', maxWidth: 780, maxHeight: '88vh', display: 'flex', flexDirection: 'column', ...estiloSolto }}>
+        <div className="mo-grupos-topo" style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${T.borda}`, display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0 }}>
+          {/* Alça para mover a janela (desktop): o título e a explicação; o × e os campos abaixo seguem normais. */}
+          <div onPointerDown={iniciarMover} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, ...(soltavel ? { cursor: 'grab', userSelect: 'none', touchAction: 'none' } : {}) }}>
             <div>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Grupos e classificações</h2>
               <p style={{ margin: '3px 0 0', fontSize: 13, color: T.texto2, textWrap: 'pretty' }}>Grupo define onde a função aparece (Administrativo, Apoio…). Funções na mesma classificação são somadas e comparadas juntas com o previsto (ex.: Carpinteiro + 1/2 Of. Carpinteiro). Sem classificação, a função é a sua própria classificação.</p>
@@ -131,7 +244,8 @@ export function GruposModal({ s, setS, toast, erro, recarregar, onClose }) {
         <div className="mo-grupos-colunas" style={{ display: 'flex', gap: 12, padding: '8px 24px', fontSize: 11.5, fontWeight: 600, color: T.texto2, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: `1px solid ${T.borda}` }}>
           <span style={{ flex: 1 }}>Função</span><span style={{ width: 210 }}>Grupo</span><span style={{ width: 200 }}>Classificação</span><span style={{ width: 80 /* editar + excluir, com o espaço entre eles */ }} />
         </div>
-        <div className="mo-grupos-lista" style={{ overflowY: 'auto', padding: '4px 24px 8px' }}>
+        {/* flex 1 e minHeight 0: com a janela redimensionada, a lista ocupa o espaço que sobra e rola dentro dele. */}
+        <div className="mo-grupos-lista" style={{ overflowY: 'auto', padding: '4px 24px 8px', flex: '1 1 auto', minHeight: 0 }}>
           {funcoes.map((f, k) => (
             <div key={f.id}>
               {(k === 0 || funcoes[k - 1].grupoId !== f.grupoId) && <div style={{ fontSize: 11.5, fontWeight: 600, color: T.azul, textTransform: 'uppercase', letterSpacing: '.05em', padding: '14px 0 6px' }}>{GRUPOS.find((g) => g.id === f.grupoId)?.nome}</div>}
@@ -178,9 +292,17 @@ export function GruposModal({ s, setS, toast, erro, recarregar, onClose }) {
             </div>
           ))}
         </div>
-        <div className="mo-grupos-rodape" style={{ padding: '14px 24px', borderTop: `1px solid ${T.borda}`, display: 'flex', justifyContent: 'flex-end' }}>
+        <div className="mo-grupos-rodape" style={{ padding: '14px 24px', borderTop: `1px solid ${T.borda}`, display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
           <button type="button" style={btnPrim} onClick={onClose}>Concluir</button>
         </div>
+        {estiloSolto && (
+          <div className="modal-resize" onPointerDown={iniciarTamanho} title="Arraste para redimensionar">
+            <svg width="10" height="10" viewBox="0 0 10 10" style={{ opacity: 0.45 }}>
+              <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.4" />
+              <line x1="9" y1="5" x2="5" y2="9" stroke="currentColor" strokeWidth="1.4" />
+            </svg>
+          </div>
+        )}
       </div>
     </div>
   );

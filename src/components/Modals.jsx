@@ -941,4 +941,4 @@ const NovoOrcamentoModal = ({ onClose, obras = [], user, onCreated }) => {
   );
 };
 
-export { Modal, ToastProvider, useToast, NovaObraModal, ObraFormModal, NovaMedicaoModal, SolicitarCompraModal, NotifPanel, NovoOrcamentoModal };
+export { Modal, ToastProvider, useToast, NovaObraModal, ObraFormModal, NovaMedicaoModal, SolicitarCompraModal, NotifPanel, NovoOrcamentoModal, faixaDaBarra };
