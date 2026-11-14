@@ -8,6 +8,7 @@ import { isoToBR, todayOffset, dateToOffset, offsetToISO, taskEndDisplay, projec
 import { nextEtapaId, nextDisplayId, emptyCustomCols, recomputeHierarchy, updateParentBounds, autoScheduleFromDeps, collectDescendantIds, parearEmSequencia, agruparPorPai, aplicarVinculosEmLote, resumoDeCiclos, tarefasLivresForaDoInicio, mesAtualOuUltimo, mesesComReprogramacao, fmtBRL } from "./scheduleEngine";
 import { medicaoMensalService } from "./medicaoMensal.service";
 import { moverSelecionados, moverSelecionadosPara, moverSelecionadosExtremo, intervaloNaLista } from "../../utils/pavimentos";
+import { passoDeRolagem } from "./listaAutoScroll";
 import { itemValor } from "../financeiro/vinculoService";
 import { destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados } from "./exclusaoTarefasPure";
 
@@ -833,6 +834,39 @@ export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
   };
   const emArraste = arrastando != null ? grupoDe(arrastando) : null;
 
+  // Rolagem automática enquanto arrasta: com muitos pavimentos, levar um para longe exigia soltar,
+  // rolar e pegar de novo, porque o arraste nativo não rola a janela de forma confiável. Usa o mesmo
+  // cálculo da Lista (passoDeRolagem), alimentado pelo `dragover` do document: durante um arraste
+  // HTML5 o mousemove não dispara, e o dragover segue disparando mesmo com o mouse parado.
+  const corpoRef = React.useRef(null);
+  React.useEffect(() => {
+    if (arrastando == null) return undefined;
+    const sc = corpoRef.current?.closest('.modal-body'); // quem rola é o corpo da janela
+    if (!sc) return undefined;
+    let ptrY = null, raf = null;
+    const quadro = () => {
+      raf = null;
+      if (ptrY == null) return;
+      const r = sc.getBoundingClientRect();
+      // A barra de seleção fica presa em cima da área rolável e cobre as primeiras linhas: o topo
+      // "visível" da lista começa abaixo dela (o mouse sobre a barra rola para cima).
+      const barra = sc.querySelector('.pav-barra');
+      const topo = barra ? Math.max(r.top, barra.getBoundingClientRect().bottom) : r.top;
+      const passo = passoDeRolagem(ptrY, { top: topo, bottom: Math.min(r.bottom, window.innerHeight) },
+        sc.scrollTop, sc.scrollHeight - sc.clientHeight);
+      if (passo) {
+        sc.scrollTop += passo;
+        raf = requestAnimationFrame(quadro); // só continua enquanto estiver rolando
+      }
+    };
+    const aoArrastarSobre = (ev) => { ptrY = ev.clientY; if (raf == null) raf = requestAnimationFrame(quadro); };
+    document.addEventListener('dragover', aoArrastarSobre);
+    return () => {
+      document.removeEventListener('dragover', aoArrastarSobre);
+      if (raf != null) cancelAnimationFrame(raf);
+    };
+  }, [arrastando]);
+
   const salvar = async () => {
     if (travaRef.current || !mudou) return;
     travaRef.current = true;
@@ -865,7 +899,7 @@ export const OrdemPavimentosModal = ({ pavimentos, onSalvar, onClose }) => {
         {lista.length === 0
           ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhum pavimento nas tarefas desta obra.</div>
           : (
-            <div>
+            <div ref={corpoRef}>
               <div className="pav-barra">
                 <label className="pav-barra-todos" title={qtdSel === 0 ? 'Marcar todos' : 'Limpar a seleção'}>
                   <input type="checkbox" checked={todosMarcados}
