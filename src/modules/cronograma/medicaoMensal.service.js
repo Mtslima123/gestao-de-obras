@@ -133,6 +133,49 @@ export const medicaoMensalService = {
     return { data, error: null };
   },
 
+  // Atualiza SÓ o previsto congelado (mês e acumulado) de uma medição ABERTA, a pedido de quem
+  // mede (botão "Atualizar previsto"), depois que o cronograma mudou. Fica fora do upsert do
+  // rascunho de propósito: não leva os itens (não atropela o que um aparelho sem internet ainda
+  // vai enviar) e não mexe no updated_at (que é a trava desse envio). `data` null sem erro = 0
+  // linhas: a medição já foi fechada por outra pessoa ou o RLS barrou a edição.
+  async atualizarPrevistoRascunho(obraId, mesReferencia, { percPrevisto, percPrevistoAcumulado }) {
+    const { data, error } = await supabase
+      .from('medicoes_mensais')
+      .update({ perc_previsto: percPrevisto, perc_previsto_acumulado: percPrevistoAcumulado })
+      .eq('obra_id', obraId)
+      .eq('mes_referencia', mesReferencia)
+      .eq('status', 'rascunho')
+      .select('perc_previsto, perc_previsto_acumulado')
+      .maybeSingle();
+    if (error) {
+      logger.error('falha ao atualizar previsto da medição', { module: 'medicaoMensal', action: 'atualizarPrevistoRascunho', obraId, mesReferencia, err: error });
+      return { data: null, error };
+    }
+    return { data: data || null, error: null };
+  },
+
+  // Grava a anotação livre da medição (coluna anotacoes, migration 20261103000002) de uma medição
+  // ABERTA. UPDATE e não upsert, e fora do upsert do rascunho, pelos mesmos motivos de
+  // atualizarPrevistoRascunho: não leva os itens nem mexe no updated_at (a trava do envio do
+  // aparelho sem internet). `data` null sem erro = 0 linhas: medição já fechada por outra pessoa
+  // ou o RLS barrou. `pendenteTI`: a coluna ainda não existe no banco (migration com o TI).
+  async salvarAnotacoes(obraId, mesReferencia, anotacoes) {
+    const { data, error } = await supabase
+      .from('medicoes_mensais')
+      .update({ anotacoes })
+      .eq('obra_id', obraId)
+      .eq('mes_referencia', mesReferencia)
+      .eq('status', 'rascunho')
+      .select('anotacoes')
+      .maybeSingle();
+    if (error) {
+      if (colunaAusente(error)) return { data: null, error, pendenteTI: true };
+      logger.error('falha ao salvar anotações da medição', { module: 'medicaoMensal', action: 'salvarAnotacoes', obraId, mesReferencia, err: error });
+      return { data: null, error };
+    }
+    return { data: data || null, error: null };
+  },
+
   // `snapshot` (buildSnapshotFechamento) congela os valores medidos: sem isso os R$ de
   // uma medição fechada seriam recalculados se o cronograma mudasse depois.
   async fechar(obraId, mesReferencia, snapshot, fechadaPor) {

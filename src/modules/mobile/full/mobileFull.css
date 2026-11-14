@@ -1,0 +1,1108 @@
+/* ============================================
+   Casca mobile do Sistema Completo (ver MobileFullChrome.jsx)
+
+   Duas regras para não afetar o resto do app:
+   1. Classes novas só com prefixo .mfs-*.
+   2. Sobrescritas de classes que já existem (.app, .content, .modal, .toast, .notif-panel) sempre sob
+      html.mob-full, classe que só existe no <html> enquanto a casca está montada. Fora dela, nada daqui vale:
+      desktop, tela mobile simplificada (MobileGate), Medição e Fotos em modo foco ficam exatamente como estavam.
+   Cores sempre por variável (--brand etc.), nunca hexadecimal: o tema e o accent do app continuam mandando.
+   ============================================ */
+
+/* ---------- Layout geral: sem Sidebar, com a barra inferior reservando espaço ---------- */
+html.mob-full .app { padding-left: 0; }
+html.mob-full .content {
+  padding: 12px 12px calc(76px + env(safe-area-inset-bottom, 0px));
+}
+/* A página nunca pode ficar mais larga que a tela. Medido no painel de 375px: um bloco de 700px alargava o
+   viewport de layout para 712px (e a altura junto), e a barra inferior, que é fixa, ia parar fora da área
+   visível. Num celular real o navegador faz o mesmo ("página zoada") quando algo estoura a largura.
+   body: o overflow-x propaga para o viewport e não cria rolagem própria, então position: sticky segue valendo.
+   .content: rede de proteção para uma tela já adaptada que estoure por engano (corta em vez de quebrar o app). */
+html.mob-full body { overflow-x: hidden; }
+html.mob-full .content { overflow-x: clip; }
+/* Telas do desktop ainda não adaptadas (ver LegadoMobile): mantêm a largura delas e rolam na horizontal
+   dentro deste contêiner, sem alargar a página. Some junto com a última tela adaptada. */
+.mfs-legado { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ---------- Cabeçalho compacto ---------- */
+html.mob-full .topbar.mfs-header {
+  height: 52px;
+  padding: 0 6px 0 10px;
+  gap: 6px;
+  background: var(--brand);
+  border-bottom: 0;
+  color: #fff;
+}
+.mfs-marca { flex-shrink: 0; width: 24px; height: 24px; margin-right: 2px; }
+.mfs-titulos { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; line-height: 1.2; }
+.mfs-subtitulo {
+  font-size: 11px; opacity: 0.78;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mfs-titulo {
+  font-size: 16px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mfs-icone {
+  position: relative; flex-shrink: 0;
+  width: 44px; height: 44px; border-radius: 12px;
+  display: grid; place-items: center;
+  color: rgba(255, 255, 255, 0.92);
+  background: transparent; border: 0; cursor: pointer;
+}
+.mfs-icone:active { background: rgba(255, 255, 255, 0.16); }
+.mfs-icone-escuro { color: var(--text-soft); }
+.mfs-icone-escuro:active { background: var(--surface-muted); }
+.mfs-ponto {
+  position: absolute; top: 10px; right: 11px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--danger); border: 1.5px solid var(--brand);
+}
+.mfs-sino { position: relative; }
+/* Painel de notificações: em vez dos 380px fixos do desktop, ocupa a largura da tela abaixo do cabeçalho.
+   Texto volta à cor padrão porque o cabeçalho é azul com texto branco e o painel herdaria isso. */
+html.mob-full .mfs-header .notif-panel {
+  position: fixed; top: 58px; left: 8px; right: 8px; width: auto;
+  color: var(--text);
+}
+html.mob-full .mfs-header .notif-panel > div:last-child { max-height: calc(100dvh - 170px) !important; }
+
+/* ---------- Barra inferior ---------- */
+.mfs-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.mfs-nav-item {
+  flex: 1; min-width: 0; min-height: 56px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  padding: 4px 2px;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--text-muted);
+  font-size: 10.5px; font-weight: 600;
+}
+.mfs-nav-icone { width: 52px; height: 28px; border-radius: 14px; display: grid; place-items: center; transition: background 0.12s; }
+.mfs-nav-rotulo { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfs-nav-item.active { color: var(--brand); }
+.mfs-nav-item.active .mfs-nav-icone { background: var(--brand-tint); }
+.mfs-nav-item.locked { opacity: 0.4; cursor: default; }
+
+/* ---------- Gaveta "Mais" (folha por baixo) ---------- */
+@keyframes mfsSobe { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+.mfs-sheet-backdrop {
+  position: fixed; inset: 0; z-index: 150;
+  background: rgba(8, 14, 28, 0.45);
+  animation: fadeIn 0.14s ease-out;
+}
+.mfs-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-height: 86dvh;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-radius: 18px 18px 0 0;
+  box-shadow: var(--shadow-lg);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: mfsSobe 0.18s ease-out;
+}
+.mfs-sheet-alca { flex-shrink: 0; width: 38px; height: 4px; border-radius: 2px; background: var(--border); margin: 8px auto 2px; }
+.mfs-sheet-corpo { overflow-y: auto; padding: 4px 12px 16px; }
+.mfs-sheet-titulo { font-size: 17px; font-weight: 700; color: var(--text); margin: 6px 4px 10px; }
+.mfs-usuario { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 6px 8px 8px 16px; }
+.mfs-avatar {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: var(--brand-tint); color: var(--brand); font-weight: 700;
+}
+.mfs-usuario-textos { flex: 1; min-width: 0; }
+.mfs-usuario-nome { font-size: 14.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfs-usuario-papel { font-size: 12px; color: var(--text-muted); }
+.mfs-secao {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted); margin: 14px 6px 4px;
+}
+.mfs-linha {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 52px; padding: 6px 8px; border-radius: 12px;
+  background: transparent; border: 0; cursor: pointer; text-align: left;
+  color: var(--text); font-size: 15px; font-weight: 600;
+}
+.mfs-linha:active { background: var(--surface-muted); }
+.mfs-linha-icone {
+  width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: var(--brand-tint); color: var(--brand);
+}
+.mfs-linha-rotulo { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfs-linha-seta { flex-shrink: 0; opacity: 0.5; }
+.mfs-linha.active { background: var(--brand-tint); color: var(--brand); }
+.mfs-linha.locked { opacity: 0.4; cursor: default; }
+.mfs-linha.danger { color: var(--danger); }
+.mfs-linha.danger .mfs-linha-icone { background: var(--danger-bg); color: var(--danger); }
+.mfs-voltar {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 44px; padding: 0 8px; margin-top: 2px;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--text-soft); font-size: 14px; font-weight: 600;
+}
+
+/* ---------- Janelas (Modal) viram folha por baixo ----------
+   Os !important existem porque o Modal grava posição e tamanho em estilo inline (arrastar, redimensionar,
+   tela cheia), e no celular essas janelas não devem ser arrastadas nem redimensionadas. */
+html.mob-full .modal-backdrop { align-items: flex-end; padding: 0; }
+html.mob-full .modal {
+  position: relative !important; left: auto !important; top: auto !important; margin: 0 !important;
+  width: 100% !important; max-width: none !important;
+  height: auto !important; max-height: calc(100dvh - 24px) !important;
+  border-radius: 18px 18px 0 0; border-bottom: 0;
+  animation: mfsSobe 0.18s ease-out;
+}
+html.mob-full .modal-max,
+html.mob-full .modal-resize { display: none !important; }
+html.mob-full .modal-header { padding: 14px 16px; }
+/* Com o botão de tela cheia oculto, a regra do desktop ".modal-max + .modal-close" (margem de 2px) ainda
+   casa e deixaria o X colado no título. */
+html.mob-full .modal-close { margin-left: auto; width: 40px; height: 40px; }
+html.mob-full .modal-body { padding: 16px; }
+html.mob-full .modal-footer {
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  gap: 8px;
+}
+html.mob-full .modal-footer .btn { min-height: 44px; flex: 1 1 auto; justify-content: center; }
+/* O .btn do app não tem estilo de desabilitado: sem isto, um "Salvar" sem alteração parecia ativo. */
+html.mob-full .modal-footer .btn:disabled { opacity: 0.45; cursor: default; }
+/* O espaçador empurrava os botões para a direita; com botões de largura total ele só atrapalharia. */
+html.mob-full .modal-footer .spacer { display: none; }
+
+/* ---------- Formulários dentro da casca ----------
+   Campos com 16px: abaixo disso o Safari do iPhone dá zoom na página ao focar o campo. Uma coluna e altura de
+   toque de 44px. Vale para os formulários das janelas (Nova obra etc.). */
+html.mob-full .field input,
+html.mob-full .field select,
+html.mob-full .field textarea { font-size: 16px; }
+html.mob-full .field input,
+html.mob-full .field select { height: 44px; }
+html.mob-full .form-grid { grid-template-columns: 1fr; }
+
+/* ---------- Telas já adaptadas (ver TelaMobile) ----------
+   Obras e Físico Financeiro (lista) já são listas de cards: aqui só se ajusta o que atrapalha no celular, sem
+   duplicar a lógica delas. O título da tela já está no cabeçalho da casca. */
+.mfs-tela .page-header { margin-bottom: 12px; gap: 8px; flex-wrap: wrap; align-items: center; }
+.mfs-tela .page-title { display: none; }
+.mfs-tela .obra-card-grid { grid-template-columns: 1fr; gap: 12px; }
+/* No toque o :hover fica "preso" depois do toque e levantava o cartão. */
+.mfs-tela .obra-card:hover { transform: none; box-shadow: var(--shadow-xs); border-color: var(--border); }
+.mfs-tela .obra-card:active { background: var(--surface-muted); }
+.mfs-tela .obra-card-img { height: 150px; }
+/* Físico Financeiro (lista): o cabeçalho da página só tinha o título. */
+.mfs-tela-fisico-financeiro .page-header { display: none; }
+/* Obras: botão com alvo de toque, filtros em chips (quebram de linha em vez de esconder um deles) e busca em
+   linha própria. !important só no min-width da busca, que o componente grava em estilo inline (260px). */
+.mfs-tela-obras .page-actions .btn { height: 44px; }
+.mfs-tela-obras .chip { height: 38px; padding: 0 12px; font-size: 13.5px; white-space: nowrap; }
+.mfs-tela-obras .input-search { min-width: 0 !important; flex: 1 1 100%; height: 44px; font-size: 16px; }
+/* Orçamentos (lista): mesmo caso das Obras. A busca tem largura 300px em estilo inline (por isso !important). */
+.mfs-tela-orcamentos .page-actions .btn { height: 44px; }
+.mfs-tela-orcamentos .row > .input-search { width: 100% !important; min-width: 0 !important; flex: 1 1 100%; height: 44px; font-size: 16px; box-sizing: border-box; }
+
+/* ---------- Dashboard (DashboardMobile) ---------- */
+.mfs-dash { display: flex; flex-direction: column; gap: 18px; }
+.mfs-kpis, .mfs-ff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mfs-kpi {
+  min-width: 0; padding: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
+}
+.mfs-kpi-destaque { grid-column: 1 / -1; }
+.mfs-kpi-rotulo {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted);
+}
+.mfs-kpi-icone {
+  width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+  display: grid; place-items: center; background: var(--brand-tint); color: var(--brand);
+}
+.mfs-kpi-valor {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+  font-size: 24px; font-weight: 700; letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums;
+}
+.mfs-kpi-destaque .mfs-kpi-valor { font-size: 30px; }
+.mfs-kpi-unidade { font-size: 12px; font-weight: 500; letter-spacing: 0; color: var(--text-muted); }
+.mfs-kpi-rodape { margin-top: 6px; font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mfs-secao-topo { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 8px; }
+.mfs-secao-titulo { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--text); }
+.mfs-secao-topo .mfs-secao-titulo { margin: 0; }
+.mfs-secao-detalhe { font-size: 12px; color: var(--text-muted); }
+.mfs-select { width: 100%; height: 44px; font-size: 16px; margin-bottom: 10px; }
+.mfs-aviso { font-size: 13.5px; color: var(--text-muted); }
+.mfs-aviso-erro { color: var(--danger); }
+/* Curva S: é o gráfico do desktop dentro do cartão dele. Só se ajusta o cabeçalho (título e legenda quebram linha)
+   e o alvo de toque do seletor e das caixas, gravados em estilo inline (por isso o !important no seletor). */
+.mfs-dash .card-header { flex-wrap: wrap; gap: 10px; }
+.mfs-dash .card-header select { height: 36px !important; font-size: 14px !important; }
+.mfs-dash .card-header input[type='checkbox'] { width: 18px; height: 18px; }
+.mfs-obras { display: flex; flex-direction: column; gap: 10px; }
+.mfs-obra {
+  display: flex; flex-direction: column; gap: 12px; padding: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-xs);
+}
+.mfs-obra-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.mfs-obra-nome { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mfs-obra-nome strong { font-size: 15px; color: var(--text); }
+.mfs-obra-nome .mono { font-size: 11.5px; color: var(--text-muted); }
+.mfs-linha-rotulo-valor { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 12px; color: var(--text-muted); }
+.mfs-linha-rotulo-valor strong { color: var(--brand); font-size: 13px; font-variant-numeric: tabular-nums; }
+.mfs-metricas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; padding-top: 10px; border-top: 1px solid var(--border); }
+.mfs-metricas dt { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-metricas dd { margin: 2px 0 0; font-size: 15px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ---------- Cronograma (CronogramaCabecalhoMobile e ListaMobile) ---------- */
+html.mob-full { --mfs-h: 52px; }
+.mfs-crono-topo { margin-bottom: 4px; }
+.mfs-crono-topo .mfs-select { margin-bottom: 0; }
+/* Abas em chips que ficam coladas sob o cabeçalho ao rolar a lista. */
+.mfs-abas {
+  position: sticky; top: var(--mfs-h); z-index: 5;
+  display: flex; gap: 6px; padding: 6px 0; background: var(--bg-app);
+}
+.mfs-aba {
+  flex: 1 1 0; min-width: 0; height: 40px; padding: 0 4px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+  color: var(--text-soft); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.mfs-aba.active { background: var(--brand-tint); border-color: var(--brand); color: var(--brand); }
+.mfs-aba.locked { opacity: 0.4; cursor: default; }
+.mfs-resumo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.mfs-resumo-item {
+  display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 8px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+}
+.mfs-resumo-rotulo { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-resumo-valor { font-size: 17px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.mfs-lista-controles { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.mfs-filtros-linha { display: flex; gap: 8px; }
+.mfs-busca { flex: 1 1 0; min-width: 0; height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-situacao { flex: 0 0 142px; height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-atalhos-avanco .chip { height: 36px; padding: 0 12px; font-size: 13px; }
+.mfs-acoes-lista { display: flex; align-items: center; gap: 6px; }
+.mfs-acao {
+  min-height: 36px; padding: 0 8px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-soft);
+  font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.mfs-acao:disabled { opacity: 0.45; cursor: default; }
+.mfs-acoes-espaco { flex: 1; }
+.mfs-tarefas { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+/* content-visibility: o navegador só desenha os cartões que estão perto da tela (a lista chega a centenas de linhas). */
+.mfs-tarefa {
+  display: flex; align-items: stretch; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-xs);
+  content-visibility: auto; contain-intrinsic-size: auto 110px;
+}
+.mfs-tarefa.grupo { background: var(--brand-tint); border-left: 4px solid var(--brand); }
+.mfs-tarefa-corpo {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 12px;
+  background: none; border: 0; text-align: left; color: var(--text); cursor: pointer;
+}
+.mfs-tarefa-corpo:active { background: var(--surface-muted); }
+.mfs-tarefa-topo { display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
+.mfs-tarefa-wbs { font-size: 11.5px; }
+.mfs-sit { margin-left: auto; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.mfs-sit.concluidas { color: var(--success); background: var(--success-bg); }
+.mfs-sit.atrasadas { color: var(--danger); background: var(--danger-bg); }
+.mfs-sit.futuras { color: var(--text-muted); background: var(--surface-muted); border: 1px solid var(--border); }
+.mfs-sit.execucao { color: var(--brand); background: var(--brand-tint); }
+.mfs-tarefa-nome {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 15px; font-weight: 600; line-height: 1.3;
+}
+.mfs-tarefa.grupo .mfs-tarefa-nome { font-weight: 700; }
+.mfs-tarefa-datas { font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mfs-tarefa-prog { display: flex; align-items: center; gap: 8px; }
+.mfs-tarefa-prog .progress { flex: 1; }
+.mfs-tarefa-prog b { min-width: 44px; text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.mfs-tarefa-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.mfs-tag { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-muted); color: var(--text-soft); font-size: 11px; }
+.mfs-tarefa-detalhe {
+  flex-shrink: 0; width: 48px; display: grid; place-items: center;
+  background: none; border: 0; border-left: 1px solid var(--border); color: var(--brand); cursor: pointer;
+}
+.mfs-mais { width: 100%; height: 44px; justify-content: center; margin-top: 10px; }
+/* Folha de edição da tarefa */
+.mfs-aviso-folha { margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; background: var(--warning-bg); color: var(--warning); font-size: 13px; }
+.mfs-erro { color: var(--danger); font-size: 12.5px; }
+.mfs-leitura {
+  display: flex; align-items: center; min-height: 44px; padding: 0 12px; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); color: var(--text); font-size: 16px;
+}
+.mfs-atalhos-avanco { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+html.mob-full .field input:disabled { background: var(--surface-muted); color: var(--text-muted); }
+.mfs-leitura.coluna { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 8px 12px; font-size: 15px; }
+.mfs-variacao { font-size: 13px; color: var(--text-muted); }
+.mfs-variacao.atraso { color: var(--danger); }
+.mfs-variacao.adiantada { color: var(--success); }
+
+/* ---------- Cronograma: Linha do tempo (LinhaDoTempoMobile) ----------
+   Uma área que rola nos dois sentidos: o cabeçalho de datas fica fixo em cima e a coluna de tarefas fica fixa à
+   esquerda (position: sticky dentro da própria área). A altura da área vem do componente (medida na tela). */
+.mfs-lt { display: flex; flex-direction: column; gap: 8px; }
+.mfs-lt-controles { display: flex; flex-direction: column; gap: 6px; }
+.mfs-lt-linha-a { display: flex; align-items: center; gap: 6px; }
+.mfs-segmentado {
+  flex: 1 1 0; min-width: 0; display: flex; gap: 2px; padding: 2px;
+  background: var(--surface-muted); border: 1px solid var(--border); border-radius: 10px;
+}
+.mfs-segmentado button {
+  flex: 1 1 0; min-width: 0; height: 36px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--text-soft); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.mfs-segmentado button[aria-pressed='true'] { background: var(--surface); color: var(--brand); box-shadow: var(--shadow-xs); }
+.mfs-lt-linha-a .mfs-acao { min-height: 40px; padding: 0 12px; }
+.mfs-acao-icone { position: relative; width: 44px; padding: 0 !important; display: grid; place-items: center; }
+.mfs-ponto-filtro { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); border: 1.5px solid var(--surface); }
+.mfs-lt-chips { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.mfs-lt-chips::-webkit-scrollbar { display: none; }
+.mfs-lt-chips > * { flex: none; }
+.mfs-lt-chips .chip { height: 36px; padding: 0 12px; font-size: 13px; white-space: nowrap; }
+.mfs-base { height: 36px; min-width: 170px; max-width: 230px; padding: 0 8px; font-size: 16px; box-sizing: border-box; }
+.mfs-lt-rolagem {
+  position: relative; z-index: 0; height: 100%; box-sizing: border-box; overflow: auto;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+}
+.mfs-lt-conteudo { position: relative; }
+.mfs-lt-cabecalho { position: sticky; top: 0; z-index: 5; display: flex; background: var(--surface); border-bottom: 1px solid var(--border); }
+.mfs-lt-canto {
+  position: sticky; left: 0; z-index: 2; flex: none; box-sizing: border-box; display: flex; align-items: center; padding: 0 10px;
+  background: var(--surface-muted); border-right: 1px solid var(--border);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted);
+}
+.mfs-lt-escala { position: relative; flex: none; height: 100%; }
+.mfs-lt-celula {
+  position: absolute; box-sizing: border-box; height: 22px; display: flex; align-items: center; padding-left: 4px;
+  overflow: hidden; white-space: nowrap; border-left: 1px solid var(--border);
+  font-size: 10.5px; color: var(--text-soft); font-variant-numeric: tabular-nums;
+}
+/* Faixa de cima (ano ou mês): o rótulo fica colado ao lado da coluna de tarefas enquanto a faixa dele está na tela.
+   overflow: clip (e não hidden) para a célula não virar a área de rolagem do rótulo sticky. */
+.mfs-lt-celula.sup { top: 0; overflow: clip; background: var(--surface-muted); font-weight: 700; color: var(--text); }
+.mfs-lt-sup-rotulo { position: sticky; left: calc(var(--rotulo-w, 0px) + 4px); }
+.mfs-lt-celula.inf { top: 22px; border-top: 1px solid var(--border); }
+.mfs-lt-celula.inf.fds { background: var(--surface-muted); }
+.mfs-lt-escala.dia .mfs-lt-celula.inf { justify-content: center; padding: 0; }
+/* Marcador de hoje no pé do cabeçalho: um triângulo, sem texto, para não cobrir o rótulo do mês (o botão Hoje já nomeia). */
+.mfs-lt-hoje-marca {
+  position: absolute; bottom: -1px; z-index: 3; width: 0; height: 0; margin-left: -6px;
+  border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 7px solid var(--danger);
+}
+.mfs-lt-corpo { position: relative; }
+/* Listras de linha sem um elemento por linha: o fundo repete a cada duas linhas (88px = 2 x 44px). */
+.mfs-lt-camadas {
+  position: absolute; top: 0; bottom: 0;
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 44px, var(--surface-muted) 44px, var(--surface-muted) 88px);
+}
+.mfs-lt-grade { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); opacity: 0.55; }
+.mfs-lt-grade.forte { background: var(--border-strong); opacity: 0.9; }
+.mfs-lt-feriado { position: absolute; top: 0; bottom: 0; background: rgba(220, 38, 38, 0.1); border-left: 1px solid rgba(220, 38, 38, 0.35); }
+.mfs-lt-hoje { position: absolute; top: 0; bottom: 0; z-index: 2; width: 0; border-left: 1.5px dashed var(--danger); pointer-events: none; }
+.mfs-lt-linha { position: absolute; left: 0; height: 44px; box-sizing: border-box; border-bottom: 1px solid var(--border); cursor: pointer; }
+.mfs-lt-linha.grupo::before { content: ''; position: absolute; inset: 0; background: var(--brand-tint); opacity: 0.45; pointer-events: none; }
+.mfs-lt-rotulo {
+  position: sticky; left: 0; z-index: 3; display: flex; align-items: center; height: 100%; box-sizing: border-box; padding-right: 6px;
+  background: var(--surface); border-right: 1px solid var(--border);
+}
+.mfs-lt-linha.impar .mfs-lt-rotulo { background: var(--surface-muted); }
+.mfs-lt-linha.grupo .mfs-lt-rotulo { background: var(--brand-tint); }
+.mfs-lt-linha.aberta .mfs-lt-rotulo { box-shadow: inset 3px 0 0 var(--brand); }
+.mfs-lt-chevron { flex: none; width: 26px; height: 100%; display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--text-muted); cursor: pointer; }
+.mfs-lt-chevron.vazio { width: 8px; cursor: default; }
+.mfs-lt-nome-botao { flex: 1; min-width: 0; display: block; padding: 0; border: 0; background: none; text-align: left; color: var(--text); cursor: pointer; }
+/* overflow-wrap: anywhere quebra palavra longa ("Impermeabilização") em vez de cortá-la na borda da coluna. */
+.mfs-lt-nome {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
+  font-size: 11.5px; line-height: 1.2; font-weight: 400;
+}
+.mfs-lt-linha.grupo .mfs-lt-nome { font-weight: 700; }
+.mfs-lt-wbs { font-size: 10px; color: var(--text-muted); font-weight: 400; }
+.mfs-lt-faixa { position: absolute; top: 0; bottom: 0; pointer-events: none; }
+.mfs-lt-barra { position: absolute; z-index: 1; top: 13px; height: 16px; box-sizing: border-box; border-radius: 4px; overflow: hidden; background: #aec3dc; }
+.mfs-lt-avanco { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--brand); }
+.mfs-lt-barra.execucao { background: #aec3dc; background: color-mix(in srgb, var(--brand) 30%, #fff); }
+.mfs-lt-barra.concluidas { background: #9fdfb8; }
+.mfs-lt-barra.concluidas .mfs-lt-avanco { background: #16a34a; }
+.mfs-lt-barra.atrasadas { background: #e8938d; }
+.mfs-lt-barra.atrasadas .mfs-lt-avanco { background: #b3241e; }
+.mfs-lt-barra.futuras { background: #bcd7f5; }
+.mfs-lt-barra.futuras .mfs-lt-avanco { background: #60a5fa; }
+.mfs-lt-barra.critico { box-shadow: 0 0 0 2px #dc2626; }
+.mfs-lt-barra.conflito { box-shadow: 0 0 0 2px #d97706; }
+.mfs-lt-resumo { position: absolute; z-index: 1; top: 17px; height: 8px; border-radius: 2px; background: #334155; }
+.mfs-lt-resumo::before, .mfs-lt-resumo::after { content: ''; position: absolute; top: 100%; width: 0; height: 0; border-bottom: 5px solid transparent; }
+.mfs-lt-resumo::before { left: 0; border-left: 5px solid #334155; }
+.mfs-lt-resumo::after { right: 0; border-right: 5px solid #334155; }
+.mfs-lt-marco {
+  position: absolute; z-index: 1; top: 15px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box;
+  transform: rotate(45deg); border-radius: 3px; background: #1e293b; border: 1.5px solid rgba(255, 255, 255, 0.6);
+}
+.mfs-lt-marco.conflito { background: #d97706; }
+.mfs-lt-base { position: absolute; top: 33px; height: 5px; border-radius: 3px; background: rgba(107, 120, 144, 0.5); }
+.mfs-lt-legenda {
+  display: flex; align-items: center; gap: 12px; height: 28px; overflow-x: auto; white-space: nowrap; scrollbar-width: none;
+  font-size: 11.5px; color: var(--text-muted);
+}
+.mfs-lt-legenda::-webkit-scrollbar { display: none; }
+.mfs-lt-legenda span { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.mfs-lt-cor { display: inline-block; width: 14px; height: 8px; border-radius: 2px; background: var(--brand); }
+.mfs-lt-cor.concluidas { background: #16a34a; }
+.mfs-lt-cor.atrasadas { background: #b3241e; }
+.mfs-lt-cor.futuras { background: #60a5fa; }
+.mfs-lt-cor.resumo { background: #334155; }
+.mfs-lt-cor.marco { width: 9px; height: 9px; background: #1e293b; transform: rotate(45deg); }
+.mfs-lt-cor.conflito { background: transparent; box-shadow: inset 0 0 0 2px #d97706; }
+.mfs-lt-cor.critico { background: transparent; box-shadow: inset 0 0 0 2px #dc2626; }
+.mfs-lt-cor.base { height: 4px; background: rgba(107, 120, 144, 0.55); }
+.mfs-lt-cor.feriado { background: rgba(220, 38, 38, 0.25); }
+
+/* ---------- Cronograma: Uso da Tarefa e Curva Física (MatrizMobile, UsoTarefaMobile, CurvaFisicaMobile) ----------
+   Matriz com rolagem nos dois sentidos: cabeçalho de colunas fixo em cima, coluna de rótulos fixa à esquerda e linhas
+   de total coladas embaixo (position: sticky dentro da própria área). A altura vem do componente. */
+.mfs-mx {
+  position: relative; z-index: 0; box-sizing: border-box; overflow: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+}
+.mfs-mx-conteudo { position: relative; }
+.mfs-mx-cabecalho { position: sticky; top: 0; z-index: 5; display: flex; background: var(--surface-muted); border-bottom: 1px solid var(--border); }
+.mfs-mx-canto {
+  position: sticky; left: 0; z-index: 2; flex: none; box-sizing: border-box; display: flex; align-items: center; padding: 0 10px;
+  background: var(--surface-muted); border-right: 1px solid var(--border);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted);
+}
+.mfs-mx-cab-celula {
+  flex: none; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; color: var(--text-soft);
+}
+.mfs-mx-cab-celula.ativa { color: var(--brand); }
+.mfs-mx-corpo { position: relative; }
+.mfs-mx-linha { position: absolute; left: 0; display: flex; box-sizing: border-box; border-bottom: 1px solid var(--border); background: var(--surface); }
+.mfs-mx-linha.toque { cursor: pointer; }
+.mfs-mx-linha.rodape { position: relative; border-bottom: 0; }
+.mfs-mx-rodape { position: sticky; bottom: 0; z-index: 5; border-top: 2px solid var(--border); background: var(--surface-muted); }
+.mfs-mx-rotulo {
+  position: sticky; left: 0; z-index: 3; flex: none; display: flex; align-items: center; box-sizing: border-box; padding-right: 6px;
+  background: inherit; border-right: 1px solid var(--border);
+}
+.mfs-mx-linha.aberta .mfs-mx-rotulo { box-shadow: inset 3px 0 0 var(--brand); }
+.mfs-mx-rotulo.faixa-lb { box-shadow: inset 3px 0 0 #102b54; }
+.mfs-mx-rotulo.faixa-rep { box-shadow: inset 3px 0 0 var(--brand); }
+.mfs-mx-rotulo.faixa-real { box-shadow: inset 3px 0 0 #16a34a; }
+.mfs-mx-rotulo.faixa-dif { box-shadow: inset 3px 0 0 #475569; }
+.mfs-mx-linha.grupo .mfs-lt-nome { font-weight: 700; }
+.mfs-mx-celula {
+  flex: none; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px;
+  font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text);
+}
+.mfs-mx-celula.calor { background: rgb(100 116 139 / 0.13); }
+.mfs-mx-celula.forte { font-weight: 700; }
+.mfs-mx-celula.ativa, .mfs-mx-cab-celula.ativa { background-image: linear-gradient(rgba(1, 67, 134, 0.1), rgba(1, 67, 134, 0.1)); }
+@supports (color: color-mix(in srgb, red, blue)) {
+  .mfs-mx-celula.ativa, .mfs-mx-cab-celula.ativa {
+    background-image: linear-gradient(color-mix(in srgb, var(--brand) 11%, transparent), color-mix(in srgb, var(--brand) 11%, transparent));
+  }
+}
+.mfs-tom-marca { color: var(--brand); }
+.mfs-tom-texto { color: var(--text); }
+.mfs-tom-positivo { color: #16a34a; }
+.mfs-tom-negativo { color: #dc2626; }
+.mfs-tom-apagado { color: var(--text-faint); }
+.mfs-nota { margin: 8px 0 0; font-size: 11.5px; line-height: 1.35; color: var(--text-muted); }
+.mfs-nota-topo { margin: -4px 0 8px; }
+/* Folha de leitura dos meses de uma linha */
+.mfs-folha-resumo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 14px; }
+.mfs-folha-resumo-item { min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.mfs-folha-resumo dt { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-folha-resumo dd { margin: 2px 0 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mfs-folha-titulo { margin: 6px 0 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-folha-meses { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.mfs-folha-mes { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.mfs-folha-mes-nome { font-weight: 600; }
+.mfs-folha-mes-valores { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mfs-folha-mes-valores strong { font-size: 15px; color: var(--text); }
+/* Uso da Tarefa */
+.mfs-uso { display: flex; flex-direction: column; gap: 8px; }
+.mfs-uso-controles { display: flex; align-items: stretch; gap: 8px; }
+.mfs-uso-estrutura { flex: 0 0 150px; height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-uso-total { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-uso-total span { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-uso-total strong { font-size: 15px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Curva Física */
+.mfs-curva { display: flex; flex-direction: column; gap: 10px; }
+.mfs-curva-card { min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-curva-card .mfs-mx { border-radius: 8px; }
+.mfs-curva-titulo { margin: 0 0 8px; font-size: 14px; font-weight: 700; color: var(--text); }
+.mfs-curva-comparar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 44px; padding: 0;
+  border: 0; background: none; text-align: left; color: var(--text); cursor: pointer;
+}
+.mfs-curva-comparar-textos { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mfs-curva-comparar-textos strong { font-size: 14px; }
+.mfs-curva-comparar-textos span {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 12.5px; line-height: 1.3; color: var(--text-muted);
+}
+.mfs-curva-selects { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.mfs-curva-selects label { display: flex; flex-direction: column; gap: 3px; }
+.mfs-curva-selects label span { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-curva-selects .input { height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-curva-cabeca { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.mfs-curva-cabeca .mfs-curva-titulo { margin: 0; }
+.mfs-curva-cabeca .mfs-segmentado { flex: none; }
+.mfs-curva-series { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.mfs-curva-serie { height: 36px; padding: 0 12px; font-size: 13px; white-space: nowrap; }
+.mfs-curva-serie:disabled { opacity: 0.45; cursor: default; }
+.mfs-curva-serie::before { content: ''; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--ponto, var(--text-faint)); }
+.mfs-curva-serie.real { --ponto: #16a34a; }
+.mfs-curva-serie.rep { --ponto: var(--brand); }
+.mfs-curva-serie.bl { --ponto: #94a3b8; }
+.mfs-curva-serie.neutra::before { display: none; }
+.mfs-curva-grafico { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+.mfs-curva-mes { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.mfs-curva-passo { flex: none; width: 44px; height: 44px; min-height: 44px; display: grid; place-items: center; padding: 0; }
+.mfs-curva-mes-nome { flex: 1; display: flex; flex-direction: column; align-items: center; }
+.mfs-curva-mes-nome span { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-curva-mes-nome strong { font-size: 18px; color: var(--text); }
+.mfs-curva-blocos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-curva-bloco { min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px; }
+.mfs-curva-bloco.faixa-lb { border-left-color: #102b54; }
+.mfs-curva-bloco.faixa-rep { border-left-color: var(--brand); }
+.mfs-curva-bloco.faixa-real { border-left-color: #16a34a; }
+.mfs-curva-bloco.faixa-dif { grid-column: 1 / -1; border-left-color: #475569; }
+.mfs-curva-bloco-titulo { margin-bottom: 4px; font-size: 11.5px; font-weight: 700; overflow-wrap: anywhere; }
+.mfs-curva-bloco-linha { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--text-muted); }
+.mfs-curva-bloco-linha b { color: var(--text); font-variant-numeric: tabular-nums; }
+.mfs-curva-bloco-linha b.mfs-tom-positivo { color: #16a34a; }
+.mfs-curva-bloco-linha b.mfs-tom-negativo { color: #dc2626; }
+.mfs-curva-vazia { padding: 32px 20px; text-align: center; color: var(--text-muted); }
+.mfs-curva-vazia h3 { margin: 12px 0 4px; font-size: 16px; color: var(--text-soft); }
+.mfs-curva-vazia p { margin: 0; font-size: 13px; }
+
+/* ---------- Obra detalhe (ObraDetalheMobile) ----------
+   A capa é o HeroImage do desktop (com upload, ajuste e remoção para admin); só o tamanho muda. */
+.mfs-od { display: flex; flex-direction: column; gap: 12px; }
+.mfs-od-capa { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+html.mob-full .mfs-od-capa .hero-img { width: 100%; min-height: 0; max-width: 100%; max-height: 260px; aspect-ratio: 16 / 9; }
+html.mob-full .mfs-od-capa .hero-img.has-img { width: 100%; aspect-ratio: auto; }
+html.mob-full .mfs-od-capa .hero-img img { width: 100%; height: auto; min-width: 0; min-height: 0; max-width: none; max-height: 260px; object-fit: contain; }
+/* No toque não existe hover: o aviso de "Alterar imagem" (só admin) fica sempre visível, como uma etiqueta no canto. */
+html.mob-full .mfs-od-capa .hero-img-overlay {
+  opacity: 1; inset: auto 8px 8px auto; width: auto; height: auto; flex-direction: row; padding: 8px 12px; border-radius: 999px;
+}
+html.mob-full .mfs-od-capa .hero-img .icon-btn { width: 40px !important; height: 40px !important; }
+.mfs-od-titulo { display: flex; flex-direction: column; gap: 6px; }
+.mfs-od-meta { display: flex; align-items: center; gap: 8px; }
+.mfs-od-codigo {
+  padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-muted);
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-soft);
+}
+.mfs-od-titulo h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.mfs-od-endereco { display: flex; align-items: flex-start; gap: 5px; margin: 0; font-size: 13px; color: var(--text-muted); }
+.mfs-od-endereco svg { flex: none; margin-top: 2px; }
+.mfs-od-acoes { display: flex; gap: 8px; margin-top: 4px; }
+.mfs-od-acoes .btn { flex: 1; height: 44px; justify-content: center; }
+.mfs-perigo { color: var(--danger); }
+.mfs-od-indicadores { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-ind { min-width: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-ind.destaque { grid-column: 1 / -1; }
+.mfs-ind-rotulo { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-ind-valor { margin-top: 2px; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.mfs-ind.destaque .mfs-ind-valor { font-size: 26px; color: var(--brand); }
+.mfs-ind-meta { margin-top: 3px; font-size: 11.5px; line-height: 1.3; color: var(--text-muted); }
+.mfs-ind-barra { position: relative; height: 8px; margin-top: 8px; border-radius: 4px; background: var(--border); }
+.mfs-ind-barra > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--brand); }
+.mfs-ind-barra > i { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--text); }
+.mfs-od-abas { display: flex; gap: 6px; }
+.mfs-od-abas .mfs-aba { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.mfs-od-cronograma { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-od-cron-cab { display: flex; flex-direction: column; gap: 8px; }
+.mfs-od-cron-cab h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.mfs-od-cron-cab p { margin: 2px 0 0; font-size: 12.5px; color: var(--text-muted); }
+.mfs-od-cron-cab .mfs-segmentado { flex: none; }
+.mfs-od-ir { width: 100%; height: 44px; justify-content: center; gap: 6px; }
+
+/* ---------- Orçamento: composição (OrcamentoDetalheMobile) ---------- */
+.mfs-orc { display: flex; flex-direction: column; gap: 12px; }
+.mfs-orc.com-barra { padding-bottom: 72px; }
+.mfs-orc-topo-tela { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mfs-orc-topo-tela .btn { height: 44px; padding: 0 10px; }
+.mfs-orc-titulo h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.mfs-orc-titulo p { margin: 4px 0 0; font-size: 12.5px; color: var(--text-muted); }
+.mfs-orc-resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mfs-orc-kpi { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 9px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-orc-kpi.destaque { grid-column: 1 / -1; padding: 10px 12px; }
+.mfs-orc-kpi span { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-orc-kpi strong { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere; }
+.mfs-orc-kpi.destaque strong { font-size: 24px; color: var(--brand); }
+.mfs-orc-kpi small { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mfs-orc-composicao { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-orc-cabeca { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mfs-orc-cabeca h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.mfs-orc-cabeca p { margin: 2px 0 0; font-size: 12.5px; color: var(--text-muted); }
+.mfs-orc-novo { flex: none; height: 44px; gap: 6px; }
+.mfs-orc-busca { width: 100%; height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-orc-filtros { display: flex; gap: 8px; }
+.mfs-orc-filtros .input { flex: 1 1 0; min-width: 0; height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-orc-itens { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mfs-orc-item {
+  display: flex; align-items: stretch; min-width: 0; overflow: hidden; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-xs);
+  content-visibility: auto; contain-intrinsic-size: auto 92px;
+}
+.mfs-orc-item.grupo { background: var(--brand-tint); border-left: 4px solid var(--brand); }
+.mfs-orc-item.pendente { border-color: #d97706; }
+.mfs-orc-chevron { flex: none; width: 40px; display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--text-muted); cursor: pointer; }
+.mfs-orc-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 11px 12px; border: 0; background: none; text-align: left; color: var(--text); cursor: pointer; }
+.mfs-orc-item.grupo .mfs-orc-corpo { padding-left: 4px; }
+.mfs-orc-corpo:active { background: var(--surface-muted); }
+.mfs-orc-linha1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mfs-orc-codigo { font-size: 11.5px; color: var(--text-muted); }
+.mfs-orc-vinculo { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #16a34a; }
+.mfs-orc-pendente { padding: 0 6px; border-radius: 999px; background: rgba(217, 119, 6, 0.14); color: #b45309; font-size: 10.5px; font-weight: 700; }
+.mfs-orc-valor { margin-left: auto; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mfs-orc-nome { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-size: 14.5px; font-weight: 600; line-height: 1.3; }
+.mfs-orc-item.grupo .mfs-orc-nome { font-weight: 700; }
+.mfs-orc-nome em { font-style: normal; font-weight: 400; color: var(--text-faint); }
+.mfs-orc-calculo { font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mfs-orc-tarefa { font-size: 11.5px; color: #15803d; overflow-wrap: anywhere; }
+.mfs-orc-mais { width: 100%; height: 44px; justify-content: center; }
+/* Barra de salvar: fixa acima da barra inferior da casca, só com alterações pendentes. */
+.mfs-orc-barra {
+  position: fixed; left: 0; right: 0; bottom: calc(57px + env(safe-area-inset-bottom, 0px)); z-index: 40;
+  display: flex; gap: 8px; padding: 8px 12px; background: var(--surface); border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.08);
+}
+.mfs-orc-barra .btn { flex: 1; height: 44px; justify-content: center; gap: 6px; }
+/* Importação (ImportarOrcamentoModal, a mesma do desktop, como folha): o rodapé com três botões quebra em linhas e a
+   tabela de problemas rola na horizontal em vez de cortar o botão "Remover linha" (overflow inline, por isso !important). */
+html.mob-full .import-rodape { flex-wrap: wrap; gap: 8px; }
+html.mob-full .import-rodape > div:last-child { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; }
+html.mob-full .import-rodape .btn { flex: 1 1 auto; height: 44px; justify-content: center; }
+html.mob-full .import-erros { overflow-x: auto !important; }
+.mfs-orc-lista-acoes { display: flex; flex-direction: column; gap: 8px; }
+.mfs-orc-acao {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px; width: 100%; min-height: 48px; padding: 8px 14px; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font-size: 15px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.mfs-orc-acao.perigo { color: var(--danger); }
+.mfs-orc-acao:disabled { opacity: 0.5; cursor: default; }
+.mfs-orc-acao small { flex-basis: 100%; font-size: 12px; font-weight: 400; color: var(--text-muted); }
+.mfs-orc-folha-acoes { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.mfs-orc-folha-titulo { margin-bottom: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-orc-folha-grade { display: flex; gap: 8px; }
+.mfs-orc-folha-grade .btn { flex: 1; height: 44px; justify-content: center; gap: 6px; padding: 0 6px; }
+.mfs-orc-excluir { width: 100%; height: 44px; justify-content: center; gap: 6px; margin-top: 8px; }
+
+/* ---------- Orçamento × Cronograma (OrcamentoCronogramaMobile) ----------
+   Três abas (Vincular em dois passos, Vínculos e Resumo). A barra do passo fica fixa acima da barra inferior da casca,
+   como a barra de salvar da composição do orçamento. */
+.mfs-oc { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mfs-oc.com-barra { padding-bottom: 92px; }
+.mfs-oc .mfs-select { margin-bottom: 0; }
+.mfs-oc .mfs-segmentado { flex: none; }
+.mfs-oc-passos { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mfs-oc-passos li {
+  flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-muted); font-size: 12.5px; font-weight: 600;
+}
+.mfs-oc-passos li span {
+  flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%;
+  background: var(--surface-muted); color: var(--text-muted); font-size: 12px;
+}
+.mfs-oc-passos li.ativo { border-color: var(--brand); color: var(--brand); background: var(--brand-tint); }
+.mfs-oc-passos li.ativo span, .mfs-oc-passos li.feito span { background: var(--brand); color: #fff; }
+.mfs-oc-passos li.feito { color: var(--text); }
+.mfs-oc-secao { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-oc-secao-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mfs-oc-secao-cab h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.mfs-oc-secao-cab h2 span { font-weight: 500; color: var(--text-muted); font-size: 13px; }
+.mfs-oc-secao-cab p { margin: 2px 0 0; font-size: 12.5px; color: var(--text-muted); }
+.mfs-oc-pequeno { flex: none; height: 36px; padding: 0 10px; font-size: 13px; gap: 4px; }
+.mfs-oc-busca { width: 100%; height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-oc-filtros { display: flex; flex-direction: column; gap: 8px; }
+.mfs-oc-total { margin: 0; font-size: 13px; color: var(--text-muted); }
+.mfs-oc-total strong { color: var(--brand); font-variant-numeric: tabular-nums; }
+.mfs-oc-itens { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mfs-oc-mais { width: 100%; height: 44px; justify-content: center; }
+.mfs-oc-linha {
+  display: flex; align-items: flex-start; gap: 10px; min-height: 52px; padding: 10px 12px; box-sizing: border-box; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  content-visibility: auto; contain-intrinsic-size: auto 72px;
+}
+.mfs-oc-linha input[type='checkbox'] { flex: none; width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--brand); }
+.mfs-oc-linha.marcado { border-color: var(--brand); background: var(--brand-tint); }
+.mfs-oc-linha.resumo { background: var(--surface-muted); }
+.mfs-oc-linha.resumo.marcado { background: var(--brand-tint); }
+.mfs-oc-linha.n1 { margin-left: 10px; }
+.mfs-oc-linha.n2 { margin-left: 20px; }
+.mfs-oc-linha.inerte { opacity: 0.55; cursor: default; }
+.mfs-oc-textos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mfs-oc-linha1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mfs-oc-codigo { font-size: 11.5px; color: var(--text-muted); }
+.mfs-oc-valor { margin-left: auto; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mfs-oc-nome { overflow-wrap: anywhere; font-size: 14.5px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.mfs-oc-dica { font-size: 11.5px; color: var(--text-muted); }
+.mfs-oc-tag { flex: none; padding: 0 6px; border-radius: 999px; background: var(--surface-muted); border: 1px solid var(--border); color: var(--text-muted); font-size: 10.5px; font-weight: 700; line-height: 18px; }
+.mfs-oc-tarefa-linha {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; width: 100%; min-height: 48px; padding: 8px 12px; box-sizing: border-box; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; color: var(--text);
+}
+.mfs-oc-tarefa-linha.grupo { background: var(--surface-muted); }
+.mfs-oc-tarefa-linha.marcado { border-color: var(--brand); background: var(--brand-tint); box-shadow: inset 3px 0 0 var(--brand); }
+.mfs-oc-tarefa-linha .mfs-oc-nome { flex: 1 1 120px; font-size: 14px; }
+.mfs-oc-tarefa-linha .mfs-oc-dica { flex-basis: 100%; }
+.mfs-oc-cartao {
+  display: flex; align-items: stretch; min-width: 0; overflow: hidden; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-xs);
+}
+.mfs-oc-cartao.apagado { opacity: 0.6; }
+.mfs-oc-cartao-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; }
+.mfs-oc-botao-cartao { border: 0; background: none; text-align: left; color: var(--text); cursor: pointer; }
+.mfs-oc-botao-cartao:active { background: var(--surface-muted); }
+.mfs-oc-calculo { font-size: 12.5px; color: var(--text-muted); }
+.mfs-oc-destino { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: 12.5px; color: #15803d; overflow-wrap: anywhere; }
+.mfs-oc-destino svg { flex: none; }
+.mfs-oc-lixeira { flex: none; width: 48px; display: grid; place-items: center; padding: 0; border: 0; border-left: 1px solid var(--border); background: none; color: var(--danger); cursor: pointer; }
+.mfs-oc-lixeira:active { background: var(--surface-muted); }
+.mfs-oc-vincular { flex: none; align-self: center; height: 40px; margin-right: 8px; gap: 4px; }
+.mfs-oc-bloco { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.mfs-oc-bloco-titulo { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-oc-bloco-cab { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mfs-oc-mover { display: flex; gap: 8px; }
+.mfs-oc-mover select { flex: 1 1 0; min-width: 0; height: 44px; font-size: 16px; }
+.mfs-oc-mover .btn { flex: none; height: 44px; }
+.mfs-oc-confirma { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mfs-oc-perigo { height: 40px; background: var(--danger); border-color: var(--danger); color: #fff; justify-content: center; }
+.mfs-oc-texto-perigo { color: var(--danger); }
+/* Barra do passo: seleção e botões, fixa acima da barra inferior da casca. */
+.mfs-oc-barra {
+  position: fixed; left: 0; right: 0; bottom: calc(57px + env(safe-area-inset-bottom, 0px)); z-index: 40;
+  display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; background: var(--surface); border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.08);
+}
+.mfs-oc-barra-texto { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; font-size: 13px; }
+.mfs-oc-barra-texto strong { min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.mfs-oc-barra-texto span { flex: none; color: var(--brand); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mfs-oc-barra-botoes { display: flex; gap: 8px; }
+.mfs-oc-barra-botoes .btn { flex: 1; height: 44px; justify-content: center; gap: 6px; }
+.mfs-oc-barra-botoes .btn.btn-ghost { flex: 0 0 auto; min-width: 96px; }
+
+/* ---------- Distribuir pesos (DistribuirPesosMobile) ----------
+   Folha com um cartão por subtarefa: nome, peso, cadeado e valor em R$ (o valor abre o campo ao toque, no lugar do
+   duplo clique do desktop). Alvos de toque de 44px; campos em 16px para o iOS não dar zoom. */
+.mfs-pw-resumo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.mfs-pw-resumo div { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 9px 10px; background: var(--surface-muted); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-pw-resumo span { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-pw-resumo strong { font-size: 16px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mfs-pw-nota { margin: 0 0 12px; }
+.mfs-pw-controles { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.mfs-pw-unidade { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
+.mfs-pw-unidade small { font-weight: 400; color: var(--text-muted); }
+.mfs-pw-unidade select { width: 100%; height: 44px; font-size: 16px; }
+.mfs-pw-expandir { display: flex; gap: 8px; }
+.mfs-pw-expandir .btn { flex: 1 1 0; height: 40px; justify-content: center; }
+.mfs-pw-lista { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mfs-pw-linha { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 6px 10px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-pw-linha.grupo { background: var(--brand-tint); border-left: 4px solid var(--brand); }
+.mfs-pw-topo { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.mfs-pw-chevron, .mfs-pw-retirar { flex: none; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; background: none; cursor: pointer; color: var(--text-muted); }
+.mfs-pw-chevron { width: 40px; margin-left: -8px; color: var(--brand); }
+.mfs-pw-retirar { margin-right: -8px; }
+.mfs-pw-espaco { flex: none; width: 4px; }
+.mfs-pw-nome { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14.5px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.mfs-pw-linha.grupo .mfs-pw-nome { color: var(--brand); font-weight: 700; }
+.mfs-pw-linha.bloqueada .mfs-pw-nome { color: var(--text-muted); }
+.mfs-pw-campos { display: flex; align-items: flex-end; gap: 6px; }
+.mfs-pw-peso { flex: none; width: 96px; display: flex; flex-direction: column; gap: 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-pw-peso input { width: 100%; height: 44px; font-size: 16px; text-align: right; box-sizing: border-box; }
+.mfs-pw-peso input:disabled { opacity: 0.55; }
+.mfs-pw-cadeado { flex: none; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-muted); cursor: pointer; }
+.mfs-pw-cadeado.ligado { color: var(--brand); border-color: var(--brand); background: var(--brand-tint); }
+.mfs-pw-cadeado:disabled { opacity: 0.35; cursor: default; }
+.mfs-pw-valor { flex: 1 1 0; min-width: 0; height: 44px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; box-sizing: border-box; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; color: var(--text); }
+.mfs-pw-linha.grupo .mfs-pw-valor { color: var(--brand); font-weight: 700; }
+.mfs-pw-valor.editavel { padding: 0 10px; border: 1px dashed var(--brand); border-radius: 10px; background: var(--surface); color: var(--brand); cursor: pointer; }
+.mfs-pw-valor-campo { flex: 1 1 0; min-width: 0; height: 44px; font-size: 16px; text-align: right; box-sizing: border-box; }
+.mfs-pw-motivo { font-size: 11.5px; color: var(--text-muted); }
+.mfs-pw-total { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 10px; padding: 10px 4px 0; border-top: 2px solid var(--border); font-size: 14px; }
+.mfs-pw-total strong { font-variant-numeric: tabular-nums; }
+.mfs-pw-retiradas { margin: 14px 0 0; }
+.mfs-pw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mfs-pw-chip { max-width: 100%; height: 40px; gap: 4px; padding: 0 12px; border-radius: 20px; text-align: left; }
+.mfs-pw-diverge { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--warning-bg); color: var(--danger); font-size: 12.5px; line-height: 1.35; }
+.mfs-pw-diverge svg { flex: none; margin-top: 1px; }
+.mfs-pw-rodape { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+.mfs-pw-rodape .btn { flex: 1 1 0; height: 44px; justify-content: center; }
+.mfs-pw-aviso { flex: 1 1 100%; display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; color: var(--danger); }
+.mfs-oc-pesos { flex: none; width: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0; border: 0; border-left: 1px solid var(--border); background: none; color: var(--brand); font-size: 10.5px; font-weight: 600; cursor: pointer; }
+.mfs-oc-pesos:active { background: var(--surface-muted); }
+
+/* ---------- Mão de Obra (cabeçalho, Previsto, Apropriação, Análise e Painel) ----------
+   Prefixo mfs-mo-. Cada tela é uma coluna de cartões; a tabela larga do desktop vira um cartão por função (ou por obra).
+   As abas reaproveitam .mfs-abas (coladas sob o cabeçalho). Os números calculados vêm do mesmo código do desktop. */
+.mfs-mo input[type='date'] { font-size: 16px !important; height: 44px !important; box-sizing: border-box; }
+.mfs-mo-topo { display: flex; flex-direction: column; gap: 8px; }
+.mfs-mo-campo { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.mfs-mo-campo input, .mfs-mo-campo select { width: 100%; min-width: 0; height: 44px; font-size: 16px; box-sizing: border-box; }
+.mfs-mo-campo .mfs-select { margin-bottom: 0; }
+.mfs-mo-campo.cheio { grid-column: 1 / -1; }
+.mfs-mo-campo input.negativo { color: var(--danger); }
+.mfs-mo-campo input:disabled { opacity: 0.6; }
+.mfs-mo-periodo { display: flex; align-items: flex-end; gap: 8px; }
+.mfs-mo-periodo > .mfs-mo-campo { flex: 1 1 0; }
+.mfs-mo-meses { flex: none; height: 44px; gap: 6px; justify-content: center; }
+.mfs-mo-tela { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mfs-mo-tela.com-barra { padding-bottom: 72px; }
+.mfs-mo-secao {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-xs);
+}
+.mfs-mo-titulo { margin: 0; font-size: 15px; font-weight: 700; color: var(--brand); }
+.mfs-mo-sub { font-size: 12.5px; line-height: 1.35; color: var(--text-muted); }
+.mfs-mo-secao .mfs-busca, .mfs-mo-controles .mfs-busca { flex: none; width: 100%; }
+.mfs-mo-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-mo-kpi { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.mfs-mo-kpi-rotulo { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); overflow-wrap: anywhere; }
+.mfs-mo-kpi-valor { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; color: var(--text); }
+.mfs-mo-kpi-detalhe { font-size: 11.5px; line-height: 1.3; color: var(--text-muted); }
+.mfs-mo-pilula { display: inline-flex; align-items: center; gap: 5px; flex: none; width: fit-content; max-width: 100%; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.mfs-mo-pilula i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.mfs-mo-seg { flex: none; }
+.mfs-mo-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mfs-mo-chips.rolavel { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.mfs-mo-chips.rolavel::-webkit-scrollbar { display: none; }
+.mfs-mo-chips.rolavel > * { flex: none; }
+.mfs-mo-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 38px; padding: 0 12px; white-space: nowrap; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--text-soft); font-size: 13px; font-weight: 600;
+}
+.mfs-mo-chip[aria-pressed='true'] { background: var(--brand); border-color: var(--brand); color: #fff; }
+.mfs-mo-chip:disabled { opacity: 0.5; cursor: default; }
+.mfs-mo-lista { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mfs-mo-cartao { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-xs); }
+.mfs-mo-cartao-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+.mfs-mo-cartao-nome { min-width: 0; overflow-wrap: anywhere; font-size: 14.5px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.mfs-mo-cartao-sub { margin-top: -4px; font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.mfs-mo-metricas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0; }
+.mfs-mo-metricas.quatro { grid-template-columns: repeat(4, 1fr); }
+.mfs-mo-metricas > div { min-width: 0; }
+.mfs-mo-metricas dt { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); overflow-wrap: anywhere; }
+.mfs-mo-metricas dd { margin: 1px 0 0; font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mfs-mo-saldos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.mfs-mo-saldos > div { display: flex; flex-direction: column; min-width: 0; }
+.mfs-mo-saldos span { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.mfs-mo-saldos b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.mfs-mo-saldos small { font-size: 11.5px; color: var(--text-muted); }
+.mfs-mo-legenda { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; line-height: 1.4; color: var(--text-muted); }
+.mfs-mo-legenda-item { display: inline-flex; align-items: center; gap: 6px; }
+.mfs-mo-legenda-item i { flex: none; width: 12px; height: 12px; border-radius: 2px; box-sizing: border-box; }
+.mfs-mo-vazio { padding: 16px 4px; text-align: center; }
+.mfs-mo-exportar { align-self: flex-end; height: 40px; gap: 6px; }
+/* Barra de ações fixa acima da barra inferior da casca (Previsto e Apropriação). */
+.mfs-mo-fixa {
+  position: fixed; left: 0; right: 0; bottom: calc(57px + env(safe-area-inset-bottom, 0px)); z-index: 40;
+  display: flex; gap: 8px; padding: 8px 12px; background: var(--surface); border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.08);
+}
+.mfs-mo-fixa .btn { flex: 1; height: 44px; justify-content: center; gap: 6px; }
+.mfs-mo-fixa .btn.btn-ghost { flex: 0 0 auto; min-width: 96px; }
+.mfs-mo-fixa .btn:disabled { opacity: 0.45; cursor: default; }
+/* Folha de ações. */
+.mfs-mo-acoes { display: flex; flex-direction: column; gap: 8px; }
+.mfs-mo-acao {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px; width: 100%; min-height: 48px; padding: 8px 14px; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font-size: 15px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.mfs-mo-acao.perigo { color: var(--danger); }
+.mfs-mo-acao:disabled, .mfs-mo-acao.desabilitada { opacity: 0.5; cursor: default; }
+.mfs-mo-acao-rotulo { flex: 1; min-width: 0; }
+.mfs-mo-acao small { flex-basis: 100%; font-size: 12px; font-weight: 400; color: var(--text-muted); }
+/* Previsto. */
+.mfs-mo-estado { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.mfs-mo-form { display: flex; flex-direction: column; gap: 12px; }
+.mfs-mo-form-datas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-mo-campos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-mo-campos .qtd { grid-column: 1 / -1; }
+.mfs-mo-stepper { display: flex; align-items: center; gap: 6px; }
+.mfs-mo-stepper button {
+  flex: none; width: 44px; height: 44px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface);
+  color: var(--brand); font-size: 22px; font-weight: 700; line-height: 1; cursor: pointer;
+}
+.mfs-mo-stepper button:disabled { opacity: 0.35; cursor: default; }
+.mfs-mo-stepper input { flex: 1 1 0; text-align: center; font-weight: 600; }
+.mfs-mo-lixeira { flex: none; width: 44px; height: 44px; margin: -10px -10px -10px 0; display: grid; place-items: center; border: 0; background: none; color: var(--danger); cursor: pointer; }
+.mfs-mo-lixeira:disabled { opacity: 0.3; cursor: not-allowed; }
+.mfs-mo-grupo { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mfs-mo-grupo-cab {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; width: 100%; min-height: 44px; padding: 6px 12px; box-sizing: border-box;
+  background: var(--brand-tint); border: 0; border-left: 4px solid var(--brand); border-radius: 10px; color: var(--brand); font-size: 14px; text-align: left; cursor: pointer;
+}
+.mfs-mo-grupo-cab strong { font-weight: 700; }
+.mfs-mo-grupo-qtd { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.mfs-mo-grupo-nums { flex: 1 1 100%; padding-left: 26px; font-size: 12px; font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* Painel. */
+.mfs-mo-quinz { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.mfs-mo-quinz-rotulo { font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
+.mfs-mo-quinz-situacao { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; }
+.mfs-mo-quinz-situacao small { font-size: 11px; color: var(--text-muted); text-align: right; overflow-wrap: anywhere; }
+.mfs-mo-fora { color: var(--text-faint); }
+.mfs-mo-cartao-nome + .mfs-mo-quinz { margin-top: 0; }
+/* Análise. */
+.mfs-mo-seletor {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; height: 44px; padding: 0 12px; box-sizing: border-box; text-align: left; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); font-size: 15px; font-weight: 600;
+}
+.mfs-mo-seletor span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfs-mo-opcoes { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.mfs-mo-opcao { min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font-size: 15px; text-align: left; cursor: pointer; }
+.mfs-mo-opcao.ativa { background: var(--brand-tint); color: var(--brand); font-weight: 700; }
+.mfs-mo-grafico { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.mfs-mo-grafico-trilho { min-width: 100%; }
+.mfs-mo-barras { display: flex; height: 170px; border-bottom: 1px solid var(--border-strong); }
+.mfs-mo-slot {
+  position: relative; flex: 0 0 44px; width: 44px; height: 100%; padding: 0 2px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px;
+  border: 0; border-radius: 6px 6px 0 0; background: transparent; cursor: pointer;
+}
+.mfs-mo-slot.atual { background: var(--brand-tint); }
+.mfs-mo-slot.destaque { outline: 2px solid var(--brand); outline-offset: -2px; }
+.mfs-mo-valor { font-size: 10.5px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.mfs-mo-barra { display: block; width: 70%; max-width: 28px; box-sizing: border-box; border-radius: 3px 3px 0 0; }
+.mfs-mo-barra.real, .mfs-mo-barra.efetivo { background: var(--brand); }
+.mfs-mo-barra.proj { background: var(--brand-100); border: 1.5px dashed var(--brand); border-bottom: 0; }
+.mfs-mo-barra.previsto { background: var(--brand-100); }
+.mfs-mo-prev { position: absolute; left: 12%; right: 12%; height: 2px; background: var(--text); z-index: 1; pointer-events: none; }
+.mfs-mo-par { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; height: 80%; }
+.mfs-mo-par .mfs-mo-barra { width: 38%; max-width: 16px; }
+.mfs-mo-rotulos { display: flex; }
+.mfs-mo-rotulos span { flex: 0 0 44px; width: 44px; padding-top: 4px; text-align: center; font-size: 10.5px; font-weight: 500; color: var(--text-faint); }
+.mfs-mo-rotulos span.atual { color: var(--brand); font-weight: 700; }
+.mfs-mo-detalhe { margin: 0; min-height: 18px; font-size: 12.5px; color: var(--text-soft); }
+.mfs-mo-comparar { position: relative; height: 14px; }
+.mfs-mo-comparar span { position: absolute; left: 0; height: 5px; border-radius: 3px; }
+/* Apropriação. */
+.mfs-mo-quinzenas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mfs-mo-quinzenas button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 52px; padding: 8px 12px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--text);
+}
+.mfs-mo-quinzenas button strong { font-size: 14px; }
+.mfs-mo-quinzenas button span { font-size: 11.5px; color: var(--text-muted); }
+.mfs-mo-quinzenas button[aria-pressed='true'] { background: var(--brand); border-color: var(--brand); color: #fff; }
+.mfs-mo-quinzenas button[aria-pressed='true'] span { color: rgba(255, 255, 255, 0.85); }
+.mfs-mo-estado-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; }
+.mfs-mo-salvo { font-size: 12px; color: var(--text-faint); }
+.mfs-mo-alerta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 12px; border-radius: 10px; background: var(--warning-bg); color: var(--warning); font-size: 13px; font-weight: 500; }
+.mfs-mo-alerta span { flex: 1 1 200px; }
+.mfs-mo-alerta button { flex: none; min-height: 40px; padding: 0 4px; border: 0; background: none; color: var(--brand); font-size: 13px; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.mfs-mo-controles { display: flex; flex-direction: column; gap: 8px; }
+.mfs-mo-linha-controles { display: flex; align-items: center; gap: 8px; }
+.mfs-mo-linha-controles .mfs-mo-seg { flex: 1 1 0; }
+.mfs-mo-texto-botao { flex: none; min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--brand); font-size: 13px; font-weight: 600; cursor: pointer; }
+.mfs-mo-texto-botao:disabled { opacity: 0.4; cursor: default; }
+.mfs-mo-func { width: 100%; flex-direction: row; align-items: center; gap: 8px; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.mfs-mo-func:active { background: var(--surface-muted); }
+.mfs-mo-func-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mfs-mo-func > svg { flex: none; color: var(--text-faint); }
+.mfs-mo-totais .mfs-mo-metricas { row-gap: 10px; }
+.mfs-mo-folha-resumo { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 14px; }
+.mfs-mo-folha-resumo .mfs-mo-kpis { width: 100%; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.mfs-mo-folha-resumo .mfs-mo-kpi { padding: 8px; }
+.mfs-mo-folha-resumo .mfs-mo-kpi-rotulo { font-size: 9.5px; }
+.mfs-mo-folha-resumo .mfs-mo-kpi-valor { font-size: 17px; }
+.mfs-mo-folha-campos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mfs-mo-posicao { margin: 12px 0 0; text-align: center; }
+
+/* Modais da Mão de Obra que já existem no desktop e aqui só ganham ajuste de largura (nomes de classe adicionados
+   neles; sem html.mob-full nada disto vale). Os !important cobrem tamanhos gravados em estilo inline. */
+html.mob-full .mo-grupos-fundo { align-items: flex-end !important; padding: 0 !important; }
+html.mob-full .mo-grupos { max-width: none !important; max-height: calc(100dvh - 24px) !important; border-radius: 18px 18px 0 0 !important; }
+html.mob-full .mo-grupos-topo { padding: 16px 16px 12px !important; }
+html.mob-full .mo-grupos-add { gap: 8px; }
+html.mob-full .mo-grupos-add input { min-width: 0 !important; font-size: 16px !important; height: 44px; box-sizing: border-box; }
+html.mob-full .mo-grupos-add button { min-height: 44px; }
+html.mob-full .mo-grupos-colunas { display: none !important; }
+html.mob-full .mo-grupos-lista { padding: 4px 16px 8px !important; }
+html.mob-full .mo-grupos-linha { flex-wrap: wrap !important; gap: 8px !important; padding: 10px 0 !important; }
+html.mob-full .mo-grupos-nome { order: 1; flex: 1 1 calc(100% - 112px) !important; font-weight: 600; overflow-wrap: anywhere; }
+html.mob-full .mo-grupos-icone { order: 2; flex: 0 0 44px !important; width: 44px !important; height: 44px !important; }
+html.mob-full .mo-grupos-sel { order: 3; flex: 1 1 calc(50% - 4px) !important; width: auto !important; min-width: 0; height: 44px; font-size: 16px !important; box-sizing: border-box; }
+html.mob-full .mo-grupos-painel input { flex: 1 1 100% !important; min-width: 0 !important; height: 44px; font-size: 16px !important; box-sizing: border-box; }
+html.mob-full .mo-grupos-painel button { min-height: 44px; }
+html.mob-full .mo-grupos-rodape { padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)) !important; }
+html.mob-full .mo-grupos-rodape button { flex: 1; min-height: 44px; }
+html.mob-full .mo-mes-select { width: 100%; height: 44px; font-size: 16px !important; box-sizing: border-box; }
+html.mob-full .mo-mes-linha { flex-wrap: wrap; row-gap: 6px; }
+html.mob-full .mo-mes-linha > span { flex-wrap: wrap; }
+html.mob-full .mo-mes-linha .btn { min-height: 40px; }
+
+/* ---------- Avisos (toast) acima da barra inferior ---------- */
+html.mob-full .toast-stack {
+  bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  width: calc(100vw - 24px);
+}
+html.mob-full .toast { min-width: 0; width: 100%; box-sizing: border-box; }
+
+/* ---------- Celular deitado: cabeçalho e barra mais baixos ----------
+   Em 812x375 o cabeçalho (52px) e a barra (57px) deixavam só 266px de área útil. */
+@media (orientation: landscape) and (max-height: 500px) {
+  html.mob-full { --mfs-h: 44px; }
+  html.mob-full .topbar.mfs-header { height: 44px; }
+  .mfs-icone { width: 40px; height: 40px; }
+  .mfs-ponto { top: 8px; right: 9px; }
+  .mfs-nav-item { min-height: 44px; flex-direction: row; gap: 8px; }
+  .mfs-nav-icone { width: 40px; }
+  html.mob-full .content { padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
+  html.mob-full .toast-stack { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  html.mob-full .mfs-header .notif-panel { top: 50px; }
+  html.mob-full .modal { max-height: calc(100dvh - 12px) !important; }
+  /* Linha do tempo: sobra largura, falta altura. Zoom, Hoje e chips numa linha só. */
+  .mfs-lt-controles { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .mfs-lt-linha-a { flex: 0 0 340px; }
+  .mfs-lt-chips { flex: 1 1 0; min-width: 0; }
+  .mfs-lt-controles .mfs-filtros-linha { flex: 1 1 100%; }
+  /* Obra detalhe: a capa não pode ocupar a tela inteira deitada. */
+  html.mob-full .mfs-od-capa .hero-img { max-height: 160px; }
+  html.mob-full .mfs-od-capa .hero-img img { max-height: 160px; }
+  .mfs-od-indicadores { grid-template-columns: repeat(3, 1fr); }
+  .mfs-od-indicadores .mfs-ind.destaque { grid-column: 1 / -1; }
+  /* Orç. × Cronograma: a barra do passo vira uma linha só (texto à esquerda, botões à direita) e encosta na barra
+     inferior baixa (45px), em vez de comer 89px dos 375 disponíveis. */
+  .mfs-oc.com-barra { padding-bottom: 66px; }
+  .mfs-oc-barra { bottom: calc(45px + env(safe-area-inset-bottom, 0px)); flex-direction: row; align-items: center; gap: 12px; }
+  .mfs-oc-barra-texto { flex: 1 1 0; flex-direction: column; align-items: flex-start; gap: 0; }
+  .mfs-oc-barra-botoes { flex: 0 0 auto; }
+  .mfs-oc-barra-botoes .btn { flex: 0 0 auto; min-width: 140px; }
+  /* Distribuir pesos: unidade e Expandir/Recolher na mesma linha, e cada subtarefa em uma linha só (nome à esquerda,
+     campos à direita), senão o corpo da folha (uns 220px) mostra pouco mais que um cartão. */
+  .mfs-pw-controles { flex-direction: row; align-items: flex-end; gap: 12px; }
+  .mfs-pw-unidade, .mfs-pw-expandir { flex: 1 1 0; min-width: 0; }
+  .mfs-pw-linha { flex-direction: row; align-items: center; gap: 10px; padding: 6px 10px; }
+  .mfs-pw-topo { flex: 1 1 0; }
+  .mfs-pw-campos { flex: 0 0 340px; }
+  .mfs-pw-motivo { flex: 0 0 100%; order: 3; }
+  .mfs-pw-linha { flex-wrap: wrap; }
+}
+
+/* Mão de Obra no celular deitado: sobra largura e falta altura. Indicadores em uma linha, cartões em duas colunas, a barra
+   de ações encosta na barra inferior baixa (45px) e a folha de uma função põe os campos lado a lado. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .mfs-mo-kpis { grid-template-columns: repeat(4, 1fr); }
+  .mfs-mo-lista { display: grid; grid-template-columns: 1fr 1fr; }
+  .mfs-mo-tela.com-barra { padding-bottom: 58px; }
+  .mfs-mo-fixa { bottom: calc(45px + env(safe-area-inset-bottom, 0px)); justify-content: flex-end; padding: 4px 12px; }
+  .mfs-mo-fixa .btn { flex: 0 0 auto; min-width: 200px; height: 40px; }
+  /* As abas deixam de grudar sob o cabeçalho: com 375px de altura, cabeçalho + abas + barra de ações comeriam metade da tela. */
+  .mfs-mo > .mfs-abas { position: static; }
+  .mfs-mo-folha-campos { grid-template-columns: repeat(4, 1fr); }
+  .mfs-mo-folha-campos .mfs-mo-campo.cheio { grid-column: span 2; }
+  .mfs-mo-barras { height: 130px; }
+}

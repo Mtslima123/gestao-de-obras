@@ -18,13 +18,17 @@ import {
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha, ColumnHeaderFilterMenu,
 } from './cronogramaShared';
 import { passaFiltrosDeColuna } from './filtroColunasPure';
+import { OrdemPavimentosModal } from './cronogramaModais';
+import { pavimentosDoCronograma } from '../../utils/pavimentos';
 import {
   fmtPct100, computeDisciplinaInfo, buildItensMedicao, listarTarefasForaDoMes,
   parsePercInput, derivarStatus, computeArvoreMedicao, gruposParaNivel, computeTotaisMedicao,
   computeResumo, validarFechamento, validarAbertura, mergePercMedido, buildSnapshotFechamento,
-  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, ordenarPavimentos, chavePavimento,
-  aplicarAlteracoes,
+  hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, mesesDoSeletor, ordenarPavimentos, chavePavimento,
+  aplicarAlteracoes, previstoDefasado, LIMITE_ANOTACAO, normalizarAnotacao, linhasDaAnotacao,
+  lerAnotacao, textoPuroDaAnotacao, anotacaoTemFormato, quebrarRunsEmLinhas, siRicoDoExcel, aplicarTextoRicoNoXlsx,
 } from './medicaoMensalPure';
+import { EditorAnotacao } from './EditorAnotacao';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
 // mês a partir dos itens do cronograma agendados no mês de referência (mesma
@@ -68,9 +72,10 @@ const MEDICAO_EXCEL_WCH = {
   servico: 12, descricao: 46, pavimento: 14, inicio: 12, termino: 12, dur: 7,
   peso: 10, executado: 13, medido: 11, valorAMedir: 16, valorMedido: 16,
 };
-// Alinhamento no PDF por coluna — texto (servico/descricao/pavimento) fica no padrão
-// (esquerda) do autoTable, só as numéricas/data precisam de override.
+// Alinhamento no PDF por coluna — só servico/descricao (texto longo) ficam no padrão (esquerda)
+// do autoTable; pavimento e datas são curtos e ficam centralizados sob o cabeçalho, que já é centralizado.
 const MEDICAO_PDF_ALIGN = {
+  pavimento: 'center', inicio: 'center', termino: 'center',
   dur: 'center', peso: 'center', executado: 'center', medido: 'center',
   valorAMedir: 'right', valorMedido: 'right',
 };
@@ -217,6 +222,15 @@ function ModalDesaprovarMedicao({ mesRefKey, salvando, onClose, onConfirmar }) {
       </p>
     </Modal>
   );
+}
+
+// Texto do aviso "Atualizar previsto": o que ficou congelado na abertura e o que o cronograma
+// indica hoje, só para o(s) campo(s) que mudou(aram) (ver previstoDefasado).
+function textoPrevistoDesatualizado({ acumulado, mes }) {
+  return [
+    acumulado && `Previsto acumulado congelado em ${fmtPct100(acumulado.congelado)}; o cronograma hoje indica ${fmtPct100(acumulado.atual)}`,
+    mes && `Previsto do mês congelado em ${fmtPct100(mes.congelado)}; hoje ${fmtPct100(mes.atual)}`,
+  ].filter(Boolean).join(' · ');
 }
 
 // Bloqueia "Aprovar" — não é só um aviso: sem atualizar, não tem como continuar. O botão
@@ -615,7 +629,7 @@ function ModalIncluirTarefa({ candidatas, etapas, onClose, onConfirmar, mobileVi
 export default function MedicaoMensal({
   etapas, months, monthlyDist, monthlyTotals, valorVinculadoMap = {}, wbsMap, rowNumberMap = {},
   obraId, readOnly, currentUser, onEnviarAvanco,
-  reprogramacoes = [], obraNome = 'Projeto', hideChrome = false, pavimentosOrdem = [],
+  reprogramacoes = [], obraNome = 'Projeto', hideChrome = false, pavimentosOrdem = [], onSalvarOrdemPavimentos,
   // salvoEm do cronograma guardado no aparelho (sem internet, ver Cronograma.jsx), ou null.
   dadosDoAparelho = null, onTentarConexao,
 }) {
@@ -700,6 +714,7 @@ export default function MedicaoMensal({
   const [salvando, setSalvando] = React.useState(false);
   const [busca, setBusca] = React.useState('');
   const [pavimento, setPavimento] = React.useState('Todos');
+  const [ordemPavAberto, setOrdemPavAberto] = React.useState(false);
   // Filtros de coluna (menu da setinha no cabeçalho), no mesmo formato da Lista: por coluna, lista de valores
   // marcados ou condição. Valem só para a tela, como busca e pavimento, e somem ao trocar de mês ou obra.
   const [filtrosColuna, setFiltrosColuna] = React.useState({});
@@ -773,6 +788,18 @@ export default function MedicaoMensal({
   const [exportando, setExportando] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
   const exportRef = React.useRef(null);
+  // Anotação livre da medição (botão "Anotações"): a janela edita um rascunho local e só grava no Salvar.
+  const [anotacaoAberta, setAnotacaoAberta] = React.useState(false);
+  const [anotacaoDraft, setAnotacaoDraft] = React.useState('');
+  const [salvandoAnotacao, setSalvandoAnotacao] = React.useState(false);
+  // Se a anotação sai no Excel/PDF: escolha no menu Exportar, por obra (marcada por padrão, e só vale
+  // quando a medição tem anotação) — mesmo padrão do exportHiddenCols logo abaixo.
+  const [exportarAnotacao, setExportarAnotacao] = React.useState(() => {
+    try { return localStorage.getItem(`medicao_export_anotacoes_${obraId}`) !== '0'; } catch { return true; }
+  });
+  React.useEffect(() => {
+    if (obraId) { try { localStorage.setItem(`medicao_export_anotacoes_${obraId}`, exportarAnotacao ? '1' : '0'); } catch { /* ignore */ } }
+  }, [exportarAnotacao, obraId]);
   // Quais colunas entram no Excel/PDF — mesmo padrão de usoHiddenCols (Cronograma.jsx,
   // aba Uso da Tarefa): Set persistido por obra, vazio por padrão (exporta tudo até
   // alguém desmarcar algo no popover "Colunas" do dropdown Exportar).
@@ -1122,6 +1149,8 @@ export default function MedicaoMensal({
   // A cadeia só conta do mês inicial da obra em diante: o 1º mês de medição fica sem
   // mesAnterior, então abre sem exigir aprovação/reprogramação dos meses de antes.
   const mesesCadeia = React.useMemo(() => mesesDaMedicao(months, mesInicial), [months, mesInicial]);
+  // Lista dos seletores de mês (computador e celular): sem os meses antes do início da medição.
+  const mesesNoSeletor = React.useMemo(() => mesesDoSeletor(months, mesInicial, statusPorMes), [months, mesInicial, statusPorMes]);
   const foraDoPeriodo = !!mesInicial && mesRefKey < mesInicial;
   const mesIdxAtual = mesesCadeia.findIndex(m => m.key === mesRefKey);
   const mesAnterior = mesIdxAtual > 0 ? mesesCadeia[mesIdxAtual - 1] : null;
@@ -1159,6 +1188,12 @@ export default function MedicaoMensal({
     () => ['Todos', ...ordenarPavimentos(itensTrabalho.map(i => i.pavimento), pavimentosOrdem)],
     [itensTrabalho, pavimentosOrdem]
   );
+  // Botão "Ordenar": precisa de pelo menos dois pavimentos com nome, de quem pode editar o
+  // cronograma e da gravação vinda do Cronograma. A janela lista TODOS os pavimentos das tarefas do
+  // cronograma (não só os deste mês, que são os do filtro acima), sem repetir: a ordem é uma só para
+  // todos os meses. "—" (sem pavimento) fica fora e sempre por último no filtro.
+  const pavimentosParaOrdenar = React.useMemo(() => pavimentosDoCronograma(etapas, pavimentosOrdem), [etapas, pavimentosOrdem]);
+  const podeOrdenarPavimentos = !readOnly && !!onSalvarOrdemPavimentos && pavimentosParaOrdenar.length > 1;
   // Nome que prevalece para cada pavimento (o do cadastro, se houver): " puc" na tarefa
   // aparece como "PUC", e o filtro compara pela mesma chave (chavePavimento), não pelo texto cru.
   const nomePavimento = React.useMemo(() => {
@@ -1348,6 +1383,17 @@ export default function MedicaoMensal({
   const previstoMesPctAoVivo = resumo.valorObra > 0 ? (valorTotalBase / resumo.valorObra) * 100 : 0;
   const previstoMesPct = registro?.perc_previsto != null ? registro.perc_previsto : previstoMesPctAoVivo;
   const previstoAcumuladoExibido = registro?.perc_previsto_acumulado != null ? registro.perc_previsto_acumulado : resumo.previstoAcumulado;
+
+  // O previsto congelado ficou diferente do que o cronograma indica hoje (valores ou datas mudaram
+  // depois da abertura). Continua congelado até alguém pedir: só oferece o "Atualizar previsto".
+  // Só medição aberta; sem valor da obra ou com a lista ainda carregando não há o que comparar
+  // (o previsto do mês sai da lista de itens, então fica de fora enquanto ela estiver vazia).
+  const previstoDesatualizado = React.useMemo(() => (
+    carregando || !(resumo.valorObra > 0) ? null : previstoDefasado(registro, {
+      percPrevisto: itensTrabalho.length ? previstoMesPctAoVivo : null,
+      percPrevistoAcumulado: resumo.previstoAcumulado,
+    })
+  ), [carregando, registro, itensTrabalho.length, previstoMesPctAoVivo, resumo.valorObra, resumo.previstoAcumulado]);
 
   // "Executado do mês" (KPI) usa resumo.executadoMesPct — o que foi medido nesta tela em R$
   // como fração da OBRA INTEIRA, não do valor deste mês (totais.med, que só mostra "quanto do
@@ -1757,6 +1803,58 @@ export default function MedicaoMensal({
     toast('Valores atualizados a partir do cronograma', { tone: 'success', icon: 'check' });
   };
 
+  // Botão "Atualizar previsto" (medição aberta): regrava o previsto do mês e o acumulado com o
+  // que o cronograma indica agora, sem gerar medição nova. Mexe SÓ nessas duas colunas (ver
+  // atualizarPrevistoRascunho): % medido, itens e status ficam como estão. Recalcula a partir de
+  // `montarDoCronograma` e não de itensTrabalho, pelo mesmo motivo da abertura (o estado da tela
+  // pode estar defasado no instante do clique).
+  const atualizarPrevisto = async () => {
+    if (somenteConsulta || semRede) { avisarSemInternet(); return; }
+    if (bloqueado) return;
+    setSalvando(true);
+    const itens = montarDoCronograma(new Set());
+    const valorTotalBaseFresco = itens.reduce((s, i) => s + (i.foraDoMes ? 0 : i.valor), 0);
+    const { data, error } = await medicaoMensalService.atualizarPrevistoRascunho(obraId, mesRefKey, {
+      percPrevisto: resumo.valorObra > 0 ? (valorTotalBaseFresco / resumo.valorObra) * 100 : 0,
+      percPrevistoAcumulado: resumo.previstoAcumulado,
+    });
+    setSalvando(false);
+    if (error) { toast('Não foi possível atualizar o previsto. Tente novamente.', { tone: 'danger' }); return; }
+    if (!data) { toast('Não foi possível atualizar: a medição já foi fechada ou você não tem permissão para editá-la.', { tone: 'warning' }); return; }
+    setRegistro(r => (r ? { ...r, perc_previsto: data.perc_previsto, perc_previsto_acumulado: data.perc_previsto_acumulado } : r));
+    toast('Previsto atualizado a partir do cronograma', { tone: 'success', icon: 'check' });
+  };
+
+  // Anotações da medição: texto livre do mês, além da observação de cada tarefa. `bloqueado` cobre
+  // medição fechada/aprovada, somente-leitura e ainda carregando: nesses casos a janela abre só para
+  // ler. Não leva os itens nem mexe no updated_at (ver salvarAnotacoes no service).
+  const anotacaoAtual = registro?.anotacoes || '';
+  // Só leitura na janela: sem medição aberta, fechada/aprovada ou sem permissão. (`bloqueado` também
+  // inclui "salvando outra coisa", que não pode piscar o botão e o campo.)
+  const anotacaoSoLeitura = readOnly || fechada || !registro;
+  const abrirAnotacao = () => { setAnotacaoDraft(anotacaoAtual); setAnotacaoAberta(true); };
+  // O texto da anotação guarda negrito e cor em marcas (ver lerAnotacao): o limite e a dica do botão usam
+  // só o que se vê.
+  const anotacaoAtualPura = textoPuroDaAnotacao(anotacaoAtual);
+  const anotacaoCaracteres = anotacaoAberta ? textoPuroDaAnotacao(anotacaoDraft).length : 0;
+  const anotacaoPassouLimite = anotacaoCaracteres > LIMITE_ANOTACAO;
+  const salvarAnotacao = async () => {
+    if (bloqueado || salvandoAnotacao) return;
+    if (somenteConsulta || semRede) { avisarSemInternet(); return; }
+    if (anotacaoPassouLimite) { toast(`A anotação passou de ${LIMITE_ANOTACAO} caracteres. Encurte o texto para salvar.`, { tone: 'warning' }); return; }
+    const texto = normalizarAnotacao(anotacaoDraft);
+    if (texto === normalizarAnotacao(anotacaoAtual)) { setAnotacaoAberta(false); return; } // nada mudou
+    setSalvandoAnotacao(true);
+    const { data, error, pendenteTI } = await medicaoMensalService.salvarAnotacoes(obraId, mesRefKey, texto);
+    setSalvandoAnotacao(false);
+    if (pendenteTI) { toast('Anotações ainda não foram liberadas no banco: aguardando o TI aplicar a atualização.', { tone: 'warning' }); return; }
+    if (error) { toast('Não foi possível salvar a anotação. Tente novamente.', { tone: 'danger' }); return; }
+    if (!data) { toast('Não foi possível salvar: a medição já foi fechada ou você não tem permissão para editá-la.', { tone: 'warning' }); return; }
+    setRegistro(r => (r ? { ...r, anotacoes: data.anotacoes } : r));
+    setAnotacaoAberta(false);
+    toast('Anotação salva', { tone: 'success', icon: 'check' });
+  };
+
   // Zera o % medido de todos os itens da medição (mantém a lista de itens/manuais como
   // está) — pra recomeçar o preenchimento do zero sem precisar reabrir/apagar a medição.
   const limparMedicao = async () => {
@@ -1838,7 +1936,16 @@ export default function MedicaoMensal({
     try {
       const mod  = await import('xlsx-js-style');
       const XLSX = mod.utils ? mod : mod.default; // interop: xlsx-js-style não expõe named exports estáticos como o `xlsx`
-      const HEADER_ROW  = 3;
+      // Anotação da medição (só se a pessoa marcou no menu Exportar e há texto): uma linha mesclada
+      // abaixo de "Gerado em", o que empurra o cabeçalho da tabela uma linha para baixo.
+      const anotacao    = exportarAnotacao ? normalizarAnotacao(anotacaoAtual) : '';
+      const anotacaoParas = anotacao ? lerAnotacao(anotacao) : [];
+      const anotacaoTexto = textoPuroDaAnotacao(anotacao);
+      // Anotação com negrito ou cor: a célula leva um marcador e, depois de gerar o arquivo, o texto formatado
+      // entra no .xlsx (a biblioteca só estiliza a célula inteira). Sem formato, segue como texto simples.
+      const MARCADOR_NOTA = '@@ANOTACAO_FORMATADA@@';
+      const anotacaoRica  = anotacaoTemFormato(anotacaoParas);
+      const HEADER_ROW  = anotacao ? 4 : 3;
       const linhas2     = linhasExport();
       const groupRowIdx = [];
       linhas2.forEach((l, i) => { if (l.grupo) groupRowIdx.push(HEADER_ROW + 1 + i); });
@@ -1864,6 +1971,7 @@ export default function MedicaoMensal({
       const rows = [
         [`Medição Mensal · ${obraNome} · ${mesLabel(mesRefKey)}`],
         [`Gerado em ${new Date().toLocaleDateString('pt-BR')}`],
+        ...(anotacao ? [[anotacaoRica ? MARCADOR_NOTA : `Anotações: ${anotacaoTexto}`]] : []),
         [],
         CABECALHOS,
         ...corpo,
@@ -1887,12 +1995,40 @@ export default function MedicaoMensal({
       ];
       ws['A1'].s = { ...XLSX_TITLE_STYLE };
       ws['A2'].s = { ...XLSX_SUBTITLE_STYLE };
+      if (anotacao) {
+        // O Excel não ajusta a altura de célula mesclada: estima pelas linhas que o texto ocupa na
+        // largura somada das colunas visíveis (cada quebra digitada conta como uma linha).
+        ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: CABECALHOS.length - 1 } });
+        ws['A3'].s = { font: { sz: 10 }, alignment: { wrapText: true, vertical: 'top', horizontal: 'left' } };
+        const larguraTotal = exportColsVisiveis.reduce((s, id) => s + (MEDICAO_EXCEL_WCH[id] || 10), 0);
+        const nLinhas = linhasDaAnotacao(`Anotações: ${anotacaoTexto}`, Math.max(40, larguraTotal)).length;
+        ws['!rows'] = [];
+        ws['!rows'][2] = { hpt: Math.max(15, nLinhas * 13.5) };
+      }
       aplicarEstiloLinha(XLSX, ws, HEADER_ROW, CABECALHOS.length, XLSX_HEADER_STYLE);
       groupRowIdx.forEach(r => aplicarEstiloLinha(XLSX, ws, r, CABECALHOS.length, XLSX_GROUP_ROW_STYLE));
       aplicarEstiloLinha(XLSX, ws, totalRowIdx, CABECALHOS.length, XLSX_TOTAL_ROW_STYLE);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Medição');
-      XLSX.writeFile(wb, `medicao-mensal-${mesRefKey || 'mes'}.xlsx`);
+      const nomeArquivo = `medicao-mensal-${mesRefKey || 'mes'}.xlsx`;
+      let gravado = false;
+      if (anotacaoRica) {
+        try {
+          const bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array', bookSST: true });
+          const fflate = await import('fflate');
+          const novo = aplicarTextoRicoNoXlsx(bytes, MARCADOR_NOTA, siRicoDoExcel(anotacaoParas, 'Anotações: '), fflate);
+          const url = URL.createObjectURL(new Blob([novo], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+          const a = document.createElement('a');
+          a.href = url; a.download = nomeArquivo;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+          gravado = true;
+        } catch { /* não deu para formatar a anotação: sai como texto simples logo abaixo */ }
+      }
+      if (!gravado) {
+        if (anotacaoRica) ws.A3.v = `Anotações: ${anotacaoTexto}`; // trocou o marcador pelo texto sem formato
+        XLSX.writeFile(wb, nomeArquivo);
+      }
     } catch {
       toast('Erro ao exportar para Excel', { tone: 'danger' });
     } finally {
@@ -1912,6 +2048,10 @@ export default function MedicaoMensal({
       doc.setFontSize(8); doc.setTextColor(130);
       doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
       doc.setTextColor(0);
+
+      // Anotação da medição (só se marcada no menu Exportar e com texto): vai no FIM do documento, depois da
+      // tabela e do total geral (ver abaixo do autoTable), e não mais no topo.
+      const anotacao = exportarAnotacao ? normalizarAnotacao(anotacaoAtual) : '';
 
       const dados = linhasExport();
       const fmtD = (d) => (d ? d.toLocaleDateString('pt-BR') : '');
@@ -1972,6 +2112,44 @@ export default function MedicaoMensal({
           doc.setTextColor(0);
         },
       });
+      // Anotação no fim: começa logo abaixo da tabela e segue para uma página nova quando não cabe. As páginas
+      // novas levam o número da página como as da tabela (didDrawPage só roda nas páginas do autoTable).
+      if (anotacao) {
+        const passo = 8 * 1.25 * 0.3528; // fonte 8 pt com entrelinha 1,25, em mm
+        const limiteY = H - 14; // mesma margem de baixo da tabela
+        const novaPagina = () => {
+          doc.addPage();
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text(`Página ${doc.internal.getNumberOfPages()}`, W - 20, H - 6);
+          doc.setTextColor(0);
+          return 20;
+        };
+        doc.setFontSize(8);
+        // Texto por trechos (negrito e cor de cada pedaço): a quebra mede cada palavra com a fonte que ela vai usar
+        // (negrito é mais largo).
+        const medirNota = (t, negrito) => { doc.setFont('helvetica', negrito ? 'bold' : 'normal'); return doc.getTextWidth(t); };
+        const linhasNota = quebrarRunsEmLinhas(lerAnotacao(anotacao), W - 28, medirNota);
+        let y = (doc.lastAutoTable?.finalY ?? 25) + 8;
+        // O título não fica sozinho no pé da página: precisa caber com as duas primeiras linhas do texto.
+        if (y + 4 + passo * Math.min(2, linhasNota.length) > limiteY) y = novaPagina();
+        doc.setFont('helvetica', 'bold');
+        doc.text('Anotações', 14, y);
+        y += 4;
+        linhasNota.forEach(linha => {
+          if (y > limiteY) y = novaPagina();
+          let x = 14;
+          linha.forEach(seg => {
+            const rgb = seg.cor ? [1, 3, 5].map(k => parseInt(seg.cor.slice(k, k + 2), 16)) : [0, 0, 0];
+            doc.setFont('helvetica', seg.negrito ? 'bold' : 'normal');
+            doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+            doc.text(seg.texto, x, y);
+            x += doc.getTextWidth(seg.texto);
+          });
+          y += passo;
+        });
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(0);
+      }
       doc.save(`medicao-mensal-${mesRefKey || 'mes'}.pdf`);
     } catch {
       toast('Erro ao exportar para PDF', { tone: 'danger' });
@@ -2097,7 +2275,7 @@ export default function MedicaoMensal({
               cronograma sem nenhuma relação com as medições, então não havia como saber
               quais meses já tinham sido abertos ou fechados. */}
           <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)} style={{ minWidth: 190 }}>
-            {months.map(m => {
+            {mesesNoSeletor.map(m => {
               const st = statusPorMes[m.key];
               const sufixo = st === 'aprovada' ? ' · aprovada' : st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
               return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;
@@ -2112,6 +2290,13 @@ export default function MedicaoMensal({
               <Icon name="calendar" size={14} />Início: {mesInicial ? mesLabel(mesInicial) : 'cronograma'}
             </button>
           )}
+          {/* Anotação livre da medição do mês (além da observação de cada tarefa). Sem medição aberta
+              não há onde gravar; fechada, só abre para ler (e só se já tiver texto). */}
+          <button type="button" className="btn btn-ghost" onClick={abrirAnotacao}
+            disabled={!registro || (anotacaoSoLeitura && !anotacaoAtual)}
+            title={anotacaoAtualPura || (registro ? 'Anotações da medição' : 'Abra a medição do mês para anotar')}>
+            <Icon name="message-square" size={14} className={anotacaoAtual ? 'mm-nota-flag' : ''} />Anotações
+          </button>
           <div ref={exportRef} style={{ position: 'relative' }}>
             <button type="button" className="btn btn-ghost" onClick={() => setExportOpen(o => !o)} disabled={exportando}>
               <Icon name="download" size={15} />{exportando ? 'Exportando…' : 'Exportar'}<Icon name="chevron-down" size={13} />
@@ -2127,6 +2312,13 @@ export default function MedicaoMensal({
                   <select className="input" value={pdfFormat} onChange={e => setPdfFormat(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
                     {PDF_FORMATOS.map(f => <option key={f} value={f}>{f.toUpperCase()}</option>)}
                   </select>
+                </label>
+                {/* A anotação da medição sai nos dois formatos só se a pessoa quiser (e se houver texto). */}
+                <label title={anotacaoAtual ? undefined : 'Esta medição não tem anotação'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '8px 4px 0', cursor: anotacaoAtual ? 'pointer' : 'default', opacity: anotacaoAtual ? 1 : 0.55 }}>
+                  <input type="checkbox" checked={!!anotacaoAtual && exportarAnotacao} disabled={!anotacaoAtual}
+                    onChange={e => setExportarAnotacao(e.target.checked)} />
+                  Incluir anotações da medição
                 </label>
                 {/* Vale pros dois formatos (Excel e PDF) — mesmo padrão de "Colunas" da aba
                     Uso da Tarefa (Cronograma.jsx): Set de ocultas, persistido por obra. */}
@@ -2208,6 +2400,12 @@ export default function MedicaoMensal({
               {pavimentos.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
+          {podeOrdenarPavimentos && (
+            <button type="button" className="btn btn-ghost" title="Definir a ordem em que os pavimentos aparecem no filtro"
+              onClick={() => setOrdemPavAberto(true)}>
+              <Icon name="move" size={14} />Ordenar
+            </button>
+          )}
           {/* Estrutura de tópicos por nível — mesmo menu da Lista e do Gantt, mas mostra o
               nível aplicado (nivelEstrutura) em vez de sempre voltar a "Escolher…": sem
               isso não havia confirmação nenhuma de que a escolha tinha feito efeito. Some
@@ -2334,6 +2532,22 @@ export default function MedicaoMensal({
             <span className="badge warning">
               {qtdForaDoMes} {qtdForaDoMes === 1 ? 'item fora do mês' : 'itens fora do mês'} · somam ao realizado, não ao previsto
             </span>
+          </div>
+        )}
+
+        {/* Medição aberta com o previsto congelado diferente do cronograma de hoje. Continua fixo
+            até alguém clicar (o previsto não pode "perseguir" o executado sozinho). */}
+        {previstoDesatualizado && (
+          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span className="badge warning">
+              <Icon name="alert-triangle" size={12} />
+              {textoPrevistoDesatualizado(previstoDesatualizado)}
+            </span>
+            {!readOnly && (
+              <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={atualizarPrevisto}>
+                <Icon name="refresh-cw" size={13} />{salvando ? 'Atualizando…' : 'Atualizar previsto'}
+              </button>
+            )}
           </div>
         )}
 
@@ -2713,8 +2927,10 @@ export default function MedicaoMensal({
             <select className="input" value={pavimento} onChange={e => escolherPavimento(e.target.value)}>
               {pavimentos.map(p => <option key={p} value={p}>{p === 'Todos' ? 'Pavimento: Todos' : p}</option>)}
             </select>
+            {/* Sem o botão de ordenar pavimentos aqui: a ordem é definida no computador (arrastar
+                linhas não combina com tela de obra); o celular só usa a ordem já salva no filtro. */}
             <select className="input" value={mesRefKey} onChange={e => setMesRefKey(e.target.value)}>
-              {months.map(m => {
+              {mesesNoSeletor.map(m => {
                 const st = statusPorMes[m.key];
                 const sufixo = st === 'aprovada' ? ' · aprovada' : st === 'fechada' ? ' · fechada' : st === 'rascunho' ? ' · aberta' : '';
                 return <option key={m.key} value={m.key}>{mesLabel(m.key)}{sufixo}</option>;
@@ -2733,12 +2949,31 @@ export default function MedicaoMensal({
                 <option key={n} value={n}>Nível {n}</option>
               ))}
             </select>
+            {/* Anotações fica logo abaixo de Estrutura (pedido do usuário); o ícone fica vermelho quando já há texto. */}
+            <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={abrirAnotacao}
+              disabled={!registro || (anotacaoSoLeitura && !anotacaoAtual)}>
+              <Icon name="message-square" size={14} className={anotacaoAtual ? 'mm-nota-flag' : ''} />Anotações da medição
+            </button>
           </div>
 
           {qtdForaDoMes > 0 && (
             <span className="badge warning" style={{ alignSelf: 'flex-start' }}>
               {qtdForaDoMes} {qtdForaDoMes === 1 ? 'item fora do mês' : 'itens fora do mês'}
             </span>
+          )}
+
+          {previstoDesatualizado && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span className="badge warning">
+                <Icon name="alert-triangle" size={12} />
+                {textoPrevistoDesatualizado(previstoDesatualizado)}
+              </span>
+              {!readOnly && (
+                <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={atualizarPrevisto}>
+                  <Icon name="refresh-cw" size={13} />Atualizar
+                </button>
+              )}
+            </div>
           )}
 
           {defasagem.length > 0 && (
@@ -2926,6 +3161,58 @@ export default function MedicaoMensal({
           {registro?.updated_at ? ` · atualizado em ${new Date(registro.updated_at).toLocaleString('pt-BR')}` : ''}
         </div>
       </div>
+      )}
+
+      {anotacaoAberta && (
+        <Modal
+          title="Anotações da medição"
+          subtitle={`${obraNome} · ${mesLabel(mesRefKey)}`}
+          onClose={() => setAnotacaoAberta(false)}
+          overlay={false}
+          draggable
+          resizable
+          fillBody
+          footer={
+            <>
+              <div className="spacer" />
+              <button className="btn btn-ghost" onClick={() => setAnotacaoAberta(false)}>{anotacaoSoLeitura ? 'Fechar' : 'Cancelar'}</button>
+              {!anotacaoSoLeitura && (
+                <button className="btn btn-dark" disabled={salvandoAnotacao || anotacaoPassouLimite} onClick={salvarAnotacao}>
+                  {salvandoAnotacao ? 'Salvando…' : 'Salvar'}
+                </button>
+              )}
+            </>
+          }
+        >
+          {/* Editor com negrito e cor (EditorAnotacao). Em tela cheia o campo cresce até o rodapé (fillBody). */}
+          <EditorAnotacao
+            valor={anotacaoDraft}
+            onChange={setAnotacaoDraft}
+            somenteLeitura={anotacaoSoLeitura}
+            desabilitado={salvandoAnotacao}
+            autoFocus
+            placeholder="Ex.: pendências gerais, combinado com o cliente, motivo de uma diferença no previsto…"
+            rotulo="Anotações da medição"
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4, fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0 }}>
+            <span>
+              {anotacaoSoLeitura
+                ? (readOnly ? 'Você não tem permissão para editar esta medição.' : 'Medição fechada: para editar, reabra a medição.')
+                : 'Vale para a medição inteira deste mês. A observação de cada tarefa continua na linha dela.'}
+            </span>
+            <span style={{ flexShrink: 0, color: anotacaoPassouLimite ? 'var(--danger)' : undefined, fontWeight: anotacaoPassouLimite ? 600 : undefined }}>
+              {anotacaoCaracteres}/{LIMITE_ANOTACAO}
+            </span>
+          </div>
+        </Modal>
+      )}
+
+      {ordemPavAberto && (
+        <OrdemPavimentosModal
+          pavimentos={pavimentosParaOrdenar}
+          onSalvar={onSalvarOrdemPavimentos}
+          onClose={() => setOrdemPavAberto(false)}
+        />
       )}
 
       {mostrarConfirmFechar && (

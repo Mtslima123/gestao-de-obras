@@ -7,6 +7,9 @@ import { T, card, h2, sub, btn, th, td, pill, corUi } from './tokens';
 import { GRUPOS, mesesComApropriacao } from './efetivoStore';
 import { TODOS, evolucao, funcoesDaOpcao, kpisAnalise, linhasAnalise, opcoesClassificacao, serieProjecao } from './analisePure';
 
+// Apresentação em cartões da casca mobile do Sistema Completo (só carrega nela).
+const AnaliseMobile = React.lazy(() => import('../../mobile/full/maoDeObra/AnaliseMobile').then((m) => ({ default: m.AnaliseMobile })));
+
 const fmt = (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 const sg = (v) => (v > 0.05 ? '+' + fmt(v) : v < -0.05 ? '−' + fmt(-v) : '0');
 const mesAtualAbs = () => { const d = new Date(); return d.getFullYear() * 12 + d.getMonth(); };
@@ -24,7 +27,8 @@ const ROTULO_ORDEM = { desvio: 'maior desvio (qtd)', pct: 'maior desvio (%)' };
 
 // Aba Análise: só leitura. Efetivo do mês = última apropriação LANCADA (2ª se existir, senão
 // a 1ª), nunca média; rascunho não conta.
-export function AnaliseTab({ s, mesSel, setMesSel, meses, erro, obraNome }) {
+export function AnaliseTab({ s, mesSel, setMesSel, meses, erro, obraNome, layoutMobileCompleto = false }) {
+  const modoMobile = layoutMobileCompleto;
   const [verPor, setVerPor] = React.useState('funcao');
   const [ordem, setOrdem] = React.useState('grupo');
   const [grupoF, setGrupoF] = React.useState(null);
@@ -69,6 +73,16 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses, erro, obraNome }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {modoMobile && (
+        <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+          <AnaliseMobile
+            s={s} mesSel={mesSel} setMesSel={setMesSel} meses={meses} opcoes={opcoes} atual={atual} setSel={setSel}
+            verPor={verPor} setVerPor={setVerPor} ordem={ordem} setOrdem={setOrdem} grupoF={grupoF} setGrupoF={setGrupoF}
+            linhas={linhas} nA={nA} evo={evo} lancados={lancados} onExportarPdf={() => setModalPdf(true)}
+          />
+        </React.Suspense>
+      )}
+      {!modoMobile && (<>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
         <button type="button" style={btn} onClick={() => setModalPdf(true)}><Icon name="download" size={15} stroke={2.2} />Exportar PDF</button>
       </div>
@@ -153,6 +167,8 @@ export function AnaliseTab({ s, mesSel, setMesSel, meses, erro, obraNome }) {
           <span>Saldo = previsto − utilizado · acumulado em pessoa-mês desde {meses[0]?.label}</span>
         </div>
       </section>
+
+      </>)}
 
       {modalPdf && (
         <Modal title="Exportar PDF da Análise" size="compact" onClose={() => { if (!exportando) setModalPdf(false); }}

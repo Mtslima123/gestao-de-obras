@@ -40,6 +40,13 @@ import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './e
 import { vinculosParaAjustar } from './exclusaoTarefasPure';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
+// Casca mobile do Sistema Completo (só entra em ação com layoutMobileCompleto; ver CronogramaFull).
+import { LegadoMobile } from '../mobile/full/MobileFullChrome';
+import { CronogramaCabecalhoMobile } from '../mobile/full/cronograma/CronogramaCabecalhoMobile';
+const ListaMobile = React.lazy(() => import('../mobile/full/cronograma/ListaMobile').then(m => ({ default: m.ListaMobile })));
+const LinhaDoTempoMobile = React.lazy(() => import('../mobile/full/cronograma/LinhaDoTempoMobile').then(m => ({ default: m.LinhaDoTempoMobile })));
+const UsoTarefaMobile = React.lazy(() => import('../mobile/full/cronograma/UsoTarefaMobile').then(m => ({ default: m.UsoTarefaMobile })));
+const CurvaFisicaMobile = React.lazy(() => import('../mobile/full/cronograma/CurvaFisicaMobile').then(m => ({ default: m.CurvaFisicaMobile })));
 import { AnexosTab, HistoricoTab } from './TaskDetailTabs';
 import { taskDetailStore } from './taskDetailStore';
 import { usuariosService } from '../admin/usuarios.service';
@@ -2337,7 +2344,11 @@ async function carregarCronogramaDB(obraId) {
 // Movidos para ./cronogramaModais.
 
 // ─── CronogramaFull ──────────────────────────────────────────────────────────
-const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hideChrome = false }) => {
+// layoutMobileCompleto: casca mobile do Sistema Completo (celular). Independente de hideChrome (que é o modo foco
+// da Medição e liga o cache offline): só troca o cabeçalho e a apresentação da Lista; estado, `commit`, undo e
+// gravação são os mesmos. Falso (padrão) = o Cronograma do desktop, sem nenhuma diferença.
+// onAbrirMedicaoMobile(obraId): abre a Medição do modo foco (a aba Medição Mensal da casca mobile).
+const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hideChrome = false, layoutMobileCompleto = false, onAbrirMedicaoMobile }) => {
   const D    = AppData;
   const toast = useToast();
 
@@ -2363,9 +2374,12 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // `initialTab` (deep link, ex. vindo do Mobile Gate) continua tendo prioridade. Chave
   // por obra (não uma chave fixa): senão a aba salva na Medição da obra A vazava pro F5
   // dado na obra B, se as duas forem abertas na mesma aba do navegador.
-  const [view,         setView]         = React.useState(() =>
-    initialTab || (obraSel && sessionStorage.getItem(`cronograma_subtab_${obraSel}`)) || 'gantt'
-  );
+  const [view,         setView]         = React.useState(() => {
+    // Casca mobile: abre na Lista (a primeira aba já adaptada) e nunca na Medição, que ali abre pelo modo foco
+    // (o modo foco deixa 'medicao' guardado na sessão ao sair).
+    const inicial = initialTab || (obraSel && sessionStorage.getItem(`cronograma_subtab_${obraSel}`)) || (layoutMobileCompleto ? 'lista' : 'gantt');
+    return layoutMobileCompleto && inicial === 'medicao' ? 'lista' : inicial;
+  });
   React.useEffect(() => {
     if (!obraSel) return;
     try { sessionStorage.setItem(`cronograma_subtab_${obraSel}`, view); } catch { /* ignore */ }
@@ -2495,6 +2509,29 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   const excluirPavimentoObra = (nome) => {
     setPavimentosObra(prev => prev.filter(n => n !== nome));
     pavimentosService.excluir(obraSel, nome);
+  };
+  // Ordem dos pavimentos da Medição (botão "Ordenar"): grava a lista inteira de uma vez e só
+  // então atualiza a tela, para o filtro nunca mostrar uma ordem que o banco não guardou.
+  // Relê a lista do banco em vez de usar `nomes`: pavimentos do cadastro que já nenhuma
+  // tarefa usa não estão em `nomes` e continuam existindo (e nos chips da inserção).
+  // Devolve true quando gravou (o modal só fecha nesse caso).
+  const salvarOrdemPavimentos = async (nomes) => {
+    const r = await pavimentosService.reordenar(obraSel, nomes);
+    if (!r.ok) {
+      toast(
+        r.pendenteTI
+          ? 'Reposicionar pavimentos ainda não foi liberado no banco: aguardando o TI aplicar a atualização.'
+          : 'Erro ao salvar a ordem dos pavimentos. ' + friendlyError(r.error),
+        { tone: r.pendenteTI ? 'warning' : 'danger' }
+      );
+      return false;
+    }
+    const { data, error } = await pavimentosService.listar(obraSel);
+    const atual = error ? nomes : data;
+    setPavimentosObra(atual);
+    if (hideChrome) offlineCache.gravar('pavimentos', obraSel, atual);
+    toast('Ordem dos pavimentos salva', { tone: 'success', icon: 'check' });
+    return true;
   };
   // Preferências de visualização estilo MS Project (Mostrar/Ocultar), por obra.
   // summaryTasks (mostrar tarefa-resumo em negrito/azul) NÃO é persistido: ficava salvo
@@ -3569,7 +3606,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
           </div>
         </Modal>
       )}
-      {!hideChrome && (
+      {!hideChrome && !layoutMobileCompleto && (
       <div className="page-header">
         <div>
           <h1 className="page-title">Cronogramas</h1>
@@ -3594,6 +3631,13 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
           </div>
         </div>
       </div>
+      )}
+      {layoutMobileCompleto && !hideChrome && (
+        <CronogramaCabecalhoMobile
+          obras={obras} obraSel={obraSel} onObraChange={setObraSel}
+          abas={abasCronograma} view={view} onView={setView}
+          onAbrirMedicao={onAbrirMedicaoMobile && obraSel ? () => onAbrirMedicaoMobile(obraSel) : undefined}
+        />
       )}
 
       {isLoading
@@ -3628,8 +3672,48 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
               )}
             </div>
           )
+          : layoutMobileCompleto && view === 'lista' ? (
+            <React.Suspense fallback={<div className="text-muted" style={{ padding: 32, textAlign: 'center' }}>Carregando…</div>}>
+              <ListaMobile
+                key={obraSel}
+                etapas={etapas} onCommit={commit} readOnly={readOnly}
+                wbsMap={wbsMap} groupVals={groupVals} succMap={succByIdAll} avancoTotal={avancoTotal}
+                undo={undo} redo={redo}
+                canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1}
+              />
+            </React.Suspense>
+          )
+          : layoutMobileCompleto && view === 'gantt' ? (
+            <React.Suspense fallback={<div className="text-muted" style={{ padding: 32, textAlign: 'center' }}>Carregando…</div>}>
+              <LinhaDoTempoMobile
+                key={obraSel}
+                etapas={etapas} onCommit={commit} readOnly={readOnly}
+                wbsMap={wbsMap} groupVals={groupVals} succMap={succByIdAll} feriadosCfg={feriadosCfg}
+                baselines={baselines} reprogramacoes={reprogramacoes}
+                blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId} baselineEtapas={baselineEtapas}
+                undo={undo} redo={redo}
+                canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1}
+              />
+            </React.Suspense>
+          )
+          : layoutMobileCompleto && view === 'uso' ? (
+            <React.Suspense fallback={<div className="text-muted" style={{ padding: 32, textAlign: 'center' }}>Carregando…</div>}>
+              <UsoTarefaMobile key={obraSel} etapas={etapas} months={months} monthlyDist={monthlyDist} wbsMap={wbsMap} />
+            </React.Suspense>
+          )
+          : layoutMobileCompleto && view === 'curva' ? (
+            <React.Suspense fallback={<div className="text-muted" style={{ padding: 32, textAlign: 'center' }}>Carregando…</div>}>
+              <CurvaFisicaMobile
+                key={obraSel}
+                etapas={etapas} months={months} monthlyDist={monthlyDist} valorVinculadoMap={valorVinculadoMapFull}
+                baselines={baselines} blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
+                reprogramacoes={reprogramacoes} repVisivelId={repVisivelId} onSelectReprogramacao={setRepVisivelId}
+                selMonKey={selMonKey} setSelMonKey={setSelMonKey}
+              />
+            </React.Suspense>
+          )
           : (
-            <>
+            <LegadoMobile ativo={layoutMobileCompleto}>
               {/* KPIs — faixa de 5 (redesenho handoff). Dados reais onde há; mock sinalizado. */}
               {(() => {
                 const leaves = etapas.filter(e => !e.isGroup);
@@ -4010,12 +4094,13 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   obraNome={obra?.nome || 'Projeto'}
                   hideChrome={hideChrome}
                   pavimentosOrdem={pavimentosObra}
+                  onSalvarOrdemPavimentos={salvarOrdemPavimentos}
                   dadosDoAparelho={dadosDoAparelho}
                   onTentarConexao={() => recarregarCronograma()}
                 />
               )}
 
-            </>
+            </LegadoMobile>
           )
       }
 

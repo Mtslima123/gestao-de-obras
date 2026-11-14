@@ -10,7 +10,7 @@ import { offsetToDate, offsetToISO, isoToBR, dateToOffset, workEnd, taskEnd, tas
 import { fmtBRL, computeAllWBS, effStatus, getVisibleEtapas, propagateDrag,
          updateParentBounds, formatDepList, verificarRestricoes,
          indentTasks, outdentTasks, createGroup, deleteTask, autoScheduleFromDeps,
-         nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap, filtrarComAncestrais, comInicioFixado } from './scheduleEngine';
+         nextEtapaId, nextDisplayId, emptyCustomCols, computeRowNumberMap, filtrarComAncestrais, comInicioFixado, avancoExibido } from './scheduleEngine';
 import { PavimentosModal, ExcluirTarefasModal } from './cronogramaModais';
 import { etapasSemExcluidas, idsExcluidos, vinculosAfetados } from './exclusaoTarefasPure';
 import { TaskFormPanel } from './TaskFormPanel';
@@ -611,7 +611,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
           doc.text(nameStr, ML + 4 + indent, y + ROW_H / 2 + 1.8);
           // % de avanço numa coluna à esquerda (como no site), à direita da área de rótulos
           doc.setFontSize(6); doc.setTextColor(e.isGroup ? 15 : 90);
-          doc.text(`${Math.round(av)}%`, tlX - 2, y + ROW_H / 2 + 1.8, { align: 'right' });
+          doc.text(`${av}%`, tlX - 2, y + ROW_H / 2 + 1.8, { align: 'right' });
           doc.setFont('helvetica', 'normal');
 
           // Barra ou marco (offset relativo ao início visual da timeline)
@@ -1464,9 +1464,10 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
             const pFim    = Math.max(...leaves.map(x => workEnd(x.inicio, x.dur)));
             const wt = (x) => custoOrcadoMap[x.id] || 0;
             const tp = leaves.reduce((s, x) => s + wt(x), 0);
-            const pAvanco = !tp
-              ? Math.round(leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length)
-              : Math.round(leaves.reduce((s, x) => s + (x.avanco || 0) * wt(x), 0) / tp);
+            // Mesma regra dos grupos (uma casa decimal), para a linha do projeto não divergir deles.
+            const pAvanco = avancoExibido(!tp
+              ? leaves.reduce((s, x) => s + (x.avanco || 0), 0) / leaves.length
+              : leaves.reduce((s, x) => s + (x.avanco || 0) * wt(x), 0) / tp);
             const left  = posX(pInicio) + 3;
             const width = Math.max((pFim - pInicio) * zoomDayW - 6, 10);
             return (

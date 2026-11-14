@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chaveLeitura, leituraValida, quandoFoiGuardado, reduzirReprogramacoes, VERSAO_CACHE, VALIDADE_CACHE_MS, VERSAO_FILA, itensParaEnviar, proximoAtraso, arquivoJaExiste, ehFalhaPassageira, itemDaFilaVencido } from '../utils/offlinePure';
+import { chaveLeitura, leituraValida, quandoFoiGuardado, reduzirReprogramacoes, VERSAO_CACHE, VALIDADE_CACHE_MS, VERSAO_FILA, itensParaEnviar, proximoAtraso, arquivoJaExiste, ehFalhaPassageira, itemDaFilaVencido, motivoDeFalhaAoGuardar, mensagemDeFalhaAoGuardar } from '../utils/offlinePure';
 import { mesesComReprogramacao } from '../modules/cronograma/scheduleEngine';
 
 const AGORA = new Date(2026, 9, 2, 15, 0).getTime(); // 02/10/2026 15:00 (hora local)
@@ -167,5 +167,45 @@ describe('fila de envio: itemDaFilaVencido', () => {
   });
   it('sem data válida conta como vencido (não fica retido pra sempre)', () => {
     expect(itemDaFilaVencido({}, AGORA_FILA)).toBe(true);
+  });
+});
+
+describe('foto que não pôde ser guardada no aparelho: o aviso diz o motivo', () => {
+  const erro = (name, message = '') => Object.assign(new Error(message), { name });
+
+  it('espaço do navegador acabou (QuotaExceededError)', () => {
+    const m = motivoDeFalhaAoGuardar(erro('QuotaExceededError', 'The quota has been exceeded.'));
+    expect(m.dica).toMatch(/espaço que o navegador reserva ao app acabou/);
+    expect(m.tecnico).toBe('QuotaExceededError: The quota has been exceeded.');
+  });
+
+  it('armazenamento bloqueado (aba anônima ou dados do site)', () => {
+    expect(motivoDeFalhaAoGuardar(erro('SecurityError')).dica).toMatch(/bloqueando o armazenamento/);
+    expect(motivoDeFalhaAoGuardar(new Error('IndexedDB indisponível')).dica).toMatch(/bloqueando o armazenamento/);
+  });
+
+  it('sessão não carregada', () => {
+    expect(motivoDeFalhaAoGuardar(new Error('Sem usuário para guardar o item neste aparelho.')).dica).toMatch(/sessão não está carregada/);
+  });
+
+  it('erro interno do navegador', () => {
+    expect(motivoDeFalhaAoGuardar(erro('UnknownError', 'Internal error opening backing store')).dica).toMatch(/Feche o Chrome/);
+    expect(motivoDeFalhaAoGuardar(erro('InvalidStateError', 'The database connection is closing.')).dica).toMatch(/Feche o Chrome/);
+  });
+
+  it('erro desconhecido ou sem nada: sem dica, mas com o que houver de técnico', () => {
+    expect(motivoDeFalhaAoGuardar(erro('Error', 'algo estranho'))).toEqual({ dica: '', tecnico: 'Error: algo estranho' });
+    expect(motivoDeFalhaAoGuardar(undefined)).toEqual({ dica: '', tecnico: '' });
+  });
+
+  it('o texto técnico é cortado em 90 caracteres', () => {
+    expect(motivoDeFalhaAoGuardar(erro('Error', 'x'.repeat(300))).tecnico).toHaveLength(90);
+  });
+
+  it('a mensagem final junta frase, dica, motivo técnico e o pedido de tentar de novo', () => {
+    expect(mensagemDeFalhaAoGuardar(erro('QuotaExceededError', 'cheio'))).toBe(
+      'Não foi possível guardar as fotos neste aparelho. O espaço que o navegador reserva ao app acabou. (QuotaExceededError: cheio) Tente de novo.'
+    );
+    expect(mensagemDeFalhaAoGuardar(undefined)).toBe('Não foi possível guardar as fotos neste aparelho. Tente de novo.');
   });
 });

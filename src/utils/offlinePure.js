@@ -73,6 +73,27 @@ export function itemDaFilaVencido(item, agora = Date.now()) {
 export const arquivoJaExiste = (error) =>
   !!error && (String(error.statusCode) === '409' || error.status === 409 || /already exists|duplicate/i.test(error.message || ''));
 
+// Por que a foto não pôde ser guardada no aparelho (a gravação na fila falhou, ver
+// fotosService.enfileirar). O aviso era sempre o mesmo texto e escondia a causa. `dica` diz em
+// português o que o navegador recusou; `tecnico` é o nome do erro e o começo da mensagem, para
+// quem precisar mandar uma captura de tela (QuotaExceededError, SecurityError...).
+export function motivoDeFalhaAoGuardar(err) {
+  const nome = String(err?.name || '').trim();
+  const msg = String(err?.message || '').trim();
+  const texto = `${nome} ${msg}`;
+  let dica = '';
+  if (/QuotaExceeded|quota/i.test(texto)) dica = 'O espaço que o navegador reserva ao app acabou.';
+  else if (/SecurityError|IndexedDB indispon/i.test(texto)) dica = 'O navegador está bloqueando o armazenamento do app (aba anônima ou dados do site bloqueados).';
+  else if (/sem usu[aá]rio/i.test(texto)) dica = 'A sessão não está carregada. Entre de novo.';
+  else if (/InvalidState|UnknownError|DataError|AbortError|NotFoundError|connection is closing/i.test(texto)) dica = 'O navegador falhou ao gravar. Feche o Chrome e abra de novo.';
+  return { dica, tecnico: [nome, msg].filter(Boolean).join(': ').slice(0, 90) };
+}
+
+export function mensagemDeFalhaAoGuardar(err) {
+  const { dica, tecnico } = motivoDeFalhaAoGuardar(err);
+  return ['Não foi possível guardar as fotos neste aparelho.', dica, tecnico && `(${tecnico})`, 'Tente de novo.'].filter(Boolean).join(' ');
+}
+
 // Falha que vale tentar de novo mais tarde (sem rede, servidor fora, tempo esgotado) ×
 // erro definitivo (sem permissão, dado recusado), que não adianta repetir: vira "revisar".
 export function ehFalhaPassageira(error) {

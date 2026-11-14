@@ -14,6 +14,9 @@ import { invalidateOcCache } from '../cronograma/cronogramaCache';
 import { isoToBR } from '../cronograma/cronogramaDateUtils';
 import { formatBRL } from '../../utils/formatters';
 import { moduloSomenteLeitura, isAdmin, obrasPermitidas } from '../../utils/permissions';
+// Casca mobile do Sistema Completo (só entra em ação com layoutMobileCompleto; ver OrcamentoDetalhe).
+import { codigoDoNovoItem } from '../mobile/full/orcamentos/orcamentoMobilePure';
+const OrcamentoDetalheMobile = React.lazy(() => import('../mobile/full/orcamentos/OrcamentoDetalheMobile').then(m => ({ default: m.OrcamentoDetalheMobile })));
 
 // Orçamentos — lista + detalhe com composição
 const { brl: brlOR } = AppData;
@@ -246,7 +249,7 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
   };
 
   const footer = (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+    <div className="import-rodape" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         {[1, 2].map(s => (
           <div key={s} style={{ width: 8, height: 8, borderRadius: 4, background: step >= s ? 'var(--brand)' : 'var(--border-strong)' }} />
@@ -372,7 +375,7 @@ const ImportarOrcamentoModal = ({ orcamento, user, existingItems, onImport, onCl
 
           {/* Grade de erros */}
           {errosAtivos.length > 0 && (
-            <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div className="import-erros" style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
               <div style={{ padding: '8px 14px', fontWeight: 600, fontSize: 12, background: 'var(--surface-muted)', borderBottom: '1px solid var(--border)' }}>
                 Problemas encontrados
               </div>
@@ -501,7 +504,9 @@ const ORCA_COLS = [
   { id: 'acoes',  label: '',            defWidth: 104 },
 ];
 
-const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) => {
+// layoutMobileCompleto: casca mobile do Sistema Completo (celular). Troca só o que se vê (cabeçalho, resumo, filtros e a
+// composição em cartões); estado, manipuladores (editar, inserir, excluir, salvar...) e os modais são os mesmos.
+const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile, layoutMobileCompleto = false }) => {
   const toast         = useToast();
   const readOnly       = moduloSomenteLeitura(userProfile, 'orcamentos');
   const [items, setItems]           = React.useState([]);
@@ -1267,9 +1272,37 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
   // ── KPIs ───────────────────────────────────────────────────────────────────
   const grandTotal  = React.useMemo(() => withTotals.filter(it => getNivel(it.codigo) === 0).reduce((s, it) => s + it.valor_total, 0), [withTotals]);
 
+  // "Novo item" do celular: mesma regra do botão do desktop (o código vem de codigoDoNovoItem, testado à parte).
+  const modoMobile = layoutMobileCompleto;
+  const novoItemMobile = () => {
+    const novo = makeNewRow(codigoDoNovoItem(items), items.length);
+    setItems(prev => [...prev, novo]);
+    setDirty(true);
+  };
+
   // Seções de nível 1 para Curva ABC
   return (
     <>
+      {modoMobile && (
+        <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+          <OrcamentoDetalheMobile
+            orcamento={orcamento} readOnly={readOnly} ehAdmin={isAdmin(userProfile)} dataAtualizada={dataAtualizada} onBack={onBack}
+            items={items} withTotals={withTotals} visibleItems={visibleItems} parentSet={parentSet} vinculadoSet={vinculadoSet}
+            vinculoTarefaMap={vinculoTarefaMap} protegidoSet={protegidoSet} collapsed={collapsed}
+            busca={buscaComposicao} onBusca={setBuscaComposicao} filtroVinculo={filtroVinculoComposicao} onFiltroVinculo={setFiltroVinculoComposicao}
+            onNivel={collapseToLevel}
+            onAlternarGrupo={(codigo) => setCollapsed(prev => { const n = new Set(prev); if (n.has(codigo)) n.delete(codigo); else n.add(codigo); return n; })}
+            dirty={dirty} saving={saving} onSalvar={handleSave} onDescartar={discardChanges}
+            onEditar={editCell} onInserirAbaixo={addBelow} onInserirAcima={addAbove} onInserirSubitem={addChild}
+            onNovoItem={novoItemMobile} onExcluirItem={requestRemove}
+            onImportar={() => setShowImport(true)} onLimparTudo={() => setShowClearAll(true)} limpando={clearing}
+            onExportarExcel={handleExportExcel} onExportarPdf={handleExportPDF} exportando={exportingPDF || exportingExcel}
+            onExcluirOrcamento={() => setShowDeleteOrc(true)}
+          />
+        </React.Suspense>
+      )}
+      {!modoMobile && (
+      <>
       {/* Cabeçalho */}
       <div className="page-header" style={{ marginBottom: 12 }}>
         <div>
@@ -1632,6 +1665,9 @@ const OrcamentoDetalhe = ({ orcamento, onBack, onDelete, user, userProfile }) =>
         </div>
       </div>
 
+      </>
+      )}
+
       {showImport && (
         <ImportarOrcamentoModal
           orcamento={orcamento}
@@ -1734,7 +1770,7 @@ const PER_PAGE_ORC = 12;  // itens por página na listagem de orçamentos (pagin
 const _itensCache = {};
 
 // OrcamentosScreen gerencia o estado da lista e os handlers de ação
-const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, userProfile }) => {
+const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, userProfile, layoutMobileCompleto = false }) => {
   const toast = useToast();
   const [selected, setSelected]     = React.useState(null);
   const [orcamentos, setOrcamentos] = React.useState([]);
@@ -1864,6 +1900,7 @@ const OrcamentosScreen = ({ onNovoOrcamento, obras = [], refreshKey = 0, user, u
         onDelete={handleDelete}
         user={user}
         userProfile={userProfile}
+        layoutMobileCompleto={layoutMobileCompleto}
       />
     );
   }

@@ -12,6 +12,14 @@ export function chavePavimento(nome) {
 
 const naturalCmp = (a, b) => String(a).localeCompare(String(b), 'pt-BR', { numeric: true });
 
+// Erros de "coluna/função ainda não existe no banco" (migration da ordem dos pavimentos
+// que o TI aplica à parte). Os serviços de pavimentos caem na ordem de cadastro (id) no
+// primeiro e avisam que depende do TI no segundo.
+export const colunaAusente = (error) =>
+  !!error && (error.code === 'PGRST204' || error.code === '42703' || /column .* (of .* )?(does not exist|not found)/i.test(error.message || ''));
+export const funcaoAusente = (error) =>
+  !!error && (error.code === 'PGRST202' || /function .* does not exist/i.test(error.message || ''));
+
 // Botões subir/descer do cadastro de pavimentos: lista nova com o item da posição
 // `indice` trocado com o vizinho (delta -1 sobe, +1 desce). Fora dos limites devolve a
 // MESMA lista (quem chama compara pra saber se mudou).
@@ -21,6 +29,76 @@ export function moverNaLista(lista, indice, delta) {
   const nova = [...lista];
   [nova[indice], nova[alvo]] = [nova[alvo], nova[indice]];
   return nova;
+}
+
+// Arrastar para mover: lista nova com o item da posição `de` levado para a posição `para`, e os
+// demais se acomodando (arrastar para baixo deixa o item depois do alvo, para cima, antes dele). Igual
+// de, ou posição fora da lista, devolve a MESMA lista (quem chama compara pra saber se mudou).
+export function moverParaIndice(lista, de, para) {
+  if (de === para || de < 0 || para < 0 || de >= lista.length || para >= lista.length) return lista;
+  const nova = [...lista];
+  const [item] = nova.splice(de, 1);
+  nova.splice(para, 0, item);
+  return nova;
+}
+
+// ─── Mover vários de uma vez (janela "Ordem dos pavimentos") ─────────────────────────────
+// `selecionados` é um Set (ou lista) de nomes. Todas devolvem a MESMA lista quando nada muda
+// (quem chama compara pra saber se há algo a gravar) e nunca alteram a lista recebida.
+const comoSet = (s) => (s instanceof Set ? s : new Set(s));
+const mesmaOrdem = (a, b) => a.length === b.length && a.every((p, i) => p === b[i]);
+
+// Sobe (delta < 0) ou desce (delta > 0) os selecionados uma posição: cada um troca com o vizinho
+// não selecionado. Quem já está na ponta não passa dela, e o bloco encostado nela também fica;
+// os demais continuam andando. A ordem relativa entre os selecionados nunca muda.
+export function moverSelecionados(lista, selecionados, delta) {
+  const sel = comoSet(selecionados);
+  const nova = [...lista];
+  let mudou = false;
+  const trocar = (i, j) => { [nova[i], nova[j]] = [nova[j], nova[i]]; mudou = true; };
+  if (delta < 0) {
+    for (let i = 1; i < nova.length; i += 1) {
+      if (sel.has(nova[i]) && !sel.has(nova[i - 1])) trocar(i, i - 1);
+    }
+  } else {
+    for (let i = nova.length - 2; i >= 0; i -= 1) {
+      if (sel.has(nova[i]) && !sel.has(nova[i + 1])) trocar(i, i + 1);
+    }
+  }
+  return mudou ? nova : lista;
+}
+
+// Arrastar: os selecionados saem de onde estão e caem juntos, como um bloco e na ordem em que
+// já estavam, antes do alvo (`depois` falso) ou depois dele (`depois` verdadeiro: arrastar para
+// baixo). Soltar sobre um dos próprios selecionados, ou num nome que não está na lista, não faz nada.
+export function moverSelecionadosPara(lista, selecionados, nomeAlvo, depois) {
+  const sel = comoSet(selecionados);
+  if (sel.has(nomeAlvo) || !lista.includes(nomeAlvo)) return lista;
+  const grupo = lista.filter(p => sel.has(p));
+  if (grupo.length === 0) return lista;
+  const resto = lista.filter(p => !sel.has(p));
+  const i = resto.indexOf(nomeAlvo) + (depois ? 1 : 0);
+  const nova = [...resto.slice(0, i), ...grupo, ...resto.slice(i)];
+  return mesmaOrdem(nova, lista) ? lista : nova;
+}
+
+// "Ao topo" / "Ao fim": leva os selecionados para uma ponta, juntos e na ordem em que estavam.
+export function moverSelecionadosExtremo(lista, selecionados, onde) {
+  const sel = comoSet(selecionados);
+  const grupo = lista.filter(p => sel.has(p));
+  const resto = lista.filter(p => !sel.has(p));
+  const nova = onde === 'topo' ? [...grupo, ...resto] : [...resto, ...grupo];
+  return mesmaOrdem(nova, lista) ? lista : nova;
+}
+
+// Shift + clique: os nomes entre duas linhas, inclusive as duas. Sem a âncora (nunca clicou antes,
+// ou ela saiu da lista), vale só a linha clicada; sem a linha clicada, nada.
+export function intervaloNaLista(lista, ancora, nome) {
+  const fim = lista.indexOf(nome);
+  if (fim === -1) return [];
+  const inicio = lista.indexOf(ancora);
+  if (inicio === -1) return [nome];
+  return lista.slice(Math.min(inicio, fim), Math.max(inicio, fim) + 1);
 }
 
 // Nome do pavimento duplicado: "X (cópia)", "X (cópia 2)"... sem repetir um nome que já
@@ -65,6 +143,14 @@ export function ordenarPavimentos(usados, ordemCadastro = []) {
   });
   const resto = [...novos.values()].sort(naturalCmp);
   return [...cadastrados, ...resto, ...(usadas.has('—') ? ['—'] : [])];
+}
+
+// Todos os pavimentos que aparecem nas tarefas do cronograma (a coluna Pavimento da Lista), não só
+// os de um mês: é a lista da janela "Ordem dos pavimentos" da Medição, que organiza a ordem uma
+// vez para todos os meses. Sem repetir (mesma chave de comparação de chavePavimento), na ordem
+// atual (cadastro primeiro, depois os novos em ordem natural) e sem o "sem pavimento".
+export function pavimentosDoCronograma(etapas, ordemCadastro = []) {
+  return ordenarPavimentos((etapas || []).map(e => e.pavimento), ordemCadastro).filter(p => p !== '—');
 }
 
 // Posição de um pavimento na ordem de cadastro: 0, 1, 2... para os cadastrados; os que não

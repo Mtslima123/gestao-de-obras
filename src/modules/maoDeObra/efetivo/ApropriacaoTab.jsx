@@ -14,7 +14,10 @@ import { logger } from '../../../services/logger';
 import { useCardCongelado } from '../../../utils/useCardCongelado';
 import { useIsMobile } from '../../../utils/useIsMobile';
 
-const NUM = ['trabAdm', 'inssSeguro', 'ferias', 'emprestManut', 'recebidoOutraObra'];
+// Apresentação em cartões da casca mobile do Sistema Completo (só carrega nela).
+const ApropriacaoMobile = React.lazy(() => import('../../mobile/full/maoDeObra/ApropriacaoMobile').then((m) => ({ default: m.ApropriacaoMobile })));
+
+const NUM =['trabAdm', 'inssSeguro', 'ferias', 'emprestManut', 'recebidoOutraObra'];
 // O previsto pode ser quebrado (2,5): soma e diferença são arredondadas a 2 casas para não
 // aparecer 0,30000000000000004, e o decimal sai com vírgula.
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -26,7 +29,8 @@ const chaveQ = (ano, mes, q) => `${ano}-${mes}-${q}`;
 // espelhando a planilha de efetivo. As digitações ficam num rascunho local e são gravadas no
 // banco ao sair de cada campo (uma de cada vez, em fila). "Lançar" tranca a quinzena; só
 // "Reabrir" destranca. A trava de verdade é do banco (409).
-export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somenteLeitura, mesFechado, obraNome }) {
+export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somenteLeitura, mesFechado, obraNome, layoutMobileCompleto = false }) {
+  const modoMobile = layoutMobileCompleto;
   const [q, setQ] = React.useState(1);
   // Trocou o período: volta para a 1ª apropriação (ajuste durante a renderização, sem piscar a 2ª do mês novo).
   const [absVisto, setAbsVisto] = React.useState(mesSel.abs);
@@ -315,6 +319,20 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {modoMobile && (
+        <React.Suspense fallback={<div className="content-loading"><span className="spinner" /></div>}>
+          <ApropriacaoMobile
+            s={s} mesSel={mesSel} q={q} setQ={setQ} ap={ap} locked={locked} editavel={editavel} aguardaPrimeira={aguardaPrimeira}
+            somenteLeitura={somenteLeitura} mesFechado={mesFechado} ultimo={ultimo} estadoQ={estadoQ}
+            salvando={salvando} rascunhoSalvo={rascunhoSalvo} ocupado={ocupado} exportando={exportando}
+            busca={busca} setBusca={setBusca} agrupar={agrupar} setAgrupar={setAgrupar} recolhidos={recolhidos} setRecolhidos={setRecolhidos}
+            grupos={grupos} TOT={TOT} st={st} d={d}
+            setItem={setItem} salvarRascunho={salvarRascunho} lancarOuReabrir={lancarOuReabrir} pedirCopia={pedirCopia}
+            pedirLimpar={() => setConfirmaLimpar(true)} baixarModelo={baixarModelo} escolherArquivo={escolherArquivo} exportar={exportar}
+          />
+        </React.Suspense>
+      )}
+      {!modoMobile && (<>
       {/* Situação das duas quinzenas do mês. Fica ACIMA do cartão que trava: se viesse depois dele,
           ficaria escondido atrás do cartão fixo. */}
       <section style={{ ...card, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -487,6 +505,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
         </div>
       </section>
       </div>
+      </>)}
 
       {previa && (
         <ImportarPlanilhaModal

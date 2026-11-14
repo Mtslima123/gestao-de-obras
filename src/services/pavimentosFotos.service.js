@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { logger } from './logger';
+import { colunaAusente, funcaoAusente } from '../utils/pavimentos';
 
 // Pavimentos cadastrados para as Fotos da obra (tabela pavimentos_fotos_obra). Lista
 // própria da aba Fotos, independente do cadastro do Cronograma (pavimentos_obra).
@@ -9,10 +10,6 @@ import { logger } from './logger';
 // Ordem: coluna `ordem` (migration 20261002000001, aplicada pelo TI à parte), gravada pelos
 // botões subir/descer/duplicar do modal Pavimentos. Enquanto ela não existir no banco, a
 // lista segue a ordem de cadastro (id) e só o reordenar avisa que depende do TI.
-const colunaAusente = (error) =>
-  !!error && (error.code === 'PGRST204' || error.code === '42703' || /column .* (of .* )?(does not exist|not found)/i.test(error.message || ''));
-const funcaoAusente = (error) =>
-  !!error && (error.code === 'PGRST202' || /function .* does not exist/i.test(error.message || ''));
 
 // Pela ordem manual (sem ordem por último) e, no empate, pela ordem de cadastro.
 const comOrdem = (q) => q.order('ordem', { ascending: true, nullsFirst: false }).order('id');

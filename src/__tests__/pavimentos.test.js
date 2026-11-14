@@ -1,6 +1,6 @@
 // Testes das regras de pavimento compartilhadas (Medição e Fotos). Executar: npm test
 import { describe, it, expect } from 'vitest';
-import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos } from '../utils/pavimentos';
+import { chavePavimento, ordenarPavimentos, posicaoPavimento, ordenarFotosPorPavimento, moverNaLista, nomeDaCopia, inserirDepois, nomeArquivoFoto, nomesUnicos, colunaAusente, funcaoAusente, pavimentosDoCronograma, moverParaIndice, moverSelecionados, moverSelecionadosPara, moverSelecionadosExtremo, intervaloNaLista } from '../utils/pavimentos';
 
 const foto = (id, data, pavimento, created_at = '2026-09-30T10:00:00Z') => ({ id, data, pavimento, created_at });
 
@@ -87,6 +87,206 @@ describe('chavePavimento e ordenarPavimentos (movidos para o util compartilhado)
   it('continuam funcionando igual', () => {
     expect(chavePavimento(' puc')).toBe(chavePavimento('PUC'));
     expect(ordenarPavimentos([' 3° tipo', '3° tipo', 'Mezanino'], ['3° tipo'])).toEqual(['3° tipo', 'Mezanino']);
+  });
+});
+
+describe('ordem dos pavimentos da Medição: o que não está na lista vai para o final', () => {
+  it('cadastro reordenado à mão manda; pavimento novo vem depois em ordem natural, e "—" por último', () => {
+    // Ordem de baixo para cima do prédio, diferente da natural ("Cobertura" antes do "1º").
+    const cadastro = ['Subsolo 2', 'Subsolo 1', 'PUC', '10º Tipo II', '2º Tipo II', 'Cobertura'];
+    const usados = ['—', 'Mezanino 10', '2º Tipo II', 'Cobertura', 'Mezanino 2', '10º Tipo II', 'PUC', 'Subsolo 1', 'Subsolo 2'];
+    expect(ordenarPavimentos(usados, cadastro)).toEqual([
+      'Subsolo 2', 'Subsolo 1', 'PUC', '10º Tipo II', '2º Tipo II', 'Cobertura', 'Mezanino 2', 'Mezanino 10', '—',
+    ]);
+  });
+});
+
+describe('moverParaIndice (arrastar para mover)', () => {
+  const lista = ['A', 'B', 'C', 'D', 'E'];
+
+  it('arrastar para baixo deixa o item na posição do alvo, depois dele', () => {
+    expect(moverParaIndice(lista, 0, 2)).toEqual(['B', 'C', 'A', 'D', 'E']);
+    expect(moverParaIndice(lista, 1, 4)).toEqual(['A', 'C', 'D', 'E', 'B']);
+  });
+
+  it('arrastar para cima deixa o item na posição do alvo, antes dele', () => {
+    expect(moverParaIndice(lista, 3, 1)).toEqual(['A', 'D', 'B', 'C', 'E']);
+    expect(moverParaIndice(lista, 4, 0)).toEqual(['E', 'A', 'B', 'C', 'D']);
+  });
+
+  it('vizinhos trocam, como no Subir e Descer', () => {
+    expect(moverParaIndice(lista, 1, 2)).toEqual(moverNaLista(lista, 1, 1));
+    expect(moverParaIndice(lista, 2, 1)).toEqual(moverNaLista(lista, 2, -1));
+  });
+
+  it('não mexe na lista original', () => {
+    const copia = [...lista];
+    moverParaIndice(lista, 0, 4);
+    expect(lista).toEqual(copia);
+  });
+
+  it('mesma posição ou posição fora da lista devolve a mesma lista (nada a gravar)', () => {
+    expect(moverParaIndice(lista, 2, 2)).toBe(lista);
+    expect(moverParaIndice(lista, -1, 2)).toBe(lista);
+    expect(moverParaIndice(lista, 2, 5)).toBe(lista);
+    expect(moverParaIndice([], 0, 0)).toEqual([]);
+  });
+});
+
+describe('mover vários pavimentos de uma vez', () => {
+  const lista = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+  describe('moverSelecionados (setas)', () => {
+    it('sobe um bloco contíguo uma posição', () => {
+      expect(moverSelecionados(lista, new Set(['C', 'D']), -1)).toEqual(['A', 'C', 'D', 'B', 'E', 'F']);
+    });
+
+    it('desce um bloco contíguo uma posição', () => {
+      expect(moverSelecionados(lista, new Set(['C', 'D']), 1)).toEqual(['A', 'B', 'E', 'C', 'D', 'F']);
+    });
+
+    it('selecionados separados andam juntos e mantêm a ordem entre si', () => {
+      expect(moverSelecionados(lista, new Set(['B', 'E']), -1)).toEqual(['B', 'A', 'C', 'E', 'D', 'F']);
+      expect(moverSelecionados(lista, new Set(['B', 'E']), 1)).toEqual(['A', 'C', 'B', 'D', 'F', 'E']);
+    });
+
+    it('quem já está na ponta fica, o bloco encostado nela também, e os outros andam', () => {
+      expect(moverSelecionados(lista, new Set(['A', 'B', 'E']), -1)).toEqual(['A', 'B', 'C', 'E', 'D', 'F']);
+      expect(moverSelecionados(lista, new Set(['B', 'E', 'F']), 1)).toEqual(['A', 'C', 'B', 'D', 'E', 'F']);
+    });
+
+    it('com um só selecionado faz o mesmo que Subir e Descer de uma linha', () => {
+      expect(moverSelecionados(lista, new Set(['C']), -1)).toEqual(moverNaLista(lista, 2, -1));
+      expect(moverSelecionados(lista, new Set(['C']), 1)).toEqual(moverNaLista(lista, 2, 1));
+    });
+
+    it('nada a mover devolve a mesma lista: todos na ponta, todos selecionados, vazio ou nome fora da lista', () => {
+      expect(moverSelecionados(lista, new Set(['A', 'B']), -1)).toBe(lista);
+      expect(moverSelecionados(lista, new Set(['E', 'F']), 1)).toBe(lista);
+      expect(moverSelecionados(lista, new Set(lista), -1)).toBe(lista);
+      expect(moverSelecionados(lista, new Set(), 1)).toBe(lista);
+      expect(moverSelecionados(lista, new Set(['Z']), 1)).toBe(lista);
+    });
+
+    it('aceita lista de nomes no lugar de Set e não altera a lista original', () => {
+      const copia = [...lista];
+      expect(moverSelecionados(lista, ['C'], -1)).toEqual(['A', 'C', 'B', 'D', 'E', 'F']);
+      expect(lista).toEqual(copia);
+    });
+  });
+
+  describe('moverSelecionadosPara (arrastar)', () => {
+    it('arrastar para baixo cai o bloco depois do alvo', () => {
+      expect(moverSelecionadosPara(lista, new Set(['A', 'C']), 'E', true)).toEqual(['B', 'D', 'E', 'A', 'C', 'F']);
+    });
+
+    it('arrastar para cima cai o bloco antes do alvo, na ordem em que estavam', () => {
+      expect(moverSelecionadosPara(lista, new Set(['E', 'C']), 'B', false)).toEqual(['A', 'C', 'E', 'B', 'D', 'F']);
+    });
+
+    it('com um só selecionado faz o mesmo que arrastar uma linha', () => {
+      expect(moverSelecionadosPara(lista, new Set(['A']), 'C', true)).toEqual(moverParaIndice(lista, 0, 2));
+      expect(moverSelecionadosPara(lista, new Set(['E']), 'B', false)).toEqual(moverParaIndice(lista, 4, 1));
+    });
+
+    it('soltar sobre um dos selecionados, num nome de fora ou sem selecionados não faz nada', () => {
+      expect(moverSelecionadosPara(lista, new Set(['A', 'C']), 'C', true)).toBe(lista);
+      expect(moverSelecionadosPara(lista, new Set(['A', 'C']), 'Z', true)).toBe(lista);
+      expect(moverSelecionadosPara(lista, new Set(), 'C', true)).toBe(lista);
+    });
+
+    it('soltar onde o bloco já está devolve a mesma lista', () => {
+      expect(moverSelecionadosPara(lista, new Set(['B', 'C']), 'A', true)).toBe(lista);
+      expect(moverSelecionadosPara(lista, new Set(['B', 'C']), 'D', false)).toBe(lista);
+    });
+  });
+
+  describe('moverSelecionadosExtremo (ao topo, ao fim)', () => {
+    it('leva os selecionados para o topo, juntos e na ordem em que estavam', () => {
+      expect(moverSelecionadosExtremo(lista, new Set(['E', 'C']), 'topo')).toEqual(['C', 'E', 'A', 'B', 'D', 'F']);
+    });
+
+    it('leva os selecionados para o fim, juntos e na ordem em que estavam', () => {
+      expect(moverSelecionadosExtremo(lista, new Set(['B', 'D']), 'fim')).toEqual(['A', 'C', 'E', 'F', 'B', 'D']);
+    });
+
+    it('já na ponta, sem seleção ou com tudo selecionado devolve a mesma lista', () => {
+      expect(moverSelecionadosExtremo(lista, new Set(['A', 'B']), 'topo')).toBe(lista);
+      expect(moverSelecionadosExtremo(lista, new Set(['E', 'F']), 'fim')).toBe(lista);
+      expect(moverSelecionadosExtremo(lista, new Set(), 'topo')).toBe(lista);
+      expect(moverSelecionadosExtremo(lista, new Set(lista), 'fim')).toBe(lista);
+    });
+  });
+
+  describe('intervaloNaLista (Shift + clique)', () => {
+    it('devolve as linhas entre as duas, inclusive, nos dois sentidos', () => {
+      expect(intervaloNaLista(lista, 'B', 'D')).toEqual(['B', 'C', 'D']);
+      expect(intervaloNaLista(lista, 'E', 'C')).toEqual(['C', 'D', 'E']);
+    });
+
+    it('mesma linha devolve só ela', () => {
+      expect(intervaloNaLista(lista, 'C', 'C')).toEqual(['C']);
+    });
+
+    it('sem âncora vale só a linha clicada; linha fora da lista não devolve nada', () => {
+      expect(intervaloNaLista(lista, null, 'D')).toEqual(['D']);
+      expect(intervaloNaLista(lista, 'Z', 'D')).toEqual(['D']);
+      expect(intervaloNaLista(lista, 'B', 'Z')).toEqual([]);
+    });
+  });
+});
+
+describe('pavimentosDoCronograma: todos os pavimentos da Lista, sem repetir', () => {
+  const t = (pavimento) => ({ id: Math.random(), pavimento });
+
+  it('junta os pavimentos de tarefas de qualquer mês, cada um uma vez', () => {
+    const etapas = [t('Subsolo'), t('1º Tipo'), t('Subsolo'), t('Cobertura'), t('1º Tipo')];
+    expect(pavimentosDoCronograma(etapas)).toEqual(['1º Tipo', 'Cobertura', 'Subsolo']);
+  });
+
+  it('espaço sobrando e maiúscula/minúscula são o mesmo pavimento, e o nome do cadastro prevalece', () => {
+    const etapas = [t(' puc'), t('PUC'), t('puc '), t('2º  tipo'), t('2º tipo')];
+    expect(pavimentosDoCronograma(etapas, ['PUC', '2º tipo'])).toEqual(['PUC', '2º tipo']);
+  });
+
+  it('acento continua diferenciando (térreo x Terreo)', () => {
+    expect(pavimentosDoCronograma([t('térreo'), t('Terreo')])).toEqual(['Terreo', 'térreo']);
+  });
+
+  it('sem pavimento (vazio, nulo ou "—") fica de fora', () => {
+    expect(pavimentosDoCronograma([t(''), t(null), t(undefined), t('—'), t('Térreo')])).toEqual(['Térreo']);
+  });
+
+  it('cadastro reordenado vem primeiro e o que ainda não tem posição vai depois, em ordem natural', () => {
+    const cadastro = ['Subsolo 2', 'Subsolo 1', 'Cobertura'];
+    const etapas = [t('Mezanino 10'), t('Cobertura'), t('Subsolo 1'), t('Mezanino 2'), t('Subsolo 2')];
+    expect(pavimentosDoCronograma(etapas, cadastro)).toEqual(['Subsolo 2', 'Subsolo 1', 'Cobertura', 'Mezanino 2', 'Mezanino 10']);
+  });
+
+  it('só devolve o que as tarefas usam: nome do cadastro sem tarefa não entra', () => {
+    expect(pavimentosDoCronograma([t('Térreo')], ['Subsolo', 'Térreo', 'Cobertura'])).toEqual(['Térreo']);
+  });
+
+  it('sem etapas devolve lista vazia', () => {
+    expect(pavimentosDoCronograma([])).toEqual([]);
+    expect(pavimentosDoCronograma(null)).toEqual([]);
+  });
+});
+
+describe('migration da ordem ainda não aplicada (colunaAusente e funcaoAusente)', () => {
+  it('reconhece coluna inexistente, pelo código ou pela mensagem', () => {
+    expect(colunaAusente({ code: 'PGRST204' })).toBe(true);
+    expect(colunaAusente({ code: '42703' })).toBe(true);
+    expect(colunaAusente({ message: 'column pavimentos_obra.ordem does not exist' })).toBe(true);
+    expect(colunaAusente({ code: '08006', message: 'connection failure' })).toBe(false);
+    expect(colunaAusente(null)).toBe(false);
+  });
+
+  it('reconhece função inexistente, pelo código ou pela mensagem', () => {
+    expect(funcaoAusente({ code: 'PGRST202' })).toBe(true);
+    expect(funcaoAusente({ message: 'function public.reordenar_pavimentos_obra(text, text[]) does not exist' })).toBe(true);
+    expect(funcaoAusente({ code: '42501', message: 'permission denied' })).toBe(false);
+    expect(funcaoAusente(undefined)).toBe(false);
   });
 });
 

@@ -13,6 +13,9 @@ import { PainelTab } from './PainelTab';
 import { MesesApropriacaoModal } from './MesesApropriacaoModal';
 import { CampoData } from './CampoData';
 
+// Cabeçalho próprio da casca mobile do Sistema Completo (carrega só nela; o desktop nunca baixa este arquivo).
+const MaoDeObraCabecalhoMobile = React.lazy(() => import('../../mobile/full/maoDeObra/MaoDeObraCabecalhoMobile').then((m) => ({ default: m.MaoDeObraCabecalhoMobile })));
+
 const MOD = 'mao-de-obra';
 const mesAtualAbs = () => { const d = new Date(); return d.getFullYear() * 12 + d.getMonth(); };
 
@@ -21,7 +24,10 @@ const selStyle = { font: 'inherit', fontSize: 13, fontWeight: 600, color: T.text
 // Mão de Obra > Efetivo. `obras` já vem filtrada por permissão (obrasVisiveis do App). Quem
 // guarda a obra escolhida é o App (vira a URL /mao-de-obra/efetivo/:obraId); aqui só se pede a
 // troca por onTrocarObra.
-export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile }) {
+// `layoutMobileCompleto`: casca mobile do Sistema Completo (App.jsx). Só troca a APRESENTAÇÃO (cabeçalho e as quatro abas
+// ganham versão em cartões, em modules/mobile/full/maoDeObra); carga, estado, regras e gravação são os mesmos.
+export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile, layoutMobileCompleto = false }) {
+  const modoMobile = layoutMobileCompleto;
   const toastApp = useToast();
   const toast = React.useCallback((m) => toastApp(m), [toastApp]);
   const erro = React.useCallback((m) => toastApp(m, { tone: 'danger', icon: 'alert', duration: 5000 }), [toastApp]);
@@ -137,7 +143,7 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
 
   let corpo;
   if (noPainel) {
-    corpo = <PainelTab obras={obras} mesAtualAbs={mesAtualAbs()} />;
+    corpo = <PainelTab obras={obras} mesAtualAbs={mesAtualAbs()} layoutMobileCompleto={modoMobile} />;
   } else if (falha) {
     corpo = (
       <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
@@ -194,6 +200,7 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
       obraNome: obras.find((o) => o.id === obraValida)?.nome ?? '',
       somenteLeitura: abaSomenteLeitura(userProfile, MOD, abaAtual) || fechado,
       mesFechado: fechado,
+      layoutMobileCompleto: modoMobile,
     };
     if (abaAtual === 'previsto') corpo = <PrevistoTab {...ctx} />;
     else if (abaAtual === 'apropriacao') corpo = <ApropriacaoTab {...ctx} />;
@@ -201,8 +208,18 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, fontFamily: T.fonte, color: T.texto }}>
-      {cabecalho}
+    <div className={modoMobile ? 'mfs-mo' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: modoMobile ? 10 : 20, fontFamily: T.fonte, color: T.texto }}>
+      {modoMobile ? (
+        <React.Suspense fallback={null}>
+          <MaoDeObraCabecalhoMobile
+            mostrarObraEPeriodo={!noPainel} obras={obras} obraId={obraValida ?? ''} onTrocarObra={onTrocarObra}
+            listaPeriodo={listaPeriodo} mesAbs={mesListado?.abs ?? ''} onMes={setMesAbsSel} carregado={!!s}
+            semPeriodoTexto={naAnalise ? 'Sem apropriação lançada' : 'Sem períodos'}
+            abas={abasLiberadas} abaAtual={abaAtual} onAba={setAba}
+            onGerenciarMeses={ehAdmin && naApropriacao && s && meses.length > 0 ? () => setModalMeses(true) : null}
+          />
+        </React.Suspense>
+      ) : cabecalho}
       {corpo}
       {modalMeses && s && (
         <MesesApropriacaoModal s={s} meses={meses} mesAtualAbs={mesAtualAbs()} recarregar={recarregar} toast={toast} erro={erro}

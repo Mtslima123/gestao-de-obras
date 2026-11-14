@@ -1139,6 +1139,15 @@ export function verificarRestricoes(etapas) {
   return violacoes;
 }
 
+// Avanço de um grupo como a tela mostra: uma casa decimal (63,87 → 63.9; 64 inteiro continua 64).
+// Nunca chega a 100 antes da hora: 99,96 aparece como 99.9, senão o grupo ganharia o "concluído"
+// (check verde, barra cheia) com trabalho ainda faltando. A folga de 1e-6 cobre a sobra de ponto
+// flutuante da média ponderada (todos os filhos a 100% dava 99.99999999999999).
+export function avancoExibido(exato) {
+  if (exato >= 100 - 1e-6) return 100;
+  return Math.min(99.9, Math.round(exato * 10) / 10);
+}
+
 // Computa valores consolidados para linhas de grupo processando de baixo para cima,
 // garantindo que sub-grupos já tenham valores corretos antes de computar o pai.
 export function computeGroupValues(etapas, weightOverride = null) {
@@ -1178,8 +1187,10 @@ export function computeGroupValues(etapas, weightOverride = null) {
     const children = childrenOf.get(g.id) || [];
     if (!children.length) return;
 
-    // Para filhos que são grupos, usa os valores já calculados nesta passagem
-    const childVals = children.map(c => ({ id: c.id, ...(result[c.id] || { inicio: c.inicio, dur: c.dur, avanco: c.avanco, custo: c.custo || 0 }) }));
+    // Para filhos que são grupos, usa os valores já calculados nesta passagem. O avanço do filho
+    // grupo entra pelo valor EXATO (avancoExato), não pelo que a tela mostra: com o arredondado, o
+    // erro de cada nível se somava no pai (ver avancoExibido).
+    const childVals = children.map(c => ({ id: c.id, ...(result[c.id] || { inicio: c.inicio, dur: c.dur, custo: c.custo || 0 }), avanco: result[c.id]?.avancoExato ?? c.avanco }));
 
     const w = (c) => weightOverride ? (weightOverride[c.id] || 0) : (c.custo || 0);
     const totalCusto = childVals.reduce((s, c) => s + w(c), 0);
@@ -1190,7 +1201,8 @@ export function computeGroupValues(etapas, weightOverride = null) {
     // Término do filho: grupo → envelope já calculado (result); folha → dias úteis (taskEnd).
     const fim    = Math.max(...children.map(c => { const v = result[c.id]; return v ? v.inicio + v.dur : taskEnd(c); }));
     result[g.id] = {
-      avanco:  Math.round(avanco),
+      avanco:  avancoExibido(avanco),
+      avancoExato: avanco,
       inicio,
       dur:     Math.max(1, fim - inicio),
       custo:   totalCusto,
