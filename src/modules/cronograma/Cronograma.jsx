@@ -31,7 +31,8 @@ import {
   CriarLinhaModal, GerenciarLinhasModal, FeriadosModal,
   CriarReprogramacaoModal, GerenciarReprogramacoesModal, InformacoesProjetoModal, DataInicioProjetoModal,
 } from './cronogramaModais';
-import { GM_TOTAL, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
+import { GM_TOTAL, VIRT_MIN, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { classificarConflitos, confirmarConflitos, desfazerConfirmacao, podarConfirmacoes } from './conflitosOkPure';
 import { tarefasAlteradas, selecaoTocaMudanca } from './alvoFormatacaoPure';
 import { campoDeTextoFocado } from './campoDeTextoPure';
@@ -236,6 +237,35 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
     };
     return etapas.filter(e => !escondido(e.id));
   }, [etapas, collapsedUso, paiPorId]);
+
+  // Virtualização (windowing) das linhas — ativa só acima de VIRT_MIN, igual à Lista e ao Gantt.
+  // Antes, abrir a aba montava ~44 mil <td> de uma vez (1222 linhas x ~36 colunas) e travava.
+  // Os dois painéis usam a MESMA janela (winRows/topPad/botPad), então continuam alinhados.
+  // Fica ANTES do `return` antecipado de "sem meses" para não mudar a ordem dos hooks.
+  const virtualize = visible.length > VIRT_MIN;
+  const rowVirt = useVirtualizer({
+    count: visible.length,
+    getScrollElement: () => rightRef.current,
+    estimateSize: () => usoRowH,
+    overscan: 24, // rolagem rápida (inércia) não expõe os espaçadores em branco
+    getItemKey: (i) => visible[i]?.id ?? i,
+    // Sem isso o 1º render (ao abrir a aba) não conhece a altura do scroll, a janela nasce
+    // vazia e o fallback abaixo renderizaria tudo — o mesmo travamento que a Lista já teve.
+    initialRect: { width: 1, height: typeof window !== 'undefined' ? window.innerHeight : 800 },
+  });
+  const vItems = rowVirt.getVirtualItems();
+  let winRows, topPad, botPad;
+  if (!virtualize) {
+    winRows = visible.map((e, i) => [e, i]); topPad = 0; botPad = 0;
+  } else if (vItems.length) {
+    winRows = vItems.map(vi => [visible[vi.index], vi.index]);
+    topPad  = vItems[0].start;
+    botPad  = rowVirt.getTotalSize() - vItems[vItems.length - 1].end;
+  } else {
+    // Janela vazia por um instante (relayout): mostra o começo em vez de tudo.
+    winRows = visible.slice(0, VIRT_MIN).map((e, i) => [e, i]);
+    topPad = 0; botPad = Math.max(0, (visible.length - VIRT_MIN) * usoRowH);
+  }
 
   const temFilhosUso = React.useMemo(() => {
     const set = new Set();
@@ -679,7 +709,8 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
               </tr>
             </thead>
             <tbody>
-              {visible.map(e => {
+              {topPad > 0 && <tr aria-hidden="true"><td colSpan={usoColOrderVisible.length} style={{ height: topPad, padding: 0, border: 'none' }} /></tr>}
+              {winRows.map(([e]) => {
                 const nomeText = e.etapa;
                 const idText   = String(rowNumberMap[e.id] ?? e.id);
                 const wbsText  = wbsMap[e.id] || '';
@@ -714,6 +745,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
                   </tr>
                 );
               })}
+              {botPad > 0 && <tr aria-hidden="true"><td colSpan={usoColOrderVisible.length} style={{ height: botPad, padding: 0, border: 'none' }} /></tr>}
               <tr style={{ height: usoRowH }}>
                 <td colSpan={usoColOrderVisible.length} style={{ ...totalTopTd, textAlign: 'left', paddingLeft: 10, left: 0 }}>Total geral</td>
               </tr>
@@ -742,12 +774,15 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
               </tr>
             </thead>
             <tbody>
-              {visible.map(e => {
+              {topPad > 0 && <tr aria-hidden="true"><td colSpan={months.length + 1} style={{ height: topPad, padding: 0, border: 'none' }} /></tr>}
+              {winRows.map(([e, idx]) => {
                 const dist  = getDist(e);
                 const total = months.reduce((s, m) => s + (dist[m.key] || 0), 0);
                 const emptyThresh = 1;
                 return (
                   <tr key={e.id}
+                    data-index={idx}
+                    ref={virtualize ? rowVirt.measureElement : undefined}
                     style={{ background: rowBg(e), cursor: 'pointer', height: usoRowH }}
                     onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}>
                     {months.map(m => {
@@ -776,6 +811,7 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
                   </tr>
                 );
               })}
+              {botPad > 0 && <tr aria-hidden="true"><td colSpan={months.length + 1} style={{ height: botPad, padding: 0, border: 'none' }} /></tr>}
               <tr style={{ height: usoRowH }}>
                 {months.map(m => (
                   <td key={m.key} style={{ ...totalTopTd, minWidth: 92 }}>
