@@ -113,6 +113,16 @@ export const habilitadosRemoviveis = (s, meses) =>
 export const mesesComApropriacao = (s, meses) =>
   meses.filter((m) => s.apropriacoes.some((a) => a.ano === m.ano && a.mes === m.mes && a.status === 'LANCADA'));
 
+// Meses que o seletor de Período lista em cada aba. Apropriação: o mês atual, os que já têm
+// apropriação e os que um admin habilitou (dá para lançar neles). Previsto e Análise: só os meses
+// com apropriação lançada, porque o consumido e o saldo dessas telas só contam quinzena lançada.
+// Outra aba: todos os meses da obra.
+export const periodosDaAba = (aba, s, meses, mesAtualAbs) => {
+  if (aba === 'apropriacao') return mesesApropriaveis(s, meses, mesAtualAbs);
+  if (aba === 'previsto' || aba === 'analise') return mesesComApropriacao(s, meses);
+  return meses;
+};
+
 // Mês fechado pelo admin: só consulta, mesmo com apropriação lançada. A trava de verdade é do
 // gatilho do banco (mo_apropriacao e mo_apropriacao_item).
 export const mesFechado = (s, m) => (s.mesesFechados ?? []).some((f) => f.ano === m.ano && f.mes === m.mes);

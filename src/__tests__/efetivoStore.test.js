@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mesesEntre, previstoNoMes, orcado, ativos, trabCanteiro, efetivoDoMes, status, mesesRestantes, mediaRestante } from '../modules/maoDeObra/efetivo/regras';
-import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis, mesFechado, mesesFechaveis, mesSemDados, lerQtd, funcoesComApropriacao, porOrdemDoCadastro, mesesComApropriacao } from '../modules/maoDeObra/efetivo/efetivoStore';
+import { mesesDaObra, mesDeAbs, efetivoMes, consumidoAte, saldoAcumulado, ativosQ, aplicarPatchItem, totalEfetivoTela, mesApropriavel, mesesApropriaveis, mesesParaHabilitar, habilitadosRemoviveis, mesFechado, mesesFechaveis, mesSemDados, lerQtd, funcoesComApropriacao, porOrdemDoCadastro, mesesComApropriacao, periodosDaAba } from '../modules/maoDeObra/efetivo/efetivoStore';
 
 const item = (funcaoId, campos) => ({ apropriacaoId: 'x', funcaoId, totalEfetivo: null, trabAdm: null, inssSeguro: null, ferias: null, emprestManut: null, destino: null, recebidoOutraObra: null, origem: null, ...campos });
 const apr = (mes, quinzena, status, itens) => ({ id: `${mes}-${quinzena}`, obraId: 'O1', ano: 2026, mes, quinzena, dataReferencia: '', status, lancadaEm: null, lancadaPor: null, itens });
@@ -342,5 +342,35 @@ describe('mesesComApropriacao (períodos da Análise)', () => {
   it('apropriação fora dos meses da obra é ignorada', () => {
     const fora = { ...apr(3, 1, 'LANCADA', []), ano: 2025 };
     expect(labels([fora, apr(11, 1, 'LANCADA', [])])).toEqual(['Nov/26']);
+  });
+});
+
+describe('periodosDaAba (lista do seletor de Período)', () => {
+  const meses = mesesDaObra(estado([]).obra); // Set/26 a Dez/26
+  const nov = meses.find((m) => m.label === 'Nov/26').abs; // "mês atual" dos testes
+  const s = estado([
+    apr(9, 1, 'LANCADA', []), apr(10, 1, 'RASCUNHO', []), apr(10, 2, 'LANCADA', []), apr(12, 1, 'RASCUNHO', []),
+  ]);
+  const labels = (aba, st = s) => periodosDaAba(aba, st, meses, nov).map((m) => m.label);
+
+  it('Previsto lista só os meses com apropriação lançada (não o mês atual sem apropriação, nem rascunho)', () => {
+    expect(labels('previsto')).toEqual(['Set/26', 'Out/26']);
+  });
+
+  it('Previsto e Análise listam os mesmos meses', () => {
+    expect(labels('previsto')).toEqual(labels('analise'));
+  });
+
+  it('Previsto de obra sem apropriação lançada: lista vazia', () => {
+    expect(labels('previsto', estado([]))).toEqual([]);
+    expect(labels('previsto', estado([apr(11, 1, 'RASCUNHO', [])]))).toEqual([]);
+  });
+
+  it('Apropriação segue com o mês atual e os meses que já têm apropriação, rascunho inclusive', () => {
+    expect(labels('apropriacao')).toEqual(['Set/26', 'Out/26', 'Nov/26', 'Dez/26']);
+  });
+
+  it('outra aba (Painel) lista todos os meses da obra', () => {
+    expect(labels('painel')).toEqual(meses.map((m) => m.label));
   });
 });

@@ -5,7 +5,7 @@ import { MODULO_ABAS } from '../../../config/modulos';
 import { Icon } from '../../../components/Icons';
 import { T, card, btn } from './tokens';
 import { efetivoService } from './efetivo.service';
-import { mesFechado, mesesApropriaveis, mesesComApropriacao, mesesDaObra, rotuloObra } from './efetivoStore';
+import { mesFechado, periodosDaAba, mesesDaObra, rotuloObra } from './efetivoStore';
 import { PrevistoTab } from './PrevistoTab';
 import { ApropriacaoTab } from './ApropriacaoTab';
 import { AnaliseTab } from './AnaliseTab';
@@ -85,20 +85,18 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
     return <div style={{ padding: '48px 16px', textAlign: 'center', color: T.texto2, fontSize: 14 }}>Você não tem nenhuma aba de Mão de Obra liberada. Fale com o administrador.</div>;
   }
 
-  // A lista de períodos é menor em duas abas. Na Apropriação: só o mês atual, os que já têm
-  // apropriação e os que um admin habilitou. Na Análise: só os meses com apropriação lançada
-  // (é o único efetivo que ela conta). O Previsto segue com todos os meses da obra. O mês dessas
-  // duas abas é derivado (não mexe em mesAbsSel): fora da lista, vale o atual ou o último.
+  // A lista de períodos não traz todos os meses da obra (ver periodosDaAba). Na Apropriação: só o
+  // mês atual, os que já têm apropriação e os que um admin habilitou. No Previsto e na Análise: só
+  // os meses com apropriação lançada (é o único efetivo que elas contam). O mês das três abas é
+  // derivado (não mexe em mesAbsSel): fora da lista, vale o atual ou o último.
   const ehAdmin = isAdmin(userProfile);
   const naApropriacao = abaAtual === 'apropriacao';
   const naAnalise = abaAtual === 'analise';
+  const noPrevisto = abaAtual === 'previsto';
   // O Painel olha todas as obras de uma vez e tem o próprio seletor de mês: o cabeçalho não mostra
   // a obra nem o período, e a falha ao carregar a obra aberta não o atrapalha.
   const noPainel = abaAtual === 'painel';
-  const listaPeriodo = !s ? meses
-    : naApropriacao ? mesesApropriaveis(s, meses, mesAtualAbs())
-    : naAnalise ? mesesComApropriacao(s, meses)
-    : meses;
+  const listaPeriodo = !s ? meses : periodosDaAba(abaAtual, s, meses, mesAtualAbs());
   const mesListado = listaPeriodo.find((m) => m.abs === mesAbsSel) ?? listaPeriodo.find((m) => m.abs === mesAtualAbs()) ?? listaPeriodo[listaPeriodo.length - 1];
 
   const cabecalho = (
@@ -116,7 +114,7 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: T.texto2 }}>Período
               <select value={mesListado?.abs ?? ''} disabled={!listaPeriodo.length} onChange={(e) => setMesAbsSel(+e.target.value)} style={selStyle}>
-                {s && !listaPeriodo.length && <option value="">{naAnalise ? 'Sem apropriação lançada' : 'Sem períodos'}</option>}
+                {s && !listaPeriodo.length && <option value="">{naAnalise || noPrevisto ? 'Sem apropriação lançada' : 'Sem períodos'}</option>}
                 {listaPeriodo.map((m) => <option key={m.abs} value={m.abs}>{m.label.replace('/', '/20')}</option>)}
               </select>
             </label>
@@ -187,10 +185,11 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
       </div>
     );
   } else {
-    // Análise sem nenhum mês lançado: o gráfico de projeção ainda precisa de um mês de referência,
-    // então vale o atual dentro da obra (a lista do seletor fica vazia e avisa).
+    // Previsto ou Análise sem nenhum mês lançado: a tela ainda precisa de um mês de referência (a
+    // projeção, os meses restantes), então vale o atual dentro da obra (a lista do seletor fica
+    // vazia e avisa).
     const mesAtualNaObra = meses.find((m) => m.abs === Math.min(Math.max(mesAtualAbs(), meses[0].abs), meses[meses.length - 1].abs));
-    const mesSel = (naApropriacao || naAnalise ? mesListado : meses.find((m) => m.abs === mesAbsSel)) ?? (naAnalise ? mesAtualNaObra : meses[0]);
+    const mesSel = mesListado ?? mesAtualNaObra;
     const fechado = naApropriacao && mesFechado(s, mesSel);
     const ctx = {
       s, setS, mesSel, setMesSel: (m) => setMesAbsSel(m.abs), meses, toast, erro, recarregar, userProfile,
