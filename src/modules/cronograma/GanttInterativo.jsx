@@ -110,6 +110,9 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   const [showCritical, setShowCritical] = React.useState(false);  // toggle "Caminho crítico"
   const [showToday, setShowToday] = React.useState(() => localStorage.getItem('ls_crono_gantt_hoje') !== '0'); // linha do "hoje"
   React.useEffect(() => { try { localStorage.setItem('ls_crono_gantt_hoje', showToday ? '1' : '0'); } catch { /* ignore */ } }, [showToday]);
+  // Checkbox "Linhas de dependência" (Mostrar/Ocultar): desliga as setas entre as barras. Ligado por padrão.
+  const [showDeps, setShowDeps] = React.useState(() => { try { return localStorage.getItem('ls_crono_gantt_deps') !== '0'; } catch { return true; } });
+  React.useEffect(() => { try { localStorage.setItem('ls_crono_gantt_deps', showDeps ? '1' : '0'); } catch { /* ignore */ } }, [showDeps]);
   // Faixa (ribbon) em abas — mesma da Lista. Aba compartilha a chave com a Lista.
   const [activeTab, setActiveTab] = React.useState(() => localStorage.getItem('ls_crono_ribbon_tab') || 'tarefa');
   React.useEffect(() => { try { localStorage.setItem('ls_crono_ribbon_tab', activeTab); } catch { /* ignore */ } }, [activeTab]);
@@ -1208,6 +1211,10 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                       <input type="checkbox" checked={showTaskForm} onChange={() => setShowTaskForm(v => !v)} style={{ accentColor: 'var(--brand)' }} />
                       Detalhes
                     </label>
+                    <label title="Mostrar/ocultar as setas de dependência entre as barras" style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      <input type="checkbox" checked={showDeps} onChange={() => setShowDeps(v => !v)} style={{ accentColor: 'var(--brand)' }} />
+                      Linhas de dependência
+                    </label>
                   </div>
                   <div style={caption}>Mostrar/Ocultar</div>
                 </div>
@@ -1802,7 +1809,7 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
                 <path d="M0,0.5 L6,3.5 L0,6.5 Z" fill="#d97706" />
               </marker>
             </defs>
-            {visible.map((e, i) =>
+            {(showDeps ? visible : []).map((e, i) =>
               (e.dep || []).map(depObj => {
                 const dId  = typeof depObj === 'string' ? depObj : depObj.id;
                 const tipo = typeof depObj === 'string' ? 'TI' : (depObj.tipo || 'TI');
