@@ -123,7 +123,9 @@ export function MaoDeObraEfetivo({ obras = [], obraId, onTrocarObra, userProfile
           </>
         )}
         {ehAdmin && naApropriacao && s && meses.length > 0 && (
-          <button type="button" style={{ ...btn, padding: '8px 12px' }} onClick={() => setModalMeses(true)}>
+          // Mesma altura do seletor de Período e da barra de abas ao lado (34px): com o padding do
+          // btn ele ficava com 37px e saía desalinhado.
+          <button type="button" style={{ ...btn, height: 34, padding: '0 12px', boxSizing: 'border-box' }} onClick={() => setModalMeses(true)}>
             <Icon name="calendar" size={15} stroke={2.2} />Gerenciar meses
           </button>
         )}
