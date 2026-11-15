@@ -1905,16 +1905,47 @@ export default function MedicaoMensal({
       const XLSX = mod.utils ? mod : mod.default; // interop: xlsx-js-style não expõe named exports estáticos como o `xlsx`
       const HEADER_ROW  = 3;
       const linhas2     = linhasExport();
+      const idxValorAMedir = exportColsVisiveis.indexOf('valorAMedir');
+      const idxValorMedido = exportColsVisiveis.indexOf('valorMedido');
+      const idxMedido      = exportColsVisiveis.indexOf('medido');
+      // Mapa de grupo → filhos diretos (calculado antes de corpo para injetar fórmulas inline)
+      const childrenOf = new Map();
+      linhas.forEach((l, i) => {
+        if (l.tipo !== 'grupo') return;
+        const N = l.nivel || 0;
+        const ch = [];
+        for (let j = i + 1; j < linhas.length; j++) {
+          const nj = linhas[j].nivel || 0;
+          if (nj === N + 1) ch.push(j);
+          else if (nj <= N) break;
+        }
+        childrenOf.set(i, ch);
+      });
       const groupRowIdx = [];
       linhas2.forEach((l, i) => { if (l.grupo) groupRowIdx.push(HEADER_ROW + 1 + i); });
       // linhasExport() devolve objetos Date crus nas colunas inicio/termino porque o export
       // em PDF usa esses mesmos Date via toLocaleDateString — só aqui, pro Excel, convertemos
       // pro serial do Excel (ver dateToExcelSerial: entregar o Date object direto pro
       // xlsx-js-style jogava a data 1 dia pra trás em fuso negativo, ex. Brasil).
-      const corpo = linhas2.map(l => l.cells.map((v, i) => {
-        const id = exportColsVisiveis[i];
-        return (id === 'inicio' || id === 'termino') && v instanceof Date ? dateToExcelSerial(v) : v;
-      }));
+      const corpo = linhas2.map((l, i) => {
+        const ch = l.grupo ? (childrenOf.get(i) || []) : [];
+        const excelRow = HEADER_ROW + 2 + i;
+        return l.cells.map((v, ci) => {
+          const id = exportColsVisiveis[ci];
+          const val = (id === 'inicio' || id === 'termino') && v instanceof Date ? dateToExcelSerial(v) : v;
+          if (l.grupo && ch.length > 0 && (ci === idxValorAMedir || ci === idxValorMedido)) {
+            const col = XLSX.utils.encode_col(ci);
+            const partes = ch.map(cj => `${col}${HEADER_ROW + 2 + cj}`);
+            return { t: 'n', f: partes.length === 1 ? partes[0] : `SUM(${partes.join(',')})`, v: typeof val === 'number' ? val : 0 };
+          }
+          if (!l.grupo && ci === idxValorMedido && idxValorAMedir >= 0 && idxMedido >= 0) {
+            const colA = XLSX.utils.encode_col(idxValorAMedir);
+            const colM = XLSX.utils.encode_col(idxMedido);
+            return { t: 'n', f: `${colA}${excelRow}*${colM}${excelRow}`, v: typeof val === 'number' ? val : 0 };
+          }
+          return val;
+        });
+      });
       const totalRowIdx = HEADER_ROW + 1 + corpo.length;
       // Rótulo na 1ª coluna visível; nas outras, total (se a coluna tem total), null pra
       // data (célula formatada como DD/MM/YYYY não gosta de string vazia) ou '' pro resto.
@@ -1935,57 +1966,6 @@ export default function MedicaoMensal({
         totalRow,
       ];
       const ws = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
-      // Fórmulas para Valor a Medir e Valor Medido:
-      //   • Tarefas pai  → SUM dos filhos diretos (cada filho já soma seus próprios descendentes)
-      //   • Tarefas folha → Valor Medido = Valor a Medir × % Medido
-      (() => {
-        const idxValorAMedir = exportColsVisiveis.indexOf('valorAMedir');
-        const idxValorMedido = exportColsVisiveis.indexOf('valorMedido');
-        const idxMedido      = exportColsVisiveis.indexOf('medido');
-        if (idxValorAMedir < 0 && idxValorMedido < 0) return;
-        // Mapa de índice da linha → filhos diretos, usando `linhas` que tem .nivel e .tipo
-        const niveisLinhas = linhas.map(l => ({ tipo: l.tipo, nivel: l.nivel || 0 }));
-        const childrenOf = new Map();
-        niveisLinhas.forEach((nl, i) => {
-          if (nl.tipo !== 'grupo') return;
-          const N = nl.nivel;
-          const ch = [];
-          for (let j = i + 1; j < niveisLinhas.length; j++) {
-            if (niveisLinhas[j].nivel === N + 1) ch.push(j);
-            else if (niveisLinhas[j].nivel <= N) break;
-          }
-          childrenOf.set(i, ch);
-        });
-        linhas2.forEach((l, i) => {
-          const sheetRow = HEADER_ROW + 1 + i; // 0-based
-          const excelRow = sheetRow + 1;        // 1-based para fórmulas
-          if (l.grupo) {
-            const ch = childrenOf.get(i) || [];
-            if (ch.length === 0) return;
-            [idxValorAMedir, idxValorMedido].forEach(colIdx => {
-              if (colIdx < 0) return;
-              const col = XLSX.utils.encode_col(colIdx);
-              const partes = ch.map(ci => `${col}${HEADER_ROW + 2 + ci}`);
-              const formula = partes.length === 1 ? partes[0] : `SUM(${partes.join(',')})`;
-              const addr = XLSX.utils.encode_cell({ r: sheetRow, c: colIdx });
-              if (!ws[addr]) ws[addr] = { t: 'n', v: l.cells[colIdx] ?? 0 };
-              ws[addr].f = formula;
-              ws[addr].z = '#,##0.00';
-            });
-          } else {
-            // Folha: Valor Medido = Valor a Medir × % Medido
-            if (idxValorMedido >= 0 && idxValorAMedir >= 0 && idxMedido >= 0) {
-              const colA = XLSX.utils.encode_col(idxValorAMedir);
-              const colM = XLSX.utils.encode_col(idxMedido);
-              const formula = `${colA}${excelRow}*${colM}${excelRow}`;
-              const addr = XLSX.utils.encode_cell({ r: sheetRow, c: idxValorMedido });
-              if (!ws[addr]) ws[addr] = { t: 'n', v: l.cells[idxValorMedido] ?? 0 };
-              ws[addr].f = formula;
-              ws[addr].z = '#,##0.00';
-            }
-          }
-        });
-      })();
       const rng = XLSX.utils.decode_range(ws['!ref']);
       // Números crus na célula + formato via .z (nunca string de moeda), padrão do projeto.
       const formatosPorIdx = exportColsVisiveis.map((id, i) => [i, MEDICAO_EXCEL_FORMATO[id]]).filter(([, z]) => z);

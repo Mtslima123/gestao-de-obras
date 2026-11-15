@@ -399,15 +399,38 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
       const hdrs   = [...usoColOrderVisible.map(usoLabel), 'Valor (R$)', ...months.map(m => m.label), 'Total'];
       const HEADER_ROW  = 3;
       const groupRowIdx = [];
+      // Mapa de grupo → filhos diretos (calculado antes de dataRows para injetar fórmulas inline)
+      const childrenOf = new Map();
+      etapas.forEach((e, i) => {
+        if (!e.isGroup) return;
+        const N = e.nivel || 0;
+        const ch = [];
+        for (let j = i + 1; j < etapas.length; j++) {
+          const nj = etapas[j].nivel || 0;
+          if (nj === N + 1) ch.push(j);
+          else if (nj <= N) break;
+        }
+        childrenOf.set(i, ch);
+      });
+      const colMonthStart = nFixed + 1;
+      const colTotal = nFixed + 1 + months.length;
       const dataRows = etapas.map((e, i) => {
         const dist  = getDist(e);
         const total = Object.values(dist).reduce((s, v) => s + v, 0);
         if (e.isGroup) groupRowIdx.push(HEADER_ROW + 1 + i);
+        const ch = e.isGroup ? (childrenOf.get(i) || []) : [];
+        const fmla = (colIdx, v) => {
+          const col = XLSX.utils.encode_col(colIdx);
+          const partes = ch.map(ci => `${col}${HEADER_ROW + 2 + ci}`);
+          return { t: 'n', f: partes.length === 1 ? partes[0] : `SUM(${partes.join(',')})`, v };
+        };
         return [
           ...usoColOrderVisible.map(k => usoExcelVal(e, k)),
           e.isGroup ? '' : cfg.val(e),
-          ...months.map(m => dist[m.key] || 0),
-          total,
+          ...months.map((m, mi) => e.isGroup && ch.length > 0
+            ? fmla(colMonthStart + mi, dist[m.key] || 0)
+            : dist[m.key] || 0),
+          e.isGroup && ch.length > 0 ? fmla(colTotal, total) : total,
         ];
       });
       const totalGeralIdx = HEADER_ROW + 1 + dataRows.length;
@@ -425,41 +448,6 @@ const UsoTarefaView = ({ etapas, months, monthlyDist, obraId, obraNome = 'Projet
         ['% acumulado', ...Array(nFixed).fill(''), ...monthCumPcts, grandTotal > 0 ? 1 : 0],
       ];
       const ws  = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
-      // Fórmulas SUM para tarefas pai: cada grupo soma apenas seus filhos diretos
-      // (filhos já são somas dos próprios descendentes, então não há dupla contagem).
-      (() => {
-        const colMonthStart = nFixed + 1; // índice da 1ª coluna de mês
-        const colTotal = nFixed + 1 + months.length; // coluna "Total"
-        // Mapa de índice da etapa → índices dos filhos diretos (por nivel)
-        const childrenOf = new Map();
-        etapas.forEach((e, i) => {
-          if (!e.isGroup) return;
-          const N = e.nivel || 0;
-          const ch = [];
-          for (let j = i + 1; j < etapas.length; j++) {
-            const nj = etapas[j].nivel || 0;
-            if (nj === N + 1) ch.push(j);
-            else if (nj <= N) break;
-          }
-          childrenOf.set(i, ch);
-        });
-        etapas.forEach((e, i) => {
-          if (!e.isGroup) return;
-          const ch = childrenOf.get(i) || [];
-          if (ch.length === 0) return;
-          const sheetRow = HEADER_ROW + 1 + i; // 0-based
-          const colsToFmt = [...months.map((_, mi) => colMonthStart + mi), colTotal];
-          colsToFmt.forEach(colIdx => {
-            const col = XLSX.utils.encode_col(colIdx);
-            const partes = ch.map(ci => `${col}${HEADER_ROW + 2 + ci}`);
-            const formula = partes.length === 1 ? partes[0] : `SUM(${partes.join(',')})`;
-            const addr = XLSX.utils.encode_cell({ r: sheetRow, c: colIdx });
-            if (!ws[addr]) ws[addr] = { t: 'n', v: 0 };
-            ws[addr].f = formula;
-            ws[addr].z = '#,##0.00';
-          });
-        });
-      })();
       const rng = XLSX.utils.decode_range(ws['!ref']);
       const fmtCols = [];
       const iIni = usoColOrderVisible.indexOf('inicio'); if (iIni >= 0) fmtCols.push([iIni, 'DD/MM/YYYY']);
