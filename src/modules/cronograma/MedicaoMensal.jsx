@@ -1935,6 +1935,57 @@ export default function MedicaoMensal({
         totalRow,
       ];
       const ws = XLSX.utils.aoa_to_sheet(rows, { dateNF: 'DD/MM/YYYY' });
+      // Fórmulas para Valor a Medir e Valor Medido:
+      //   • Tarefas pai  → SUM dos filhos diretos (cada filho já soma seus próprios descendentes)
+      //   • Tarefas folha → Valor Medido = Valor a Medir × % Medido
+      (() => {
+        const idxValorAMedir = exportColsVisiveis.indexOf('valorAMedir');
+        const idxValorMedido = exportColsVisiveis.indexOf('valorMedido');
+        const idxMedido      = exportColsVisiveis.indexOf('medido');
+        if (idxValorAMedir < 0 && idxValorMedido < 0) return;
+        // Mapa de índice da linha → filhos diretos, usando `linhas` que tem .nivel e .tipo
+        const niveisLinhas = linhas.map(l => ({ tipo: l.tipo, nivel: l.nivel || 0 }));
+        const childrenOf = new Map();
+        niveisLinhas.forEach((nl, i) => {
+          if (nl.tipo !== 'grupo') return;
+          const N = nl.nivel;
+          const ch = [];
+          for (let j = i + 1; j < niveisLinhas.length; j++) {
+            if (niveisLinhas[j].nivel === N + 1) ch.push(j);
+            else if (niveisLinhas[j].nivel <= N) break;
+          }
+          childrenOf.set(i, ch);
+        });
+        linhas2.forEach((l, i) => {
+          const sheetRow = HEADER_ROW + 1 + i; // 0-based
+          const excelRow = sheetRow + 1;        // 1-based para fórmulas
+          if (l.grupo) {
+            const ch = childrenOf.get(i) || [];
+            if (ch.length === 0) return;
+            [idxValorAMedir, idxValorMedido].forEach(colIdx => {
+              if (colIdx < 0) return;
+              const col = XLSX.utils.encode_col(colIdx);
+              const partes = ch.map(ci => `${col}${HEADER_ROW + 2 + ci}`);
+              const formula = partes.length === 1 ? partes[0] : `SUM(${partes.join(',')})`;
+              const addr = XLSX.utils.encode_cell({ r: sheetRow, c: colIdx });
+              if (!ws[addr]) ws[addr] = { t: 'n', v: l.cells[colIdx] ?? 0 };
+              ws[addr].f = formula;
+              ws[addr].z = '#,##0.00';
+            });
+          } else {
+            // Folha: Valor Medido = Valor a Medir × % Medido
+            if (idxValorMedido >= 0 && idxValorAMedir >= 0 && idxMedido >= 0) {
+              const colA = XLSX.utils.encode_col(idxValorAMedir);
+              const colM = XLSX.utils.encode_col(idxMedido);
+              const formula = `${colA}${excelRow}*${colM}${excelRow}`;
+              const addr = XLSX.utils.encode_cell({ r: sheetRow, c: idxValorMedido });
+              if (!ws[addr]) ws[addr] = { t: 'n', v: l.cells[idxValorMedido] ?? 0 };
+              ws[addr].f = formula;
+              ws[addr].z = '#,##0.00';
+            }
+          }
+        });
+      })();
       const rng = XLSX.utils.decode_range(ws['!ref']);
       // Números crus na célula + formato via .z (nunca string de moeda), padrão do projeto.
       const formatosPorIdx = exportColsVisiveis.map((id, i) => [i, MEDICAO_EXCEL_FORMATO[id]]).filter(([, z]) => z);
