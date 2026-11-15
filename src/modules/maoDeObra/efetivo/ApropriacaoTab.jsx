@@ -40,6 +40,14 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
   const [confirmaCopia, setConfirmaCopia] = React.useState(false);
   const [confirmaLimpar, setConfirmaLimpar] = React.useState(false);
   const [exportando, setExportando] = React.useState(false);
+  const [exportOpen, setExportOpen] = React.useState(false);
+  const exportRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!exportOpen) return;
+    const h = (e) => { if (exportRef.current && !exportRef.current.contains(e.target)) setExportOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [exportOpen]);
   // A tabela é longa: no computador o cartão trava sob a barra superior e só o corpo da tabela
   // rola (cabeçalho e Total ficam à vista). No celular a página rola normal: a barra de
   // botões quebra em várias linhas e sobraria pouco espaço para as linhas da tabela.
@@ -379,12 +387,28 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
                   <input type="file" accept=".xlsx,.xls" hidden onChange={escolherArquivo} />
                 </label>
               </>}
-          {[['pdf', 'PDF'], ['xlsx', 'Excel']].map(([formato, rotulo]) => (
-            <button key={formato} type="button" style={{ ...btn, opacity: exportando ? 0.6 : 1 }} disabled={exportando} onClick={() => exportar(formato)}
-              title={`Baixar a ${q}ª apropriação em ${rotulo}`}>
-              <Icon name="download" size={15} stroke={2.2} />{exportando ? 'Exportando…' : `Exportar ${rotulo}`}
+          <div ref={exportRef} style={{ position: 'relative' }}>
+            <button type="button" style={{ ...btn, opacity: exportando ? 0.6 : 1 }} disabled={exportando}
+              onClick={() => setExportOpen(o => !o)}
+              title={`Exportar a ${q}ª apropriação`}>
+              <Icon name="download" size={15} stroke={2.2} />{exportando ? 'Exportando…' : 'Exportar'}
+              <Icon name="chevron-down" size={12} style={{ marginLeft: 2 }} />
             </button>
-          ))}
+            {exportOpen && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 100, minWidth: 150, padding: '4px 0' }}>
+                {[['pdf', 'PDF'], ['xlsx', 'Excel']].map(([formato, rotulo]) => (
+                  <button key={formato} type="button"
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 14px', fontSize: 13, background: 'none', border: 0, cursor: 'pointer', color: 'var(--text)', textAlign: 'left' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                    onClick={() => { setExportOpen(false); exportar(formato); }}
+                    title={`Baixar a ${q}ª apropriação em ${rotulo}`}>
+                    <Icon name="download" size={14} stroke={2.2} />{`Exportar ${rotulo}`}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {!somenteLeitura && (
             <button type="button" style={locked ? btnSec : btnPrim} disabled={ocupado || aguardaPrimeira} onClick={lancarOuReabrir}>
               <Icon name={locked ? 'unlock' : 'lock'} size={14} stroke={2.2} />{locked ? 'Reabrir apropriação' : 'Lançar apropriação'}

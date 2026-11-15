@@ -34,7 +34,7 @@ export function MesesApropriacaoModal({ s, meses, mesAtualAbs, recarregar, toast
     }
   };
 
-  const habilitar = () => alvo && executar(efetivoService.habilitarMes, alvo, `${rotulo(alvo)} habilitado para apropriação.`, () => { onHabilitado(alvo.abs); onClose(); });
+  const habilitar = () => alvo && executar(efetivoService.habilitarMes, alvo, `${rotulo(alvo)} habilitado para apropriação.`, () => { onHabilitado(alvo.abs); });
   const remover = (m) => executar(efetivoService.desabilitarMes, m, `${rotulo(m)} removido da lista de apropriação.`);
   const excluir = (m) => executar(efetivoService.excluirMes, m, `${rotulo(m)} excluído da lista de apropriação.`);
   const fechar = (m) => executar(efetivoService.fecharMes, m, `${rotulo(m)} fechado. Só consulta até ser reaberto.`);
