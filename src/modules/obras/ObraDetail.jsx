@@ -20,6 +20,7 @@ import { pavimentosFotosService } from '../../services/pavimentosFotos.service';
 import { offlineCache } from '../../services/offlineCache';
 import { offlineQueue } from '../../services/offlineQueue';
 import { fotosService } from './fotos.service';
+import { compressImagem, FOTO_LADO_MAIOR, FOTO_QUALIDADE } from './compressImagem';
 import { useSemRede, useRetryOnReconnect, connectivity, isNetworkError } from '../../utils/connectivity';
 import { ehFalhaPassageira, mensagemDeFalhaAoGuardar } from '../../utils/offlinePure';
 import { AvisoOffline } from '../../components/OfflineFallback';
@@ -830,7 +831,7 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
     const lote = [];
     for (const file of files) {
       try {
-        const blob = await compressImagem(file, 1200, 0.82);
+        const blob = await compressImagem(file, FOTO_LADO_MAIOR, FOTO_QUALIDADE, 'maior-lado');
         // Limite no arquivo JÁ reduzido: antes era no original, e foto de câmera boa era
         // recusada sem precisar.
         if (blob.size > 5 * 1024 * 1024) {
@@ -1401,30 +1402,6 @@ const Fotos = ({ obra, readOnly = false, isAdmin = false, hideChrome = false }) 
     </>
   );
 };
-
-// ----- Helper de compressão de imagens -----
-// Aceita File ou Blob (a miniatura sai do blob já reduzido). Rejeita em vez de ficar
-// pendurada: arquivo que não decodifica deixava o botão em "Salvando…" pra sempre.
-function compressImagem(file, maxW = 1200, quality = 0.82) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error('falha ao ler a imagem'));
-    reader.onload = ev => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('imagem inválida'));
-      img.onload = () => {
-        const scale = Math.min(1, maxW / img.width);
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(b => (b ? resolve(b) : reject(new Error('falha ao comprimir a imagem'))), 'image/jpeg', quality);
-      };
-      img.src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
 
 // Campo Pavimento: lista suspensa FECHADA com os pavimentos cadastrados para as Fotos da
 // obra (modal "Pavimentos"). Não aceita texto livre. `atual` é o valor já gravado na foto
