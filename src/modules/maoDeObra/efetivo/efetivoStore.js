@@ -141,7 +141,7 @@ export const funcoesDoGrupo = (s, g) => funcoesAtivas(s).filter((f) => f.grupoId
 // removidas da lista da obra. Só conta valor de verdade: o "Lançar" grava uma linha zerada para
 // toda função ativa, e essa não é apropriação. Mesma regra de mo_obra_funcao_remover; o banco
 // confere de novo e é ele quem vale (aqui só serve para desabilitar o botão).
-const temDado = (i) =>
+export const temDado = (i) =>
   [i.totalEfetivo, i.trabAdm, i.inssSeguro, i.ferias, i.emprestManut, i.recebidoOutraObra].some((v) => (v ?? 0) !== 0)
   || !!i.destino?.trim() || !!i.origem?.trim();
 export const funcoesComApropriacao = (s) =>

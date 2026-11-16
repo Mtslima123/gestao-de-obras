@@ -3,7 +3,8 @@ import { Icon } from '../../../components/Icons';
 import { Modal } from '../../../components/Modals';
 import { STATUS_UI, ativos, classificacaoEfetiva, corSaldo, status, temValor, trabCanteiro, usoPct } from './regras';
 import { T, card, h2, btn, btnPrim, btnSec, th, td, inp, pill, corUi } from './tokens';
-import { GRUPOS, apropDe, aplicarPatchItem, funcoesAtivas, itemDe, previstoMes, totalEfetivoTela, ultimoDia } from './efetivoStore';
+import { GRUPOS, apropDe, aplicarPatchItem, funcoesAtivas, itemDe, mesDeAbs, previstoMes, totalEfetivoTela, ultimoDia } from './efetivoStore';
+import { apropriacaoTemDados, itensDaCopia, origemDaCopia } from './copiaMesAnteriorPure';
 import { efetivoService } from './efetivo.service';
 import { ehConflito } from './efetivoErro';
 import { lerPlanilha } from './importXlsx';
@@ -42,6 +43,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
   const [salvando, setSalvando] = React.useState(false);
   const [rascunhoSalvo, setRascunhoSalvo] = React.useState(false);
   const [confirmaCopia, setConfirmaCopia] = React.useState(false);
+  const [confirmaCopiaAnt, setConfirmaCopiaAnt] = React.useState(false);
   const [confirmaLimpar, setConfirmaLimpar] = React.useState(false);
   const [exportando, setExportando] = React.useState(false);
   // A tabela é longa: no computador o cartão trava sob a barra superior e só o corpo da tabela
@@ -196,7 +198,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
     setPrevia(null);
     marcarSujo(chaveQ(p.ano, p.mes, p.quinzena));
     setRascunhoSalvo(false);
-    gravarDepois.current = { ano: p.ano, mes: p.mes, quin: p.quinzena, nome: p.nomeArquivo };
+    gravarDepois.current = { ano: p.ano, mes: p.mes, quin: p.quinzena, msg: `Efetivo importado de ${p.nomeArquivo}. Confira e lance a apropriação.` };
     setS((st0) => {
       const ex = st0.apropriacoes.find((x) => x.ano === p.ano && x.mes === p.mes && x.quinzena === p.quinzena);
       const a = ex ?? { id: `tmp-${p.ano * 12 + p.mes - 1}-${p.quinzena}`, obraId: st0.obra.id, ano: p.ano, mes: p.mes, quinzena: p.quinzena, dataReferencia: `${p.ano}-${String(p.mes).padStart(2, '0')}-${p.quinzena === 1 ? '01' : '16'}`, status: 'RASCUNHO', lancadaEm: null, lancadaPor: null, itens: [] };
@@ -210,13 +212,37 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
     const g = gravarDepois.current;
     if (!g) return;
     gravarDepois.current = null;
-    gravar(g.ano, g.mes, g.quin).then((ok) => { if (ok) toast(`Efetivo importado de ${g.nome}. Confira e lance a apropriação.`); });
+    gravar(g.ano, g.mes, g.quin).then((ok) => { if (ok) toast(g.msg); });
   }, [s]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pedirCopia = () => {
     const a1 = apropDe(s, mesSel, 1);
     if (!a1 || !a1.itens.some(temValor)) return erro('A 1ª apropriação ainda não tem dados para copiar.');
     if (ap?.itens.some(temValor)) setConfirmaCopia(true); else copiarDa1();
+  };
+
+  // Copiar do mês anterior (só na 1ª): troca o rascunho pela 2ª do mês anterior já lançada.
+  // Roda no cliente e grava pelo mesmo caminho do Importar (gravarDepois), sem RPC nova.
+  // Revalida a origem ao copiar: o modal pode ter ficado aberto enquanto o estado mudou.
+  const copiarDoMesAnterior = () => {
+    setConfirmaCopiaAnt(false);
+    if (ocupado || q !== 1 || !editavel) return;
+    const { mes, ap: origem, erro: motivo } = origemDaCopia(s, mesSel);
+    if (motivo) return erro(motivo);
+    marcarSujo(chaveQ(mesSel.ano, mesSel.mes, 1));
+    setRascunhoSalvo(false);
+    gravarDepois.current = { ano: mesSel.ano, mes: mesSel.mes, quin: 1, msg: `Efetivo copiado da 2ª apropriação de ${mes.label}. Confira e lance.` };
+    setS((st0) => {
+      const [st, a] = garantirAprop(st0, 1);
+      const itens = itensDaCopia(origem.itens, funcoesAtivas(st).map((f) => f.id), a.id);
+      return { ...st, apropriacoes: st.apropriacoes.map((x) => (x.id === a.id ? { ...a, itens } : x)) };
+    });
+  };
+
+  const pedirCopiaMesAnterior = () => {
+    const { erro: motivo } = origemDaCopia(s, mesSel);
+    if (motivo) return erro(motivo);
+    if (apropriacaoTemDados(ap)) setConfirmaCopiaAnt(true); else copiarDoMesAnterior();
   };
 
   // ---- agrupamento
@@ -327,7 +353,7 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
             salvando={salvando} rascunhoSalvo={rascunhoSalvo} ocupado={ocupado} exportando={exportando}
             busca={busca} setBusca={setBusca} agrupar={agrupar} setAgrupar={setAgrupar} recolhidos={recolhidos} setRecolhidos={setRecolhidos}
             grupos={grupos} TOT={TOT} st={st} d={d}
-            setItem={setItem} salvarRascunho={salvarRascunho} lancarOuReabrir={lancarOuReabrir} pedirCopia={pedirCopia}
+            setItem={setItem} salvarRascunho={salvarRascunho} lancarOuReabrir={lancarOuReabrir} pedirCopia={pedirCopia} pedirCopiaMesAnterior={pedirCopiaMesAnterior}
             pedirLimpar={() => setConfirmaLimpar(true)} baixarModelo={baixarModelo} escolherArquivo={escolherArquivo} exportar={exportar}
           />
         </React.Suspense>
@@ -384,6 +410,12 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
               : aguardaPrimeira
                 ? null
                 : <>
+                {q === 1 && (
+                  <button type="button" style={btn} disabled={ocupado} onClick={pedirCopiaMesAnterior}
+                    title={`Traz o lançamento da 2ª apropriação de ${mesDeAbs(mesSel.abs - 1).label}`}>
+                    Copiar do mês anterior
+                  </button>
+                )}
                 {q === 2 && <button type="button" style={btn} disabled={ocupado} onClick={pedirCopia}>Copiar da 1ª</button>}
                 <button type="button" style={{ ...btn, opacity: ocupado || !ap?.itens.length ? 0.5 : 1 }} disabled={ocupado || !ap?.itens.length} onClick={() => setConfirmaLimpar(true)}>
                   <Icon name="trash" size={15} stroke={2.2} />Limpar
@@ -548,6 +580,20 @@ export function ApropriacaoTab({ s, setS, mesSel, toast, erro, recarregar, somen
           </>}
         >
           <p style={{ margin: 0, lineHeight: 1.5 }}>A 2ª apropriação já tem valores digitados. Copiar substitui tudo pelo que está na 1ª.</p>
+        </Modal>
+      )}
+
+      {confirmaCopiaAnt && (
+        <Modal
+          title={`Copiar da 2ª de ${mesDeAbs(mesSel.abs - 1).label}?`}
+          size="sm"
+          onClose={() => setConfirmaCopiaAnt(false)}
+          footer={<>
+            <button type="button" className="btn btn-ghost" onClick={() => setConfirmaCopiaAnt(false)}>Cancelar</button>
+            <button type="button" className="btn btn-primary" onClick={copiarDoMesAnterior}>Copiar</button>
+          </>}
+        >
+          <p style={{ margin: 0, lineHeight: 1.5 }}>A 1ª apropriação já tem valores digitados. Copiar substitui tudo pelo lançamento da 2ª apropriação de {mesDeAbs(mesSel.abs - 1).label}.</p>
         </Modal>
       )}
     </div>

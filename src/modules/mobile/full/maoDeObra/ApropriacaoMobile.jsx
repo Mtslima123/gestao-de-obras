@@ -76,7 +76,7 @@ const ApropriacaoMobile = ({
   salvando, rascunhoSalvo, ocupado, exportando,
   busca, setBusca, agrupar, setAgrupar, recolhidos, setRecolhidos,
   grupos, TOT, st, d,
-  setItem, salvarRascunho, lancarOuReabrir, pedirCopia, pedirLimpar, baixarModelo, escolherArquivo, exportar,
+  setItem, salvarRascunho, lancarOuReabrir, pedirCopia, pedirCopiaMesAnterior, pedirLimpar, baixarModelo, escolherArquivo, exportar,
 }) => {
   const [aberta, setAberta] = React.useState(null); // id da função com a folha aberta
   const [acoes, setAcoes] = React.useState(false);
@@ -86,6 +86,7 @@ const ApropriacaoMobile = ({
   const stUi = okUi(st);
 
   const listaDeAcoes = [
+    ...(editavel && q === 1 ? [{ chave: 'copiar-anterior', rotulo: 'Copiar do mês anterior', detalhe: 'Traz o lançamento da 2ª apropriação do mês anterior', icone: 'copy', disabled: ocupado, onClick: pedirCopiaMesAnterior }] : []),
     ...(editavel && q === 2 ? [{ chave: 'copiar', rotulo: 'Copiar da 1ª', detalhe: 'Traz as quantidades da 1ª apropriação', icone: 'copy', disabled: ocupado, onClick: pedirCopia }] : []),
     ...(editavel ? [
       { chave: 'limpar', rotulo: 'Limpar', detalhe: 'Apaga o que está digitado nesta apropriação', icone: 'trash', perigo: true, disabled: ocupado || !ap?.itens.length, onClick: pedirLimpar },
