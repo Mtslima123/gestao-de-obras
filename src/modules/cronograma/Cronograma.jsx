@@ -2718,6 +2718,30 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     return null;
   };
 
+  // Memória da tela da Medição Mensal entre trocas de aba (ver MedicaoMensal, `memoriaRef`: mês, busca,
+  // pavimento, filtros de coluna, estrutura). Mora aqui porque a Medição desmonta ao trocar de aba; é ref e não
+  // estado para digitar na busca não re-renderizar este componente inteiro; e não vai para localStorage de
+  // propósito: recarregar a página (F5, "Atualizar" da PWA) zera.
+  const medicaoMemoriaRef = React.useRef({});
+  // Duplo clique numa tarefa da Medição: abre a Lista com ela selecionada e no meio da tela. Reaproveita o foco
+  // de Desfazer/"Editar tarefa" (histFocus), com `revelar` para a Lista abrir o grupo recolhido e limpar o
+  // filtro que escondam a tarefa. A Lista monta já com o foco pronto e o efeito dela roda na montagem.
+  const abrirTarefaNaLista = (id) => {
+    if (!id) return;
+    // Medição fechada guarda o item mesmo que a tarefa tenha saído do cronograma depois.
+    if (!etapas.some(e => e.id === id)) {
+      toast('Esta tarefa não existe mais no cronograma.', { tone: 'warning', icon: 'alert-triangle' });
+      return;
+    }
+    setHistFocus({ id, selecao: null, revelar: true, nonce: ++focusNonceRef.current });
+    setView('lista');
+  };
+  // O foco vale uma vez só. Sem isto, a Lista remontada (Lista, Gantt, Lista) repetiria o foco antigo e, com
+  // `revelar`, limparia de novo os filtros que a pessoa acabou de aplicar. Sair da Lista consome o foco; não
+  // mexe em quem pede foco de outra aba (Desfazer no Gantt, "Editar tarefa"): esses entram na Lista com a aba
+  // já trocada, e o efeito só roda quando a aba muda.
+  React.useEffect(() => { if (view !== 'lista') setHistFocus(null); }, [view]);
+
   // Carrega vínculos orçamento × cronograma para a obra selecionada
   React.useEffect(() => {
     if (!obraSel) { setVinculos([]); setOrcamentoItensMap({}); return; }
@@ -4133,6 +4157,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   onSalvarOrdemPavimentos={salvarOrdemPavimentos}
                   dadosDoAparelho={dadosDoAparelho}
                   onTentarConexao={() => recarregarCronograma()}
+                  memoriaRef={medicaoMemoriaRef}
+                  onAbrirNaLista={hideChrome || layoutMobileCompleto || !abasCronogramaLiberadas.some(a => a.id === 'lista') ? undefined : abrirTarefaNaLista}
                 />
               )}
 

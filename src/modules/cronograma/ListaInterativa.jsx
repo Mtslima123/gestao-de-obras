@@ -29,7 +29,7 @@ import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, Vincula
 import { TaskFormPanel } from './TaskFormPanel';
 import { OrtografiaModal } from './OrtografiaModal';
 import { substituirTokens } from './spellcheckPure';
-import { LIMITE_RESULTADOS, ancestraisRecolhidos, buscarNaLista } from './localizarPure';
+import { LIMITE_RESULTADOS, ancestraisRecolhidos, buscarNaLista, proximoPassoFoco } from './localizarPure';
 import {
   EditableCell, ColorMenu, LISTA_COL_DEFS, LISTA_BAND_LABELS, LISTA_DEFAULT_ORDER,
   LISTA_FROZEN, GUTTER_W, ROW_DRAG_COLS, VIRT_MIN,
@@ -1327,11 +1327,107 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (selecaoRef) selecaoRef.current = { selectedCell, selAnchor, selectedId, multiSel, multiSelCells };
   });
   React.useEffect(() => () => { if (selecaoRef) selecaoRef.current = null; }, [selecaoRef]);
-  // Foco externo (undo/redo, "Editar tarefa"): seleciona a tarefa e rola até ela. Com `selecao` (undo/redo
-  // de uma ação feita na Lista) devolve a seleção inteira daquela ação: as mesmas células, soltas ou em
-  // intervalo, e rola até a célula ativa.
+  // Tira os filtros da Lista (todos menos a ordenação, que não esconde linha). Usado ao mostrar uma tarefa
+  // escondida (foco "revelar") e pelo "Limpar filtros" do ribbon, que acrescenta a ordenação.
+  const limparFiltrosDaLista = () => {
+    setFiltroResp('');
+    setFiltroPreset?.(''); setFiltroPresetRange?.({ de: '', ate: '' }); setFiltroTaskIds?.([]);
+    setFiltroTexto?.(''); setFiltroVinculo?.('');
+    setColumnFilters({});
+  };
+  const filtrosDaListaAtivos = !!(filtroResp || filtroPreset || filtroTaskIds.length || filtroTexto || filtroVinculo || Object.keys(columnFilters).length);
+
+  // Distância (px) entre o centro da linha e o centro da área útil da lista (entre o fundo do cabeçalho fixo e
+  // o fundo visível, a mesma conta de scrollRowIntoView). null = a linha não está no DOM (janela virtual).
+  const desvioDoCentro = (taskId) => {
+    const sc = listaScrollRef.current;
+    const tr = sc?.querySelector(`tr[data-taskid="${CSS.escape(String(taskId))}"]`);
+    if (!sc || !tr) return null;
+    const scRect = sc.getBoundingClientRect();
+    const trRect = tr.getBoundingClientRect();
+    return (trRect.top + trRect.height / 2) - (fundoCabecalho(sc, scRect) + Math.min(scRect.bottom, window.innerHeight)) / 2;
+  };
+  // Centraliza a linha no meio da área útil, não só "para dentro da tela". A lista é virtualizada: com a linha
+  // fora do DOM a rolagem é por índice e usa a altura ESTIMADA, e as linhas acima, ao serem medidas, empurram o
+  // destino. Por isso repete (poucas vezes) até a linha existir e o desvio ficar pequeno. Nas pontas da lista
+  // o navegador limita a rolagem e o desvio não zera: o limite de tentativas encerra.
+  const centralizarLinha = (taskId, restam = 5) => {
+    scrollRowIntoView(taskId, true);
+    if (restam <= 0) return;
+    setTimeout(() => {
+      const desvio = desvioDoCentro(taskId);
+      if (desvio === null || Math.abs(desvio) > 3) centralizarLinha(taskId, restam - 1);
+    }, 120);
+  };
+
+  // Foco "revelar" (duplo clique numa tarefa da Medição): a tarefa pode estar escondida por grupo recolhido ou
+  // por filtro. Cada passo corrige uma causa (proximoPassoFoco, que não deixa repetir o mesmo passo) e o efeito
+  // de `filtrada` volta aqui quando a lista muda, para o passo seguinte. Os grupos abrem como no "Localizar"
+  // (silencioso e fora do histórico). Se o commit for barrado (cronograma do aparelho, conflito de versão) a
+  // lista não muda e nada reavisa: o relógio chama de novo, com `abriu`/`limpou` já marcados, até desistir.
+  const alvoFocoRef = React.useRef(null); // { id, abriu, limpou, timer }
+  const avancarFocoRef = React.useRef(null);
+  const encerrarFoco = () => {
+    const a = alvoFocoRef.current;
+    if (a?.timer) clearTimeout(a.timer);
+    alvoFocoRef.current = null;
+  };
+  const aguardarListaMudar = (a) => {
+    if (a.timer) clearTimeout(a.timer);
+    a.timer = setTimeout(() => avancarFocoRef.current?.(), 1200);
+  };
+  const avancarFoco = () => {
+    const a = alvoFocoRef.current;
+    if (!a) return;
+    const existe = etapas.some(e => e.id === a.id);
+    const passo = proximoPassoFoco({
+      existe,
+      visivel: filtrada.some(e => e.id === a.id),
+      gruposRecolhidos: ancestraisRecolhidos(etapas, a.id).length,
+      filtrosAtivos: filtrosDaListaAtivos,
+      abriu: a.abriu,
+      limpou: a.limpou,
+    });
+    if (passo === 'abrir') {
+      a.abriu = true;
+      const abrir = new Set(ancestraisRecolhidos(etapas, a.id));
+      onCommit(etapas.map(e => (abrir.has(e.id) ? { ...e, collapsed: false } : e)), { silent: true, skipHistory: true });
+      setNivelEstruturaValue('');
+      aguardarListaMudar(a);
+    } else if (passo === 'limpar') {
+      a.limpou = true;
+      limparFiltrosDaLista();
+      toast('Filtros da Lista removidos para mostrar a tarefa', { tone: 'neutral', icon: 'alert' });
+      aguardarListaMudar(a);
+    } else if (passo === 'rolar') {
+      encerrarFoco();
+      const cell = { taskId: a.id, colId: 'etapa' };
+      setSelectedCell(cell); setSelAnchor(cell); setSelectedId(a.id);
+      // Depois do render da seleção, com a lista já no DOM.
+      requestAnimationFrame(() => centralizarLinha(a.id));
+    } else {
+      encerrarFoco();
+      if (existe) toast('A tarefa continua escondida na Lista. Abra o grupo ou limpe os filtros para vê-la.', { tone: 'warning', icon: 'alert-triangle' });
+    }
+  };
+  avancarFocoRef.current = avancarFoco;
+  // ANTES do efeito de foco (a ordem importa): na montagem este não faz nada, porque o pedido ainda não existe;
+  // o efeito do foco o cria e dá o 1º passo sozinho. Invertida, o passo rodaria duas vezes na montagem.
+  React.useEffect(() => { if (alvoFocoRef.current) avancarFoco(); }, [filtrada]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => () => encerrarFoco(), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Foco externo (undo/redo, "Editar tarefa", duplo clique na Medição): seleciona a tarefa e rola até ela. Com
+  // `selecao` (undo/redo de uma ação feita na Lista) devolve a seleção inteira daquela ação: as mesmas células,
+  // soltas ou em intervalo, e rola até a célula ativa. Com `revelar` (Medição) a tarefa também é mostrada se
+  // estiver escondida e fica no meio da tela (ver avancarFoco).
   React.useEffect(() => {
     if (!focusTaskId?.id) return;
+    if (focusTaskId.revelar) {
+      encerrarFoco();
+      alvoFocoRef.current = { id: focusTaskId.id, abriu: false, limpou: false, timer: null };
+      avancarFoco();
+      return;
+    }
     const alvo = etapas.find(e => e.id === focusTaskId.id);
     const sel = focusTaskId.selecao;
     const existe = (id) => etapas.some(e => e.id === id);
@@ -3546,12 +3642,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       {(() => {
         const hasTarget = !!(selectedCell || selectedId);
         const temFiltro = !!(filtroResp || filtroPreset || filtroTaskIds.length || filtroTexto || filtroVinculo || Object.keys(columnFilters).length || sortSpec);
-        const limparFiltros = () => {
-          setFiltroResp('');
-          setFiltroPreset?.(''); setFiltroPresetRange?.({ de: '', ate: '' }); setFiltroTaskIds?.([]);
-          setFiltroTexto?.(''); setFiltroVinculo?.('');
-          setColumnFilters({}); setSortSpec(null);
-        };
+        const limparFiltros = () => { limparFiltrosDaLista(); setSortSpec(null); };
         const tglStyle = (on) => ({
           ...btnStyle, height: 28, padding: '2px 9px', fontWeight: 700,
           background: on ? 'var(--brand)' : 'var(--surface)', color: on ? '#fff' : 'var(--text)',
