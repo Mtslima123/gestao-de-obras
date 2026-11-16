@@ -235,11 +235,25 @@ function textoPrevistoDesatualizado({ acumulado, mes }) {
 }
 
 // Confirmação do botão "Atualizar previsto" (medição aberta). Atualizar regrava o previsto do mês e o
-// acumulado e congela de novo, então um clique errado não pode fazer isso sozinho: o modal mostra de quanto
-// para quanto cada previsto vai (as mesmas linhas do aviso laranja, ver linhasPrevistoDefasado) e só o botão
-// de confirmar executa. Usa o overlay padrão do Modal (Esc e clique fora cancelam), ao contrário dos
-// modais vizinhos, que são sem fundo e só fecham por Esc ou pelos botões.
-function ModalAtualizarPrevisto({ mesRefKey, linhas, salvando, onClose, onConfirmar }) {
+// acumulado e congela de novo, e não há como desfazer, então um clique errado não pode fazer isso sozinho.
+// São DUAS etapas: 1) o modal mostra de quanto para quanto cada previsto vai (as mesmas linhas do aviso
+// laranja, ver linhasPrevistoDefasado); 2) "Tem certeza?". Só o botão da 2ª etapa executa. Usa o overlay
+// padrão do Modal (Esc e clique fora cancelam), ao contrário dos modais vizinhos, que são sem fundo e só
+// fecham por Esc ou pelos botões.
+// O botão da 2ª etapa nasce travado por um instante: ele aparece no mesmo lugar do da 1ª, e sem a trava um
+// duplo clique (ou um clique repetido por engano) passaria pelas duas etapas de uma vez, que é justamente o
+// que a 2ª etapa quer evitar.
+const ESPERA_SEGUNDA_CONFIRMACAO_MS = 700;
+export function ModalAtualizarPrevisto({ mesRefKey, linhas, salvando, onClose, onConfirmar }) {
+  const [etapa, setEtapa] = React.useState(1);
+  const [liberado, setLiberado] = React.useState(false);
+  React.useEffect(() => {
+    if (etapa !== 2) return undefined;
+    setLiberado(false);
+    const t = setTimeout(() => setLiberado(true), ESPERA_SEGUNDA_CONFIRMACAO_MS);
+    return () => clearTimeout(t);
+  }, [etapa]);
+  const segunda = etapa === 2;
   return (
     <Modal
       title="Atualizar previsto"
@@ -248,17 +262,34 @@ function ModalAtualizarPrevisto({ mesRefKey, linhas, salvando, onClose, onConfir
       footer={
         <>
           <div className="spacer" />
-          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-dark" disabled={salvando} onClick={onConfirmar}>
-            <Icon name="refresh-cw" size={14} />{salvando ? 'Atualizando…' : 'Atualizar previsto'}
-          </button>
+          {segunda
+            ? <button className="btn btn-ghost" disabled={salvando} onClick={() => setEtapa(1)}>Voltar</button>
+            : <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>}
+          {segunda
+            ? (
+              <button className="btn btn-danger" disabled={salvando || !liberado} onClick={onConfirmar}>
+                <Icon name="refresh-cw" size={14} />{salvando ? 'Atualizando…' : 'Sim, atualizar'}
+              </button>
+            )
+            : (
+              <button className="btn btn-dark" onClick={() => setEtapa(2)}>
+                <Icon name="refresh-cw" size={14} />Atualizar previsto
+              </button>
+            )}
         </>
       }
     >
-      <p style={{ fontSize: 13.5, color: 'var(--text-soft)', marginBottom: 8 }}>
-        O previsto desta medição está congelado desde que ela foi aberta. Ao confirmar, ele passa a
-        refletir o que o cronograma indica hoje:
-      </p>
+      {segunda ? (
+        <p style={{ fontSize: 13.5, marginBottom: 8 }}>
+          <strong>Tem certeza?</strong> Os valores atuais do previsto serão substituídos e{' '}
+          <strong>não há como desfazer</strong>:
+        </p>
+      ) : (
+        <p style={{ fontSize: 13.5, color: 'var(--text-soft)', marginBottom: 8 }}>
+          O previsto desta medição está congelado desde que ela foi aberta. Ao confirmar, ele passa a
+          refletir o que o cronograma indica hoje:
+        </p>
+      )}
       <ul style={{ margin: '0 0 10px', paddingLeft: 18, fontSize: 13.5 }}>
         {linhas.map(l => (
           <li key={l.chave}>
@@ -266,11 +297,13 @@ function ModalAtualizarPrevisto({ mesRefKey, linhas, salvando, onClose, onConfir
           </li>
         ))}
       </ul>
-      <p style={{ fontSize: 13, color: 'var(--text-soft)' }}>
-        Só o previsto muda: o % medido, os itens, as observações, as anotações e o status da medição
-        ficam como estão. Os valores antigos deixam de existir nesta medição e o previsto volta a ficar
-        congelado nos novos.
-      </p>
+      {!segunda && (
+        <p style={{ fontSize: 13, color: 'var(--text-soft)' }}>
+          Só o previsto muda: o % medido, os itens, as observações, as anotações e o status da medição
+          ficam como estão. Os valores antigos deixam de existir nesta medição e o previsto volta a ficar
+          congelado nos novos.
+        </p>
+      )}
     </Modal>
   );
 }
