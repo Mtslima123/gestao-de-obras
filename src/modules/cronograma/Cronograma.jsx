@@ -35,6 +35,7 @@ import { GM_TOTAL, VIRT_MIN, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { classificarConflitos, confirmarConflitos, desfazerConfirmacao, podarConfirmacoes } from './conflitosOkPure';
 import { tarefasAlteradas, selecaoTocaMudanca } from './alvoFormatacaoPure';
+import { realcarAlteracoes } from './realceAlteracoesPure';
 import { campoDeTextoFocado } from './campoDeTextoPure';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './etapasPatch';
@@ -2703,6 +2704,11 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   const saveTimerRef   = React.useRef(null);
   // Foco de seleção após undo/redo ou "Editar tarefa" — leva a Lista a selecionar/rolar até a tarefa
   const [histFocus, setHistFocus] = React.useState(null); // { id, nonce }
+  // Realce de alterações (estilo MS Project): células Início/Duração/Término que a ÚLTIMA edição mudou,
+  // como Map<idDaTarefa, Set<coluna>> (ver realceAlteracoesPure.js) ou null. Mora aqui, e não na Lista,
+  // porque a Lista desmonta ao trocar de aba e o realce é da última alteração, não da tela. Cada commit
+  // (e cada desfazer/refazer) o recalcula; obra nova ou recarga do banco o zera.
+  const [realce, setRealce] = React.useState(null);
   const focusNonceRef = React.useRef(0);
   // `selecao` (opcional): seleção da Lista a restaurar junto (ver focarAposHistorico).
   const focarTarefa = (id, selecao) => { if (id) setHistFocus({ id, selecao: selecao || null, nonce: ++focusNonceRef.current }); };
@@ -2980,6 +2986,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       }
     }
     setConflito(false);   // recarregou do banco: baseline atualizada, conflito resolvido
+    setRealce(null);      // obra nova ou recarga: o realce era da edição de antes (e os ids TSK-xxx se repetem entre obras)
     const marca = {};
     cargaRef.current = marca;
     carregar().finally(() => { if (cargaRef.current === marca) cargaRef.current = null; });
@@ -3447,6 +3454,10 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       histRowHeightsRef.current = hr;
       hidxRef.current = h.length - 1;
     }
+    // Realce do que esta edição mudou (comparando o estado de antes com o final, já com as sucessoras
+    // recalculadas). Expandir/recolher grupo (skipHistory) não é edição: não mexe no realce de antes.
+    // `semRealce`: alteração em massa (deslocar o projeto inteiro) que pintaria a lista toda de azul.
+    if (!opts.skipHistory) setRealce(opts.semRealce ? null : realcarAlteracoes(etapas, clean));
     setEtapas(clean);
     D.cronograma[obraSel] = clean;
     // O toast reflete o RESULTADO real da persistência (após o await), não a intenção.
@@ -3507,7 +3518,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       ...e,
       inicio: e.inicio + deltaDias,
       ...(e.restricaoData ? { restricaoData: offsetToISO(dateToOffset(e.restricaoData) + deltaDias) } : {}),
-    })));
+    })), { semRealce: true });   // mexe em TODAS as tarefas: realçar tudo não diria nada
     toast('Data de início do projeto atualizada', { tone: 'success', icon: 'check' });
   };
 
@@ -3529,6 +3540,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     const hiddenColsSnap = histHiddenColsRef.current[hidxRef.current] ?? [...hiddenCols];
     const rowHeightsSnap = histRowHeightsRef.current[hidxRef.current] ?? rowHeights;
     setEtapas(snap);
+    setRealce(realcarAlteracoes(prev, snap));   // realça o que o desfazer mudou; nunca sobra o realce da edição desfeita
     setCustomCols(colsSnap);
     setFeriadosCfg(feriadosSnap);
     setHiddenCols(new Set(hiddenColsSnap));
@@ -3558,6 +3570,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     const hiddenColsSnap = histHiddenColsRef.current[hidxRef.current] ?? [...hiddenCols];
     const rowHeightsSnap = histRowHeightsRef.current[hidxRef.current] ?? rowHeights;
     setEtapas(snap);
+    setRealce(realcarAlteracoes(prev, snap));   // realça o que o refazer mudou
     setCustomCols(colsSnap);
     setFeriadosCfg(feriadosSnap);
     setHiddenCols(new Set(hiddenColsSnap));
@@ -4081,6 +4094,8 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   canRedo={hidxRef.current < histRef.current.length - 1}
                   focusTaskId={histFocus}
                   selecaoRef={selecaoListaRef}
+                  realce={realce}
+                  onLimparRealce={() => setRealce(null)}
                   vinculos={vinculos}
                   orcamentoItensMap={orcamentoItensMap}
                   readOnly={readOnly}
