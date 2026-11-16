@@ -44,6 +44,7 @@ import { passaCondicoes, passaCor, coresDaColuna } from './filtroCondicaoPure';
 import { repartirLarguras, minimosCabem } from './larguraColunasPdfPure';
 import { recorteEsquerdoDoMarquee, clipPathDoMarquee } from './marqueePure';
 import { montarSomasDosGrupos } from './excelSomaGrupos';
+import { niveisDeAgrupamento, aplicarAgrupamentoNaPlanilha, aplicarNivelDeLinhaNoXlsx } from './excelAgrupamentoPure';
 import { montarTextoDaGrade, textoExibidoParaPlanilha, mesmoTextoCopiado } from './copiaParaPlanilha';
 
 // Fallback estável para a prop `hiddenCols` (evita recriar um Set novo a cada render
@@ -3260,7 +3261,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   };
 
   const exportExcelLista = () => {
-    import('xlsx-js-style').then(mod => {
+    import('xlsx-js-style').then(async mod => {
       const XLSX = mod.utils ? mod : mod.default; // interop: xlsx-js-style não expõe named exports estáticos como o `xlsx`
       const wb      = XLSX.utils.book_new();
       // Colunas visíveis na ordem atual: padrão (colOrder) + personalizadas (customCols não
@@ -3385,8 +3386,28 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       aplicarEstiloLinha(XLSX, ws, HEADER_ROW, visCols.length, XLSX_HEADER_STYLE);
       groupRowIdx.forEach(r => aplicarEstiloLinha(XLSX, ws, r, visCols.length, XLSX_GROUP_ROW_STYLE));
       aplicarEstiloLinha(XLSX, ws, totalRowIdx, visCols.length, XLSX_TOTAL_ROW_STYLE);
+      // Agrupamento do Excel (botões +/- na margem e números 1, 2, 3 no canto): cada linha leva o nível dela na EAP, contado
+      // só entre as linhas que saem (grupo recolhido na Lista sai sem as filhas). O pai fica acima das filhas, como na Lista.
+      // Título, cabeçalho e Total não entram, e nada é escondido: a planilha abre expandida.
+      const maiorNivel = aplicarAgrupamentoNaPlanilha(ws, HEADER_ROW + 1, niveisDeAgrupamento(filtrada));
       XLSX.utils.book_append_sheet(wb, ws, 'Tarefas');
-      XLSX.writeFile(wb, `lista-tarefas-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      const nomeArquivo = `lista-tarefas-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      if (maiorNivel > 0) {
+        // A biblioteca não grava o outlineLevelRow (maior nível de linha), que o Excel usa para desenhar a margem do
+        // agrupamento: ele entra por dentro do zip, como a anotação formatada da Medição.
+        try {
+          const bytes  = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+          const fflate = await import('fflate');
+          const novo   = aplicarNivelDeLinhaNoXlsx(bytes, maiorNivel, fflate);
+          const url = URL.createObjectURL(new Blob([novo], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+          const a = document.createElement('a');
+          a.href = url; a.download = nomeArquivo;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+          return;
+        } catch { /* não deu para remendar o zip: sai o arquivo da biblioteca logo abaixo, que já traz o agrupamento */ }
+      }
+      XLSX.writeFile(wb, nomeArquivo);
     });
   };
 
