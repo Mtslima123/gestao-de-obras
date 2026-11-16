@@ -25,8 +25,8 @@ export const COLUNAS = [
   { id: 'recebido',     rotulo: 'Recebido outra obra', tipo: 'num',   alinha: 'center', larguraPdf: 15, larguraXls: 12 },
   { id: 'origem',       rotulo: 'Origem',              tipo: 'texto', alinha: 'left',   larguraPdf: 30, larguraXls: 22 },
   { id: 'ativos',       rotulo: 'Ativos',              tipo: 'num',   alinha: 'center', larguraPdf: 12, larguraXls: 8 },
-  { id: 'saldo',        rotulo: 'Saldo',               tipo: 'saldo', alinha: 'right',  larguraPdf: 12, larguraXls: 8 },
-  { id: 'status',       rotulo: 'Status',              tipo: 'texto', alinha: 'left',   larguraPdf: 28, larguraXls: 20 },
+  { id: 'saldo',        rotulo: 'Saldo',               tipo: 'saldo', alinha: 'center', larguraPdf: 12, larguraXls: 8 },
+  { id: 'status',       rotulo: 'Status',              tipo: 'texto', alinha: 'center', larguraPdf: 28, larguraXls: 20 },
 ];
 
 // Zero sai em branco no arquivo: só aparece número onde há dado. Vale para o previsto e para as
