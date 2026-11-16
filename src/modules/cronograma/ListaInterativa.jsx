@@ -75,7 +75,11 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Derivados de etapas/vínculos calculados 1x em CronogramaFull (nunca desmonta ao trocar
   // de aba) e repassados por prop — evita recalcular sobre todas as etapas a cada remontagem.
   valorVinculadoMap = {}, custoOrcadoMap = {}, groupVals = {}, succMap = {}, wbsMap = {},
-  focusTaskId = null, selecaoRef = null }) => {
+  focusTaskId = null, selecaoRef = null,
+  // Realce de alterações (estilo Project): Map<idDaTarefa, Set<'inicio'|'duracao'|'fim'>> com as células que a
+  // última edição mudou (ver realceAlteracoesPure.js). Vem do CronogramaFull por prop, e não de estado
+  // da linha, para as linhas que a virtualização monta ao rolar já nascerem realçadas.
+  realce = null, onLimparRealce }) => {
   const toast = useToast();
   const [selectedId,     setSelectedId]     = React.useState(null);
   const [showTaskForm,   setShowTaskForm]   = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
@@ -1993,7 +1997,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Teclado da lista: ligado ao container focável (onKeyDown), não ao document,
   // para as setas moverem a seleção de célula em vez de rolar a página.
   const handleListKeyDown = (ev) => {
-    if (ev.key === 'Escape') { setMarquee(null); cutPendingRef.current = null; if (multiSelCells.length) setMultiSelCells([]); return; } // limpa marching ants, recorte pendente e células soltas
+    // Esc limpa marching ants, recorte pendente, células soltas e o realce de alterações (só chega aqui com a grade
+    // em foco, nunca de dentro de um campo em edição: os editores têm o próprio Esc).
+    if (ev.key === 'Escape') { setMarquee(null); cutPendingRef.current = null; if (multiSelCells.length) setMultiSelCells([]); onLimparRealce?.(); return; }
     // Ctrl/Cmd + Shift + ←/→ : recuar/avançar a seleção. Vem ANTES da navegação por
     // seta (senão a seta moveria a célula) e ANTES do guard de seleção (funciona também
     // com multiSel puro). handleIndent/handleOutdent já usam selectedRowIds().
@@ -2388,7 +2394,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     const eff = { ...(fmt?.__row || {}), ...(fmt?.[colId] || {}) };
     const dragCls = dragOverCol?.id === colId ? `drag-over-col-${dragOverCol.side}` : '';
     const { style: fmtStyle, classes: fmtClasses } = fmtToCss(eff);
-    const cls     = [cell.props.className, dragCls, ...fmtClasses].filter(Boolean).join(' ');
+    // Célula que a última edição mudou (Início/Duração/Término): fundo azul-claro por camada, que não
+    // apaga o tom de grupo, a zebra nem a cor que a pessoa escolheu para a célula (ver .lista-cel-realce).
+    const emRealce = !!realce?.get(taskId)?.has(colId);
+    const cls     = [cell.props.className, dragCls, ...fmtClasses, emRealce && 'lista-cel-realce'].filter(Boolean).join(' ');
     const selStyle = rangeSelStyle(edges);
     // Célula solta marcada com Ctrl+clique: mesma borda azul do retângulo, nas 4 arestas
     // (cada uma é sua própria "ilha", sem vizinho pra compartilhar aresta) — só quando há
@@ -2439,6 +2448,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       className: cls || undefined,
       style: styled,
       'data-ck': taskId + '|' + colId,
+      'data-realce': emRealce ? '1' : undefined,
       onMouseDown: (ev) => {
         if (ev.button !== 0) return; // só o clique esquerdo mexe na seleção; o direito abre o menu
         // Clique dentro de um campo já aberto para edição é do campo, não da grade: sem esta
