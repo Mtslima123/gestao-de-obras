@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LIMITE_RESULTADOS, ancestraisRecolhidos, buscarNaLista, encontrarTudo, normBusca } from '../modules/cronograma/localizarPure';
+import { LIMITE_RESULTADOS, ancestraisRecolhidos, buscarNaLista, encontrarTudo, normBusca, proximoPassoFoco } from '../modules/cronograma/localizarPure';
 
 const t = (id, campos = {}) => ({ id, etapa: '', resp: '', parentId: null, isGroup: false, collapsed: false, ...campos });
 const colunas = [{ id: 'etapa', label: 'Nome da tarefa' }, { id: 'resp', label: 'Responsável' }, { id: 'status', label: 'Status' }];
@@ -94,5 +94,38 @@ describe('ancestraisRecolhidos', () => {
   it('pai que não é grupo ou que não existe mais não quebra', () => {
     expect(ancestraisRecolhidos([t('a', { parentId: 'fantasma' })], 'a')).toEqual([]);
     expect(ancestraisRecolhidos([t('p', { collapsed: true }), t('c', { parentId: 'p' })], 'c')).toEqual([]); // não é isGroup
+  });
+});
+
+describe('proximoPassoFoco (mostrar uma tarefa escondida na Lista)', () => {
+  const base = { existe: true, visivel: false, gruposRecolhidos: 0, filtrosAtivos: false, abriu: false, limpou: false };
+
+  it('tarefa que já aparece: só rolar e selecionar', () => {
+    expect(proximoPassoFoco({ ...base, visivel: true })).toBe('rolar');
+    // estando visível, nem grupo recolhido nem filtro entram na conta
+    expect(proximoPassoFoco({ ...base, visivel: true, gruposRecolhidos: 2, filtrosAtivos: true })).toBe('rolar');
+  });
+
+  it('tarefa que não existe mais desiste, mesmo com o resto', () => {
+    expect(proximoPassoFoco({ ...base, existe: false, gruposRecolhidos: 1, filtrosAtivos: true })).toBe('desistir');
+  });
+
+  it('grupo recolhido a esconde: abre primeiro', () => {
+    expect(proximoPassoFoco({ ...base, gruposRecolhidos: 1 })).toBe('abrir');
+    expect(proximoPassoFoco({ ...base, gruposRecolhidos: 2, filtrosAtivos: true })).toBe('abrir');
+  });
+
+  it('depois de abrir, se ainda some e há filtro, limpa o filtro', () => {
+    expect(proximoPassoFoco({ ...base, filtrosAtivos: true })).toBe('limpar');
+    expect(proximoPassoFoco({ ...base, gruposRecolhidos: 1, filtrosAtivos: true, abriu: true })).toBe('limpar');
+  });
+
+  it('cada correção vale uma vez: commit barrado (grupo segue recolhido) não repete o abrir', () => {
+    expect(proximoPassoFoco({ ...base, gruposRecolhidos: 1, abriu: true })).toBe('desistir');
+    expect(proximoPassoFoco({ ...base, filtrosAtivos: true, abriu: true, limpou: true })).toBe('desistir');
+  });
+
+  it('escondida sem causa conhecida (sem grupo recolhido, sem filtro) desiste', () => {
+    expect(proximoPassoFoco(base)).toBe('desistir');
   });
 });

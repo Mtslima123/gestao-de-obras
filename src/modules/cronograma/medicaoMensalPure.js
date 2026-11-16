@@ -320,6 +320,59 @@ export function previstoDefasado(registro, aoVivo, tolerancia = 0.005) {
   return acumulado || mes ? { acumulado, mes } : null;
 }
 
+// Linhas do modal de confirmação do "Atualizar previsto": uma por campo que divergiu, na mesma ordem do
+// aviso da tela (acumulado primeiro). `de` é o que está congelado hoje e `para` o que o cronograma indica
+// agora, que é o que a confirmação vai gravar. Parte do resultado de previstoDefasado, então o modal e o
+// aviso laranja nunca contam histórias diferentes.
+export function linhasPrevistoDefasado(defasado) {
+  if (!defasado) return [];
+  return [
+    defasado.acumulado && { chave: 'acumulado', rotulo: 'Previsto acumulado', de: defasado.acumulado.congelado, para: defasado.acumulado.atual },
+    defasado.mes && { chave: 'mes', rotulo: 'Previsto do mês', de: defasado.mes.congelado, para: defasado.mes.atual },
+  ].filter(Boolean);
+}
+
+// Duplo clique numa linha de tarefa da Medição leva à Lista, mas só quando o clique foi "no resto da
+// linha": controles (campo do % medido, check, botão de observação, remover...) e a célula inteira do %
+// medido (marcada com data-sem-duplo-clique) ficam de fora, senão editar o % ou clicar rápido no check
+// trocaria de aba. Também ignora o clique que NÃO está dentro da linha no DOM: a janela da observação é
+// renderizada por portal dentro do <td>, e o evento sintético do React sobe pela árvore de componentes
+// até a <tr> mesmo vindo de fora dela (duplo clique para selecionar uma palavra do texto navegaria).
+// Recebe os elementos por parâmetro para testar sem DOM.
+const SELETOR_CONTROLE_DA_LINHA = 'input, button, select, textarea, a, label, [data-sem-duplo-clique]';
+export function ehDuploCliqueNaLinha({ alvo, linha }) {
+  const el = alvo && alvo.nodeType === 3 ? alvo.parentElement : alvo;
+  if (!el || !linha) return false;
+  if (typeof linha.contains === 'function' && !linha.contains(el)) return false;
+  const controle = typeof el.closest === 'function' ? el.closest(SELETOR_CONTROLE_DA_LINHA) : null;
+  // `closest` sobe além da linha; um <label>/<a> que envolvesse a tabela inteira não pode valer como controle.
+  if (controle && (typeof linha.contains !== 'function' || linha.contains(controle))) return false;
+  return true;
+}
+
+// Memória da tela da Medição entre trocas de aba (busca, pavimento, filtros de coluna, estrutura e mês).
+// Fica num objeto guardado acima do componente (CronogramaFull, que não desmonta ao trocar de aba) e some
+// sozinha ao recarregar a página. Leva o id da obra: só vale para ela, então trocar de obra começa limpo.
+export function lerMemoriaMedicao(memoria, obraId) {
+  return memoria && obraId && memoria.obraId === obraId ? memoria : null;
+}
+// Grava SUBSTITUINDO tudo (o objeto é o mesmo, para a referência guardada no CronogramaFull continuar
+// valendo): chave que o estado novo não traz some, em vez de sobrar da obra anterior.
+export function gravarMemoriaMedicao(memoria, obraId, estado) {
+  if (!memoria || !obraId) return;
+  Object.keys(memoria).forEach(k => { delete memoria[k]; });
+  Object.assign(memoria, estado, { obraId });
+}
+
+// Mês com que a Medição nasce: o que a pessoa estava vendo (memória), se ainda existe no cronograma; senão
+// o último escolhido no navegador (localStorage); senão o padrão (mês atual ou o último do cronograma).
+export function escolherMesDaMedicao({ lembrado, salvo, months, padrao }) {
+  const existe = (k) => !!k && months.some(m => m.key === k);
+  if (existe(lembrado)) return lembrado;
+  if (existe(salvo)) return salvo;
+  return padrao;
+}
+
 // Anotação livre da medição (medicoes_mensais.anotacoes): um texto por obra + mês, além da
 // observação de cada tarefa. Só se edita com a medição aberta.
 // O limite conta só o texto que se vê (as marcas de negrito e cor não entram).

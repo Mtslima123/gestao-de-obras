@@ -11,6 +11,7 @@ import {
   LIMITE_ANOTACAO, normalizarAnotacao, linhasDaAnotacao,
   PALETA_ANOTACAO, lerAnotacao, escreverAnotacao, textoPuroDaAnotacao, anotacaoTemFormato,
   quebrarRunsEmLinhas, siRicoDoExcel, aplicarTextoRicoNoXlsx,
+  linhasPrevistoDefasado, ehDuploCliqueNaLinha, lerMemoriaMedicao, gravarMemoriaMedicao, escolherMesDaMedicao,
 } from '../modules/cronograma/medicaoMensalPure';
 import { dateToOffset } from '../modules/cronograma/cronogramaDateUtils';
 
@@ -893,5 +894,123 @@ describe('chavePavimento', () => {
     expect(chavePavimento('garagem   elevada')).toBe(chavePavimento('Garagem Elevada'));
     expect(chavePavimento('   ')).toBe('—');
     expect(chavePavimento(undefined)).toBe('—');
+  });
+});
+
+describe('linhasPrevistoDefasado (linhas do modal de confirmação do Atualizar previsto)', () => {
+  it('um item por campo que divergiu, acumulado primeiro, com de (congelado) e para (cronograma hoje)', () => {
+    const r = linhasPrevistoDefasado({ acumulado: { congelado: 28.24, atual: 27.6 }, mes: { congelado: 5.17, atual: 4.53 } });
+    expect(r).toEqual([
+      { chave: 'acumulado', rotulo: 'Previsto acumulado', de: 28.24, para: 27.6 },
+      { chave: 'mes', rotulo: 'Previsto do mês', de: 5.17, para: 4.53 },
+    ]);
+  });
+
+  it('só o campo que mudou entra', () => {
+    expect(linhasPrevistoDefasado({ acumulado: null, mes: { congelado: 5.17, atual: 4.53 } }).map(l => l.chave)).toEqual(['mes']);
+    expect(linhasPrevistoDefasado({ acumulado: { congelado: 1, atual: 2 }, mes: null }).map(l => l.chave)).toEqual(['acumulado']);
+  });
+
+  it('sem diferença (null de previstoDefasado) não tem linha', () => {
+    expect(linhasPrevistoDefasado(null)).toEqual([]);
+    expect(linhasPrevistoDefasado(undefined)).toEqual([]);
+  });
+
+  it('parte de previstoDefasado: o que o aviso mostra é o que o modal lista', () => {
+    const aberta = { status: 'rascunho', perc_previsto: 5.17, perc_previsto_acumulado: 28.24 };
+    const r = linhasPrevistoDefasado(previstoDefasado(aberta, { percPrevisto: 4.53, percPrevistoAcumulado: 27.6 }));
+    expect(r.map(l => [l.de, l.para])).toEqual([[28.24, 27.6], [5.17, 4.53]]);
+  });
+});
+
+describe('ehDuploCliqueNaLinha (duplo clique na tarefa da Medição abre a Lista)', () => {
+  // Elementos falsos (o vitest roda em node, sem DOM): `controle` é o que `closest` devolve para o alvo.
+  const linhaCom = (...filhos) => ({ contains: (el) => filhos.includes(el) });
+  const el = (controle = null) => ({ nodeType: 1, closest: () => controle });
+
+  it('clique comum no texto ou nas células da linha vale', () => {
+    const alvo = el();
+    expect(ehDuploCliqueNaLinha({ alvo, linha: linhaCom(alvo) })).toBe(true);
+  });
+
+  it('clique no campo do % medido, no check, no + ou em qualquer controle da linha não vale', () => {
+    const controle = el();
+    const alvo = el(controle);
+    expect(ehDuploCliqueNaLinha({ alvo, linha: linhaCom(alvo, controle) })).toBe(false);
+  });
+
+  it('a célula marcada data-sem-duplo-clique (o % ao lado do campo) também não vale', () => {
+    const celula = el();
+    const alvo = el(celula);
+    expect(ehDuploCliqueNaLinha({ alvo, linha: linhaCom(alvo, celula) })).toBe(false);
+  });
+
+  it('clique fora da linha no DOM (janela da observação, por portal) não vale', () => {
+    const alvo = el();
+    expect(ehDuploCliqueNaLinha({ alvo, linha: linhaCom() })).toBe(false);
+  });
+
+  it('controle que envolve a tabela inteira (acima da linha) não tira o valor do clique', () => {
+    const acimaDaLinha = el();
+    const alvo = el(acimaDaLinha);
+    expect(ehDuploCliqueNaLinha({ alvo, linha: linhaCom(alvo) })).toBe(true);
+  });
+
+  it('nó de texto usa o elemento pai; sem alvo ou sem linha não vale', () => {
+    const pai = el();
+    const texto = { nodeType: 3, parentElement: pai };
+    expect(ehDuploCliqueNaLinha({ alvo: texto, linha: linhaCom(pai) })).toBe(true);
+    expect(ehDuploCliqueNaLinha({ alvo: null, linha: linhaCom() })).toBe(false);
+    expect(ehDuploCliqueNaLinha({ alvo: pai, linha: null })).toBe(false);
+  });
+});
+
+describe('memória da Medição entre trocas de aba', () => {
+  it('só devolve a memória da mesma obra', () => {
+    const memoria = { obraId: 'A', busca: 'viaplus', pavimento: 'Subsolo' };
+    expect(lerMemoriaMedicao(memoria, 'A')).toBe(memoria);
+    expect(lerMemoriaMedicao(memoria, 'B')).toBeNull();
+    expect(lerMemoriaMedicao(memoria, null)).toBeNull();
+    expect(lerMemoriaMedicao({}, 'A')).toBeNull();
+    expect(lerMemoriaMedicao(undefined, 'A')).toBeNull();
+  });
+
+  it('gravar guarda o estado com o id da obra e mantém a mesma referência do objeto', () => {
+    const memoria = {};
+    gravarMemoriaMedicao(memoria, 'A', { busca: 'x', mesRefKey: '2026-10' });
+    expect(memoria).toEqual({ obraId: 'A', busca: 'x', mesRefKey: '2026-10' });
+    expect(lerMemoriaMedicao(memoria, 'A').mesRefKey).toBe('2026-10');
+  });
+
+  it('gravar outra obra substitui tudo: nada da obra anterior sobra', () => {
+    const memoria = {};
+    gravarMemoriaMedicao(memoria, 'A', { busca: 'x', pavimento: 'Subsolo', filtrosColuna: { dur: {} } });
+    gravarMemoriaMedicao(memoria, 'B', { busca: 'y' });
+    expect(memoria).toEqual({ obraId: 'B', busca: 'y' });
+    expect(lerMemoriaMedicao(memoria, 'A')).toBeNull();
+  });
+
+  it('sem objeto ou sem obra não faz nada nem quebra', () => {
+    expect(() => gravarMemoriaMedicao(undefined, 'A', { busca: 'x' })).not.toThrow();
+    const memoria = { obraId: 'A', busca: 'x' };
+    gravarMemoriaMedicao(memoria, null, { busca: 'y' });
+    expect(memoria).toEqual({ obraId: 'A', busca: 'x' });
+  });
+});
+
+describe('escolherMesDaMedicao (mês com que a Medição abre)', () => {
+  const months = [{ key: '2026-09' }, { key: '2026-10' }, { key: '2026-11' }];
+
+  it('o mês lembrado (a pessoa estava nele) ganha de todos', () => {
+    expect(escolherMesDaMedicao({ lembrado: '2026-09', salvo: '2026-10', months, padrao: '2026-11' })).toBe('2026-09');
+  });
+
+  it('lembrado que não existe mais no cronograma cai no salvo no navegador', () => {
+    expect(escolherMesDaMedicao({ lembrado: '2025-01', salvo: '2026-10', months, padrao: '2026-11' })).toBe('2026-10');
+  });
+
+  it('sem lembrado nem salvo válido, usa o padrão', () => {
+    expect(escolherMesDaMedicao({ lembrado: undefined, salvo: null, months, padrao: '2026-11' })).toBe('2026-11');
+    expect(escolherMesDaMedicao({ lembrado: null, salvo: '2020-01', months, padrao: '2026-11' })).toBe('2026-11');
   });
 });

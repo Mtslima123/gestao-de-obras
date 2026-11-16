@@ -27,6 +27,7 @@ import {
   hidratarSnapshot, computeArvoreForaDoMes, detectarDefasagem, mesesDaMedicao, mesesDoSeletor, ordenarPavimentos, chavePavimento,
   aplicarAlteracoes, previstoDefasado, LIMITE_ANOTACAO, normalizarAnotacao, linhasDaAnotacao,
   lerAnotacao, textoPuroDaAnotacao, anotacaoTemFormato, quebrarRunsEmLinhas, siRicoDoExcel, aplicarTextoRicoNoXlsx,
+  linhasPrevistoDefasado, ehDuploCliqueNaLinha, lerMemoriaMedicao, gravarMemoriaMedicao, escolherMesDaMedicao,
 } from './medicaoMensalPure';
 import { EditorAnotacao } from './EditorAnotacao';
 
@@ -231,6 +232,47 @@ function textoPrevistoDesatualizado({ acumulado, mes }) {
     acumulado && `Previsto acumulado congelado em ${fmtPct100(acumulado.congelado)}; o cronograma hoje indica ${fmtPct100(acumulado.atual)}`,
     mes && `Previsto do mês congelado em ${fmtPct100(mes.congelado)}; hoje ${fmtPct100(mes.atual)}`,
   ].filter(Boolean).join(' · ');
+}
+
+// Confirmação do botão "Atualizar previsto" (medição aberta). Atualizar regrava o previsto do mês e o
+// acumulado e congela de novo, então um clique errado não pode fazer isso sozinho: o modal mostra de quanto
+// para quanto cada previsto vai (as mesmas linhas do aviso laranja, ver linhasPrevistoDefasado) e só o botão
+// de confirmar executa. Usa o overlay padrão do Modal (Esc e clique fora cancelam), ao contrário dos
+// modais vizinhos, que são sem fundo e só fecham por Esc ou pelos botões.
+function ModalAtualizarPrevisto({ mesRefKey, linhas, salvando, onClose, onConfirmar }) {
+  return (
+    <Modal
+      title="Atualizar previsto"
+      subtitle={mesLabel(mesRefKey)}
+      onClose={onClose}
+      footer={
+        <>
+          <div className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-dark" disabled={salvando} onClick={onConfirmar}>
+            <Icon name="refresh-cw" size={14} />{salvando ? 'Atualizando…' : 'Atualizar previsto'}
+          </button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5, color: 'var(--text-soft)', marginBottom: 8 }}>
+        O previsto desta medição está congelado desde que ela foi aberta. Ao confirmar, ele passa a
+        refletir o que o cronograma indica hoje:
+      </p>
+      <ul style={{ margin: '0 0 10px', paddingLeft: 18, fontSize: 13.5 }}>
+        {linhas.map(l => (
+          <li key={l.chave}>
+            <strong>{l.rotulo}:</strong> de {fmtPct100(l.de)} para {fmtPct100(l.para)}
+          </li>
+        ))}
+      </ul>
+      <p style={{ fontSize: 13, color: 'var(--text-soft)' }}>
+        Só o previsto muda: o % medido, os itens, as observações, as anotações e o status da medição
+        ficam como estão. Os valores antigos deixam de existir nesta medição e o previsto volta a ficar
+        congelado nos novos.
+      </p>
+    </Modal>
+  );
 }
 
 // Bloqueia "Aprovar" — não é só um aviso: sem atualizar, não tem como continuar. O botão
@@ -632,6 +674,13 @@ export default function MedicaoMensal({
   reprogramacoes = [], obraNome = 'Projeto', hideChrome = false, pavimentosOrdem = [], onSalvarOrdemPavimentos,
   // salvoEm do cronograma guardado no aparelho (sem internet, ver Cronograma.jsx), ou null.
   dadosDoAparelho = null, onTentarConexao,
+  // Objeto mutável guardado no CronogramaFull (que não desmonta ao trocar de aba): a tela deixa nele o que a
+  // pessoa estava vendo (mês, busca, pavimento, filtros de coluna, estrutura) e relê ao voltar. Não vai para
+  // localStorage de propósito: recarregar a página zera. Sem ele (uso avulso) a tela funciona como antes.
+  memoriaRef = null,
+  // Duplo clique numa tarefa: o CronogramaFull abre a Lista com ela selecionada. Ausente quando não faz sentido
+  // (modo foco/mobile, aba Lista bloqueada para o perfil).
+  onAbrirNaLista = null,
 }) {
   const toast = useToast();
   const isMobile = useIsMobile();
@@ -648,11 +697,18 @@ export default function MedicaoMensal({
   // Chute inicial, só pra tela não nascer vazia enquanto listarMeses não volta do banco:
   // assim que a lista de medições chega, o efeito mais abaixo reposiciona no mês da
   // medição mais recente (ver autoMesRefObraRef).
-  const [mesRefKey, setMesRefKey] = React.useState(() => {
-    const salvo = carregarMesRefMedicao(obraId);
-    if (salvo && months.some(m => m.key === salvo)) return salvo;
-    return mesAtualOuUltimo(months);
+  // O que a pessoa deixou na tela ao sair desta aba (só da mesma obra), lido UMA vez na montagem. Cópia, porque
+  // o objeto da memória é regravado a cada mudança e `lembrado` só pode refletir o momento da montagem.
+  const [lembrado] = React.useState(() => {
+    const m = lerMemoriaMedicao(memoriaRef?.current, obraId);
+    return m ? { ...m } : null;
   });
+  const [mesRefKey, setMesRefKey] = React.useState(() => escolherMesDaMedicao({
+    lembrado: lembrado?.mesRefKey,
+    salvo: carregarMesRefMedicao(obraId),
+    months,
+    padrao: mesAtualOuUltimo(months),
+  }));
   React.useEffect(() => { if (obraId && mesRefKey) salvarMesRefMedicao(obraId, mesRefKey); }, [obraId, mesRefKey]);
   React.useEffect(() => {
     if (months.length && !months.some(m => m.key === mesRefKey)) setMesRefKey(months[months.length - 1].key);
@@ -712,12 +768,14 @@ export default function MedicaoMensal({
     return () => { vivo = false; sair(); };
   }, [obraId, mesRefKey]);
   const [salvando, setSalvando] = React.useState(false);
-  const [busca, setBusca] = React.useState('');
-  const [pavimento, setPavimento] = React.useState('Todos');
+  const [busca, setBusca] = React.useState(lembrado?.busca ?? '');
+  const [pavimento, setPavimento] = React.useState(lembrado?.pavimento ?? 'Todos');
   const [ordemPavAberto, setOrdemPavAberto] = React.useState(false);
   // Filtros de coluna (menu da setinha no cabeçalho), no mesmo formato da Lista: por coluna, lista de valores
-  // marcados ou condição. Valem só para a tela, como busca e pavimento, e somem ao trocar de mês ou obra.
-  const [filtrosColuna, setFiltrosColuna] = React.useState({});
+  // marcados ou condição. Valem só para a tela, como busca e pavimento: somem ao trocar de mês ou obra e ao
+  // recarregar a página, mas sobrevivem à troca de aba (ver `memoriaRef`).
+  const [filtrosColuna, setFiltrosColuna] = React.useState(lembrado?.filtrosColuna ?? {});
+  const [mostrarConfirmPrevisto, setMostrarConfirmPrevisto] = React.useState(false);
   const [mostrarConfirmFechar, setMostrarConfirmFechar] = React.useState(false);
   const [mostrarConfirmReabrir, setMostrarConfirmReabrir] = React.useState(false);
   const [mostrarConfirmAprovar, setMostrarConfirmAprovar] = React.useState(false);
@@ -769,12 +827,12 @@ export default function MedicaoMensal({
   const [notaDrafts, setNotaDrafts] = React.useState({});
 
   // Grupos recolhidos (ids). Local: recolher aqui não mexe no cronograma.
-  const [collapsed, setCollapsed] = React.useState(() => new Set());
+  const [collapsed, setCollapsed] = React.useState(() => lembrado?.collapsed ?? new Set());
   // Último nível escolhido no select "Estrutura", só para o select mostrar o que foi
   // aplicado (em vez de sempre voltar a "Escolher…"). Some de novo assim que um chevron
   // é clicado à mão, porque nesse momento deixa de ser verdade que a árvore inteira está
   // naquele nível — ver alternarGrupo.
-  const [nivelEstrutura, setNivelEstrutura] = React.useState('');
+  const [nivelEstrutura, setNivelEstrutura] = React.useState(lembrado?.nivelEstrutura ?? '');
 
   // Recolher a faixa de filtros/ações — mesma ideia do ribbon da Lista, só que aqui é um
   // toggle único (sem abas). Persistido por navegador (não por obra: é preferência de tela).
@@ -1113,7 +1171,10 @@ export default function MedicaoMensal({
   // que ficavam apontando pra um mês sem medição nenhuma. Só na 1ª carga de cada obra: a
   // ref impede de reposicionar o seletor depois, já que listarMeses roda de novo a cada
   // salvamento e jogaria o usuário de volta pra cá no meio da navegação.
-  const autoMesRefObraRef = React.useRef(null);
+  // Voltando de outra aba (há memória desta obra) a pessoa já está no mês que estava vendo: o salto para a
+  // medição mais recente vale só na 1ª entrada da obra desde que a página carregou. Sem isso ele pularia o mês
+  // lembrado e o reset por troca de mês (mais abaixo) apagaria os filtros que ela acabou de recuperar.
+  const autoMesRefObraRef = React.useRef(lembrado ? obraId : null);
   React.useEffect(() => {
     if (!obraId || autoMesRefObraRef.current === obraId) return;
     if (!months.length || !mesesComMedicao.length) return;
@@ -1318,7 +1379,8 @@ export default function MedicaoMensal({
   // (resumidas em 1 linha) — igual ao "Recolher tudo", mas só no nível 0: abrir uma
   // etapa (alternarGrupo) já mostra a subárvore inteira dela, sem subníveis colapsados
   // por baixo. Roda 1x por mesRefKey (a ref evita repetir ao só re-renderizar).
-  const autoColapsouMobileRef = React.useRef(null);
+  // Já começa marcado com o mês lembrado: o que a pessoa deixou recolhido/aberto não é sobrescrito na volta.
+  const autoColapsouMobileRef = React.useRef(lembrado?.mesRefKey ?? null);
   React.useEffect(() => {
     // Com pavimento escolhido a árvore fica toda aberta (escolherPavimento) — não recolhe de novo.
     if (mobileView && pavimento === 'Todos' && nivel0Ids.length > 0 && autoColapsouMobileRef.current !== mesRefKey) {
@@ -1330,7 +1392,7 @@ export default function MedicaoMensal({
   // Ao escolher um pavimento, tudo vem expandido: a árvore só mostra os pais das tarefas que
   // casam com o filtro, então abrir tudo mostra exatamente o que interessa. O estado de
   // expansão de antes fica guardado e volta ao escolher "Todos".
-  const antesDoPavimentoRef = React.useRef(null); // { collapsed, nivel }
+  const antesDoPavimentoRef = React.useRef(lembrado?.antesDoPavimento ?? null); // { collapsed, nivel }
   const escolherPavimento = (p) => {
     if (p === 'Todos') {
       const antes = antesDoPavimentoRef.current;
@@ -1344,11 +1406,30 @@ export default function MedicaoMensal({
     setPavimento(p);
   };
   // Trocar de mês descarta o filtro (o pavimento pode nem existir no mês novo) e o estado guardado.
+  // Só quando o mês ou a obra mudam DE VERDADE: o efeito também roda na montagem, e ao voltar de outra aba
+  // isso apagaria o que acabou de ser recuperado da memória. Trocar de OBRA com a tela aberta zera também
+  // busca e estrutura (tudo é da obra anterior), para a memória não carregar isso para a obra nova.
+  const contextoAnteriorRef = React.useRef({ obraId, mesRefKey });
   React.useEffect(() => {
+    const anterior = contextoAnteriorRef.current;
+    if (anterior.obraId === obraId && anterior.mesRefKey === mesRefKey) return;
+    contextoAnteriorRef.current = { obraId, mesRefKey };
     setPavimento('Todos');
     setFiltrosColuna({});
     antesDoPavimentoRef.current = null;
+    if (anterior.obraId !== obraId) {
+      setBusca('');
+      setCollapsed(new Set());
+      setNivelEstrutura('');
+    }
   }, [mesRefKey, obraId]);
+  // Deixa na memória do CronogramaFull o que a pessoa está vendo, para a próxima montagem desta aba (ver
+  // `lembrado`). É ref, não estado: digitar na busca não pode re-renderizar o CronogramaFull inteiro.
+  React.useEffect(() => {
+    gravarMemoriaMedicao(memoriaRef?.current, obraId, {
+      mesRefKey, busca, pavimento, filtrosColuna, collapsed, nivelEstrutura, antesDoPavimento: antesDoPavimentoRef.current,
+    });
+  }, [memoriaRef, obraId, mesRefKey, busca, pavimento, filtrosColuna, collapsed, nivelEstrutura]);
   // gruposParaNivel recolhe grupos de nivel >= alvo-1, então o alvo útil vai até o
   // nível do grupo mais fundo + 1. Acima disso nada recolhe, e a opção seria inócua.
   const nivelMax = React.useMemo(
@@ -1824,6 +1905,18 @@ export default function MedicaoMensal({
     setRegistro(r => (r ? { ...r, perc_previsto: data.perc_previsto, perc_previsto_acumulado: data.perc_previsto_acumulado } : r));
     toast('Previsto atualizado a partir do cronograma', { tone: 'success', icon: 'check' });
   };
+  // O botão "Atualizar previsto" só ABRE a confirmação; quem grava é o botão do modal.
+  const linhasPrevisto = React.useMemo(() => linhasPrevistoDefasado(previstoDesatualizado), [previstoDesatualizado]);
+  const confirmarAtualizarPrevisto = async () => {
+    await atualizarPrevisto();
+    setMostrarConfirmPrevisto(false);
+  };
+  // Se o previsto deixou de divergir com o modal aberto (o cronograma voltou ao que era, ou a medição foi
+  // atualizada por outro caminho), fecha: sem isso o estado ficaria ligado e o modal reapareceria sozinho na
+  // próxima divergência.
+  React.useEffect(() => {
+    if (mostrarConfirmPrevisto && linhasPrevisto.length === 0) setMostrarConfirmPrevisto(false);
+  }, [mostrarConfirmPrevisto, linhasPrevisto]);
 
   // Anotações da medição: texto livre do mês, além da observação de cada tarefa. `bloqueado` cobre
   // medição fechada/aprovada, somente-leitura e ainda carregando: nesses casos a janela abre só para
@@ -2544,7 +2637,7 @@ export default function MedicaoMensal({
               {textoPrevistoDesatualizado(previstoDesatualizado)}
             </span>
             {!readOnly && (
-              <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={atualizarPrevisto}>
+              <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={() => setMostrarConfirmPrevisto(true)}>
                 <Icon name="refresh-cw" size={13} />{salvando ? 'Atualizando…' : 'Atualizar previsto'}
               </button>
             )}
@@ -2682,7 +2775,13 @@ export default function MedicaoMensal({
                 // Fora do mês não faz parte do previsto: peso zero (soma só ao realizado).
                 const peso = (l.foraDoMes || !valorTotalBase) ? 0 : (l.valor / valorTotalBase) * 100;
                 return (
+                  // Duplo clique na tarefa abre a Lista com ela selecionada e no meio da tela. Só no resto
+                  // da linha: campo do % medido, check, observação e remover ficam de fora (ver
+                  // ehDuploCliqueNaLinha). Só tarefas: linha de grupo usa o clique para recolher/expandir.
                   <tr key={l.id}
+                    onDoubleClick={onAbrirNaLista
+                      ? (ev) => { if (ehDuploCliqueNaLinha({ alvo: ev.target, linha: ev.currentTarget })) onAbrirNaLista(l.id); }
+                      : undefined}
                     style={l.foraDoMes ? { background: 'var(--warning-bg)' } : undefined}>
                     <td className="num">{numeroServico(l)}</td>
                     <td>
@@ -2765,7 +2864,9 @@ export default function MedicaoMensal({
                         <span className="pct">{fmtPct100(l.percExecutado)}</span>
                       </div>
                     </td>
-                    <td className="center">
+                    {/* Célula inteira fora do duplo clique: ao editar o %, clicar rápido no "%" ou na folga
+                        ao lado do campo não pode trocar de aba. */}
+                    <td className="center" data-sem-duplo-clique>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                         <input
                           className="input medicao-input-medido"
@@ -2969,7 +3070,7 @@ export default function MedicaoMensal({
                 {textoPrevistoDesatualizado(previstoDesatualizado)}
               </span>
               {!readOnly && (
-                <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={atualizarPrevisto}>
+                <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12.5 }} disabled={salvando} onClick={() => setMostrarConfirmPrevisto(true)}>
                   <Icon name="refresh-cw" size={13} />Atualizar
                 </button>
               )}
@@ -3260,6 +3361,16 @@ export default function MedicaoMensal({
           salvando={salvando}
           onClose={() => setMostrarConfirmDesaprovar(false)}
           onConfirmar={confirmarDesaprovacao}
+        />
+      )}
+
+      {mostrarConfirmPrevisto && linhasPrevisto.length > 0 && (
+        <ModalAtualizarPrevisto
+          mesRefKey={mesRefKey}
+          linhas={linhasPrevisto}
+          salvando={salvando}
+          onClose={() => setMostrarConfirmPrevisto(false)}
+          onConfirmar={confirmarAtualizarPrevisto}
         />
       )}
 

@@ -61,3 +61,15 @@ export const ancestraisRecolhidos = (etapas, taskId) => {
   }
   return ids;
 };
+
+// Próximo passo para MOSTRAR uma tarefa na Lista (duplo clique na Medição): 'rolar' (já está na lista, é só
+// selecionar e centralizar), 'abrir' (grupos recolhidos a escondem), 'limpar' (filtros da Lista a escondem) ou
+// 'desistir'. Cada correção vale uma vez só (abriu/limpou): se o commit for barrado (cronograma do aparelho,
+// conflito de versão) o grupo continua recolhido, e sem essas marcas o passo repetiria para sempre.
+export const proximoPassoFoco = ({ existe, visivel, gruposRecolhidos = 0, filtrosAtivos = false, abriu = false, limpou = false }) => {
+  if (!existe) return 'desistir';
+  if (visivel) return 'rolar';
+  if (gruposRecolhidos > 0 && !abriu) return 'abrir';
+  if (filtrosAtivos && !limpou) return 'limpar';
+  return 'desistir';
+};
