@@ -1406,8 +1406,23 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       aguardarListaMudar(a);
     } else if (passo === 'rolar') {
       encerrarFoco();
-      const cell = { taskId: a.id, colId: 'etapa' };
-      setSelectedCell(cell); setSelAnchor(cell); setSelectedId(a.id);
+      // Linha INTEIRA selecionada, no mesmo formato do clique na calha (primeira à última coluna visível):
+      // quem veio da Medição quer ver a tarefa inteira em destaque, não só a célula do nome. Sem
+      // scrollColIntoView de propósito: a célula ativa fica na última coluna e rolar até ela jogaria a
+      // tabela para a direita.
+      const cols = visibleColIds();
+      if (cols.length) {
+        setSelAnchor({ taskId: a.id, colId: cols[0] });
+        setSelectedCell({ taskId: a.id, colId: cols[cols.length - 1] });
+      } else {
+        const cell = { taskId: a.id, colId: 'etapa' };
+        setSelectedCell(cell); setSelAnchor(cell);
+      }
+      setSelectedId(a.id);
+      // Sem sobra de seleção anterior somando com a linha nova (selectedRowIds junta tudo).
+      setMultiSel([]); setMultiSelCols([]); setMultiSelCells([]);
+      // Foco na grade, como depois de clicar na calha: setas, Ctrl+C e Delete já valem para a linha.
+      listaScrollRef.current?.focus?.({ preventScroll: true });
       // Depois do render da seleção, com a lista já no DOM.
       requestAnimationFrame(() => centralizarLinha(a.id));
     } else {
@@ -1421,7 +1436,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   React.useEffect(() => { if (alvoFocoRef.current) avancarFoco(); }, [filtrada]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => () => encerrarFoco(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Foco externo (undo/redo, "Editar tarefa", duplo clique na Medição): seleciona a tarefa e rola até ela. Com
+  // Foco externo (undo/redo, "Editar tarefa", duplo clique na Medição): seleciona a tarefa e rola até ela (a
+  // Medição seleciona a LINHA inteira; os demais, só a célula do nome). Com
   // `selecao` (undo/redo de uma ação feita na Lista) devolve a seleção inteira daquela ação: as mesmas células,
   // soltas ou em intervalo, e rola até a célula ativa. Com `revelar` (Medição) a tarefa também é mostrada se
   // estiver escondida e fica no meio da tela (ver avancarFoco).
