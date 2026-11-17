@@ -1365,7 +1365,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     }, 120);
   };
 
-  // Foco "revelar" (duplo clique numa tarefa da Medição): a tarefa pode estar escondida por grupo recolhido ou
+  // Foco "revelar" (duplo clique numa tarefa da Medição ou numa predecessora/sucessora do painel de Detalhes,
+  // ver irParaTarefa): a tarefa pode estar escondida por grupo recolhido ou
   // por filtro. Cada passo corrige uma causa (proximoPassoFoco, que não deixa repetir o mesmo passo) e o efeito
   // de `filtrada` volta aqui quando a lista muda, para o passo seguinte. Os grupos abrem como no "Localizar"
   // (silencioso e fora do histórico). Se o commit for barrado (cronograma do aparelho, conflito de versão) a
@@ -1431,6 +1432,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     }
   };
   avancarFocoRef.current = avancarFoco;
+  // Vai até uma tarefa: mostra se estiver escondida, seleciona a linha inteira e centraliza. Serve ao foco
+  // vindo de fora (duplo clique na Medição) e ao duplo clique numa predecessora/sucessora do painel de Detalhes,
+  // que são o mesmo pedido, só que feito de dentro da Lista.
+  const irParaTarefa = (id) => {
+    if (!id) return;
+    encerrarFoco();
+    alvoFocoRef.current = { id, abriu: false, limpou: false, timer: null };
+    avancarFoco();
+  };
   // ANTES do efeito de foco (a ordem importa): na montagem este não faz nada, porque o pedido ainda não existe;
   // o efeito do foco o cria e dá o 1º passo sozinho. Invertida, o passo rodaria duas vezes na montagem.
   React.useEffect(() => { if (alvoFocoRef.current) avancarFoco(); }, [filtrada]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1444,9 +1454,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   React.useEffect(() => {
     if (!focusTaskId?.id) return;
     if (focusTaskId.revelar) {
-      encerrarFoco();
-      alvoFocoRef.current = { id: focusTaskId.id, abriu: false, limpou: false, timer: null };
-      avancarFoco();
+      irParaTarefa(focusTaskId.id);
       return;
     }
     const alvo = etapas.find(e => e.id === focusTaskId.id);
@@ -5317,6 +5325,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
             canNext={idx >= 0 && idx < visible.length - 1}
             onPrev={() => { if (idx > 0) setSelectedId(visible[idx - 1].id); }}
             onNext={() => { if (idx >= 0 && idx < visible.length - 1) setSelectedId(visible[idx + 1].id); }}
+            onAbrirTarefa={irParaTarefa}
             onClose={() => setShowTaskForm(false)}
           />
         );
