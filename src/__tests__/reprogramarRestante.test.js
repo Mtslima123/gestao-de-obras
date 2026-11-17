@@ -233,13 +233,40 @@ describe('reprogramarRestante', () => {
       expect(s.dep.every(d => d.tipo === 'TT' && d.lag === 3)).toBe(true);
     });
 
-    it('II e IT vão só para o executado (que mantém o início original), senão a sucessora andaria ~1 mês', () => {
+    // Decisão de 17/11/2026 (antes II e IT iam só para o executado): a tarefa não foi concluída, o
+    // restante faz parte dela, então quem dependia do início dela também depende do restante.
+    it('II e IT também vão para as DUAS folhas, com o mesmo tipo e lag, e deixam de depender do grupo', () => {
       ['II', 'IT'].forEach((tipo) => {
         const out = reprogramarRestante('T1', cenario([{ id: 'T1', tipo, lag: 2 }]));
-        const { fechado } = folhas(out);
+        const { fechado, restante } = folhas(out);
         const s = out.find(e => e.id === 'S');
-        expect(s.dep).toEqual([{ id: fechado.id, tipo, lag: 2 }]);
+        expect(s.dep.map(d => d.id).sort()).toEqual([fechado.id, restante.id].sort());
+        expect(s.dep.every(d => d.tipo === tipo && d.lag === 2)).toBe(true);
+        expect(s.dep.some(d => d.id === 'T1')).toBe(false);
       });
+    });
+
+    it('II: a sucessora passa a esperar o INÍCIO do restante (1º do mês seguinte); a de TI segue o fim do grupo (caso 192 e 99)', () => {
+      const etapas = [
+        ...cenario([{ id: 'T1', tipo: 'II', lag: 0 }]),
+        baseTarefa({ id: 'S2', displayId: 13, etapa: 'Sucessora TI', avanco: 0, dep: [{ id: 'T1', tipo: 'TI', lag: 0 }] }),
+      ];
+      const out = reprogramarRestante('T1', etapas);
+      const { fechado, restante } = folhas(out);
+      const porII = out.find(e => e.id === 'S');
+      const porTI = out.find(e => e.id === 'S2');
+      expect(porII.inicio).toBe(restante.inicio);
+      expect(porII.inicio).toBeGreaterThan(fechado.inicio);
+      expect(porTI.inicio).toBe(taskEnd(out.find(e => e.id === 'T1')));
+    });
+
+    it('as duas folhas aparecem como predecessoras da sucessora II na Lista e ela é Sucessora das duas', () => {
+      const out = reprogramarRestante('T1', cenario([{ id: 'T1', tipo: 'II', lag: 0 }]));
+      const { fechado, restante } = folhas(out);
+      const succ = computeSuccessors(out);
+      expect(succ[fechado.id]).toEqual(['S']);
+      expect(succ[restante.id]).toEqual(['S']);
+      expect(succ['T1']).toEqual([]);
     });
 
     it('as outras predecessoras da sucessora ficam como estavam, e dependência em formato antigo (texto) também é religada', () => {

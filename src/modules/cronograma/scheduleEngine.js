@@ -701,8 +701,10 @@ export function updateParentBounds(etapas) {
 // ficava presa ao grupo: arrastar o "restante" no Gantt não a movia, as folhas novas ficavam sem
 // Sucessora e o caminho crítico parava no grupo.
 //  - TI e TT: nas DUAS folhas. O fim do restante domina, então as datas não mudam.
-//  - II e IT: só no "executado", que mantém o início original. Nas duas, o início do restante
-//    (1º do mês seguinte) empurraria a sucessora cerca de 1 mês e acusaria conflito falso.
+//  - II e IT: também nas DUAS folhas (decisão de 17/11/2026; antes iam só no "executado", desde
+//    20/10). A tarefa não foi concluída, o restante faz parte dela, então quem dependia do início
+//    dela passa a esperar o início do restante (1º do mês seguinte). Efeito conhecido e desejado:
+//    a sucessora anda cerca de 1 mês, e a Sucessora do restante também aparece na Lista.
 // Só mexe em quem dependia de `originalId`; as outras predecessoras da sucessora ficam intactas.
 function religarSucessoras(etapas, originalId, fechadoId, restanteId) {
   const aponta = (d) => (typeof d === 'string' ? d : d.id) === originalId;
@@ -715,8 +717,7 @@ function religarSucessoras(etapas, originalId, fechadoId, restanteId) {
       if (!aponta(d)) { dep.push(d); return; }
       const base = typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d;
       const tipo = base.tipo || 'TI';
-      const destinos = (tipo === 'II' || tipo === 'IT') ? [fechadoId] : [fechadoId, restanteId];
-      destinos.forEach(id => { if (!tem(id, tipo)) dep.push({ ...base, id }); });
+      [fechadoId, restanteId].forEach(id => { if (!tem(id, tipo)) dep.push({ ...base, id }); });
     });
     return { ...e, dep };
   });
