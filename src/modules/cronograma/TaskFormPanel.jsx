@@ -7,6 +7,7 @@ import { Icon } from '../../components/Icons';
 import { useToast } from '../../components/Modals';
 import { offsetToISO, taskEndDisplay, isoToBR } from './cronogramaDateUtils';
 import { commitFieldChange, autoScheduleFromDeps, computeGroupValues, computeSuccessors, computeRowNumberMap, criaCiclo, mensagemDeCiclo } from './scheduleEngine';
+import { ehDuploCliqueNaLinha } from './medicaoMensalPure';
 
 const DEP_TIPOS = ['TI', 'TT', 'II', 'IT'];
 const PANEL_H = 220; // também serve de altura mínima ao arrastar
@@ -16,7 +17,7 @@ const labelSt = { fontSize: 10.5, fontWeight: 600, color: 'var(--text-faint)', t
 const thSt = { padding: '5px 8px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-faint)', textAlign: 'right', borderBottom: '1px solid var(--border)', background: 'var(--surface-muted)' };
 const tdSt = { padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid var(--border-subtle, rgba(0,0,0,0.06))' };
 
-export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext, onClose }) => {
+export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPrev, canNext, onPrev, onNext, onAbrirTarefa, onClose }) => {
   const toast = useToast();
   const [novoPredId, setNovoPredId] = React.useState('');
   const [novoSuccId, setNovoSuccId] = React.useState('');
@@ -118,6 +119,19 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
     const dur = gvT ? gvT.dur : t.dur;
     return { ini: isoToBR(offsetToISO(ini)), fim: isoToBR(offsetToISO(taskEndDisplay({ ...t, inicio: ini, dur }))) };
   };
+  // Duplo clique numa predecessora/sucessora leva a seleção até ela (só a Lista passa onAbrirTarefa; no Gantt as
+  // linhas seguem sem essa ação). Fica de fora o clique nos controles da linha (Tipo, Lat., ×), senão editar o
+  // vínculo navegaria. Vale também com o painel travado (grupo/somente leitura): navegar não edita nada. Sem a
+  // tarefa no cronograma (vínculo órfão) não há para onde ir.
+  const duploCliqueNaTarefa = (alvo) => (onAbrirTarefa && alvo
+    ? (ev) => {
+      if (!ehDuploCliqueNaLinha({ alvo: ev.target, linha: ev.currentTarget })) return;
+      // O duplo clique selecionaria uma palavra do nome; a seleção da Lista é que deve ficar em destaque.
+      window.getSelection?.()?.removeAllRanges();
+      onAbrirTarefa(alvo.id);
+    }
+    : undefined);
+  const dicaIrParaTarefa = onAbrirTarefa ? ' (duplo clique para ir até a tarefa)' : '';
   const succIds = succMap[task.id] || [];
   const reschedule = (novas) => onCommit(autoScheduleFromDeps(novas));
   const updateSucc = (sid, patch) => reschedule(etapas.map(e => {
@@ -228,9 +242,9 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
                   // predecessora — se o "×" clicado tinha o foco, ele ficava "herdado" por esse
                   // <tr> reciclado em vez de sumir, e o Ctrl+Z seguinte podia cair sobre um
                   // elemento de formulário errado.
-                  <tr key={d.id}>
+                  <tr key={d.id} onDoubleClick={duploCliqueNaTarefa(pred)}>
                     <td style={{ ...tdSt, width: 30 }}>{numeroDaLinha(d.id)}</td>
-                    <td style={{ ...tdSt, textAlign: 'left' }} title={paiNome(pred) ? `${paiNome(pred)} · ${pred?.etapa ?? ''}` : (pred?.etapa ?? '')}>
+                    <td style={{ ...tdSt, textAlign: 'left' }} title={(paiNome(pred) ? `${paiNome(pred)} · ${pred?.etapa ?? ''}` : (pred?.etapa ?? '')) + (pred ? dicaIrParaTarefa : '')}>
                       {pred?.etapa ?? '—'}
                       {paiNome(pred) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(pred)}</div>}
                     </td>
@@ -300,9 +314,9 @@ export const TaskFormPanel = ({ task, etapas, onCommit, readOnly = false, canPre
                 const lag = typeof link === 'string' ? 0 : (link?.lag ?? 0);
                 const datas = datasDe(st);
                 return (
-                  <tr key={sid}>
+                  <tr key={sid} onDoubleClick={duploCliqueNaTarefa(st)}>
                     <td style={{ ...tdSt, width: 30 }}>{numeroDaLinha(sid)}</td>
-                    <td style={{ ...tdSt, textAlign: 'left' }} title={paiNome(st) ? `${paiNome(st)} · ${st?.etapa ?? ''}` : (st?.etapa ?? '')}>
+                    <td style={{ ...tdSt, textAlign: 'left' }} title={(paiNome(st) ? `${paiNome(st)} · ${st?.etapa ?? ''}` : (st?.etapa ?? '')) + (st ? dicaIrParaTarefa : '')}>
                       {st?.etapa ?? '—'}
                       {paiNome(st) && <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>em {paiNome(st)}</div>}
                     </td>
