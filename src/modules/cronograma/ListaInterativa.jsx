@@ -2768,15 +2768,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     return () => document.removeEventListener('keydown', handler);
   }, [readOnly]);
 
-  // Abre (seleciona/rola até) a sucessora de um par em conflito, a partir do popover
-  // de conflitos da faixa — mesma ação do badge equivalente no Gantt.
-  const focarTarefaConflito = (taskId) => {
-    const alvo = filtrada.find(e => e.id === taskId);
-    if (!alvo) return; // fora do filtro/grupo recolhido atual — mesma limitação de Localizar
-    const cell = { taskId: alvo.id, colId: 'etapa' };
-    setSelectedCell(cell); setSelAnchor(cell); setSelectedId(alvo.id);
-    scrollRowIntoView(alvo.id);
-  };
+  // O popover de conflitos da faixa abre a sucessora de um par em conflito por irParaTarefa (a mesma ação
+  // do duplo clique da Medição): abre o grupo recolhido e limpa o filtro que escondam a tarefa, seleciona a
+  // linha inteira e centraliza. Antes só procurava entre as linhas visíveis (`filtrada`) e desistia em
+  // silêncio: com a sucessora dentro de um grupo recolhido, o clique no conflito não fazia nada.
 
   // ── Localizar (Ctrl+L) ───────────────────────────────────────────────────────
   // Procura em TODAS as colunas visíveis, pelo texto que aparece na célula (colFilterValue), sem
@@ -3751,7 +3746,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                 </button>
               )}
               <ConflitosPopover ativos={conflitosAtivos} confirmados={conflitosConfirmados} etapas={etapas}
-                numeroDaLinha={numeroDaLinha} onAbrir={focarTarefaConflito}
+                numeroDaLinha={numeroDaLinha} onAbrir={irParaTarefa}
                 onOk={onConflitoOk} onDesfazer={onConflitoOkDesfazer} podeEditar={!readOnly && !!onConflitoOk} />
               <span style={{ fontSize: 11.5, color: 'var(--text-faint)', marginLeft: 8 }}>{visible.length} de {etapas.length} tarefas</span>
               <button
@@ -4153,7 +4148,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           <TaskMultiSelectFilter
                             etapas={etapas} wbsMap={wbsMap}
                             selectedIds={filtroTaskIds} onApply={ids => setFiltroTaskIds?.(ids)}
-                            buttonStyle={{ width: 140 }}
+                            // Largura mínima que comporta o maior texto ("Tarefa: 1408 selecionadas", ~178 px
+                            // medidos) e nowrap: com 140 px o texto quebrava em duas linhas dentro dos 26 px do
+                            // botão. Fixa para todos os textos, senão a faixa de filtros "pula" ao marcar tarefas.
+                            buttonStyle={{ minWidth: 184, whiteSpace: 'nowrap' }}
                           />
                         </div>
                         {temFiltro && (
