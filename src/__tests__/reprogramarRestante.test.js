@@ -64,21 +64,24 @@ describe('reprogramarRestante', () => {
     // A 7ª depende (TI) da 6ª. Reprogramadas as duas no mesmo mês, os dois restantes caem no
     // dia 1º do mês seguinte. Com "deve iniciar em" o da 7ª ficava cravado no mesmo dia do da
     // 6ª e acusava conflito; com "não iniciar antes de" ele passa para depois do término do da 6ª.
-    const sexta = baseTarefa({ id: 'T6', etapa: '6º Tipo II', dur: 4, avanco: 50 });
-    const setima = baseTarefa({ id: 'T7', etapa: '7º Tipo II', dur: 4, avanco: 50, dep: [{ id: 'T6', tipo: 'TI', lag: 0 }] });
+    // A 7ª é dividida ANTES da 6ª (ordem do caso real), então o "(executado)" 100% da 7ª já existe
+    // quando a 6ª é dividida: ele não pode ficar preso ao restante da 6ª (ver religarSucessoras).
+    const sexta = baseTarefa({ id: 'T6', etapa: '6º Tipo II', inicio: dateToOffset('2024-03-01'), dur: 10, avanco: 50 });
+    const setima = baseTarefa({ id: 'T7', etapa: '7º Tipo II', inicio: dateToOffset('2024-03-15'), dur: 10, avanco: 50, dep: [{ id: 'T6', tipo: 'TI', lag: 0 }] });
     const depoisDa7 = reprogramarRestante('T7', [sexta, setima]);
     const out = reprogramarRestante('T6', depoisDa7);
 
-    const restante = (idPai) => out.find(e => e.parentId === idPai && e.avanco === 0);
-    const r6 = restante('T6');
-    const r7 = restante('T7');
+    const folha = (idPai, avanco) => out.find(e => e.parentId === idPai && e.avanco === avanco);
+    const f6 = folha('T6', 100), r6 = folha('T6', 0);
+    const f7 = folha('T7', 100), r7 = folha('T7', 0);
     expect(r6.inicio).toBe(dateToOffset('2024-04-01'));
     expect(r7.restricaoTipo).toBe('snet');
     // o restante da 7ª começa quando o da 6ª termina, e não no mesmo dia 1º
     expect(r7.inicio).toBeGreaterThanOrEqual(taskEnd(r6));
-    // Só o restante é checado: o "(executado)" da 7ª é 100% (data congelada) e herda o vínculo com
-    // o restante da 6ª, o que continua acusando conflito (caso à parte, não coberto por esta regra).
-    expect(gmConflicts(out).filter(c => c.succ === r7.id)).toEqual([]);
+    // restante espera os dois pedaços da 6ª; o executado (100%) liga só ao executado da 6ª
+    expect(r7.dep.map(d => d.id).sort()).toEqual([f6.id, r6.id].sort());
+    expect(f7.dep.map(d => d.id)).toEqual([f6.id]);
+    expect(gmConflicts(out)).toEqual([]);
   });
 
   it('o restante cai no mês seguinte ao INÍCIO da tarefa, mesmo quando o executado termina no último dia útil do mês (caso que pulava um mês)', () => {
@@ -266,6 +269,27 @@ describe('reprogramarRestante', () => {
         expect(s.dep.every(d => d.tipo === tipo && d.lag === 2)).toBe(true);
         expect(s.dep.some(d => d.id === 'T1')).toBe(false);
       });
+    });
+
+    // 18/11/2026 (caso ÍON 709): o "(executado)" de outra tarefa dividida antes é 100% e tem data
+    // congelada. Ligado ao restante (futuro) ele acusava conflito que o agendador não desfaz.
+    it('sucessora já concluída (100%) liga só ao executado, em qualquer tipo, e não acusa conflito', () => {
+      ['TI', 'TT', 'II', 'IT'].forEach((tipo) => {
+        const out = reprogramarRestante('T1', cenario(
+          [{ id: 'T1', tipo, lag: 0 }],
+          { avanco: 100, inicio: dateToOffset('2024-03-20'), dur: 2 },
+        ));
+        const { fechado } = folhas(out);
+        const s = out.find(e => e.id === 'S');
+        expect(s.dep).toEqual([{ id: fechado.id, tipo, lag: 0 }]);
+        expect(gmConflicts(out).filter(c => c.succ === 'S')).toEqual([]);
+      });
+    });
+
+    it('sucessora quase concluída (99%) continua nas DUAS folhas: só 100% fica congelada', () => {
+      const out = reprogramarRestante('T1', cenario([{ id: 'T1', tipo: 'TI', lag: 0 }], { avanco: 99 }));
+      const { fechado, restante } = folhas(out);
+      expect(out.find(e => e.id === 'S').dep.map(d => d.id).sort()).toEqual([fechado.id, restante.id].sort());
     });
 
     it('II: a sucessora passa a esperar o INÍCIO do restante (1º do mês seguinte); a de TI segue o fim do grupo (caso 192 e 99)', () => {

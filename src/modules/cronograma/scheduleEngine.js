@@ -710,6 +710,9 @@ export function updateParentBounds(etapas) {
 //    dela passa a esperar o início do restante (1º do mês seguinte). Efeito conhecido e desejado:
 //    a sucessora anda cerca de 1 mês, e a Sucessora do restante também aparece na Lista.
 // Só mexe em quem dependia de `originalId`; as outras predecessoras da sucessora ficam intactas.
+//  - Sucessora JÁ CONCLUÍDA (100%, data congelada, ex.: o "(executado)" de outra tarefa dividida antes):
+//    liga só ao "(executado)". Ela não pode esperar o restante, que é trabalho futuro: o agendador não
+//    move tarefa concluída, então o vínculo com o restante acusaria um conflito sem saída.
 function religarSucessoras(etapas, originalId, fechadoId, restanteId) {
   const aponta = (d) => (typeof d === 'string' ? d : d.id) === originalId;
   return etapas.map(e => {
@@ -717,11 +720,12 @@ function religarSucessoras(etapas, originalId, fechadoId, restanteId) {
     if (!(e.dep || []).some(aponta)) return e;
     const dep = [];
     const tem = (id, tipo) => dep.some(x => x.id === id && (x.tipo || 'TI') === tipo);
+    const destinos = (e.avanco ?? 0) >= 100 ? [fechadoId] : [fechadoId, restanteId];
     (e.dep || []).forEach(d => {
       if (!aponta(d)) { dep.push(d); return; }
       const base = typeof d === 'string' ? { id: d, tipo: 'TI', lag: 0 } : d;
       const tipo = base.tipo || 'TI';
-      [fechadoId, restanteId].forEach(id => { if (!tem(id, tipo)) dep.push({ ...base, id }); });
+      destinos.forEach(id => { if (!tem(id, tipo)) dep.push({ ...base, id }); });
     });
     return { ...e, dep };
   });
