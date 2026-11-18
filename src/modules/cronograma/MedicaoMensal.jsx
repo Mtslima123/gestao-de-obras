@@ -29,6 +29,7 @@ import {
   lerAnotacao, textoPuroDaAnotacao, anotacaoTemFormato, quebrarRunsEmLinhas, siRicoDoExcel, aplicarTextoRicoNoXlsx,
   linhasPrevistoDefasado, ehDuploCliqueNaLinha, lerMemoriaMedicao, gravarMemoriaMedicao, escolherMesDaMedicao,
 } from './medicaoMensalPure';
+import { usePosicaoDaTela } from './usePosicaoDaTela';
 import { EditorAnotacao } from './EditorAnotacao';
 
 // Medição Mensal — aba do módulo Cronograma. Gera a medição físico-financeira do
@@ -714,9 +715,15 @@ export default function MedicaoMensal({
   // Duplo clique numa tarefa: o CronogramaFull abre a Lista com ela selecionada. Ausente quando não faz sentido
   // (modo foco/mobile, aba Lista bloqueada para o perfil).
   onAbrirNaLista = null,
+  // Posição de cada aba guardada no CronogramaFull (ver usePosicaoDaTela.js): a rolagem da tabela e da página
+  // volta de onde a pessoa deixou. Sem ela (uso avulso) a tela nasce no início, como antes.
+  posicaoRef = null,
 }) {
   const toast = useToast();
   const isMobile = useIsMobile();
+  // A tabela só existe depois que os dados chegam; o helper espera o conteúdo crescer até a posição guardada.
+  const rolagemRef = React.useRef(null);
+  usePosicaoDaTela({ memoriaRef: posicaoRef, chave: 'medicao', obraId, elementoRef: rolagemRef });
   // O design mobile (accordion/cards) só vale dentro do "modo foco" do Mobile Gate
   // (hideChrome) — "Acessar sistema completo" sempre mostra a tabela clássica, não
   // importa a largura real da tela (isMobile sozinho não decide mais o layout).
@@ -2698,7 +2705,7 @@ export default function MedicaoMensal({
 
         {/* flex:1 + minHeight:0 dá a rolagem por dentro do card; sem o minHeight o
             flex item não encolhe e o scroll vaza para a página. */}
-        <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+        <div ref={rolagemRef} style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
           {/* tbl-lista: cabeçalho azul e altura de linha fina, os mesmos da Lista. */}
           <table className="tbl tbl-lista tbl-medicao" style={{ minWidth: 1240, '--lista-row-h': '24px' }}>
             <colgroup>

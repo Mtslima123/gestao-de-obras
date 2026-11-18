@@ -24,6 +24,7 @@ import { GM_START_YEAR, GM_START_MONTH, GM_TOTAL, GM_DAY_W, GM_BAR_H, GM_ROW_H,
          XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE,
          aplicarEstiloLinha } from './cronogramaShared';
 import { classificarConflitos } from './conflitosOkPure';
+import { usePosicaoDaTela } from './usePosicaoDaTela';
 
 // Dropdown de linha de base com lista rolável (altura máxima + barra de rolagem),
 // para não crescer demais quando há muitas reprogramações salvas.
@@ -82,13 +83,27 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   vinculos = [],
   // custoOrcadoMap/groupVals calculados 1x em CronogramaFull (nunca desmonta ao trocar de
   // aba) e repassados por prop — evita recalcular sobre todas as etapas a cada remontagem.
-  custoOrcadoMap = {}, groupVals = {} }) => {
+  custoOrcadoMap = {}, groupVals = {},
+  // Posição de cada aba guardada no CronogramaFull (ver usePosicaoDaTela.js); sem ela o Gantt nasce no início.
+  posicaoRef = null }) => {
   const toast = useToast();
   // Número da LINHA (calha da Lista) de todas as tarefas: é o que o popover de conflitos e o texto de
   // Predecessora (export) mostram. `rowNumberMap` (prop) é o ID permanente, da coluna ID da lateral.
   const fullRowNumberMap = React.useMemo(() => computeRowNumberMap(etapas), [etapas]);
   const numeroDaLinha = (id) => fullRowNumberMap[id] ?? id;
-  const [selected,    setSel]      = React.useState(new Set());
+  // Voltar de outra aba devolve o Gantt onde foi deixado: rolagem da página e da grade e tarefas selecionadas.
+  // Só muda quando a pessoa rola/seleciona de novo; recarregar a página zera (ver usePosicaoDaTela.js).
+  const cRef      = React.useRef(null);
+  const selecionadasRef = React.useRef(null); // seleção mais recente, guardada ao sair da aba
+  const { salva: posicaoSalva } = usePosicaoDaTela({
+    memoriaRef: posicaoRef, chave: 'gantt', obraId, elementoRef: cRef,
+    coletarExtra: () => ({ selected: [...(selecionadasRef.current || [])] }),
+  });
+  const [selected,    setSel]      = React.useState(() => {
+    const salvas = posicaoSalva?.extra?.selected || [];
+    return new Set(salvas.filter(id => etapas.some(e => e.id === id))); // tarefa pode ter saído enquanto estava fora
+  });
+  selecionadasRef.current = selected;
   const [showTaskForm, setShowTaskForm] = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
   // Ctrl+1 abre/fecha o painel Detalhes (o mesmo atalho da Lista). Sem Shift nem Alt (AltGr+1 digita "¹"
   // no teclado ABNT2) e sem repetir enquanto a tecla fica pressionada.
@@ -139,7 +154,6 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   const [tooltip,     setTip]      = React.useState(null);
   const [draft,       setDraft]    = React.useState(null);
 
-  const cRef      = React.useRef(null);
   const etapasRef = React.useRef(etapas);  // ref para event handlers (evita closures stale)
   const dragged   = React.useRef(false);
   const ganttRef  = React.useRef(null);
@@ -214,6 +228,8 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
   // Evita que tarefas fora do período atual fiquem completamente fora da tela
   React.useEffect(() => {
     if (!cRef.current) return;
+    // Voltando de outra aba a rolagem lateral já foi devolvida ao lugar onde a pessoa deixou (usePosicaoDaTela).
+    if (posicaoSalva) return;
     const folhas = etapas.filter(e => !e.isGroup);
     const minInicio = folhas.length ? Math.min(...folhas.map(e => e.inicio)) : today;
     const alvo = Math.min(today, minInicio);
@@ -696,6 +712,8 @@ export const GanttInterativo = ({ etapas, rowNumberMap = {}, onCommit, undo, red
     estimateSize: () => GM_ROW_H,
     overscan: 24, // buffer maior: rolagem rápida não expõe os spacers (linhas em branco)
     getItemKey: (i) => visible[i]?.id ?? i,
+    // Voltando de outra aba a janela já nasce na posição guardada, sem piscar no topo antes de rolar.
+    initialOffset: posicaoSalva?.top ?? 0,
   });
   const virtualize = visible.length > VIRT_MIN;
   const vItems  = rowVirt.getVirtualItems();
