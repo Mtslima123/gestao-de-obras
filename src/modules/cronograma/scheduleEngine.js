@@ -692,8 +692,12 @@ export function updateParentBounds(etapas) {
 
 // Reprograma o restante de uma tarefa parcialmente executada: a fatia já feita
 // (avanco%) vira uma tarefa fechada (100%) onde a tarefa já estava; o que falta
-// vira uma tarefa nova começando no dia 1 do mês seguinte a hoje, com data fixa
-// (mso). A tarefa original vira um grupo e as sucessoras que apontavam pro id dela passam a
+// vira uma tarefa nova começando no dia 1 do mês seguinte a hoje, com a restrição "não iniciar
+// antes de" (snet) nessa data. Não pode ser "deve iniciar em" (mso): esse tipo ignora as
+// predecessoras, e dois restantes encadeados (o da 7ª depende do da 6ª) ficavam os dois cravados
+// no mesmo dia 1º, com conflito de precedência que o motor não conseguia desfazer. Com snet o
+// restante ainda nunca começa antes do dia 1º, mas espera as predecessoras quando elas terminam
+// depois. A tarefa original vira um grupo e as sucessoras que apontavam pro id dela passam a
 // apontar pras duas folhas novas (ver religarSucessoras); nenhuma outra tarefa muda de lugar,
 // de número (ID permanente) ou de dependência.
 // Religa as sucessoras da tarefa que acabou de virar grupo: cada dependência que apontava pro
@@ -788,7 +792,7 @@ export function reprogramarRestante(etapaId, etapas) {
     inicio: proxMes, dur: restanteDur,
     avanco: 0, status: 'upcoming',
     dep: cloneDep(),
-    restricaoTipo: 'mso', restricaoData: proxMesISO,
+    restricaoTipo: 'snet', restricaoData: proxMesISO,
     custo: restanteCusto, custoRealizado: restanteCustoRealizado,
     fator_peso: Math.max(0, 100 - perc), valorVinculadoFixo: null,
     modo: 'auto',
