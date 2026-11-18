@@ -39,6 +39,7 @@ import {
   XLSX_SUBTITLE_STYLE, aplicarEstiloLinha,
 } from './cronogramaShared';
 import { classificarConflitos } from './conflitosOkPure';
+import { usePosicaoDaTela } from './usePosicaoDaTela';
 import { celulasAlvoFormatacao, alternarCelulaMarcada, alternarLinhaMarcada } from './alvoFormatacaoPure';
 import { passaCondicoes, passaCor, coresDaColuna } from './filtroCondicaoPure';
 import { repartirLarguras, minimosCabem } from './larguraColunasPdfPure';
@@ -77,12 +78,27 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // de aba) e repassados por prop — evita recalcular sobre todas as etapas a cada remontagem.
   valorVinculadoMap = {}, custoOrcadoMap = {}, groupVals = {}, succMap = {}, wbsMap = {},
   focusTaskId = null, selecaoRef = null,
+  // Posição de cada aba guardada no CronogramaFull (ver usePosicaoDaTela.js); sem ela a Lista nasce no início.
+  posicaoRef = null,
   // Realce de alterações (estilo Project): Map<idDaTarefa, Set<'inicio'|'duracao'|'fim'>> com as células que a
   // última edição mudou (ver realceAlteracoesPure.js). Vem do CronogramaFull por prop, e não de estado
   // da linha, para as linhas que a virtualização monta ao rolar já nascerem realçadas.
   realce = null, onLimparRealce }) => {
   const toast = useToast();
-  const [selectedId,     setSelectedId]     = React.useState(null);
+  // Voltar de outra aba (Medição, Gantt...) devolve a Lista onde foi deixada: rolagem da página e da grade, e a
+  // célula selecionada. Só muda quando a pessoa rola/seleciona de novo, e recarregar a página zera (ver
+  // usePosicaoDaTela.js). Fica aqui em cima porque a seleção inicial e o virtualizador dependem do que foi lido.
+  const listaScrollRef = React.useRef(null); // container rolável da lista (foco p/ navegação por setas)
+  const selecaoAtualRef = React.useRef(null); // seleção mais recente, guardada ao sair da aba
+  const { salva: posicaoSalva } = usePosicaoDaTela({
+    memoriaRef: posicaoRef, chave: 'lista', obraId, elementoRef: listaScrollRef,
+    coletarExtra: () => selecaoAtualRef.current,
+    // Aberta com pedido de foco (duplo clique na Medição, "Editar tarefa"): o foco manda na rolagem.
+    pular: !!focusTaskId?.id,
+  });
+  const selecaoSalva = posicaoSalva?.extra;
+  const tarefaExiste = (id) => id != null && etapas.some(e => e.id === id); // tarefa pode ter saído enquanto estava fora
+  const [selectedId,     setSelectedId]     = React.useState(() => (tarefaExiste(selecaoSalva?.selectedId) ? selecaoSalva.selectedId : null));
   const [showTaskForm,   setShowTaskForm]   = React.useState(false); // painel "Formulário de Tarefa" (estilo Project)
   const [showAddCol,     setShowAddCol]     = React.useState(false);
   const [deleteConfirm,  setDeleteConfirm]  = React.useState(null); // array de ids a excluir (ou null)
@@ -185,8 +201,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const [dragOverId,     setDragOverId]     = React.useState(null);
   const [dragOverPos,    setDragOverPos]    = React.useState('before'); // 'before' | 'after': de que lado da linha sob o cursor a linha arrastada cai
   const [showColPanel,   setShowColPanel]   = React.useState(false);
-  const [selectedCell,   setSelectedCell]   = React.useState(null); // { taskId, colId } — foco ativo (planilha)
-  const [selAnchor,      setSelAnchor]      = React.useState(null); // { taskId, colId } — âncora do intervalo
+  const [selectedCell,   setSelectedCell]   = React.useState(() => (tarefaExiste(selecaoSalva?.selectedCell?.taskId) ? selecaoSalva.selectedCell : null)); // { taskId, colId } — foco ativo (planilha)
+  const [selAnchor,      setSelAnchor]      = React.useState(() => (tarefaExiste(selecaoSalva?.selAnchor?.taskId) ? selecaoSalva.selAnchor : null)); // { taskId, colId } — âncora do intervalo
+  selecaoAtualRef.current = { selectedId, selectedCell, selAnchor };
   const [marquee,        setMarquee]        = React.useState(null); // retângulo "marching ants" da cópia
   const marqueeRef = React.useRef(null); // elemento da moldura: o recorte ao rolar é aplicado direto nele
   const [painterOn,      setPainterOn]      = React.useState(false); // pincel de formatação ativo
@@ -288,7 +305,6 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     if (!el) return;
     setPasteSubmenuFlip(el.getBoundingClientRect().right > window.innerWidth - 8);
   }, [pasteFlyoutOpen]);
-  const listaScrollRef = React.useRef(null); // container rolável da lista (foco p/ navegação por setas)
   // Ctrl+Enter nos editores de Valor (gravam no onBlur): avisa o onBlur que o valor já foi aplicado ao intervalo
   // inteiro por preencherSelecao, para ele só fechar o campo e não sobrescrever o preenchimento.
   const ctrlEnterRef = React.useRef(false);
@@ -797,6 +813,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // vazia e a rede de segurança abaixo renderizava as ~1400 linhas de uma vez — era o
     // travamento ao trocar de aba. Com um retângulo inicial a janela já nasce preenchida.
     initialRect: { width: 1, height: typeof window !== 'undefined' ? window.innerHeight : 800 },
+    // Voltando de outra aba a janela já nasce na posição guardada, sem piscar no topo antes de rolar.
+    initialOffset: posicaoSalva?.top ?? 0,
   });
   const vItems  = rowVirt.getVirtualItems();
   // Rede de segurança: se a janela virtual ficar vazia por um instante (relayout ao editar/

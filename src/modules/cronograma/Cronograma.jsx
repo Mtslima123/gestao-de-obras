@@ -34,6 +34,7 @@ import {
 import { GM_TOTAL, VIRT_MIN, XLSX_HEADER_STYLE, XLSX_GROUP_ROW_STYLE, XLSX_TOTAL_ROW_STYLE, XLSX_TITLE_STYLE, XLSX_SUBTITLE_STYLE, aplicarEstiloLinha } from './cronogramaShared';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { classificarConflitos, confirmarConflitos, desfazerConfirmacao, podarConfirmacoes } from './conflitosOkPure';
+import { gravarPosicao } from './usePosicaoDaTela';
 import { tarefasAlteradas, selecaoTocaMudanca } from './alvoFormatacaoPure';
 import { realcarAlteracoes } from './realceAlteracoesPure';
 import { campoDeTextoFocado } from './campoDeTextoPure';
@@ -2729,6 +2730,17 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // estado para digitar na busca não re-renderizar este componente inteiro; e não vai para localStorage de
   // propósito: recarregar a página (F5, "Atualizar" da PWA) zera.
   const medicaoMemoriaRef = React.useRef({});
+  // Posição de cada aba (rolagem, seleção) para voltar a ela como foi deixada (ver usePosicaoDaTela.js). Ref
+  // pelo mesmo motivo da memória da Medição: as abas desmontam ao trocar e este componente não; sem
+  // localStorage de propósito, recarregar a página (F5, "Atualizar") volta tudo ao início.
+  const posicaoTelaRef = React.useRef({});
+  // Toda troca de aba passa por aqui: a rolagem da PÁGINA tem de ser lida ANTES de trocar. Depois, o mesmo
+  // commit que desmonta a aba também tira os cartões de indicador (a Medição não os tem) e o navegador
+  // encurta a página, então o scrollY que sobra já não é o que a pessoa deixou.
+  const trocarAba = (id) => {
+    if (id !== view) gravarPosicao(posicaoTelaRef.current, view, obraSel, { pageY: window.scrollY });
+    setView(id);
+  };
   // Duplo clique numa tarefa da Medição: abre a Lista com ela selecionada e no meio da tela. Reaproveita o foco
   // de Desfazer/"Editar tarefa" (histFocus), com `revelar` para a Lista abrir o grupo recolhido e limpar o
   // filtro que escondam a tarefa. A Lista monta já com o foco pronto e o efeito dela roda na montagem.
@@ -2740,7 +2752,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       return;
     }
     setHistFocus({ id, selecao: null, revelar: true, nonce: ++focusNonceRef.current });
-    setView('lista');
+    trocarAba('lista');
   };
   // O foco vale uma vez só. Sem isto, a Lista remontada (Lista, Gantt, Lista) repetiria o foco antigo e, com
   // `revelar`, limparia de novo os filtros que a pessoa acabou de aplicar. Sair da Lista consome o foco; não
@@ -3698,7 +3710,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                 className={(view === a.id ? 'active' : '') + (a.locked ? ' locked' : '')}
                 title={a.locked ? 'Sem acesso a esta aba. Fale com o administrador.' : undefined}
                 aria-disabled={a.locked || undefined}
-                onClick={a.locked ? undefined : () => setView(a.id)}
+                onClick={a.locked ? undefined : () => trocarAba(a.id)}
               >{a.label}</button>
             ))}
           </div>
@@ -3877,7 +3889,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                         </div>
                       </div>
                       <div className="card-body" style={{ padding: 0, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                        <GanttInterativo key={obraSel} obraId={obraSel} etapas={etapas} vinculos={vinculos} rowNumberMap={rowNumberMap} onCommit={commit} onConflitoOk={darOkConflitos} onConflitoOkDesfazer={desfazerOkConflito} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} isAdmin={currentUser.isAdmin} customCols={customCols}
+                        <GanttInterativo key={obraSel} obraId={obraSel} posicaoRef={posicaoTelaRef}etapas={etapas} vinculos={vinculos} rowNumberMap={rowNumberMap} onCommit={commit} onConflitoOk={darOkConflitos} onConflitoOkDesfazer={desfazerOkConflito} undo={undo} redo={redo} canUndo={hidxRef.current > 0} canRedo={hidxRef.current < histRef.current.length - 1} baselineEtapas={baselineEtapas} feriadosCfg={feriadosCfg} onTaskSelect={id => { setDetailId(prev => prev === id ? null : id); setDetailTab('detalhes'); }} readOnly={readOnly} isAdmin={currentUser.isAdmin} customCols={customCols}
                           baselines={baselines} reprogramacoes={reprogramacoes}
                           blVisivelId={blVisivelId} onSelectBaseline={setBlVisivelId}
                           onCriarBaseline={() => setShowCriar(true)} onGerenciarBaselines={() => setShowGerenciar(true)}
@@ -4059,7 +4071,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                               <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
                                 <button className="btn btn-ghost"
                                   style={{ width: '100%', justifyContent: 'center', gap: 6, fontSize: 12.5 }}
-                                  onClick={() => { focarTarefa(detailTask.id); setView('lista'); setDetailId(null); }}>
+                                  onClick={() => { focarTarefa(detailTask.id); trocarAba('lista'); setDetailId(null); }}>
                                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -4117,6 +4129,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   canUndo={hidxRef.current > 0}
                   canRedo={hidxRef.current < histRef.current.length - 1}
                   focusTaskId={histFocus}
+                  posicaoRef={posicaoTelaRef}
                   selecaoRef={selecaoListaRef}
                   realce={realce}
                   onLimparRealce={() => setRealce(null)}
@@ -4173,6 +4186,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   dadosDoAparelho={dadosDoAparelho}
                   onTentarConexao={() => recarregarCronograma()}
                   memoriaRef={medicaoMemoriaRef}
+                  posicaoRef={posicaoTelaRef}
                   onAbrirNaLista={hideChrome || layoutMobileCompleto || !abasCronogramaLiberadas.some(a => a.id === 'lista') ? undefined : abrirTarefaNaLista}
                 />
               )}
