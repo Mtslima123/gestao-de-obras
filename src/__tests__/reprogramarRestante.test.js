@@ -1,11 +1,12 @@
 // Testes de reprogramarRestante — fraciona uma tarefa parcialmente executada em
 // duas: o pedaço já feito (100%, fica onde estava) e o restante (empurrado pro
-// dia 1 do mês seguinte ao término do fragmento já executado, com data fixa).
+// dia 1 do mês seguinte ao término do fragmento já executado, com "não iniciar antes de").
 // Funções puras, rodam em node.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setWorkCal, dateToOffset, offsetToISO, taskEnd } from '../modules/cronograma/cronogramaDateUtils';
 import { reprogramarRestante, commitFieldChange, computeMonthlyDist, computeSuccessors } from '../modules/cronograma/scheduleEngine';
 import { computeValorVinculadoMap } from '../modules/cronograma/ganttUtils';
+import { gmConflicts } from '../modules/cronograma/cronogramaShared';
 
 beforeEach(() => {
   setWorkCal({ dias: [], sabadoUtil: false });
@@ -49,14 +50,35 @@ describe('reprogramarRestante', () => {
     expect(restante.valorVinculadoFixo).toBeNull();
   });
 
-  it('restante fica com restrição mso pro dia 1 do mês seguinte ao término do executado', () => {
+  it('restante fica com "não iniciar antes de" (snet) no dia 1 do mês seguinte ao término do executado', () => {
     const out = reprogramarRestante('T1', [baseTarefa()]);
     const restante = out.find(e => e.parentId === 'T1' && e.avanco === 0);
     // inicio:0 (01/03/2024) + fechadoDur:10 dias úteis -> workEnd(0,10) = offset 14 = 15/03/2024.
-    // Mês seguinte a março/2024 = abril/2024.
-    expect(restante.restricaoTipo).toBe('mso');
+    // Mês seguinte a março/2024 = abril/2024. Sem predecessora mais tardia, começa no dia 1º.
+    expect(restante.restricaoTipo).toBe('snet');
     expect(restante.restricaoData).toBe('2024-04-01');
     expect(restante.inicio).toBe(dateToOffset('2024-04-01'));
+  });
+
+  it('restante cuja predecessora termina depois do dia 1º espera por ela, sem conflito (caso ÍON 706/707/710)', () => {
+    // A 7ª depende (TI) da 6ª. Reprogramadas as duas no mesmo mês, os dois restantes caem no
+    // dia 1º do mês seguinte. Com "deve iniciar em" o da 7ª ficava cravado no mesmo dia do da
+    // 6ª e acusava conflito; com "não iniciar antes de" ele passa para depois do término do da 6ª.
+    const sexta = baseTarefa({ id: 'T6', etapa: '6º Tipo II', dur: 4, avanco: 50 });
+    const setima = baseTarefa({ id: 'T7', etapa: '7º Tipo II', dur: 4, avanco: 50, dep: [{ id: 'T6', tipo: 'TI', lag: 0 }] });
+    const depoisDa7 = reprogramarRestante('T7', [sexta, setima]);
+    const out = reprogramarRestante('T6', depoisDa7);
+
+    const restante = (idPai) => out.find(e => e.parentId === idPai && e.avanco === 0);
+    const r6 = restante('T6');
+    const r7 = restante('T7');
+    expect(r6.inicio).toBe(dateToOffset('2024-04-01'));
+    expect(r7.restricaoTipo).toBe('snet');
+    // o restante da 7ª começa quando o da 6ª termina, e não no mesmo dia 1º
+    expect(r7.inicio).toBeGreaterThanOrEqual(taskEnd(r6));
+    // Só o restante é checado: o "(executado)" da 7ª é 100% (data congelada) e herda o vínculo com
+    // o restante da 6ª, o que continua acusando conflito (caso à parte, não coberto por esta regra).
+    expect(gmConflicts(out).filter(c => c.succ === r7.id)).toEqual([]);
   });
 
   it('o restante cai no mês seguinte ao INÍCIO da tarefa, mesmo quando o executado termina no último dia útil do mês (caso que pulava um mês)', () => {
