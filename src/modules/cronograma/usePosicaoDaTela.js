@@ -1,13 +1,16 @@
 // Posição da tela do Cronograma ao trocar de aba (Lista, Gantt, Medição Mensal).
 //
 // Cada aba é desmontada ao sair (só a ativa existe), então a rolagem e a seleção sumiam e a tela voltava
-// ao início. Aqui a posição fica numa ref guardada acima das abas (CronogramaFull, que não desmonta):
-// sobrevive à troca de aba e some sozinha ao recarregar a página (F5, "Atualizar" da PWA), de propósito.
+// ao início. Aqui a posição fica num objeto guardado acima das abas: CronogramaFull o segura numa ref, mas ele
+// vem de cronogramaCache (`_posicaoTela`), na memória do módulo JavaScript. Assim sobrevive à troca de aba e
+// também à troca de MÓDULO (que desmonta o CronogramaFull inteiro), e some sozinho ao recarregar a página
+// (F5, "Atualizar" da PWA), de propósito.
 //
 // Duas fontes, porque o navegador só dá a posição certa em momentos diferentes:
-//  - rolagem da PÁGINA (pageY): gravada por CronogramaFull no clique da aba, ANTES de trocar. Ler no
-//    desmonte não serve: o mesmo commit já tirou os cartões de indicador da Medição e o navegador encurtou
-//    a página, então o scrollY lido ali viria menor que o que a pessoa deixou.
+//  - rolagem da PÁGINA (pageY): na troca de aba, gravada por CronogramaFull no clique da aba, ANTES de
+//    trocar. Ler no desmonte da aba não serve: o mesmo commit já tirou os cartões de indicador da Medição e
+//    o navegador encurtou a página, então o scrollY lido ali viria menor que o que a pessoa deixou. Na saída
+//    do módulo, é o cleanup de layout do próprio CronogramaFull que grava (roda antes de o DOM dele sair).
 //  - rolagem INTERNA do contêiner da tela (top/left) e `extra` (seleção): gravadas aqui, no desmonte. O
 //    efeito de layout roda antes de o React tirar o DOM, então o contêiner ainda tem a posição certa.
 import React from 'react';

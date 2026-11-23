@@ -8,6 +8,14 @@ export const _cronSavedAt = {}; // { [obraId]: updated_at } — baseline do bloq
 // incremental. Ver etapasPatch.js. Sem isto o save cai no envio do array inteiro.
 export const _cronSavedSnap = {}; // { [obraId]: { porId, ordem, outros } }
 
+// Posição de cada aba do Cronograma (rolagem da página e da grade, seleção): { [aba]: { obraId, pageY, top, left,
+// extra } }, ver usePosicaoDaTela.js. Mora aqui, e não numa ref do CronogramaFull, porque ao trocar de MÓDULO
+// (menu lateral) o CronogramaFull inteiro desmonta e a ref se perdia: a Lista voltava sempre ao início. Como
+// o resto deste arquivo, vive na memória do JavaScript: sobrevive à troca de módulo e some ao recarregar a
+// página (F5, "Atualizar" da PWA), de propósito. Não precisa de invalidação: cada entrada guarda a obra a que
+// pertence e só vale para ela.
+export const _posicaoTela = {};
+
 export function invalidateCronCache(obraId) {
   delete _cronCache[obraId];
   delete _cronSavedAt[obraId];

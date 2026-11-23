@@ -38,7 +38,7 @@ import { gravarPosicao } from './usePosicaoDaTela';
 import { tarefasAlteradas, selecaoTocaMudanca } from './alvoFormatacaoPure';
 import { realcarAlteracoes } from './realceAlteracoesPure';
 import { campoDeTextoFocado } from './campoDeTextoPure';
-import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
+import { _cronCache, _cronSavedAt, _cronSavedSnap, _posicaoTela, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './etapasPatch';
 import { vinculosParaAjustar } from './exclusaoTarefasPure';
 import { GanttInterativo } from './GanttInterativo';
@@ -2731,9 +2731,21 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   // propósito: recarregar a página (F5, "Atualizar" da PWA) zera.
   const medicaoMemoriaRef = React.useRef({});
   // Posição de cada aba (rolagem, seleção) para voltar a ela como foi deixada (ver usePosicaoDaTela.js). Ref
-  // pelo mesmo motivo da memória da Medição: as abas desmontam ao trocar e este componente não; sem
-  // localStorage de propósito, recarregar a página (F5, "Atualizar") volta tudo ao início.
-  const posicaoTelaRef = React.useRef({});
+  // pelo mesmo motivo da memória da Medição: as abas desmontam ao trocar e este componente não. O objeto vem do
+  // cronogramaCache (e não de um `{}` novo) para sobreviver também à troca de MÓDULO, que desmonta este
+  // componente inteiro. Sem localStorage de propósito: recarregar a página (F5, "Atualizar") volta tudo ao início.
+  const posicaoTelaRef = React.useRef(_posicaoTela);
+  // Ao sair do módulo a rolagem da PÁGINA também precisa ser guardada (a da grade e a seleção já são, no desmonte
+  // da própria aba). Aqui o componente que desmonta é este, e o React roda o cleanup de layout de um componente
+  // ANTES de tirar do DOM o que ele desenhou, então o scrollY ainda é o que a pessoa deixou. Não serve para a
+  // troca de aba (ver trocarAba abaixo): lá este componente fica e só a aba sai. Ref porque o cleanup nasce na
+  // montagem e não vê a aba nem a obra de agora.
+  const contextoSaidaRef = React.useRef({});
+  contextoSaidaRef.current = { view, obraSel };
+  React.useLayoutEffect(() => () => {
+    const { view: aba, obraSel: obra } = contextoSaidaRef.current;
+    gravarPosicao(posicaoTelaRef.current, aba, obra, { pageY: window.scrollY });
+  }, []);
   // Toda troca de aba passa por aqui: a rolagem da PÁGINA tem de ser lida ANTES de trocar. Depois, o mesmo
   // commit que desmonta a aba também tira os cartões de indicador (a Medição não os tem) e o navegador
   // encurta a página, então o scrollY que sobra já não é o que a pessoa deixou.
