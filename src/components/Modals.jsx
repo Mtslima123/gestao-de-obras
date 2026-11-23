@@ -164,7 +164,19 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     const aoTerminarTransicao = (e) => { if (e.target === app && e.propertyName === 'padding-left') caberNaTela(); };
     window.addEventListener('resize', caberNaTela);
     app?.addEventListener('transitionend', aoTerminarTransicao);
-    return () => { window.removeEventListener('resize', caberNaTela); app?.removeEventListener('transitionend', aoTerminarTransicao); };
+    // O conteúdo também muda a altura do modal sozinho (ex.: o Vincular tarefas abre baixo e cresce ao marcar as
+    // tarefas, quando aparece a tabela de vínculos). A posição só era calculada ao abrir, com o modal ainda baixo,
+    // então ao crescer o rodapé (botões de ação) ficava abaixo da tela. Observar o tamanho do próprio modal e
+    // reencaixar na tela cobre esse caso; só mexe na posição, nunca no tamanho, então não gera laço.
+    const observador = typeof ResizeObserver !== 'undefined' && nodeRef.current
+      ? new ResizeObserver(caberNaTela)
+      : null;
+    observador?.observe(nodeRef.current);
+    return () => {
+      window.removeEventListener('resize', caberNaTela);
+      app?.removeEventListener('transitionend', aoTerminarTransicao);
+      observador?.disconnect();
+    };
   }, [draggable, resizable]);
 
   // Quando a barra muda (menu fixado ou solto) a largura do modal muda junto, e só depois do render ela é a nova:
