@@ -186,18 +186,23 @@ const TarefaCronogramaSelect = React.memo(({ etapas, rowNumberMap = {}, value, o
               style={{
                 padding: '7px 12px', cursor: disabled ? 'not-allowed' : 'pointer',
                 borderBottom: '1px solid var(--border-subtle)',
-                // Grupo entra depois de selecionado/destacado para não roubar esses estados; a barra
-                // à esquerda é o sinal que sobrevive aos três casos (transparente nas folhas, para alinhar).
-                background: sel ? 'var(--brand-tint)' : i === highlight ? 'var(--surface-muted)' : et.isGroup ? groupTint : 'transparent',
-                borderLeft: et.isGroup ? '3px solid var(--brand)' : '3px solid transparent',
+                // Selecionada = fundo cheio da cor da marca, texto branco e um ✓ no fim. Um tom claro não
+                // servia: os grupos já usam brand-100/50/tint, e a tarefa escolhida (um grupo de nível 2,
+                // por ex.) ficava igual às vizinhas. Grupo entra depois de selecionado/destacado para não
+                // roubar esses estados; a barra à esquerda é o sinal que sobrevive aos casos (transparente
+                // nas folhas, para alinhar).
+                background: sel ? 'var(--brand)' : i === highlight ? 'var(--surface-muted)' : et.isGroup ? groupTint : 'transparent',
+                borderLeft: sel ? '3px solid var(--brand-700)' : et.isGroup ? '3px solid var(--brand)' : '3px solid transparent',
+                color: sel ? '#fff' : undefined,
                 opacity: disabled ? 0.5 : 1,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', minWidth: 34 }}>{rowNumberMap[et.id] ?? et.id}</span>
-                <span style={{ paddingLeft: (et.nivel || 0) * 12, fontWeight: et.isGroup ? 700 : 400, color: et.isGroup ? 'var(--brand)' : undefined }}>{et.etapa}</span>
-                {et.isGroup && <span style={{ fontSize: 10, color: 'var(--brand)', background: 'var(--brand-tint)', borderRadius: 4, padding: '0 5px' }}>grupo</span>}
-                {pai && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>em {pai}</span>}
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: sel ? 'rgba(255,255,255,.75)' : 'var(--text-faint)', minWidth: 34 }}>{rowNumberMap[et.id] ?? et.id}</span>
+                <span style={{ paddingLeft: (et.nivel || 0) * 12, fontWeight: sel || et.isGroup ? 700 : 400, color: sel ? '#fff' : et.isGroup ? 'var(--brand)' : undefined }}>{et.etapa}</span>
+                {et.isGroup && <span style={{ fontSize: 10, color: sel ? '#fff' : 'var(--brand)', background: sel ? 'rgba(255,255,255,.2)' : 'var(--brand-tint)', borderRadius: 4, padding: '0 5px' }}>grupo</span>}
+                {pai && <span style={{ fontSize: 11, color: sel ? 'rgba(255,255,255,.75)' : 'var(--text-faint)' }}>em {pai}</span>}
+                {sel && <Icon name="check" size={14} stroke={2.5} style={{ marginLeft: 'auto', flexShrink: 0 }} />}
               </div>
             </div>
           );
