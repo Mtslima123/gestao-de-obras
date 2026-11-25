@@ -987,6 +987,15 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     rowClipRef.current = null;
     gravarNaAreaDeTransferencia(texto);
   };
+  // A cópia de LINHA (rowClipRef) existe só para o Ctrl++ inserir as linhas copiadas, e vale enquanto a
+  // moldura tracejada está na tela. Colar células apaga a moldura (setMarquee(null)), então a cópia
+  // de linha acaba junto: sem isto o Ctrl++ seguinte, mesmo depois de outras ações, trazia a cópia antiga
+  // em vez de uma linha em branco. A grade de células (cellClipRef) fica, então o Ctrl+V continua colando
+  // a mesma cópia quantas vezes for preciso. Recorte de LINHA pendente fica de fora: o Ctrl++ é quem o conclui
+  // (move a linha), e depende do rowClipRef.
+  const encerrarCopiaDeLinha = () => {
+    if (cutPendingRef.current?.type !== 'row') rowClipRef.current = null;
+  };
   // Depois de colar, a seleção vira o bloco colado (da primeira à última célula) e a tela rola até a
   // última, para a pessoa ver onde terminou o que colou. A rolagem fica num efeito (abaixo): as
   // linhas novas e o novo estado só existem depois do render que o commit da colagem provoca.
@@ -1058,6 +1067,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       cutPendingRef.current = null;
     }
     applyBlockEdits(edits);
+    encerrarCopiaDeLinha();
     if (!(destinoAmplo && destinoAmplo.length > 1)) {
       const nColunas = Math.max(...clip.grid.map(gr => gr.length));
       selecionarBlocoColado(
@@ -1153,6 +1163,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     let novas = [...editadas, ...novos];
     if (succEdits.length) { novas = applySuccEdits(novas, succEdits, etapas, recusados); reschedule = true; }
     onCommit(reschedule ? autoScheduleFromDeps(novas) : novas, { silent: true });
+    encerrarCopiaDeLinha(); // o que veio de fora da lista torna velha qualquer cópia de linha guardada
     avisarCiclos(recusados);
     // A última linha colada pode ser uma tarefa NOVA (passou do fim da lista).
     const nColunas = Math.max(...grid.map(gr => gr.length));
@@ -2138,7 +2149,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const handleListKeyDown = (ev) => {
     // Esc limpa marching ants, recorte pendente, células soltas e o realce de alterações (só chega aqui com a grade
     // em foco, nunca de dentro de um campo em edição: os editores têm o próprio Esc).
-    if (ev.key === 'Escape') { setMarquee(null); cutPendingRef.current = null; if (multiSelCells.length) setMultiSelCells([]); onLimparRealce?.(); return; }
+    // Sem a moldura a cópia de linha também acaba (como no Excel): o Ctrl++ seguinte insere linha em branco.
+    if (ev.key === 'Escape') { setMarquee(null); cutPendingRef.current = null; rowClipRef.current = null; if (multiSelCells.length) setMultiSelCells([]); onLimparRealce?.(); return; }
     // Ctrl/Cmd + Shift + ←/→ : recuar/avançar a seleção. Vem ANTES da navegação por
     // seta (senão a seta moveria a célula) e ANTES do guard de seleção (funciona também
     // com multiSel puro). handleIndent/handleOutdent já usam selectedRowIds().
