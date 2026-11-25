@@ -68,7 +68,7 @@ const GROUP_BLOCKED_FIELDS = new Set(['inicio', 'fim', 'avanco', 'custo', 'custo
 
 export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChange, hiddenCols = EMPTY_HIDDEN_COLS, onHiddenColsChange, rowHeights: rowHeightsProp = EMPTY_ROW_HEIGHTS, onRowHeightsChange, obraId, undo, redo, canUndo = true, canRedo = true, vinculos = [], orcamentoItensMap = {}, readOnly = false, onConflitoOk, onConflitoOkDesfazer, isAdmin = false,
   baselines = [], reprogramacoes = [], onCriarBaseline, onGerenciarBaselines, onSalvarRep, onGerenciarReps, onFeriados, onOutlineLevel, onProjectInfo, onDataInicioProjeto,
-  pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir,
+  pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir, onSalvarOrdemPavimentos,
   obraNome = 'Projeto', showProjSummary = false, showSummaryTasks = true, onToggleProjSummary, onToggleSummaryTasks,
   filtroResp = '', setFiltroResp,
   filtroPreset = '', setFiltroPreset, filtroPresetRange = { de: '', ate: '' }, setFiltroPresetRange,
@@ -5384,6 +5384,8 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           pavimentosSalvos={pavimentosSalvos}
           onPavimentosCriados={onPavimentosCriados}
           onPavimentoExcluir={onPavimentoExcluir}
+          // Só quem pode editar grava a ordem (a Medição usa a mesma regra); sem a função o botão não aparece.
+          onSalvarOrdemPavimentos={readOnly ? undefined : onSalvarOrdemPavimentos}
           isAdmin={isAdmin}
           onClose={() => setShowPavimentos(false)}
         />
