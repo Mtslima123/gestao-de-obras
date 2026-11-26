@@ -431,9 +431,32 @@ export function deleteTask(id, etapas) {
       }
     });
   }
-  return etapas
-    .filter(e => !toRemove.has(e.id))
-    .map(e => ({ ...e, dep: (e.dep || []).filter(d => !toRemove.has(typeof d === 'string' ? d : d.id)) }));
+  // Pais diretos que perdem filho nesta exclusão. Se ficarem sem nenhum, deixam de ser grupo: isGroup só era
+  // recalculado em Recuar/Avançar (recomputeHierarchy), então o pai seguia como linha-resumo sem filhos (seta,
+  // negrito, duração de resumo) e não havia como devolvê-lo a tarefa comum. Só quem perdeu filho AGORA é
+  // tocado: o "Novo grupo" (createGroup) nasce vazio de propósito, para a pessoa recuar tarefas para dentro dele.
+  const perdeuFilho = new Set();
+  etapas.forEach(e => {
+    if (toRemove.has(e.id) && e.parentId && !toRemove.has(e.parentId)) perdeuFilho.add(e.parentId);
+  });
+  const restantes = etapas.filter(e => !toRemove.has(e.id));
+  const temFilho = new Set(restantes.filter(e => e.parentId).map(e => e.parentId));
+  return restantes.map(e => {
+    const dep = (e.dep || []).filter(d => !toRemove.has(typeof d === 'string' ? d : d.id));
+    // collapsed volta a falso: se ela receber subtarefa de novo, a nova não pode nascer escondida.
+    if (e.isGroup && perdeuFilho.has(e.id) && !temFilho.has(e.id)) return { ...e, dep, isGroup: false, collapsed: false };
+    return { ...e, dep };
+  });
+}
+
+// Devolve a tarefa comum um grupo que está sem nenhum filho (menu de contexto da Lista). Cura os grupos que ficaram
+// vazios antes de deleteTask passar a revertê-los, e o "Novo grupo" que a pessoa desistiu de preencher. Só vale para
+// grupo sem filhos: com filhos o grupo é de verdade (Recuar/Avançar cuidam dele), e qualquer outro id devolve o
+// mesmo array, para quem chama saber que nada mudou. Mantém o resto da tarefa (nome, datas, peso, vínculos).
+export function converterGrupoEmTarefa(id, etapas) {
+  const alvo = etapas.find(e => e.id === id);
+  if (!alvo || !alvo.isGroup || etapas.some(e => e.parentId === id)) return etapas;
+  return etapas.map(e => (e.id === id ? { ...e, isGroup: false, collapsed: false } : e));
 }
 
 // Propaga delta de arrastar para todas as tarefas sucessoras (BFS)

@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   destinoSugerido, etapasSemExcluidas, idsExcluidos, opcoesDeDestino, podeConfirmar, vinculosAfetados, vinculosParaAjustar,
 } from '../modules/cronograma/exclusaoTarefasPure';
+import { deleteTask, converterGrupoEmTarefa } from '../modules/cronograma/scheduleEngine';
 
-const t = (id, etapa, parentId = null, nivel = 0, isGroup = false) => ({ id, etapa, parentId, nivel, isGroup, inicio: 850, dur: 1, dep: [] });
+const t =(id, etapa, parentId = null, nivel = 0, isGroup = false) => ({ id, etapa, parentId, nivel, isGroup, inicio: 850, dur: 1, dep: [] });
 // G1 REVESTIMENTOS > G2 Colocação de azulejo > A subsolo 1, B térreo ; C Pintura (raiz)
 const etapas = [
   t('G1', 'REVESTIMENTOS', null, 0, true),
@@ -32,6 +33,96 @@ describe('o que sai com a exclusão', () => {
     const fora = idsExcluidos(etapas, etapasSemExcluidas(etapas, ['B']));
     expect(vinculosAfetados([v(9, 'C')], fora)).toEqual([]);
     expect(vinculosAfetados(undefined, fora)).toEqual([]);
+  });
+});
+
+// Grupo que perde todos os filhos volta a ser tarefa comum (antes seguia como linha-resumo vazia: seta, negrito).
+describe('grupo que perde todos os filhos', () => {
+  const porId = (lista, id) => lista.find((e) => e.id === id);
+
+  it('com um filho que sobra continua grupo', () => {
+    const novas = etapasSemExcluidas(etapas, ['A']);
+    expect(porId(novas, 'G2').isGroup).toBe(true);
+  });
+
+  it('ao excluir o último filho volta a ser tarefa comum', () => {
+    const novas = etapasSemExcluidas(etapas, ['A', 'B']);
+    expect(porId(novas, 'G2')).toMatchObject({ isGroup: false, collapsed: false });
+  });
+
+  it('o mesmo vale excluindo um filho de cada vez, em duas exclusões', () => {
+    const novas = deleteTask('B', deleteTask('A', etapas));
+    expect(porId(novas, 'G2').isGroup).toBe(false);
+  });
+
+  it('só o pai direto muda: o avô continua grupo porque o pai segue como filho dele', () => {
+    const novas = etapasSemExcluidas(etapas, ['A', 'B']);
+    expect(porId(novas, 'G1').isGroup).toBe(true);
+    expect(novas.map((e) => e.id)).toEqual(['G1', 'G2', 'C']);
+  });
+
+  it('excluir o único subgrupo devolve o avô a tarefa comum, e o subgrupo sai em cascata', () => {
+    const novas = etapasSemExcluidas(etapas, ['G2']);
+    expect(porId(novas, 'G1').isGroup).toBe(false);
+    expect(novas.map((e) => e.id)).toEqual(['G1', 'C']);
+  });
+
+  it('zera collapsed: se receber subtarefa de novo, a nova não pode nascer escondida', () => {
+    const recolhido = etapas.map((e) => (e.id === 'G2' ? { ...e, collapsed: true } : e));
+    const novas = etapasSemExcluidas(recolhido, ['A', 'B']);
+    expect(porId(novas, 'G2').collapsed).toBe(false);
+  });
+
+  it('mantém o resto da tarefa (nome, datas, peso)', () => {
+    const comPeso = etapas.map((e) => (e.id === 'G2' ? { ...e, fator_peso: 4, peso_travado: true, inicio: 900, dur: 7 } : e));
+    const g2 = porId(etapasSemExcluidas(comPeso, ['A', 'B']), 'G2');
+    expect(g2).toMatchObject({ etapa: 'Colocação de azulejo', fator_peso: 4, peso_travado: true, inicio: 900, dur: 7 });
+  });
+
+  it('o "Novo grupo" vazio, que não perdeu filho agora, não é tocado', () => {
+    const comNovoGrupo = [...etapas, t('N', 'Novo grupo', null, 0, true)];
+    const novas = etapasSemExcluidas(comNovoGrupo, ['C']);
+    expect(porId(novas, 'N').isGroup).toBe(true);
+  });
+
+  it('continua limpando as predecessoras que apontavam para o que saiu', () => {
+    const comDep = etapas.map((e) => (e.id === 'C' ? { ...e, dep: [{ id: 'A', tipo: 'TI', lag: 0 }, { id: 'G1', tipo: 'TI', lag: 0 }] } : e));
+    const novas = etapasSemExcluidas(comDep, ['A']);
+    expect(porId(novas, 'C').dep).toEqual([{ id: 'G1', tipo: 'TI', lag: 0 }]);
+  });
+});
+
+// "Converter em tarefa" (botão direito): cura grupo que já ficou vazio e o "Novo grupo" que ninguém preencheu.
+describe('converterGrupoEmTarefa', () => {
+  const vazio = [...etapas, { ...t('N', 'Novo grupo', null, 0, true), collapsed: true, fator_peso: 3, dur: 9 }];
+  const porId = (lista, id) => lista.find((e) => e.id === id);
+
+  it('grupo sem filhos vira tarefa comum e mantém o resto', () => {
+    const novas = converterGrupoEmTarefa('N', vazio);
+    expect(porId(novas, 'N')).toMatchObject({ etapa: 'Novo grupo', isGroup: false, collapsed: false, fator_peso: 3, dur: 9 });
+    expect(novas).toHaveLength(vazio.length);
+  });
+
+  it('não mexe nas outras tarefas', () => {
+    const novas = converterGrupoEmTarefa('N', vazio);
+    expect(novas.filter((e) => e.id !== 'N')).toEqual(vazio.filter((e) => e.id !== 'N'));
+  });
+
+  it('grupo com filhos não é convertido: devolve o mesmo array', () => {
+    expect(converterGrupoEmTarefa('G2', vazio)).toBe(vazio);
+    expect(converterGrupoEmTarefa('G1', vazio)).toBe(vazio);
+  });
+
+  it('folha e id inexistente também devolvem o mesmo array', () => {
+    expect(converterGrupoEmTarefa('C', vazio)).toBe(vazio);
+    expect(converterGrupoEmTarefa('XX', vazio)).toBe(vazio);
+  });
+
+  it('grupo vazio dentro de outro grupo: só ele vira tarefa, o pai segue grupo', () => {
+    const aninhado = [t('P', 'Pai', null, 0, true), t('V', 'Vazio', 'P', 1, true)];
+    const novas = converterGrupoEmTarefa('V', aninhado);
+    expect(porId(novas, 'V').isGroup).toBe(false);
+    expect(porId(novas, 'P').isGroup).toBe(true);
   });
 });
 
