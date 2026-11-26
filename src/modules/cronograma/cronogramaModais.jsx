@@ -1314,6 +1314,7 @@ export const VincularTarefasModal = ({ etapas, rowNumberMap = {}, onCommit, onCl
       size="xl"
       draggable
       resizable
+      minimizable
       overlay={false}
       onClose={onClose}
       footer={

@@ -17,7 +17,7 @@ const faixaDaBarra = () => {
 };
 
 // ----- Modal shell -----
-const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false, resizable = false, overlay = true, fillBody = false }) => {
+const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', draggable = false, resizable = false, overlay = true, fillBody = false, minimizable = false }) => {
   const nodeRef  = React.useRef(null);
   const dragging = React.useRef(false);
   const offset   = React.useRef({ x: 0, y: 0 });
@@ -32,6 +32,11 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
   // `resizable`. Só sobrepõe o estilo: `pos` e `customSize` ficam intactos, então
   // restaurar devolve o modal exatamente onde e do tamanho que estava.
   const [maximizado, setMaximizado] = React.useState(false);
+  // Minimizar (opt-in via `minimizable`, para o modal solto sem fundo que fica por cima da tela que a
+  // pessoa precisa consultar): sobra só a barra do título, estreita, que ainda pode ser arrastada. Corpo e
+  // rodapé ficam escondidos (display:none), NÃO desmontados, então nada do que foi marcado ou digitado se
+  // perde. Prevalece sobre tela cheia e tamanho próprio no estilo, e restaurar devolve tudo como estava.
+  const [minimizado, setMinimizado] = React.useState(false);
   // Em tela cheia o modal começa DEPOIS da barra lateral: ela é fixa à esquerda e fica na frente
   // do modal (z-index 200 contra 100), então com `left: 8` o começo do conteúdo (título,
   // primeira coluna, botão Cancelar) sumia atrás dela. A faixa que o app reserva para a barra é o
@@ -181,6 +186,24 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
     });
   }, [faixa, draggable]);
 
+  // Ao restaurar, o modal volta maior do que a barra: se ela foi arrastada para perto da borda direita ou de
+  // baixo, o corpo e o rodapé (com os botões de ação) ficariam para fora da tela. Reencaixa com o tamanho já
+  // aplicado, como no girar do tablet acima.
+  React.useLayoutEffect(() => {
+    if (!draggable || minimizado) return;
+    setPos(p => {
+      const el = nodeRef.current;
+      if (!p || !el) return p;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const w = Math.min(el.offsetWidth, vw - faixaRef.current - 16);
+      const h = Math.min(el.offsetHeight, vh - 16);
+      const x = Math.max(faixaRef.current, Math.min(vw - w, p.x));
+      const y = Math.max(0, Math.min(vh - h - 8, p.y));
+      return x === p.x && y === p.y ? p : { x, y };
+    });
+  }, [minimizado, draggable]);
+
   const handleResizeDown = (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
@@ -205,10 +228,18 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
       position: 'fixed', left: recuoEsq, top: 8, margin: 0,
       width: `calc(100vw - ${recuoEsq + 8}px)`, height: 'calc(100dvh - 16px)', maxWidth: 'none', maxHeight: 'none',
     } : {}),
+    // Por último, para vencer a tela cheia e o tamanho próprio: só a barra do título, de altura automática.
+    ...(minimizado ? { width: 340, maxWidth: 'calc(100vw - 16px)', height: 'auto', minHeight: 0, maxHeight: 'none' } : {}),
   };
-  const headerStyle = draggable && !maximizado ? { cursor: 'grab', userSelect: 'none', touchAction: 'none' } : {};
+  const headerStyle = {
+    ...(draggable && !maximizado ? { cursor: 'grab', userSelect: 'none', touchAction: 'none' } : {}),
+    ...(minimizado ? { borderBottom: 'none' } : {}),
+  };
   const handleHeaderDoubleClick = (e) => {
-    if (!resizable || e.target.closest('button')) return;
+    if (e.target.closest('button')) return;
+    // Minimizado, o duplo clique na barra restaura (em vez de ir para tela cheia).
+    if (minimizado) { setMinimizado(false); return; }
+    if (!resizable) return;
     setMaximizado(m => !m);
   };
 
@@ -227,9 +258,16 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
         <div className="modal-header" style={headerStyle} onPointerDown={handleHeaderDown} onDoubleClick={handleHeaderDoubleClick}>
           <div>
             <div className="modal-title">{title}</div>
-            {subtitle && <div className="modal-sub">{subtitle}</div>}
+            {subtitle && !minimizado && <div className="modal-sub">{subtitle}</div>}
           </div>
-          {resizable && (
+          {minimizable && (
+            <button className="modal-max" onClick={() => setMinimizado(m => !m)}
+              aria-expanded={!minimizado}
+              aria-label={minimizado ? 'Restaurar' : 'Minimizar'} title={minimizado ? 'Restaurar' : 'Minimizar'}>
+              <Icon name={minimizado ? 'chevron-down' : 'minus'} size={15} />
+            </button>
+          )}
+          {resizable && !minimizado && (
             <button className="modal-max" onClick={() => setMaximizado(m => !m)}
               aria-label={maximizado ? 'Restaurar tamanho' : 'Tela cheia'} title={maximizado ? 'Restaurar tamanho' : 'Tela cheia'}>
               <Icon name={maximizado ? 'minimize' : 'maximize'} size={15} />
@@ -241,9 +279,9 @@ const Modal = ({ title, subtitle, onClose, footer, children, size = 'md', dragga
         </div>
         {/* fillBody (opt-in): em tela cheia ou redimensionado, o corpo vira coluna para um filho com
             flex:1 (o campo de texto das anotações) ocupar o espaço que sobra. Sem a prop, nada muda. */}
-        <div className="modal-body" style={fillBody && (maximizado || customSize) ? { display: 'flex', flexDirection: 'column' } : undefined}>{children}</div>
-        {footer && <div className="modal-footer">{footer}</div>}
-        {resizable && !maximizado && (
+        <div className="modal-body" style={minimizado ? { display: 'none' } : fillBody && (maximizado || customSize) ? { display: 'flex', flexDirection: 'column' } : undefined}>{children}</div>
+        {footer && <div className="modal-footer" style={minimizado ? { display: 'none' } : undefined}>{footer}</div>}
+        {resizable && !maximizado && !minimizado && (
           <div className="modal-resize" onPointerDown={handleResizeDown} title="Arraste para redimensionar">
             <svg width="10" height="10" viewBox="0 0 10 10" style={{ opacity: 0.45 }}>
               <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.4" />
