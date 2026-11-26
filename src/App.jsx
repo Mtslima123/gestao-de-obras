@@ -735,10 +735,15 @@ const AppInner = () => {
   // efeito seguinte ao clique apagava o valor antes do componente nascer com ele, e a
   // Medição sempre caía no Gantt. Zerando só na saída, o deep link sobrevive ao carregamento
   // do chunk e uma futura navegação comum pela Sidebar ainda não reabre na sub-aba antiga.
+  // Vale o mesmo para a obra: o deep link e a obra guardada na sessão (que serve ao F5) são zerados ao sair,
+  // para entrar de novo pela Sidebar abrir o Cronograma sem obra selecionada. O reload não passa por aqui
+  // (o ref nasce com a tela atual), então F5 dentro do Cronograma continua na mesma obra.
   const cronogramaViewAnteriorRef = React.useRef(view);
   React.useEffect(() => {
     if (cronogramaViewAnteriorRef.current === 'cronograma' && view !== 'cronograma') {
       setCronogramaInitialTab(null);
+      setCronogramaObraId(null);
+      try { sessionStorage.removeItem('cronograma_obra'); } catch { /* ignore */ }
     }
     cronogramaViewAnteriorRef.current = view;
   }, [view]);
