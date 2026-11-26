@@ -40,6 +40,7 @@ import {
 } from './cronogramaShared';
 import { classificarConflitos } from './conflitosOkPure';
 import { usePosicaoDaTela } from './usePosicaoDaTela';
+import { alvoDistribuicao } from './distribuicaoAlvoPure';
 import { celulasAlvoFormatacao, alternarCelulaMarcada, alternarLinhaMarcada } from './alvoFormatacaoPure';
 import { passaCondicoes, passaCor, coresDaColuna } from './filtroCondicaoPure';
 import { repartirLarguras, minimosCabem } from './larguraColunasPdfPure';
@@ -80,6 +81,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   focusTaskId = null, selecaoRef = null,
   // Posição de cada aba guardada no CronogramaFull (ver usePosicaoDaTela.js); sem ela a Lista nasce no início.
   posicaoRef = null,
+  // Atalho do menu de contexto "Distribuir pesos": recebe o id do GRUPO cuja distribuição abrir (o Orçamento ×
+  // Cronograma mora fora da Lista, então quem navega é o CronogramaFull). Sem a prop (módulo não liberado para a
+  // pessoa), o item nem aparece.
+  onIrParaDistribuicao = null,
   // Realce de alterações (estilo Project): Map<idDaTarefa, Set<'inicio'|'duracao'|'fim'>> com as células que a
   // última edição mudou (ver realceAlteracoesPure.js). Vem do CronogramaFull por prop, e não de estado
   // da linha, para as linhas que a virtualização monta ao rolar já nascerem realçadas.
@@ -3691,6 +3696,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // de contexto (só para folha com avanço parcial, 1–99%).
   const ctxMenuTask     = ctxMenu ? etapas.find(e => e.id === ctxMenu.taskId) : null;
   const podeReprogramar = !!ctxMenuTask && !ctxMenuTask.isGroup && ctxMenuTask.avanco >= 1 && ctxMenuTask.avanco <= 99;
+  // Grupo cuja distribuição de pesos o menu abre: o grupo mais próximo, da linha para cima, que recebe itens do
+  // orçamento direto (é o que o modal reparte). Sem ele, o item não aparece.
+  const grupoPesosId = onIrParaDistribuicao && ctxMenu?.kind === 'row'
+    ? alvoDistribuicao({ etapas, id: ctxMenu.taskId, comVinculo: (id) => !!vinculadoIds?.has(id) })
+    : null;
+  const grupoPesos = grupoPesosId != null ? etapas.find(e => e.id === grupoPesosId) : null;
 
   return (
     <>
@@ -5598,6 +5609,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
               <hr />
               <button onClick={() => { onCommit(reprogramarRestante(ctxMenu.taskId, etapas)); setCtxMenu(null); }}>
                 <Icon name="calendar" size={13} style={{ marginRight: 6 }} />Reprogramar restante
+              </button>
+            </>
+          )}
+          {grupoPesos && (
+            <>
+              <hr />
+              <button
+                title={`Abre o Distribuir pesos de "${grupoPesos.etapa}" em Orçamento × Cronograma${grupoPesos.id !== ctxMenu.taskId ? ' (o grupo que reparte o peso desta tarefa)' : ''}`}
+                onClick={() => { onIrParaDistribuicao(grupoPesos.id); setCtxMenu(null); }}>
+                <Icon name="chart" size={13} style={{ marginRight: 6 }} />Distribuir pesos (Orç. × Cronograma)
               </button>
             </>
           )}

@@ -822,7 +822,9 @@ const AlcaAltura = ({ alcaProps }) => (
 // layoutMobileCompleto: casca mobile do Sistema Completo (celular). Troca só o que se vê (obra, abas Vincular, Vínculos e
 // Resumo, folha de edição e folha de pesos); carga, gravação e regras seguem as mesmas daqui (a folha de pesos salva por
 // handleSalvarPesos, o mesmo do modal do desktop).
-const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobileCompleto = false }) => {
+// alvoInicial: { obraId, etapaId } vindo do menu da Lista (botão direito > Distribuir pesos). Escolhe a obra e abre a
+// distribuição do grupo assim que as etapas chegam; onAlvoConsumido() avisa o App para o pedido valer uma vez só.
+const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobileCompleto = false, alvoInicial = null, onAlvoConsumido }) => {
   const toast = useToast();
 
   const [obraSel,    setObraSel]    = React.useState('');
@@ -852,6 +854,10 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
   const [vinculos,   setVinculos]   = React.useState([]);
   const [itens,      setItens]      = React.useState([]);
   const [etapas,     setEtapas]     = React.useState([]);
+  // De qual obra são as `etapas` que estão no estado. Ao trocar de obra, `obraSel` muda um render antes de a carga
+  // começar (e `loading` ainda é falso): sem este marcador, o alvo da Lista leria "etapas vazias" como "tarefa
+  // inexistente".
+  const [etapasDaObra, setEtapasDaObra] = React.useState('');
   const [loading,    setLoading]    = React.useState(false);
   const [saving,     setSaving]     = React.useState(false);
 
@@ -899,7 +905,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
 
   React.useEffect(() => {
     if (!obraSel) {
-      setVinculos([]); setItens([]); setEtapas([]);
+      setVinculos([]); setItens([]); setEtapas([]); setEtapasDaObra('');
       return;
     }
     let cancelado = false;
@@ -913,7 +919,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
         if (cancelado) return;
         const v = vincRes.data || [], it = itensRes.data || [], et = migrateEtapas(cronRes.data?.etapas || []);
         const updatedAt = cronRes.data?.updated_at ?? null;
-        setVinculos(v); setItens(it); setEtapas(et);
+        setVinculos(v); setItens(it); setEtapas(et); setEtapasDaObra(obraSel);
         etapasUpdatedAtRef.current = updatedAt;
         _ocCache[obraSel] = { vinculos: v, itens: it, etapas: et, updatedAt };
         setLoading(false);
@@ -925,7 +931,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
       // _ocCache nunca expira sozinho, e um DELETE feito na Lista salva no banco de forma
       // assíncrona (debounce) — sem essa checagem, uma tarefa já excluída podia continuar
       // aparecendo aqui (ex.: Distribuir pesos) até a página inteira ser recarregada.
-      setVinculos(c.vinculos); setItens(c.itens); setEtapas(c.etapas); etapasUpdatedAtRef.current = c.updatedAt ?? null;
+      setVinculos(c.vinculos); setItens(c.itens); setEtapas(c.etapas); setEtapasDaObra(obraSel); etapasUpdatedAtRef.current = c.updatedAt ?? null;
       supabase.from('cronogramas').select('updated_at').eq('obra_id', obraSel).single().then(({ data }) => {
         if (cancelado) return;
         if (!mesmaVersao(data?.updated_at, c.updatedAt)) carregarFresco();
@@ -935,6 +941,22 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
     carregarFresco();
     return () => { cancelado = true; };
   }, [obraSel]);
+
+  // Alvo vindo do menu da Lista (botão direito > Distribuir pesos): escolhe a obra e, quando as etapas dela estão no
+  // estado, abre a distribuição do grupo e consome o alvo (vale uma vez só). Se a tarefa não existe mais na obra
+  // (excluída entre o clique e a carga), avisa em vez de abrir uma tela vazia.
+  React.useEffect(() => {
+    if (alvoInicial?.obraId) setObraSel(alvoInicial.obraId);
+  }, [alvoInicial]);
+  React.useEffect(() => {
+    if (!alvoInicial || obraSel !== alvoInicial.obraId || etapasDaObra !== alvoInicial.obraId) return;
+    if (etapas.some(e => e.id === alvoInicial.etapaId)) {
+      setDistribuirEtapaId(alvoInicial.etapaId);
+    } else {
+      toast('Não encontrei essa tarefa no Orçamento × Cronograma. Ela pode ter sido excluída.', { tone: 'warning', icon: 'alert-triangle', duration: 6000 });
+    }
+    onAlvoConsumido?.();
+  }, [alvoInicial, obraSel, etapasDaObra, etapas]);
 
   // Voltar para a aba: a Lista pode ter gravado o cronograma em outra aba (ex.: excluído uma
   // tarefa). Sem reler, esta tela seguia oferecendo a tarefa excluída e salvando pesos sobre a
