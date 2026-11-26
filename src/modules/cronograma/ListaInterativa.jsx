@@ -22,7 +22,7 @@ import {
   createGroup, autoScheduleFromDeps, formatDepList, parseDep,
   moveTaskBlock, RESCHEDULE_FIELDS, applyFieldToEtapa, commitFieldChange, etapaMudouParaAgendamento, tarefasLivresForaDoInicio,
   reprogramarRestante, computeSuccessors, computeIdMap, computeRowNumberMap, filtrarComAncestrais,
-  criaCiclo, depsRecusadosPorCiclo, resumoDeCiclos, grafoDeAntecessoras,
+  criaCiclo, depsRecusadosPorCiclo, resumoDeCiclos, grafoDeAntecessoras, converterGrupoEmTarefa,
 } from './scheduleEngine';
 import { computeAutofillSeries } from './autofillSeries';
 import { AddColModal, RowHeightModal, PavimentosModal, ImportarEAPModal, VincularTarefasModal, TarefasLivresModal, ExcluirTarefasModal } from './cronogramaModais';
@@ -3702,6 +3702,9 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     ? alvoDistribuicao({ etapas, id: ctxMenu.taskId, comVinculo: (id) => !!vinculadoIds?.has(id) })
     : null;
   const grupoPesos = grupoPesosId != null ? etapas.find(e => e.id === grupoPesosId) : null;
+  // Grupo sem nenhuma subtarefa (ficou vazio ou é um "Novo grupo" que não foi preenchido): o menu oferece
+  // "Converter em tarefa". Com filhos o grupo é de verdade, e Recuar/Avançar cuidam dele.
+  const ehGrupoVazio = !!ctxMenuTask?.isGroup && !etapas.some(e => e.parentId === ctxMenuTask.id);
 
   return (
     <>
@@ -5589,6 +5592,17 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
           }}>
             ← Avançar (promover)
           </button>
+          {ehGrupoVazio && (
+            <button
+              title="Este grupo não tem subtarefas: volta a ser uma tarefa comum (Ctrl+Z desfaz)"
+              onClick={() => {
+                onCommit(converterGrupoEmTarefa(ctxMenu.taskId, etapas));
+                toast(`"${ctxMenuTask.etapa}" voltou a ser uma tarefa comum`, { tone: 'success', icon: 'check' });
+                setCtxMenu(null);
+              }}>
+              Converter em tarefa
+            </button>
+          )}
           <hr />
           <button onClick={() => {
             const ids = selectedRowIds(); ids.add(ctxMenu.taskId);
