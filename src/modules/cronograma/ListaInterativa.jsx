@@ -892,10 +892,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // Copia o RETÂNGULO selecionado (grade valores+fmt) e também as LINHAS distintas do
   // intervalo (para o Ctrl++ inserir N cópias).
   // Marching ants: retângulo tracejado animado sobre a seleção copiada (estilo Excel).
-  const showMarquee = () => {
+  // `soCelulaAtiva`: o pincel de formatação só copia o formato da célula ativa, então a moldura dele
+  // contorna só ela; contornar o intervalo inteiro sugeriria que o intervalo todo foi copiado.
+  const showMarquee = (soCelulaAtiva = false) => {
     const sc = listaScrollRef.current;
     if (!sc || !selectedCell) return;
-    const a = selAnchor || selectedCell;
+    const a = soCelulaAtiva ? selectedCell : (selAnchor || selectedCell);
     const el1 = sc.querySelector(`td[data-ck="${a.taskId}|${a.colId}"]`);
     const el2 = sc.querySelector(`td[data-ck="${selectedCell.taskId}|${selectedCell.colId}"]`);
     if (!el1 || !el2) { setMarquee(null); return; }
@@ -2395,11 +2397,21 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
         painterDragRef.current = false;
         if (painterRef.current) dragCtxRef.current.applyFmtReplace(dragCtxRef.current.rangeCellList(), painterRef.current);
         setPainterOn(false);
+        setMarquee(null); // aplicou: a moldura da célula de origem sai (como no Excel)
       }
     };
     document.addEventListener('mouseup', up);
     return () => document.removeEventListener('mouseup', up);
   }, []);
+
+  // Esc cancela o pincel. Tem de ser no document: depois de clicar no botão do ribbon o foco fica nele,
+  // fora da grade, e o onKeyDown da grade (que já trata o Esc da cópia) não recebe a tecla.
+  React.useEffect(() => {
+    if (!painterOn) return undefined;
+    const esc = (ev) => { if (ev.key === 'Escape') { setPainterOn(false); setMarquee(null); } };
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [painterOn]);
 
   // Arraste de seleção: extensão por coordenada + rolagem automática na borda.
   //
@@ -3863,9 +3875,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
                           <div style={rowStyle}>
                             <button style={{ ...tglStyle(painterOn), width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                               onClick={() => {
-                                if (painterOn) { setPainterOn(false); return; }
+                                if (painterOn) { setPainterOn(false); setMarquee(null); return; }
                                 painterRef.current = { ...activeFmt };
                                 setPainterOn(true);
+                                // Moldura tracejada na célula de origem. Com coluna ou linha inteira como origem
+                                // não há uma célula para contornar: fica só o cursor de pincel.
+                                if (selectedCell && !multiSelCols.length) showMarquee(true); else setMarquee(null);
                               }}
                               title="Pincel: copia a formatação da seleção; clique numa célula para aplicar">
                               <Icon name="edit" size={14} />
@@ -4316,7 +4331,7 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
       })()}
 
       {/* ── Tabela ───────────────────────────────────────────────────────── */}
-      <div ref={listaScrollRef} tabIndex={-1} onKeyDown={handleListKeyDown} onPaste={handlePasteEvent} onScroll={(ev) => {
+      <div ref={listaScrollRef} className={painterOn ? 'lista-pincel-ativo' : undefined} tabIndex={-1} onKeyDown={handleListKeyDown} onPaste={handlePasteEvent} onScroll={(ev) => {
         if (!marquee) return;
         // Moldura em coluna congelada não acompanha as células fixas ao rolar para o lado: apaga.
         // Rolar na vertical mantém tudo (a moldura rola junto, por baixo do cabeçalho).

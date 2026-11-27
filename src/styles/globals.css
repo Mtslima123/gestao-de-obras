@@ -2296,6 +2296,15 @@ optgroup.optgroup-pai > option { background: var(--surface); color: var(--text);
 @keyframes copy-marching {
   to { background-position: 8px 0, -8px 100%, 0 -8px, 100% 8px; }
 }
+
+/* Pincel de formatação ligado (estilo Excel): a grade inteira usa o cursor de pincel com a cruz da
+   célula. SVG inline de 32x32 (limite seguro de cursor) com o ponto ativo no centro da cruz; as cores
+   vão com %23 no lugar de #. !important porque as linhas têm cursor "grab" inline e as alças de
+   redimensionar têm o delas: com o pincel na mão nada disso vale. */
+.lista-pincel-ativo,
+.lista-pincel-ativo * {
+  cursor: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' fill='none' stroke-linecap='round'><path d='M11 3v16M3 11h16' stroke='%23000' stroke-width='5' stroke-linecap='butt'/><path d='M11 4.5v13M4.5 11h13' stroke='%23fff' stroke-width='2.6' stroke-linecap='butt'/><path d='M29 13l-7 7' stroke='%23000' stroke-width='6'/><path d='M22 20l-3 3' stroke='%23000' stroke-width='7.5'/><circle cx='15.5' cy='26.5' r='4.6' fill='%23000' stroke='none'/><path d='M29 13l-7 7' stroke='%23f5c542' stroke-width='3.4'/><path d='M22 20l-3 3' stroke='%23cfd4da' stroke-width='5'/><path d='M19.5 22.5L16 26' stroke='%231c4584' stroke-width='5.5'/><circle cx='15.5' cy='26.5' r='2.8' fill='%231c4584' stroke='none'/></svg>") 11 11, cell !important;
+}
 .fmt-i, .fmt-i * { font-style: italic !important; }
 .fmt-u, .fmt-u * { text-decoration: underline !important; }
 
