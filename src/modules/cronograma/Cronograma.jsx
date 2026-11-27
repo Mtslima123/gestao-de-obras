@@ -37,6 +37,7 @@ import { classificarConflitos, confirmarConflitos, desfazerConfirmacao, podarCon
 import { gravarPosicao } from './usePosicaoDaTela';
 import { tarefasAlteradas, selecaoTocaMudanca } from './alvoFormatacaoPure';
 import { realcarAlteracoes } from './realceAlteracoesPure';
+import { escolherObraInicial } from './obraInicialPure';
 import { campoDeTextoFocado } from './campoDeTextoPure';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './etapasPatch';
@@ -2390,21 +2391,13 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
   const D    = AppData;
   const toast = useToast();
 
-  // Escolhe a obra inicial a partir da lista real de obras (prop). Navegação
-  // explícita (initialObraId) tem prioridade; depois a obra salva na sessão,
-  // mas só se ela ainda existir na lista (evita ficar preso numa obra fantasma);
-  // por fim a primeira em andamento e, na falta, a primeira da lista.
+  // Entrar no Cronograma abre SEM obra selecionada: a pessoa escolhe no seletor. Só pré-seleciona a
+  // navegação explícita (initialObraId) e a obra guardada na sessão, que serve ao F5/"Atualizar"
+  // (o App apaga essa chave ao sair do Cronograma, então só o reload a encontra). A regra está em
+  // obraInicialPure.js, com testes; no modo foco da Medição (hideChrome, sem seletor na tela) ela
+  // mantém o fallback de sempre, senão não haveria como escolher uma obra.
   const obraSalva = sessionStorage.getItem('cronograma_obra');
-  // initialObraId (deep link do Mobile Gate/Medição foco) vale sempre que a lista ainda
-  // não chegou (o modo foco monta esta tela antes das obras carregarem, e obraSel é
-  // decidido uma vez só aqui) ou quando a obra está na lista. Rejeitar com lista vazia
-  // perdia a obra num reload no modo foco e caía em "Nenhum cronograma criado".
-  // Mesma regra pra obra salva na sessão.
-  const defaultObraId = (initialObraId && (!obras.length || obras.some(o => o.id === initialObraId)) ? initialObraId : null)
-    || (obraSalva && (!obras.length || obras.some(o => o.id === obraSalva)) ? obraSalva : null)
-    || obras.find(o => o.status === 'em_andamento')?.id
-    || obras[0]?.id
-    || null;
+  const defaultObraId = escolherObraInicial({ initialObraId, obraSalva, obras, semSeletor: hideChrome });
 
   const [obraSel,      setObraSel]      = React.useState(defaultObraId);
   // Sub-aba interna do Cronograma (Gantt/Lista/Uso da Tarefa/Curva Física/Medição
@@ -2441,6 +2434,18 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
     if (abasCronogramaLiberadas.length && !abasCronogramaLiberadas.some(a => a.id === view)) setView(abasCronogramaLiberadas[0].id);
   }, [abasCronogramaLiberadas, view]);
   React.useEffect(() => { if (obraSel) sessionStorage.setItem('cronograma_obra', obraSel); }, [obraSel]);
+  // Escolha de obra pelo seletor. Saindo de "nenhuma obra" (como o Cronograma abre), volta a aba que essa obra
+  // tinha (Gantt/Lista/...): `view` só é lido do sessionStorage ao montar e, sem obra, nasce no Gantt; sem isto
+  // toda entrada cairia no Gantt e o efeito da sub-aba, mais acima, apagaria a aba guardada da obra. Trocar de
+  // uma obra para outra mantém a aba atual, como sempre.
+  const escolherObra = (id) => {
+    if (!obraSel && id) {
+      let salva = null;
+      try { salva = sessionStorage.getItem(`cronograma_subtab_${id}`); } catch { /* ignore */ }
+      if (salva && !(layoutMobileCompleto && salva === 'medicao') && abasCronogramaLiberadas.some(a => a.id === salva)) setView(salva);
+    }
+    setObraSel(id);
+  };
   const [etapas,       setEtapas]       = React.useState([]);
   const [customCols,   setCustomCols]   = React.useState(() => D.cronogramaCustomCols || []);
   const [baselines,    setBaselines]    = React.useState(() => carregarBaselines(defaultObraId || ''));
@@ -3697,7 +3702,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
           <h1 className="page-title">Cronogramas</h1>
         </div>
         <div className="page-actions">
-          <select className="input" value={obraSel || ''} onChange={e => setObraSel(e.target.value)} style={{ minWidth: 200 }}>
+          <select className="input" value={obraSel || ''} onChange={e => escolherObra(e.target.value)} style={{ minWidth: 200 }}>
             {!obraSel && <option value="">Selecione uma obra</option>}
             {obras.map(o => (
               <option key={o.id} value={o.id}>{o.nome}</option>
@@ -3719,7 +3724,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       )}
       {layoutMobileCompleto && !hideChrome && (
         <CronogramaCabecalhoMobile
-          obras={obras} obraSel={obraSel} onObraChange={setObraSel}
+          obras={obras} obraSel={obraSel} onObraChange={escolherObra}
           abas={abasCronograma} view={view} onView={setView}
           onAbrirMedicao={onAbrirMedicaoMobile && obraSel ? () => onAbrirMedicaoMobile(obraSel) : undefined}
         />
@@ -3741,9 +3746,12 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                             display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
                 <Icon name="calendar" size={28} />
               </div>
-              <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Nenhum cronograma criado</h2>
+              {/* Sem obra escolhida (é como o Cronograma abre) não é "obra sem cronograma": pede a escolha. */}
+              <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>{obraSel ? 'Nenhum cronograma criado' : 'Selecione uma obra'}</h2>
               <div className="text-muted" style={{ maxWidth: 400, margin: '0 auto 20px', fontSize: 13.5 }}>
-                Esta obra ainda não possui cronograma. Adicione a primeira etapa para começar o planejamento.
+                {obraSel
+                  ? 'Esta obra ainda não possui cronograma. Adicione a primeira etapa para começar o planejamento.'
+                  : 'Escolha uma obra no seletor para ver o cronograma.'}
               </div>
               {obraSel && !readOnly && (
                 <button className="btn btn-primary" onClick={() => {
