@@ -1374,6 +1374,8 @@ a:hover { color: var(--brand-600); }
 /* Com o botão de tela cheia antes do X, só ele empurra pra direita: duas margens auto
    dividiriam o espaço livre e os dois botões ficariam separados. */
 .modal-max + .modal-close { margin-left: 2px; }
+/* Minimizar e tela cheia lado a lado: só o primeiro empurra pra direita (mesmo motivo acima). */
+.modal-max + .modal-max { margin-left: 2px; }
 .modal-body {
   padding: 22px;
   overflow-y: auto;
