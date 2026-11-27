@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ancestraisDe, filtrarComSubarvore, folhasDaSubarvore } from '../modules/financeiro/itensHierarquia';
+import { ancestraisDe, filtrarComSubarvore, folhasDaSubarvore, agruparVinculosPorGrupo } from '../modules/financeiro/itensHierarquia';
 
 // Lista de referência espelhando a tela real (001.08.04 Ferragens e as três fechaduras),
 // mais um sub-resumo para cobrir profundidade > 1.
@@ -132,5 +132,85 @@ describe('folhasDaSubarvore', () => {
 
   it('pai sem código devolve vazio', () => {
     expect(folhasDaSubarvore({ id: 99 }, todos, resumoIds)).toEqual([]);
+  });
+});
+
+// ─── agruparVinculosPorGrupo ──────────────────────────────────────────────────
+// Itens do orçamento (fonte do nome dos grupos) e vínculos (cada um com o item aninhado,
+// como vem do vinculoService). O valor é fixo por item só para os subtotais serem conferíveis.
+describe('agruparVinculosPorGrupo', () => {
+  const valorDe = (it) => it?.valor_total || 0;
+  const orc = (id, codigo, nome, valor = 0, orcamento_id = 1) => ({ id, codigo, nome, valor_total: valor, orcamento_id });
+  const vinc = (id, item) => ({ id: `v${id}`, orcamento_item_id: item?.id ?? null, orcamento_itens: item ?? null });
+
+  const itens = [
+    orc(1, '001', 'SMK'),
+    orc(2, '001.07', 'INSTALAÇÕES'),
+    orc(3, '001.07.2', 'ELÉTRICA'),
+    orc(4, '001.07.10', 'ELEVADORES'),
+    orc(5, '001.07.2.01', 'TOMADAS', 100),
+    orc(6, '001.07.2.02', 'CABOS', 50),
+    orc(7, '001.07.10.01', 'MANUTENÇÃO ELEVADOR', 36000),
+  ];
+  const doOrc = (codigo) => itens.find(i => i.codigo === codigo);
+  const codigosDe = (g) => g.vinculos.map(v => v.orcamento_itens?.codigo);
+
+  it('agrupa pelo pai imediato e ordena grupos e itens pelo código (numérico)', () => {
+    // Entrada fora de ordem, como na tela real; 001.07.10 só pode vir depois de 001.07.2
+    const vs = [vinc(1, doOrc('001.07.10.01')), vinc(2, doOrc('001.07.2.02')), vinc(3, doOrc('001.07.2.01'))];
+    const grupos = agruparVinculosPorGrupo(vs, itens, valorDe);
+    expect(grupos.map(g => g.codigo)).toEqual(['001.07.2', '001.07.10']);
+    expect(codigosDe(grupos[0])).toEqual(['001.07.2.01', '001.07.2.02']);
+    expect(codigosDe(grupos[1])).toEqual(['001.07.10.01']);
+  });
+
+  it('traz nome do grupo, contagem e subtotal', () => {
+    const vs = [vinc(1, doOrc('001.07.2.01')), vinc(2, doOrc('001.07.2.02')), vinc(3, doOrc('001.07.10.01'))];
+    const [eletrica, elevadores] = agruparVinculosPorGrupo(vs, itens, valorDe);
+    expect(eletrica).toMatchObject({ codigo: '001.07.2', nome: 'ELÉTRICA', valor: 150 });
+    expect(eletrica.vinculos).toHaveLength(2);
+    expect(elevadores).toMatchObject({ codigo: '001.07.10', nome: 'ELEVADORES', valor: 36000 });
+  });
+
+  it('guarda a cadeia de resumos acima do grupo para o tooltip', () => {
+    const [g] = agruparVinculosPorGrupo([vinc(1, doOrc('001.07.2.01'))], itens, valorDe);
+    expect(g.caminho).toBe('001 SMK › 001.07 INSTALAÇÕES');
+  });
+
+  it('pai imediato inexistente sobe ao ancestral mais próximo que existe', () => {
+    // 001.07.9 não existe no orçamento: o item cai em 001.07
+    const solto = orc(20, '001.07.9.01', 'ITEM ÓRFÃO', 10);
+    const [g] = agruparVinculosPorGrupo([vinc(1, solto)], [...itens, solto], valorDe);
+    expect(g).toMatchObject({ codigo: '001.07', nome: 'INSTALAÇÕES' });
+  });
+
+  it('sem grupo identificável vai para "Sem grupo", por último, e nenhum vínculo some', () => {
+    const raiz = orc(30, '999', 'RAIZ SOLTA', 5);               // sem ponto: não tem ancestral
+    const semAncestral = orc(31, '777.01.01', 'SEM PAI', 7);    // nenhum ancestral existe
+    const semCodigo = { id: 32, codigo: null, nome: 'SEM CÓDIGO', valor_total: 3, orcamento_id: 1 };
+    const vs = [
+      vinc(1, raiz), vinc(2, doOrc('001.07.2.01')), vinc(3, semAncestral), vinc(4, semCodigo),
+      vinc(5, null), // item do orçamento apagado ("Item removido")
+    ];
+    const grupos = agruparVinculosPorGrupo(vs, [...itens, raiz, semAncestral, semCodigo], valorDe);
+    expect(grupos.map(g => g.codigo)).toEqual(['001.07.2', null]);
+    const sem = grupos[1];
+    expect(sem).toMatchObject({ chave: 'sem-grupo', nome: null, caminho: '' });
+    expect(sem.vinculos).toHaveLength(4);
+    expect(sem.valor).toBe(5 + 7 + 3);
+    expect(grupos.reduce((n, g) => n + g.vinculos.length, 0)).toBe(vs.length);
+  });
+
+  it('não mistura o mesmo código de orçamentos diferentes', () => {
+    const a = [orc(1, '001', 'GRUPO A', 0, 1), orc(2, '001.01', 'FOLHA A', 10, 1)];
+    const b = [orc(3, '001', 'GRUPO B', 0, 2), orc(4, '001.01', 'FOLHA B', 20, 2)];
+    const grupos = agruparVinculosPorGrupo([vinc(1, a[1]), vinc(2, b[1])], [...a, ...b], valorDe);
+    expect(grupos.map(g => g.nome)).toEqual(['GRUPO A', 'GRUPO B']);
+    expect(grupos.map(g => g.valor)).toEqual([10, 20]);
+  });
+
+  it('listas vazias ou ausentes devolvem []', () => {
+    expect(agruparVinculosPorGrupo([], itens, valorDe)).toEqual([]);
+    expect(agruparVinculosPorGrupo(undefined, undefined, valorDe)).toEqual([]);
   });
 });

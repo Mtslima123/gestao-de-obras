@@ -7,7 +7,7 @@ import { formatBRL } from '../../utils/formatters';
 import { migrateEtapas, computeValorVinculadoMap } from '../cronograma/ganttUtils';
 import { parseBRL, computeIdMap } from '../cronograma/scheduleEngine';
 import { buildChildrenMap, flattenTree, noTravado, redistribuirPorValor } from './distribuirPesos';
-import { filtrarComSubarvore, folhasDaSubarvore, ancestraisDe } from './itensHierarquia';
+import { filtrarComSubarvore, folhasDaSubarvore, ancestraisDe, agruparVinculosPorGrupo } from './itensHierarquia';
 import { invalidateCronCache, _ocCache, _obrasComCronCache } from '../cronograma/cronogramaCache';
 import { mesmaVersao } from '../cronograma/etapasPatch';
 import { isAdmin } from '../../utils/permissions';
@@ -1338,7 +1338,19 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
 
   // ── Dados do modal de edição ───────────────────────────────────────────────
   const editandoEtapa     = etapas.find(e => e.id === editandoEtapaId);
-  const vinculosEtapa     = vinculos.filter(v => v.etapa_id === editandoEtapaId);
+  const vinculosEtapa     = React.useMemo(
+    () => vinculos.filter(v => v.etapa_id === editandoEtapaId),
+    [vinculos, editandoEtapaId]
+  );
+  // Itens vinculados agrupados pelo grupo do orçamento a que pertencem (ver agruparVinculosPorGrupo).
+  // Só a exibição usa isso: "Excluir todos", "Mover" e a lixeira seguem trabalhando com vinculosEtapa.
+  const gruposVinculos = React.useMemo(
+    () => agruparVinculosPorGrupo(vinculosEtapa, itens, itemValor),
+    [vinculosEtapa, itens]
+  );
+  // Orçamento sem hierarquia (tudo cai em "Sem grupo"): um cabeçalho único não informa nada, então a
+  // lista fica plana como antes.
+  const mostrarCabecalhosGrupo = !(gruposVinculos.length === 1 && gruposVinculos[0].codigo === null);
   const itensNaoVinculados = itens.filter(it => {
     if (itensVinculadosIds.has(it.id)) return false; // já vinculado a alguma tarefa
     if (!buscaModalItem) return true;
@@ -1750,49 +1762,82 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
               ) : (
                 <>
                   <div ref={vincLista.listaRef} style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: vincLista.altura, overflowY: 'auto' }}>
-                    {vinculosEtapa.map(v => (
-                      <div key={v.id} style={{
-                        display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
-                      }}>
-                        <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
-                          {v.orcamento_itens?.codigo || '—'}
-                        </span>
-                        <span style={{ flex: 1, fontSize: 13 }}>
-                          {v.orcamento_itens?.nome || <span style={{ color: 'var(--text-faint)' }}>Item removido</span>}
-                        </span>
-                        <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
-                          {formatBRL(itemValor(v.orcamento_itens))}
-                        </span>
-                        {confirmRemoveId === v.id ? (
-                          <>
-                            <button
-                              className="btn btn-danger"
-                              style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0 }}
-                              onClick={() => { setConfirmRemoveId(null); handleRemove(v.id); }}
-                            >
-                              Confirmar
-                            </button>
-                            <button
-                              className="btn btn-ghost"
-                              title="Cancelar"
-                              style={{ fontSize: 14, padding: 0, width: 26, height: 26, flexShrink: 0, lineHeight: 1, justifyContent: 'center' }}
-                              onClick={() => setConfirmRemoveId(null)}
-                            >
-                              ×
-                            </button>
-                          </>
-                        ) : isAdmin(userProfile) ? (
-                          <button
-                            className="icon-btn"
-                            title="Remover vínculo"
-                            onClick={() => setConfirmRemoveId(v.id)}
-                            style={{ color: 'var(--danger)', flexShrink: 0 }}
-                          >
-                            <Icon name="trash" size={13} />
-                          </button>
-                        ) : null}
-                      </div>
+                    {gruposVinculos.map((g, gi) => (
+                      <React.Fragment key={g.chave}>
+                        {/* Separador do grupo do orçamento (mesmo visual do cabeçalho de tarefa pai em
+                            "Vincular tarefas"). Sticky: com dezenas de itens, o grupo da linha que está
+                            na tela continua visível no topo da lista (os cabeçalhos têm a mesma altura e
+                            fundo opaco, então o mais novo cobre o anterior). O cabeçalho não tem lixeira;
+                            o botão invisível (mesma classe, mesma largura) mantém o subtotal alinhado com
+                            o valor das linhas. */}
+                        {mostrarCabecalhosGrupo && (
+                          <div title={g.caminho || undefined} style={{
+                            position: 'sticky', top: 0, zIndex: 1,
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '6px 12px', background: 'var(--brand-50)',
+                            borderTop: gi === 0 ? 'none' : '1px solid var(--border)',
+                            borderBottom: '1px solid var(--border)',
+                            // --brand não é redefinido no tema escuro (azul sobre fundo azul-escuro some);
+                            // misturar com --text mantém o tom de marca no claro e fica legível no escuro.
+                            fontSize: 11.5, fontWeight: 700, color: 'color-mix(in srgb, var(--brand) 50%, var(--text))',
+                          }}>
+                            <span style={{ flex: 1 }}>
+                              {g.codigo
+                                ? <><span style={{ fontFamily: 'var(--font-mono)' }}>{g.codigo}</span>{'  '}{g.nome}</>
+                                : 'Sem grupo'}
+                              <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}> ({g.vinculos.length})</span>
+                            </span>
+                            <span style={{ fontSize: 12, fontWeight: 600, flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
+                              {formatBRL(g.valor)}
+                            </span>
+                            {isAdmin(userProfile) && <span className="icon-btn" aria-hidden="true" style={{ visibility: 'hidden', flexShrink: 0 }} />}
+                          </div>
+                        )}
+                        {g.vinculos.map(v => (
+                          <div key={v.id} style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)',
+                          }}>
+                            <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0, minWidth: 64, fontFamily: 'var(--font-mono)' }}>
+                              {v.orcamento_itens?.codigo || '—'}
+                            </span>
+                            <span style={{ flex: 1, fontSize: 13 }}>
+                              {v.orcamento_itens?.nome || <span style={{ color: 'var(--text-faint)' }}>Item removido</span>}
+                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--text-soft)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
+                              {formatBRL(itemValor(v.orcamento_itens))}
+                            </span>
+                            {confirmRemoveId === v.id ? (
+                              <>
+                                <button
+                                  className="btn btn-danger"
+                                  style={{ fontSize: 11.5, padding: '2px 10px', height: 26, flexShrink: 0 }}
+                                  onClick={() => { setConfirmRemoveId(null); handleRemove(v.id); }}
+                                >
+                                  Confirmar
+                                </button>
+                                <button
+                                  className="btn btn-ghost"
+                                  title="Cancelar"
+                                  style={{ fontSize: 14, padding: 0, width: 26, height: 26, flexShrink: 0, lineHeight: 1, justifyContent: 'center' }}
+                                  onClick={() => setConfirmRemoveId(null)}
+                                >
+                                  ×
+                                </button>
+                              </>
+                            ) : isAdmin(userProfile) ? (
+                              <button
+                                className="icon-btn"
+                                title="Remover vínculo"
+                                onClick={() => setConfirmRemoveId(v.id)}
+                                style={{ color: 'var(--danger)', flexShrink: 0 }}
+                              >
+                                <Icon name="trash" size={13} />
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </React.Fragment>
                     ))}
                   </div>
                   {/* Alça entre as duas listas: arrastar pra baixo mostra mais itens vinculados e

@@ -4,7 +4,8 @@
 // que Orcamentos.jsx usa para calcular nível pela contagem de pontos.
 //
 // Serve o multi-select do "Adicionar vínculo" (Orçamento × Cronograma), onde só as
-// folhas podem virar vínculo: item-resumo é apenas agrupador.
+// folhas podem virar vínculo: item-resumo é apenas agrupador. Também agrupa os itens já
+// vinculados a uma tarefa pelo grupo do orçamento (agruparVinculosPorGrupo).
 
 /** '001.08.04.01' → ['001', '001.08', '001.08.04'] (o próprio código fica de fora). */
 export function ancestraisDe(codigo) {
@@ -74,4 +75,86 @@ export function folhasDaSubarvore(pai, lista, resumoIds) {
   return (lista || []).filter(it =>
     it.codigo?.startsWith(prefixo) && !resumoIds?.has(it.id)
   );
+}
+
+// Ordem natural de código: 001.07.2 vem antes de 001.07.10 (comparação numérica por trecho),
+// como nas demais telas que ordenam por código/WBS.
+const comparaCodigo = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'pt-BR', { numeric: true });
+
+const CHAVE_SEM_GRUPO = 'sem-grupo';
+
+/**
+ * Agrupa os vínculos de uma tarefa pelo grupo (item-resumo) do orçamento a que cada item pertence,
+ * para o modal "Editar Itens Associados" mostrar um separador por grupo.
+ *
+ * O grupo de um item é o resumo mais próximo acima dele no código: 001.07.06.05 → 001.07.06. Se o
+ * pai imediato não existir no orçamento (código pulado na importação), sobe até o ancestral mais
+ * próximo que existe, em vez de largar o item sem contexto. A busca é feita dentro do mesmo
+ * `orcamento_id` do item: a obra pode ter mais de um orçamento com os mesmos códigos, e sem isso o
+ * nome do grupo vinha de outro orçamento.
+ *
+ * Quem não tem grupo identificável (sem código, raiz, nenhum ancestral existe, ou item do orçamento
+ * apagado: `orcamento_itens` nulo) cai num grupo "Sem grupo" (`codigo: null`) no fim da lista. O
+ * vínculo nunca some: a lixeira dele continua sendo o único jeito de desfazer.
+ *
+ * `valorDe` entra por parâmetro (e não importado) porque a fórmula do valor do item mora no
+ * vinculoService, que puxa o cliente Supabase; este módulo precisa continuar puro para os testes.
+ *
+ * @param {Array}    vinculos - vínculos da tarefa, cada um com `orcamento_itens` aninhado
+ * @param {Array}    itens    - todos os itens do orçamento da obra (fonte do nome dos grupos)
+ * @param {Function} valorDe  - (item do orçamento) => valor em R$
+ * @returns {Array<{chave: string, codigo: string|null, nome: string|null, caminho: string, vinculos: Array, valor: number}>}
+ *   grupos na ordem do código, "Sem grupo" por último; itens de cada grupo também na ordem do código
+ */
+export function agruparVinculosPorGrupo(vinculos, itens, valorDe) {
+  const chaveDe = (orcamentoId, codigo) => `${orcamentoId ?? ''}|${codigo}`;
+
+  const porCodigo = new Map();
+  (itens || []).forEach(it => {
+    if (it?.codigo) porCodigo.set(chaveDe(it.orcamento_id, it.codigo), it);
+  });
+
+  const grupos = new Map();
+  (vinculos || []).forEach(v => {
+    const item = v.orcamento_itens;
+
+    // Ancestral existente mais próximo (do pai imediato para cima)
+    let pai = null;
+    if (item?.codigo) {
+      const ancestrais = ancestraisDe(item.codigo);
+      for (let i = ancestrais.length - 1; i >= 0 && !pai; i--) {
+        pai = porCodigo.get(chaveDe(item.orcamento_id, ancestrais[i])) || null;
+      }
+    }
+
+    const chave = pai ? chaveDe(pai.orcamento_id, pai.codigo) : CHAVE_SEM_GRUPO;
+    if (!grupos.has(chave)) {
+      grupos.set(chave, {
+        chave,
+        codigo: pai ? pai.codigo : null,
+        nome: pai ? (pai.nome ?? '') : null,
+        // Cadeia de resumos acima do grupo, só para o tooltip do cabeçalho
+        caminho: pai
+          ? ancestraisDe(pai.codigo)
+              .map(c => porCodigo.get(chaveDe(pai.orcamento_id, c)))
+              .filter(Boolean)
+              .map(a => `${a.codigo} ${a.nome ?? ''}`.trim())
+              .join(' › ')
+          : '',
+        vinculos: [],
+        valor: 0,
+      });
+    }
+    const g = grupos.get(chave);
+    g.vinculos.push(v);
+    g.valor += valorDe(item) || 0;
+  });
+
+  const lista = [...grupos.values()];
+  lista.forEach(g => g.vinculos.sort((a, b) => comparaCodigo(a.orcamento_itens?.codigo, b.orcamento_itens?.codigo)));
+  // "Sem grupo" por último, mesmo que seus códigos (ou a ausência deles) ordenassem antes
+  return lista.sort((a, b) => {
+    if (a.codigo === null || b.codigo === null) return (a.codigo === null) - (b.codigo === null);
+    return comparaCodigo(a.codigo, b.codigo);
+  });
 }
