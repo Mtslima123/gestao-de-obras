@@ -150,13 +150,14 @@ const TarefaCronogramaSelect = React.memo(({ etapas, rowNumberMap = {}, value, o
         style={{ width: '100%', marginBottom: dropdown ? 0 : 6 }}
       />
       {listVisible && (
-      <div ref={listRef} style={dropdown ? {
+      <div ref={listRef} data-lista-ajustavel={dropdown ? undefined : '1'} style={dropdown ? {
         position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
         maxHeight: 260, overflowY: 'auto', marginTop: 2,
       } : {
-        maxHeight: 360,
+        // Altura ajustável pela alça do painel (ver useAlturaListasTopo); 360px sem ajuste.
+        maxHeight: 'var(--oc-lista-h, 360px)',
         overflowY: 'auto',
         border: '1px solid var(--border)',
         borderRadius: 6,
@@ -671,8 +672,8 @@ const ItensOrcamentoSelect = React.memo(({ itens, itensVinculadosIds, resumoIds,
         onChange={e => setBuscaItem(e.target.value)}
         style={{ width: '100%', marginBottom: 6 }}
       />
-      <div style={{
-        maxHeight: 360,
+      <div data-lista-ajustavel="1" style={{
+        maxHeight: 'var(--oc-lista-h, 360px)', // ajustável pela alça do painel (useAlturaListasTopo)
         overflowY: 'auto',
         border: '1px solid var(--border)',
         borderRadius: 6,
@@ -806,15 +807,72 @@ const useAlturaLista = (chave, padrao) => {
   };
 };
 
-const AlcaAltura = ({ alcaProps }) => (
+// Altura arrastável das DUAS listas do painel "Adicionar vínculo" (Itens do Orçamento e Tarefa do
+// Cronograma), pela alça entre esse painel e os de baixo. Ao contrário do useAlturaLista, não usa
+// useState: escreve direto na variável CSS --oc-lista-h do painel. A tela tem centenas de linhas (a
+// tabela de Vínculos cadastrados) e re-renderizar tudo a cada movimento do ponteiro travaria o
+// arraste. Sem valor salvo a variável não existe e as listas usam o padrão de 360px do próprio var().
+const LISTAS_TOPO_H_MIN = 120; // três ou quatro linhas legíveis
+const useAlturaListasTopo = (chave) => {
+  const painelEl = React.useRef(null);
+  const arrasto  = React.useRef(null); // { startY, startH, maxH, liveH } enquanto arrasta
+
+  // Ref de callback: o painel só monta depois de a obra carregar, então a altura salva é aplicada aqui.
+  const painelRef = React.useCallback((el) => {
+    painelEl.current = el;
+    if (!el) return;
+    try {
+      const salva = Number(localStorage.getItem(chave));
+      if (salva) el.style.setProperty('--oc-lista-h', salva + 'px');
+    } catch { /* sem armazenamento: fica o padrão */ }
+  }, [chave]);
+
+  const listas = () => [...(painelEl.current?.querySelectorAll('[data-lista-ajustavel]') || [])];
+
+  const iniciar = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const ls = listas();
+    if (!ls.length) return;
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ponteiro já solto */ }
+    const startH = Math.max(...ls.map(l => l.offsetHeight));
+    // Teto = o maior conteúdo: passar disso não faz o painel crescer e a alça "descolaria" do ponteiro.
+    const maxH = Math.max(startH, ...ls.map(l => l.scrollHeight + (l.offsetHeight - l.clientHeight)));
+    arrasto.current = { startY: e.clientY, startH, maxH, liveH: startH };
+  };
+  const mover = (e) => {
+    const r = arrasto.current;
+    if (!r || !painelEl.current) return;
+    r.liveH = Math.round(Math.min(r.maxH, Math.max(LISTAS_TOPO_H_MIN, r.startH + (e.clientY - r.startY))));
+    painelEl.current.style.setProperty('--oc-lista-h', r.liveH + 'px');
+  };
+  const terminar = () => {
+    const r = arrasto.current;
+    arrasto.current = null;
+    if (r && r.liveH !== r.startH) { try { localStorage.setItem(chave, String(r.liveH)); } catch { /* best-effort */ } }
+  };
+  const restaurar = () => {
+    painelEl.current?.style.removeProperty('--oc-lista-h');
+    try { localStorage.removeItem(chave); } catch { /* best-effort */ }
+  };
+
+  return {
+    painelRef,
+    alcaProps: { onPointerDown: iniciar, onPointerMove: mover, onPointerUp: terminar, onPointerCancel: terminar, onDoubleClick: restaurar },
+  };
+};
+
+// `style` opcional: a alça entre painéis ocupa exatamente o espaço (--gap) que havia entre eles.
+// `cor` opcional: no fundo da página (fora de um card) a pílula padrão quase some e ninguém acharia a alça.
+const AlcaAltura = ({ alcaProps, style, cor = 'var(--border)' }) => (
   <div
     role="separator"
     aria-orientation="horizontal"
     title="Arraste para ajustar a altura (duplo clique volta ao padrão)"
     {...alcaProps}
-    style={{ height: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'row-resize', touchAction: 'none', userSelect: 'none' }}
+    style={{ height: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'row-resize', touchAction: 'none', userSelect: 'none', ...style }}
   >
-    <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)' }} />
+    <div style={{ width: 40, height: 4, borderRadius: 2, background: cor }} />
   </div>
 );
 
@@ -897,6 +955,8 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
   // crescendo com o modal, e passa a ter a escolhida pelo usuário depois de arrastar a alça.
   const vincLista = useAlturaLista('orc_cron_vinculados_h', 160);
   const addLista  = useAlturaLista('orc_cron_adicionar_h', null);
+  // Altura das duas listas do painel Adicionar vínculo (tela principal), pela alça abaixo dele.
+  const listasTopo = useAlturaListasTopo('orc_cron_listas_topo_h');
 
   // Estado do modal de distribuição de pesos (fator_peso das subtarefas de um grupo)
   const [salvandoPeso,      setSalvandoPeso]      = React.useState(false);
@@ -1426,7 +1486,7 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
           {/* ── Adicionar novo vínculo ──────────────────────────────────────── */}
           {/* overflow visível: o dropdown "Tarefa do Cronograma" (position:absolute) não pode
               ser recortado pela borda do card (.card tem overflow:hidden por padrão) */}
-          <div className="card" style={{ marginTop: 'var(--gap)', overflow: 'visible' }}>
+          <div ref={listasTopo.painelRef} className="card" style={{ marginTop: 'var(--gap)', overflow: 'visible' }}>
             <div className="card-header">
               <div>
                 <div className="card-title">Adicionar vínculo</div>
@@ -1519,8 +1579,12 @@ const OrcamentoCronogramaScreen = ({ obras = [], user, userProfile, layoutMobile
             </div>
           </div>
 
+          {/* Alça no vão entre o painel de cima e os de baixo: aumenta ou diminui as duas listas do
+              Adicionar vínculo. Ocupa o mesmo espaço (--gap) que havia ali, então o layout não muda. */}
+          <AlcaAltura alcaProps={listasTopo.alcaProps} style={{ height: 'var(--gap)' }} cor="var(--text-faint)" />
+
           {/* ── Vínculos cadastrados + Resumo lado a lado ─────────────────────── */}
-          <div style={{ display: 'flex', gap: 'var(--gap)', alignItems: 'stretch', flexWrap: 'wrap', marginTop: 'var(--gap)' }}>
+          <div style={{ display: 'flex', gap: 'var(--gap)', alignItems: 'stretch', flexWrap: 'wrap' }}>
           <div style={{ flex: '2 1 480px', minWidth: 0 }}>
           <div className="card">
             <div className="card-header" style={{ overflow: 'visible', height: 88, gap: 12 }}>
