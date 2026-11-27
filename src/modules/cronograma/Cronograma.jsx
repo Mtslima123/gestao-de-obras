@@ -2387,7 +2387,9 @@ async function carregarCronogramaDB(obraId) {
 // da Medição e liga o cache offline): só troca o cabeçalho e a apresentação da Lista; estado, `commit`, undo e
 // gravação são os mesmos. Falso (padrão) = o Cronograma do desktop, sem nenhuma diferença.
 // onAbrirMedicaoMobile(obraId): abre a Medição do modo foco (a aba Medição Mensal da casca mobile).
-const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hideChrome = false, layoutMobileCompleto = false, onAbrirMedicaoMobile }) => {
+// onAbrirDistribuicao({ obraId, etapaId }): leva ao Orçamento × Cronograma com o "Distribuir pesos" do grupo aberto
+// (atalho do menu de contexto da Lista). Sem ela o item não aparece (módulo não liberado, modo foco, casca mobile).
+const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hideChrome = false, layoutMobileCompleto = false, onAbrirMedicaoMobile, onAbrirDistribuicao }) => {
   const D    = AppData;
   const toast = useToast();
 
@@ -3170,6 +3172,20 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
 
   const obraSelRef = React.useRef(obraSel);
   obraSelRef.current = obraSel;
+
+  // Atalho "Distribuir pesos" do menu da Lista. O Orçamento × Cronograma lê o cronograma do banco, então antes de
+  // sair espera a gravação agendada terminar (debounce de 800 ms). Se ela não terminar (sem rede, conflito), a
+  // pessoa fica aqui, em vez de abrir lá uma versão sem a edição que acabou de fazer.
+  const irParaDistribuicao = async (etapaId) => {
+    const obra = obraSel;
+    for (let i = 0; i < 30 && temGravacaoPendente(); i += 1) await new Promise(r => setTimeout(r, 100));
+    if (temGravacaoPendente()) {
+      toast('Há alterações ainda não gravadas nesta obra. Espere a gravação terminar para abrir a distribuição de pesos.', { tone: 'warning', icon: 'alert-triangle', duration: 6000 });
+      return;
+    }
+    if (obraSelRef.current !== obra) return; // trocou de obra durante a espera
+    onAbrirDistribuicao({ obraId: obra, etapaId });
+  };
 
   // Voltar para a tela (outra aba, outra janela, ou o cache da sessão): se o banco mudou e não há
   // nada desta tela por gravar, relê. É o caso de salvar pesos no Orçamento × Cronograma em outra
@@ -4139,6 +4155,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   focusTaskId={histFocus}
                   posicaoRef={posicaoTelaRef}
                   selecaoRef={selecaoListaRef}
+                  onIrParaDistribuicao={onAbrirDistribuicao ? irParaDistribuicao : undefined}
                   realce={realce}
                   onLimparRealce={() => setRealce(null)}
                   vinculos={vinculos}

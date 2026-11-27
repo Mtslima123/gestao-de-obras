@@ -233,6 +233,9 @@ const AppInner = () => {
   const [mobileFullChave] = React.useState(lerChaveMobileFull);
   // Deep links "de uma vez só" para dentro dos módulos — ver handleOpenCronograma/handleOpenObra abaixo.
   const [cronogramaInitialTab, setCronogramaInitialTab] = React.useState(null);
+  // Alvo do atalho "Distribuir pesos" do menu da Lista: { obraId, etapaId }. Vale para uma navegação só: o
+  // Orçamento × Cronograma o consome (abre o modal) ou o App descarta ao sair do Cronograma.
+  const [alvoPesos, setAlvoPesos] = React.useState(null);
   const [selectedObraInitialTab, setSelectedObraInitialTab] = React.useState('cronograma');
   // Visão do card de cronograma dentro da obra (Gantt/Lista). Junto com a aba acima é guardada em
   // sessionStorage, para o "Atualizar" do aviso de versão nova (que recarrega a página) voltar para
@@ -721,6 +724,16 @@ const AppInner = () => {
     try { sessionStorage.setItem('nav_obra_mo', id); } catch { /* ignore */ }
   }, []);
 
+  // Lista (botão direito) > "Distribuir pesos": troca para a aba Orç. × Cronograma já com a obra e a tarefa
+  // escolhidas. A view continua sendo 'cronograma', só a aba muda, então a obra guardada para o F5 não se perde.
+  const handleAbrirDistribuicao = (alvo) => {
+    setAlvoPesos(alvo);
+    setCronogramaTab('orc-x-cron');
+  };
+  // Se a pessoa sair do Cronograma antes de o alvo ser usado (ex.: o chunk ainda carregava), não deixa o pedido
+  // velho abrir um modal numa visita futura.
+  React.useEffect(() => { if (view !== 'cronograma') setAlvoPesos(null); }, [view]);
+
   const handleOpenCronograma = (obraId, tab) => {
     setCronogramaObraId(obraId);
     // "Ir para Cronograma" sempre quer dizer o Gantt/Lista — só o Mobile Gate passa
@@ -1038,8 +1051,8 @@ const AppInner = () => {
           )}
           {view === 'cronograma' && (
             <>
-              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} obras={obrasVisiveis} userProfile={userProfile} initialTab={cronogramaInitialTab} layoutMobileCompleto={modoMobileCompleto} onAbrirMedicaoMobile={(obraId) => abrirFocoNoCelular('medicao', { id: obraId })} />}
-              {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} userProfile={userProfile} layoutMobileCompleto={modoMobileCompleto} />}
+              {cronogramaTab === 'gantt'      && <CronogramaFull initialObraId={cronogramaObraId} obras={obrasVisiveis} userProfile={userProfile} initialTab={cronogramaInitialTab} layoutMobileCompleto={modoMobileCompleto} onAbrirMedicaoMobile={(obraId) => abrirFocoNoCelular('medicao', { id: obraId })} onAbrirDistribuicao={moduloLiberado(userProfile, 'orc-x-cron') ? handleAbrirDistribuicao : undefined} />}
+              {cronogramaTab === 'orc-x-cron' && moduloLiberado(userProfile, 'orc-x-cron') && <OrcamentoCronogramaScreen obras={obrasVisiveis} user={user} userProfile={userProfile} layoutMobileCompleto={modoMobileCompleto} alvoInicial={alvoPesos} onAlvoConsumido={() => setAlvoPesos(null)} />}
             </>
           )}
           {view === 'fisico-financeiro' && (
