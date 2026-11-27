@@ -42,6 +42,7 @@ import { campoDeTextoFocado } from './campoDeTextoPure';
 import { _cronCache, _cronSavedAt, _cronSavedSnap, invalidateOcCache, invalidateObrasComCronCache } from './cronogramaCache';
 import { snapshotEtapas, diffEtapas, patchCompensa, decidirSincronia } from './etapasPatch';
 import { vinculosParaAjustar } from './exclusaoTarefasPure';
+import { vinculosMudaram } from './vinculosPure';
 import { GanttInterativo } from './GanttInterativo';
 import { ListaInterativa } from './ListaInterativa';
 // Casca mobile do Sistema Completo (só entra em ação com layoutMobileCompleto; ver CronogramaFull).
@@ -3215,13 +3216,44 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
       conferindoVersaoRef.current = false;
     }
   };
+  // Os vínculos (e o valor dos itens do orçamento) também mudam fora desta tela: no Orçamento × Cronograma, ou ao
+  // editar o orçamento. Isso não mexe em cronogramas.updated_at, então a conferência de versão acima não os vê, e a
+  // Lista restaurada do cache (ou numa aba que ficou aberta) seguia com o valor vinculado de antes. Relê SÓ os
+  // vínculos e troca na tela apenas se mudaram (vinculosPure), sem recarregar o cronograma nem perder o que está aberto.
+  const revalidarVinculosRef = React.useRef(null);
+  const ultimaLeituraVinculosRef = React.useRef(0);
+  const vinculosAtuaisRef = React.useRef(vinculos);
+  vinculosAtuaisRef.current = vinculos;
+  revalidarVinculosRef.current = async (forcar = false) => {
+    const obra = obraSel;
+    if (!obra || loadedObraId !== obra || cronogramaErro || dadosDoAparelho || cargaRef.current) return;
+    const agora = Date.now();
+    if (!forcar && agora - ultimaLeituraVinculosRef.current < 15000) return; // o foco da janela vai e volta toda hora
+    ultimaLeituraVinculosRef.current = agora;
+    const antes = vinculosAtuaisRef.current;
+    const { data, error } = await vinculoService.listarPorObra(obra);
+    if (error || !data) return; // sem rede: fica como está
+    if (obraSelRef.current !== obra || vinculosAtuaisRef.current !== antes) return; // trocou de obra ou mudou aqui durante a leitura
+    if (!vinculosMudaram(antes, data, itemValor)) return;
+    const m = {};
+    data.forEach(v => { if (v.orcamento_itens) m[v.orcamento_item_id] = itemValor(v.orcamento_itens); });
+    setVinculos(data);
+    setOrcamentoItensMap(m);
+    vinculosOrigemRef.current = { obra, doBanco: true };
+    if (hideChrome) offlineCache.gravar('vinculos', obra, { vinculos: data, orcamentoItensMap: m });
+  };
   React.useEffect(() => {
     if (!loadedObraId || conferirAposCacheRef.current !== loadedObraId) return;
     conferirAposCacheRef.current = null;
     conferirVersaoRef.current?.();
+    revalidarVinculosRef.current?.(true); // restaurou do cache: os vínculos de lá podem estar velhos
   }, [loadedObraId]);
   React.useEffect(() => {
-    const aoVoltar = () => { if (document.visibilityState === 'visible') conferirVersaoRef.current?.(); };
+    const aoVoltar = () => {
+      if (document.visibilityState !== 'visible') return;
+      conferirVersaoRef.current?.();
+      revalidarVinculosRef.current?.();
+    };
     document.addEventListener('visibilitychange', aoVoltar);
     window.addEventListener('focus', aoVoltar);
     return () => {
