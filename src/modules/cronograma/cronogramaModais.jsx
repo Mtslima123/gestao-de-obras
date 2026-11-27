@@ -358,7 +358,9 @@ export const RowHeightModal = ({ value, min, max, onApply, onReset, onClose, cou
 };
 
 // ─── PavimentosModal ─────────────────────────────────────────────────────────
-export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir, isAdmin = false }) => {
+// `onSalvarOrdemPavimentos(nomes)`: grava a ordem dos pavimentos na obra e devolve true quando gravou
+// (avisos de erro e de sucesso ficam com quem chama). Sem ela o botão "Salvar ordem" do Passo 2 não aparece.
+export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommit, onClose, pavimentosSalvos = [], onPavimentosCriados, onPavimentoExcluir, onSalvarOrdemPavimentos, isAdmin = false }) => {
   const toast = useToast();
   const [step,          setStep]          = React.useState(1);
   // Pré-preenche com os pavimentos já cadastrados nesta obra (não precisa redigitar a cada vez).
@@ -371,25 +373,26 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
   const [pavimentosCollapsed, setPavimentosCollapsed] = React.useState(false);
   const floorInputRefs = React.useRef([]);
   const prevFloorsLenRef = React.useRef(floors.length);
-  // Arrastar pra reordenar os chips do Passo 2 — só nesta inserção: reordena o mesmo
-  // `floors` do Passo 1 (que já dita a ordem de criação em handleConfirm), então não
-  // precisa de estado de ordem separado nem persiste em lugar nenhum. Ao reabrir o modal,
-  // `floors` reinicializa a partir de `pavimentosSalvos` (ordem de cadastro) de novo.
+  // Ordem dos chips do Passo 2: um rascunho, separado de `floors` (a lista do Passo 1) de propósito.
+  // Arrastar um chip só mexe aqui, então o Passo 1 só muda quando a pessoa clica em "Salvar ordem"
+  // (que também grava na obra). A criação das subtarefas segue a ordem destes chips (ver handleConfirm).
+  // Nasce no "Próximo", a partir do Passo 1.
+  const [ordemChips, setOrdemChips] = React.useState([]);
+  const [salvandoOrdem, setSalvandoOrdem] = React.useState(false);
+  const salvandoOrdemRef = React.useRef(false);
+  // Arrastar um chip: `dragFloorRef` guarda quem está sendo arrastado (os eventos não podem depender de
+  // state, que só vale no render seguinte); `arrastandoChip` e `alvoChip` são só o visual: o chip pegado
+  // esmaecido e uma linha no lado do alvo em que ele vai cair. Só move ao soltar, para os chips não
+  // pularem debaixo do mouse e dar para ver o destino antes (mesmo padrão do OrdemPavimentosModal).
   const dragFloorRef = React.useRef(null);
-  const [dragOverFloor, setDragOverFloor] = React.useState(null);
-
-  const reorderFloors = (fromNome, toNome) => {
-    if (fromNome === toNome) return;
-    setFloors(fl => {
-      const next = [...fl];
-      const fi = next.indexOf(fromNome);
-      if (fi < 0) return fl;
-      next.splice(fi, 1);
-      const ti = next.indexOf(toNome);
-      if (ti < 0) return fl;
-      next.splice(ti, 0, fromNome);
-      return next;
-    });
+  const [arrastandoChip, setArrastandoChip] = React.useState(null);
+  const [alvoChip, setAlvoChip] = React.useState(null); // { nome, depois }
+  const terminarArrasteChip = () => { dragFloorRef.current = null; setArrastandoChip(null); setAlvoChip(null); };
+  const soltarChipEm = (nomeAlvo, depois) => {
+    const pegado = dragFloorRef.current;
+    terminarArrasteChip();
+    if (pegado == null) return;
+    setOrdemChips(atual => moverSelecionadosPara(atual, new Set([pegado]), nomeAlvo, depois));
   };
 
   const normBusca = (s) => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -407,6 +410,26 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
   }, [floors.length]);
 
   const validFloors = floors.filter(f => f.trim());
+  // A ordem dos chips (Passo 2) difere da lista do Passo 1: há uma ordem nova ainda não salva.
+  const ordemMudou = ordemChips.length === validFloors.length && ordemChips.some((n, i) => n !== validFloors[i]);
+
+  // Grava a ordem dos chips na obra e, só se gravou, leva a mesma ordem ao Passo 1. O que o pai grava é a
+  // lista dos chips mais, no fim, os pavimentos do cadastro que não estão nela: sem isso eles manteriam a
+  // posição antiga e se intercalariam com a ordem nova. A trava (ref + estado) evita o duplo clique e o
+  // arraste fica desligado enquanto grava, para o que foi enviado ser o que vai ao Passo 1.
+  const salvarOrdem = async () => {
+    if (salvandoOrdemRef.current || !ordemMudou || !onSalvarOrdemPavimentos) return;
+    salvandoOrdemRef.current = true;
+    setSalvandoOrdem(true);
+    const enviada = ordemChips;
+    try {
+      const restantes = pavimentosSalvos.filter(n => !enviada.includes(n));
+      if (await onSalvarOrdemPavimentos([...enviada, ...restantes])) setFloors(enviada);
+    } finally {
+      salvandoOrdemRef.current = false;
+      setSalvandoOrdem(false);
+    }
+  };
 
   // Preenche o primeiro campo vazio com o nome (chip de pavimento já usado), ou cria um novo
   // campo já com o nome — mesma lógica de "próximo campo" usada pelo Enter.
@@ -440,11 +463,11 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
         novas.filter(e => e.parentId === taskId && e.pavimento)
              .map(e => e.pavimento.trim().toLowerCase())
       );
-      // Ordem de criação = ordem VISUAL dos chips (validFloors, que reflete o arrastar do
-      // Passo 2), não a ordem em que os checkboxes foram marcados (selectedFloors por si só
-      // só registra isso) — sem isso, reordenar os pavimentos não tinha efeito nenhum na
-      // sequência real das subtarefas criadas.
-      const ordemSelecionada = validFloors.filter(nome => selectedFloors.includes(nome));
+      // Ordem de criação = ordem VISUAL dos chips (ordemChips, que reflete o arrastar do
+      // Passo 2, salvo ou não), não a ordem em que os checkboxes foram marcados (selectedFloors
+      // por si só só registra isso) — sem isso, reordenar os pavimentos não tinha efeito nenhum
+      // na sequência real das subtarefas criadas.
+      const ordemSelecionada = ordemChips.filter(nome => selectedFloors.includes(nome));
       const paraInserir = ordemSelecionada.filter(nome => !existentes.has(nome.trim().toLowerCase()));
       puladas += ordemSelecionada.length - paraInserir.length;
       if (!paraInserir.length) return;
@@ -541,7 +564,7 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
                 title="Sincroniza o cadastro da obra com esta lista (adiciona os novos e exclui os removidos), sem criar subtarefas agora">
                 Salvar pré-cadastro
               </button>
-              <button className="btn btn-primary" disabled={!validFloors.length} onClick={() => { setSelectedFloors(validFloors); setStep(2); }}>
+              <button className="btn btn-primary" disabled={!validFloors.length} onClick={() => { setSelectedFloors(validFloors); setOrdemChips(validFloors); setStep(2); }}>
                 Próximo →
               </button>
             </>
@@ -626,12 +649,26 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
                 ? `${selectedFloors.length} de ${validFloors.length} pavimento${validFloors.length !== 1 ? 's' : ''} selecionado${selectedFloors.length !== 1 ? 's' : ''}`
                 : 'Escolha quais pavimentos serão criados:'}
             </p>
+            {/* Só aparece quando a ordem dos chips mudou ("caso seja necessário"): grava na obra e leva a
+                mesma ordem ao Passo 1. Sem salvar, a ordem vale só para criar os pavimentos agora. */}
+            {onSalvarOrdemPavimentos && ordemMudou && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={salvarOrdem}
+                disabled={salvandoOrdem}
+                title="Grava esta ordem na obra: o Passo 1, a Medição e as Fotos passam a usá-la"
+                style={{ marginLeft: 'auto', height: 26, padding: '0 10px', fontSize: 12, gap: 5, flexShrink: 0 }}
+              >
+                <Icon name="check" size={13} />{salvandoOrdem ? 'Salvando…' : 'Salvar ordem'}
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-ghost"
               onClick={() => setPavimentosCollapsed(v => !v)}
               title={pavimentosCollapsed ? 'Expandir pavimentos' : 'Recolher pavimentos'}
-              style={{ marginLeft: 'auto', width: 24, height: 24, padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ marginLeft: onSalvarOrdemPavimentos && ordemMudou ? 0 : 'auto', width: 24, height: 24, padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <Icon name="chevron-down" size={13} stroke={2.5}
                 style={{ transform: pavimentosCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .12s' }} />
@@ -639,38 +676,62 @@ export const PavimentosModal = ({ etapas, rowNumberMap = {}, customCols, onCommi
           </div>
           {!pavimentosCollapsed && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14, flexShrink: 0 }}>
-              {validFloors.map(nome => {
+              {ordemChips.map(nome => {
                 const marcado = selectedFloors.includes(nome);
+                // Lado do chip em que o pegado vai cair: metade esquerda = antes, direita = depois.
+                const ladoDoMouse = (ev) => {
+                  const r = ev.currentTarget.getBoundingClientRect();
+                  return ev.clientX > r.left + r.width / 2;
+                };
                 return (
                   <label key={nome} className="btn btn-ghost"
                     onDragOver={ev => {
+                      if (dragFloorRef.current == null) return; // arraste de outra coisa (arquivo, texto): não é daqui
                       ev.preventDefault();
                       ev.dataTransfer.dropEffect = 'move';
-                      if (dragOverFloor === nome) return;
-                      setDragOverFloor(nome);
-                      // Reordena já durante o arraste (não só ao soltar): o usuário vê a
-                      // posição se formando em tempo real, em vez de só "saltar" no drop.
-                      const from = dragFloorRef.current;
-                      if (from && from !== nome) reorderFloors(from, nome);
+                      const depois = ladoDoMouse(ev);
+                      // Só mostra a linha onde soltar muda alguma coisa: sobre o próprio chip, ou colado
+                      // nele, a ordem continua a mesma e a linha enganaria.
+                      const muda = moverSelecionadosPara(ordemChips, new Set([dragFloorRef.current]), nome, depois) !== ordemChips;
+                      if (!muda) { if (alvoChip) setAlvoChip(null); return; }
+                      if (alvoChip?.nome !== nome || alvoChip.depois !== depois) setAlvoChip({ nome, depois });
                     }}
-                    onDragLeave={() => setDragOverFloor(cur => cur === nome ? null : cur)}
+                    // Saiu do chip (para o vão ou para fora): some a linha. Passar para um filho do próprio
+                    // chip (alça, caixa, texto) também dispara dragleave, mas aí o relatedTarget está dentro.
+                    onDragLeave={ev => { if (!ev.currentTarget.contains(ev.relatedTarget)) setAlvoChip(cur => cur?.nome === nome ? null : cur); }}
                     onDrop={ev => {
                       ev.preventDefault();
-                      dragFloorRef.current = null;
-                      setDragOverFloor(null);
+                      if (dragFloorRef.current == null) return;
+                      soltarChipEm(nome, ladoDoMouse(ev));
                     }}
-                    style={{ fontSize: 12.5, padding: '4px 10px 4px 4px', height: 28, borderRadius: 14, cursor: 'pointer',
+                    style={{ position: 'relative', fontSize: 12.5, padding: '4px 10px 4px 4px', height: 28, borderRadius: 14, cursor: 'pointer',
                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                             opacity: arrastandoChip === nome ? 0.4 : 1,
                              background: marcado ? 'var(--brand-tint)' : undefined,
                              borderColor: marcado ? 'var(--brand)' : undefined,
-                             color: marcado ? 'var(--brand)' : undefined,
-                             outline: dragOverFloor === nome ? '2px solid var(--brand)' : 'none' }}>
+                             color: marcado ? 'var(--brand)' : undefined }}>
+                    {/* A linha que mostra onde o chip pegado vai ficar: no vão de 6px entre os chips. */}
+                    {alvoChip?.nome === nome && (
+                      <span aria-hidden="true" data-pav-linha={alvoChip.depois ? 'depois' : 'antes'}
+                        style={{ position: 'absolute', top: -3, bottom: -3, [alvoChip.depois ? 'right' : 'left']: -5,
+                                 width: 3, borderRadius: 2, background: 'var(--brand)', pointerEvents: 'none' }} />
+                    )}
                     <span
-                      draggable
-                      onDragStart={ev => { dragFloorRef.current = nome; ev.dataTransfer.effectAllowed = 'move'; }}
-                      onDragEnd={() => { dragFloorRef.current = null; setDragOverFloor(null); }}
+                      draggable={!salvandoOrdem}
+                      onDragStart={ev => {
+                        dragFloorRef.current = nome;
+                        ev.dataTransfer.effectAllowed = 'move';
+                        ev.dataTransfer.setData('text/plain', nome); // o Firefox só começa o arraste com algum dado
+                        // Leva o chip inteiro como imagem do arraste (senão seria só a alça pequena).
+                        const chip = ev.currentTarget.closest('label');
+                        if (chip) ev.dataTransfer.setDragImage?.(chip, 12, 14);
+                        // O esmaecido entra depois do evento: mexer no estilo dentro do dragstart deixa o
+                        // navegador capturar (ou até cancelar) o arraste com o chip já alterado.
+                        setTimeout(() => { if (dragFloorRef.current === nome) setArrastandoChip(nome); }, 0);
+                      }}
+                      onDragEnd={terminarArrasteChip}
                       title="Arrastar para reordenar"
-                      style={{ cursor: 'grab', display: 'flex', opacity: 0.45 }}
+                      style={{ cursor: salvandoOrdem ? 'default' : 'grab', display: 'flex', opacity: 0.45 }}
                     >
                       <Icon name="grip" size={11} />
                     </span>

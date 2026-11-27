@@ -3954,7 +3954,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                           onProjectInfo={() => setShowProjInfo(true)}
                           onDataInicioProjeto={() => setShowDataInicio(true)}
                           obraNome={obra?.nome || 'Projeto'}
-                          pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos} onPavimentoExcluir={excluirPavimentoObra}
+                          pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos} onPavimentoExcluir={excluirPavimentoObra} onSalvarOrdemPavimentos={salvarOrdemPavimentos}
                           showProjSummary={viewCfg.projSummary} showSummaryTasks={viewCfg.summaryTasks}
                           onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
                           onToggleSummaryTasks={() => setViewPref({ summaryTasks: !viewCfg.summaryTasks })}
@@ -4205,7 +4205,7 @@ const CronogramaFull = ({ initialObraId, initialTab, obras = [], userProfile, hi
                   onProjectInfo={() => setShowProjInfo(true)}
                   onDataInicioProjeto={() => setShowDataInicio(true)}
                   obraNome={obra?.nome || 'Projeto'}
-                  pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos} onPavimentoExcluir={excluirPavimentoObra}
+                  pavimentosSalvos={pavimentosObra} onPavimentosCriados={salvarNovosPavimentos} onPavimentoExcluir={excluirPavimentoObra} onSalvarOrdemPavimentos={salvarOrdemPavimentos}
                   showProjSummary={viewCfg.projSummary}
                   showSummaryTasks={viewCfg.summaryTasks}
                   onToggleProjSummary={() => setViewPref({ projSummary: !viewCfg.projSummary })}
