@@ -922,7 +922,12 @@ export function applyFieldToEtapa(e, field, rawValue, etapas, resolveList) {
   if (field === 'fator_peso')  {
     if ((e.avanco ?? 0) >= 100) return e; // tarefa concluída: peso travado, não altera
     if (e.peso_travado) return e;         // cadeado do Distribuir pesos (Orçamento × Cronograma)
-    const v = parseFloat(rawValue); return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) };
+    // Aceita a vírgula decimal brasileira ("28,32", "1.234,5": colar do Excel em português) e o ponto do input
+    // numérico ("28.32"). O ponto só vira milhar quando há vírgula: "1.234" segue sendo 1,234, como o input sempre
+    // gravou. Sem isso "28,32" virava 28 (parseFloat para na vírgula) e o colar do Excel perdia os decimais.
+    const txt = String(rawValue ?? '').trim();
+    const v = parseFloat(txt.includes(',') ? txt.replace(/\./g, '').replace(',', '.') : txt);
+    return { ...e, fator_peso: isNaN(v) ? 1 : Math.max(0, v) };
   }
   if (field.startsWith('cc_')) { return { ...e, customCols: { ...(e.customCols || {}), [field]: rawValue } }; }
   return { ...e, [field]: rawValue };

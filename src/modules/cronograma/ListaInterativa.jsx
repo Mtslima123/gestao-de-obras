@@ -871,6 +871,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
     // Sucessora é derivada (vínculo reverso, gravado no `dep` de OUTRAS tarefas) — colar aqui
     // não usa applyFieldToEtapa como as demais colunas; ver applySuccEdits/applyBlockEdits.
     succ:      { kind: 'text',   get: e => e.isGroup ? '' : formatSucc(e.id),                  field: 'succ' },
+    // Fator peso: em branco onde a tela mostra "—" (tarefa fora de qualquer rateio), para copiar não trazer o 1
+    // padrão escondido. Vírgula decimal e sem arredondar (String, não formatNum), para copiar e colar não mudar o
+    // valor. Quem pode receber é decidido em bloqueiaEdicaoEmMassa (folha, não concluída, dentro de um rateio).
+    fatorPeso: { kind: 'number', get: e => pesoVale(e.id) ? String(e.fator_peso ?? 1).replace('.', ',') : '', field: 'fator_peso' },
   };
   const cellSpec = (colId) => {
     if (colId?.startsWith('cc_')) return { kind: 'text', get: e => (e.customCols || {})[colId] ?? '', field: colId };
@@ -2991,9 +2995,12 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // (rollup automático a partir dos filhos) ou numa tarefa já vinculada a um item de
   // orçamento (o valor vem do vínculo, não é digitável), descasando o Valor Total
   // (computeCustoOrcadoMap soma Vinculado + Real de cada folha).
+  // Fator peso: as mesmas condições da edição de uma célula só (abrirEdicaoCelula): folha, não concluída e dentro de
+  // um rateio (a tela mostra "—" fora dele). O cadeado do Distribuir pesos é barrado em applyFieldToEtapa.
   const bloqueiaEdicaoEmMassa = (field, task) =>
     (GROUP_BLOCKED_FIELDS.has(field) && task.isGroup) ||
-    (field === 'custoRealizado' && !!valorVinculadoMap[task.id]);
+    (field === 'custoRealizado' && !!valorVinculadoMap[task.id]) ||
+    (field === 'fator_peso' && (task.isGroup || !pesoVale(task.id) || effStatus(task) === 'done'));
 
   // RESCHEDULE_FIELDS/applyFieldToEtapa vêm de scheduleEngine.js — compartilhados com o
   // Formulário de Tarefa do Gantt, que precisa da mesma conversão de valor por campo.
