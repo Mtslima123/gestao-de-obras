@@ -1398,10 +1398,16 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   // o navegador limita a rolagem e o desvio não zera: o limite de tentativas encerra.
   const centralizarLinha = (taskId, restam = 5) => {
     scrollRowIntoView(taskId, true);
-    if (restam <= 0) return;
+    // Ao rolar por índice o virtualizador segue "reconciliando" por até 5 s com a fórmula DELE de centro
+    // (que ignora o cabeçalho fixo): se as linhas medidas deslocam o alvo, ele puxa a lista de volta depois
+    // de já estarmos centralizados (medido: ~29px, 1 s depois, com o grupo recém-aberto). Rolar por offset
+    // para a posição atual troca esse alvo e encerra o ajuste interno dele.
+    const assentar = () => { const sc = listaScrollRef.current; if (sc) rowVirt.scrollToOffset(sc.scrollTop); };
+    if (restam <= 0) { assentar(); return; }
     setTimeout(() => {
       const desvio = desvioDoCentro(taskId);
       if (desvio === null || Math.abs(desvio) > 3) centralizarLinha(taskId, restam - 1);
+      else assentar();
     }, 120);
   };
 
@@ -2843,7 +2849,10 @@ export const ListaInterativa = ({ etapas, onCommit, customCols, onCustomColsChan
   const selecionarCelula = (taskId, colId) => {
     const cell = { taskId, colId };
     setSelectedCell(cell); setSelAnchor(cell); setSelectedId(taskId);
-    scrollRowIntoView(taskId);
+    // Centraliza a ocorrência no meio da área útil (como o "Ir para tarefa" da Medição). Só "levar para
+    // dentro da tela" deixava o resultado colado na borda de baixo, meio escondido atrás do Localizar.
+    // centralizarLinha cuida da janela virtual (linha ainda fora do DOM) repetindo até assentar.
+    requestAnimationFrame(() => centralizarLinha(taskId));
     // A linha pode ainda não estar renderizada (janela virtual): a coluna rola dois quadros depois.
     requestAnimationFrame(() => requestAnimationFrame(() => scrollColIntoView(taskId, colId)));
   };
